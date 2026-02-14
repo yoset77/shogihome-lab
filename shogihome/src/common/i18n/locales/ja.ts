@@ -792,4 +792,11 @@ export const ja: Texts = {
   defaultResearchEngine: "既定の検討エンジン", // Added
   changeMultiPVFromPVTab: "読み筋タブからMultiPVを変更",
   multiPVMustBe1To10: "MultiPVは1から10の間で設定してください。",
+  serverKifu: "サーバー棋譜",
+  noKifuFoundCheckKifuDir:
+    "棋譜が見つかりませんでした。KIFU_DIR が設定されているか確認してください。",
+  enterFileName: "ファイル名を入力してください",
+  loadFromServer: "サーバーから開く",
+  saveToServer: "サーバーに保存",
+  search: "検索",
 };

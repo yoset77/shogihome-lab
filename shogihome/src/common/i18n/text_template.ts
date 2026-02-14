@@ -740,4 +740,10 @@ export type Texts = {
   unexpectedRecordFileExtension: (path: string) => string;
   fileNotFound: (path: string) => string;
   directoryNotFound: (path: string) => string;
+  serverKifu: string;
+  noKifuFoundCheckKifuDir: string;
+  enterFileName: string;
+  loadFromServer: string;
+  saveToServer: string;
+  search: string;
 };

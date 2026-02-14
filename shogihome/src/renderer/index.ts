@@ -63,9 +63,12 @@ function updateTitle(path: string | undefined, unsaved: boolean) {
     document.title = `${appName} Version ${appVersion}`;
   }
 }
-watch([() => store.recordFilePath, () => store.isRecordFileUnsaved], ([path, unsaved]) => {
-  updateTitle(path, unsaved);
-});
+watch(
+  [() => store.recordFilePath, () => store.serverKifuPath, () => store.isRecordFileUnsaved],
+  ([path, serverPath, unsaved]) => {
+    updateTitle(path || serverPath, unsaved);
+  },
+);
 
 Promise.allSettled([
   // アプリ設定の読み込み
@@ -128,7 +131,7 @@ Promise.allSettled([
   setLanguage(language);
 
   // タイトルの更新
-  updateTitle(store.recordFilePath, store.isRecordFileUnsaved);
+  updateTitle(store.recordFilePath || store.serverKifuPath, store.isRecordFileUnsaved);
 
   api.log(LogLevel.INFO, "mount app");
   createApp(App).mount("#app");

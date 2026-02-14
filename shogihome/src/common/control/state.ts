@@ -20,6 +20,7 @@ export enum AppState {
   LOAD_REMOTE_FILE_DIALOG = "loadRemoteFileDialog",
   SHARE_DIALOG = "shareDialog",
   ADD_BOOK_MOVES_DIALOG = "addBookMovesDialog",
+  SERVER_KIFU_DIALOG = "serverKifuDialog",
   PUZZLE = "puzzle",
 }
 

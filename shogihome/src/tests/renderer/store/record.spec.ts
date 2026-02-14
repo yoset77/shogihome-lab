@@ -476,4 +476,28 @@ describe("store/record", () => {
       recordManager.importRecord(`手合割：平手`, { type: RecordFormatType.SFEN }),
     ).toBeInstanceOf(Error);
   });
+
+  it("serverSideKifu", () => {
+    const recordManager = new RecordManager();
+    // server:// スキームで読み込み
+    recordManager.importRecord("▲２六歩", { path: "server://folder/棋譜.kif" });
+    expect(recordManager.serverKifuPath).toBe("folder/棋譜.kif");
+    expect(recordManager.recordFilePath).toBeUndefined();
+    expect(recordManager.unsaved).toBeTruthy();
+
+    // 別のローカルファイルを読み込むとクリアされる
+    recordManager.importRecord("▲７六歩", { path: "/local/path/test.kif" });
+    expect(recordManager.serverKifuPath).toBeUndefined();
+    expect(recordManager.recordFilePath).toBe("/local/path/test.kif");
+
+    // 再度 server:// で読み込み
+    recordManager.importRecord("▲２六歩", { path: "server://folder/棋譜.kif", markAsSaved: true });
+    expect(recordManager.serverKifuPath).toBe("folder/棋譜.kif");
+    expect(recordManager.unsaved).toBeFalsy();
+
+    // エクスポート時のパス更新
+    recordManager.exportRecordAsBuffer("server://new/path.jkf", {});
+    expect(recordManager.serverKifuPath).toBe("new/path.jkf");
+    expect(recordManager.recordFilePath).toBeUndefined();
+  });
 });

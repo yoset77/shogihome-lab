@@ -776,4 +776,10 @@ export const zh_tw: Texts = {
   defaultResearchEngine: "默認檢討引擎", // Added
   changeMultiPVFromPVTab: "從讀筋標籤變更候補手數",
   multiPVMustBe1To10: "MultiPV 必須介於 1 到 10 之間。",
+  serverKifu: "伺服器端棋譜",
+  noKifuFoundCheckKifuDir: "未找到棋譜。請檢查 KIFU_DIR 配置是否正確。",
+  enterFileName: "請輸入檔案名稱",
+  loadFromServer: "從伺服器開啟",
+  saveToServer: "儲存至伺服器",
+  search: "搜尋",
 };

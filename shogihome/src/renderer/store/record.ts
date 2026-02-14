@@ -80,6 +80,7 @@ type replaceRecordOption = {
 
 export type ImportRecordOption = {
   type?: RecordFormatType;
+  path?: string;
   markAsSaved?: boolean;
 };
 
@@ -351,6 +352,7 @@ export type BackupHandler = () => BackupOptions | null | void;
 
 export class RecordManager {
   private _recordFilePath?: string;
+  private _serverKifuPath?: string;
   private _unsaved = false;
   private _sourceURL?: string;
   private changePositionHandler: ChangePositionHandler | null = null;
@@ -372,6 +374,10 @@ export class RecordManager {
     return this._recordFilePath;
   }
 
+  get serverKifuPath(): string | undefined {
+    return this._serverKifuPath;
+  }
+
   get unsaved(): boolean {
     return this._unsaved;
   }
@@ -386,9 +392,16 @@ export class RecordManager {
       return;
     }
     this._recordFilePath = recordFilePath;
+    this._serverKifuPath = undefined;
     if (recordFilePath) {
       api.addRecordFileHistory(recordFilePath);
     }
+  }
+
+  private updateServerKifuPath(serverKifuPath: string | undefined): void {
+    this._unsaved = false;
+    this._serverKifuPath = serverKifuPath;
+    this._recordFilePath = undefined;
   }
 
   async saveBackup(): Promise<void> {
@@ -411,6 +424,7 @@ export class RecordManager {
     this._record.clear(position);
     this._unsaved = false;
     this._recordFilePath = undefined;
+    this._serverKifuPath = undefined;
     this._sourceURL = undefined;
     this.onChangePosition();
     this.onUpdateTree();
@@ -420,7 +434,11 @@ export class RecordManager {
     this.saveBackupOnBackground();
     this._record = record;
     this.bindRecordHandlers();
-    this.updateRecordFilePath(option?.path);
+    if (option?.path?.startsWith("server://")) {
+      this.updateServerKifuPath(option.path.substring(9));
+    } else {
+      this.updateRecordFilePath(option?.path);
+    }
     this._unsaved = !option?.markAsSaved;
     this._sourceURL = undefined;
     restoreCustomData(this._record);
@@ -545,7 +563,11 @@ export class RecordManager {
       return new Error(`${t.unknownFileExtension}: ${path}`);
     }
     const result = exportRecordAsBuffer(this._record, format, opt);
-    this.updateRecordFilePath(path);
+    if (path.startsWith("server://")) {
+      this.updateServerKifuPath(path.substring(9));
+    } else {
+      this.updateRecordFilePath(path);
+    }
     return result;
   }
 

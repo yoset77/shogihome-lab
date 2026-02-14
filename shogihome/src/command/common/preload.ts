@@ -388,6 +388,17 @@ const bridge: Bridge = {
   onProgress(): void {
     // Do Nothing
   },
+
+  // Server Kifu (LAN only)
+  async listServerKifu(): Promise<string[]> {
+    throw new Error("This feature is not available on command line tool");
+  },
+  async loadServerKifu(): Promise<string> {
+    throw new Error("This feature is not available on command line tool");
+  },
+  async saveServerKifu(): Promise<void> {
+    throw new Error("This feature is not available on command line tool");
+  },
 };
 
 global.window = {

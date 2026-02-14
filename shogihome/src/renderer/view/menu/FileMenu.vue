@@ -64,10 +64,19 @@
           <Icon :icon="IconType.OPEN" />
           <div class="label">{{ t.open }}</div>
         </button>
-        <button v-if="isNative()" :disabled="!states.save" @click="onSave">
+        <button v-if="!isNative()" :disabled="!states.open" @click="onLoadFromServer">
+          <Icon :icon="IconType.BATCH" />
+          <div class="label">{{ t.loadFromServer }}</div>
+        </button>
+        <button v-if="isNative() || store.serverKifuPath" :disabled="!states.save" @click="onSave">
           <Icon :icon="IconType.SAVE" />
           <div class="label">{{ t.saveOverwrite }}</div>
         </button>
+        <button v-if="!isNative()" :disabled="!states.save" @click="onSaveToServer">
+          <Icon :icon="IconType.SAVE_AS" />
+          <div class="label">{{ t.saveToServer }}</div>
+        </button>
+
         <button v-if="isNative()" :disabled="!states.saveAs" @click="onSaveAs">
           <Icon :icon="IconType.SAVE_AS" />
           <div class="label">{{ t.saveAs }}</div>
@@ -307,8 +316,19 @@ const onOpen = () => {
   store.openRecord();
   emit("close");
 };
+const onLoadFromServer = () => {
+  store.showServerKifuDialog();
+  emit("close");
+};
 const onSave = () => {
   store.saveRecord({ overwrite: true });
+  emit("close");
+};
+const onSaveToServer = () => {
+  const name = window.prompt(t.enterFileName, "record.kif");
+  if (name) {
+    store.saveRecord({ path: "server://" + name });
+  }
   emit("close");
 };
 const onSaveAs = () => {

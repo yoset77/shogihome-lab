@@ -140,6 +140,11 @@ export interface API {
   getVersionStatus(): Promise<VersionStatus>;
   sendTestNotification(): void;
   getPathForFile(file: File): string;
+
+  // Server Kifu (LAN only)
+  listServerKifu(): Promise<string[]>;
+  loadServerKifu(path: string): Promise<string>;
+  saveServerKifu(path: string, data: Uint8Array): Promise<void>;
 }
 
 export const appInfo: AppInfo = {
@@ -285,6 +290,17 @@ const api: API = {
   // MISC
   async getVersionStatus(): Promise<VersionStatus> {
     return JSON.parse(await bridge.getVersionStatus());
+  },
+
+  // Server Kifu (LAN only)
+  async listServerKifu(): Promise<string[]> {
+    return await bridge.listServerKifu();
+  },
+  loadServerKifu(path: string): Promise<string> {
+    return bridge.loadServerKifu(path);
+  },
+  saveServerKifu(path: string, data: Uint8Array): Promise<void> {
+    return bridge.saveServerKifu(path, data);
   },
 };
 

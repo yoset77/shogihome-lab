@@ -493,4 +493,34 @@ export const webAPI: Bridge = {
   onProgress(): void {
     // Do Nothing
   },
+
+  // Server Kifu (LAN only)
+  async listServerKifu(): Promise<string[]> {
+    const response = await fetch("/api/kifu/list");
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  },
+  async loadServerKifu(path: string): Promise<string> {
+    const response = await fetch(`/api/kifu/get?path=${encodeURIComponent(path)}`);
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const data = await response.arrayBuffer();
+    const fileURI = "server://" + path;
+    fileCache.set(fileURI, data);
+    return fileURI;
+  },
+  async saveServerKifu(path: string, data: Uint8Array): Promise<void> {
+    const response = await fetch(`/api/kifu/save?path=${encodeURIComponent(path)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      body: data as any,
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+  },
 };

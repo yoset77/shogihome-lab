@@ -795,4 +795,10 @@ export const en: Texts = {
   defaultResearchEngine: "Default Research Engine", // Added
   changeMultiPVFromPVTab: "Change MultiPV from PV Tab",
   multiPVMustBe1To10: "MultiPV must be between 1 and 10.",
+  serverKifu: "Server Kifu",
+  noKifuFoundCheckKifuDir: "No kifu found. Please check if KIFU_DIR is configured correctly.",
+  enterFileName: "Please enter file name",
+  loadFromServer: "Open from Server",
+  saveToServer: "Save to Server",
+  search: "Search",
 };

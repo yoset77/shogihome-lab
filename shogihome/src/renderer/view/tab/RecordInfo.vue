@@ -12,7 +12,7 @@
           <div class="key">{{ t.file }}</div>
           <div class="value">
             <span v-if="store.isRecordFileUnsaved" class="unsaved-marker">{{ t.unsaved }}</span>
-            {{ store.recordFilePath || t.newRecord }}
+            {{ store.recordFilePath || store.serverKifuPath || t.newRecord }}
           </div>
         </div>
         <div v-if="store.remoteRecordFileURL" class="row element">

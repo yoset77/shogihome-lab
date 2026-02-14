@@ -11,6 +11,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { getLocalIpAddresses } from "./src/background/helpers/ip";
+import { getKifuList, resolveKifuPath } from "./src/background/helpers/kifu";
 
 const getBasePath = () => {
   // SEA (Single Executable Application) environment check
@@ -114,6 +115,11 @@ const updatePuzzlesManifest = () => {
 
 updatePuzzlesManifest();
 
+const KIFU_DIR = process.env.KIFU_DIR ? path.resolve(getBasePath(), process.env.KIFU_DIR) : null;
+if (KIFU_DIR) {
+  console.log(`Server-side kifu directory: ${KIFU_DIR}`);
+}
+
 // Verify Host header to prevent DNS Rebinding attacks
 const isValidHost = (req: http.IncomingMessage) => {
   const host = req.headers.host;
@@ -190,6 +196,58 @@ const limiter = rateLimit({
 });
 
 app.use(limiter);
+
+app.get("/api/kifu/list", async (req, res) => {
+  if (!KIFU_DIR) {
+    res.status(404).send("KIFU_DIR is not configured");
+    return;
+  }
+  try {
+    const list = await getKifuList(KIFU_DIR);
+    res.json(list);
+  } catch (e) {
+    res.status(500).send("failed to get kifu list: " + e);
+  }
+});
+
+app.get("/api/kifu/get", async (req, res) => {
+  if (!KIFU_DIR) {
+    res.status(404).send("KIFU_DIR is not configured");
+    return;
+  }
+  const relPath = req.query.path as string;
+  const fullPath = resolveKifuPath(KIFU_DIR, relPath);
+  if (!fullPath) {
+    res.status(403).send("forbidden");
+    return;
+  }
+  try {
+    const data = await fs.promises.readFile(fullPath);
+    res.send(data);
+  } catch (e) {
+    res.status(500).send("failed to fetch kifu: " + e);
+  }
+});
+
+app.post("/api/kifu/save", express.raw({ limit: "10mb" }), async (req, res) => {
+  if (!KIFU_DIR) {
+    res.status(404).send("KIFU_DIR is not configured");
+    return;
+  }
+  const relPath = req.query.path as string;
+  const fullPath = resolveKifuPath(KIFU_DIR, relPath);
+  if (!fullPath) {
+    res.status(403).send("forbidden");
+    return;
+  }
+  try {
+    await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.promises.writeFile(fullPath, req.body);
+    res.send("ok");
+  } catch (e) {
+    res.status(500).send("failed to save kifu: " + e);
+  }
+});
 
 app.use(express.static(shogiHomePath));
 
