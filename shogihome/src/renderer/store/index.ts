@@ -211,6 +211,7 @@ class Store {
   private _appState = AppState.NORMAL;
   private _customLayout: LayoutProfile | null = null;
   private _isAppSettingsDialogVisible = false;
+  private _isServerSideKifuEnabled = false;
   private _pvPreview?: PVPreview;
   private usiMonitor = new USIMonitor();
   private blackClock = new Clock();
@@ -560,6 +561,14 @@ class Store {
 
   get isAppSettingsDialogVisible(): boolean {
     return this._isAppSettingsDialogVisible;
+  }
+
+  get isServerSideKifuEnabled(): boolean {
+    return this._isServerSideKifuEnabled;
+  }
+
+  updateServerSideKifuEnabled(enabled: boolean): void {
+    this._isServerSideKifuEnabled = enabled;
   }
 
   showAppSettingsDialog(): void {

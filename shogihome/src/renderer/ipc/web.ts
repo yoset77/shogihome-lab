@@ -29,6 +29,24 @@ enum STORAGE_KEY {
 
 const fileCache = new Map<string, ArrayBuffer>();
 
+async function fetchWithTimeout(
+  url: string,
+  init?: RequestInit,
+  timeoutMs = 10000,
+): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 // Web/LAN アプリケーションとして実行した場合に使用します。
 export const webAPI: Bridge = {
   // Core
@@ -495,15 +513,24 @@ export const webAPI: Bridge = {
   },
 
   // Server Kifu (LAN only)
+  async isServerKifuEnabled(): Promise<boolean> {
+    try {
+      const response = await fetchWithTimeout("/api/kifu/enabled");
+      const json = await response.json();
+      return !!json.enabled;
+    } catch (e) {
+      return false;
+    }
+  },
   async listServerKifu(): Promise<string[]> {
-    const response = await fetch("/api/kifu/list");
+    const response = await fetchWithTimeout("/api/kifu/list");
     if (!response.ok) {
       throw new Error(await response.text());
     }
     return await response.json();
   },
   async loadServerKifu(path: string): Promise<string> {
-    const response = await fetch(`/api/kifu/get?path=${encodeURIComponent(path)}`);
+    const response = await fetchWithTimeout(`/api/kifu/get?path=${encodeURIComponent(path)}`);
     if (!response.ok) {
       throw new Error(await response.text());
     }
@@ -513,7 +540,7 @@ export const webAPI: Bridge = {
     return fileURI;
   },
   async saveServerKifu(path: string, data: Uint8Array): Promise<void> {
-    const response = await fetch(`/api/kifu/save?path=${encodeURIComponent(path)}`, {
+    const response = await fetchWithTimeout(`/api/kifu/save?path=${encodeURIComponent(path)}`, {
       method: "POST",
       headers: { "Content-Type": "application/octet-stream" },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

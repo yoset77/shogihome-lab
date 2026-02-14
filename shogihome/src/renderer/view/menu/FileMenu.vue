@@ -64,7 +64,11 @@
           <Icon :icon="IconType.OPEN" />
           <div class="label">{{ t.open }}</div>
         </button>
-        <button v-if="!isNative()" :disabled="!states.open" @click="onLoadFromServer">
+        <button
+          v-if="!isNative() && store.isServerSideKifuEnabled"
+          :disabled="!states.open"
+          @click="onLoadFromServer"
+        >
           <Icon :icon="IconType.BATCH" />
           <div class="label">{{ t.loadFromServer }}</div>
         </button>
@@ -72,7 +76,11 @@
           <Icon :icon="IconType.SAVE" />
           <div class="label">{{ t.saveOverwrite }}</div>
         </button>
-        <button v-if="!isNative()" :disabled="!states.save" @click="onSaveToServer">
+        <button
+          v-if="!isNative() && store.isServerSideKifuEnabled"
+          :disabled="!states.save"
+          @click="onSaveToServer"
+        >
           <Icon :icon="IconType.SAVE_AS" />
           <div class="label">{{ t.saveToServer }}</div>
         </button>

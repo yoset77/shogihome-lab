@@ -142,6 +142,7 @@ export interface API {
   getPathForFile(file: File): string;
 
   // Server Kifu (LAN only)
+  isServerKifuEnabled(): Promise<boolean>;
   listServerKifu(): Promise<string[]>;
   loadServerKifu(path: string): Promise<string>;
   saveServerKifu(path: string, data: Uint8Array): Promise<void>;
@@ -293,6 +294,9 @@ const api: API = {
   },
 
   // Server Kifu (LAN only)
+  async isServerKifuEnabled(): Promise<boolean> {
+    return await bridge.isServerKifuEnabled();
+  },
   async listServerKifu(): Promise<string[]> {
     return await bridge.listServerKifu();
   },

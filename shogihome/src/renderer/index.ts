@@ -5,7 +5,7 @@ import "./css/control.css";
 import "./css/dialog.css";
 import { createApp, watch } from "vue";
 import App from "@/renderer/App.vue";
-import api, { appInfo, isMobileWebApp } from "@/renderer/ipc/api.js";
+import api, { appInfo, isMobileWebApp, isNative } from "@/renderer/ipc/api.js";
 import { setup as setupIPC } from "@/renderer/ipc/setup.js";
 import { useStore } from "@/renderer/store/index.js";
 import {
@@ -43,6 +43,13 @@ Chart.register(ScatterController, LineElement, LinearScale, PointElement, Catego
 setupIPC();
 
 const store = useStore();
+
+// サーバー側の棋譜管理機能が有効かどうかを確認する。
+if (!isNative()) {
+  api.isServerKifuEnabled().then((enabled) => {
+    store.updateServerSideKifuEnabled(enabled);
+  });
+}
 
 // ファイル名の変更を監視してタイトルを更新する。
 function updateTitle(path: string | undefined, unsaved: boolean) {

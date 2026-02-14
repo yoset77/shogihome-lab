@@ -148,6 +148,7 @@ export interface Bridge {
   onProgress(callback: (progress: number) => void): void;
 
   // Server Kifu (LAN only)
+  isServerKifuEnabled(): Promise<boolean>;
   listServerKifu(): Promise<string[]>;
   loadServerKifu(path: string): Promise<string>;
   saveServerKifu(path: string, data: Uint8Array): Promise<void>;

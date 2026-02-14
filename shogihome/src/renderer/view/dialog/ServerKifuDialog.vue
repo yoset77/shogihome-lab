@@ -11,15 +11,11 @@
       <button class="reload" @click="updateList()">{{ t.reload }}</button>
     </div>
     <div class="form-group kifu-list">
-      <div v-for="(file, index) in filteredList" :key="file">
-        <hr v-if="index !== 0" />
+      <div v-for="file in filteredList" :key="file">
         <div class="kifu-list-entry row align-center">
-          <div class="kifu-label column space-evenly">
-            <div class="kifu-header">{{ displayPath(file) }}</div>
-          </div>
-          <div class="column space-evenly">
-            <button @click="open(file)">{{ t.open }}</button>
-          </div>
+          <div class="kifu-header">{{ displayPath(file) }}</div>
+          <div class="connector"></div>
+          <button @click="open(file)">{{ t.open }}</button>
         </div>
       </div>
       <div v-if="list.length === 0" class="note">
@@ -123,20 +119,17 @@ button.reload {
 .kifu-list-entry {
   padding: 8px 10px;
 }
-hr {
-  margin: 0;
-  border: 0;
-  border-top: 1px solid var(--border-color);
-}
-.kifu-label {
-  width: calc(100% - 80px);
-  text-align: left;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
 .kifu-header {
   font-size: 0.9em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 450px;
+}
+.connector {
+  flex: 1;
+  border-bottom: 1px dashed var(--text-dashed-separator-color);
+  margin: 0 10px;
 }
 .note {
   margin-top: 20px;

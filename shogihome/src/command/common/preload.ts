@@ -390,6 +390,9 @@ const bridge: Bridge = {
   },
 
   // Server Kifu (LAN only)
+  async isServerKifuEnabled(): Promise<boolean> {
+    return false;
+  },
   async listServerKifu(): Promise<string[]> {
     throw new Error("This feature is not available on command line tool");
   },

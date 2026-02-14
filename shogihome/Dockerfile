@@ -50,6 +50,7 @@ RUN npm ci --omit=dev && \
 # - ビルド済みのフロントエンド資産 (docs/webapp)
 COPY --from=builder --chown=node:node /app/docs/webapp ./docs/webapp
 COPY --from=builder --chown=node:node /app/src/background/helpers/ip.ts ./src/background/helpers/ip.ts
+COPY --from=builder --chown=node:node /app/src/background/helpers/kifu.ts ./src/background/helpers/kifu.ts
 COPY --from=builder --chown=node:node /app/server.ts ./
 
 # ポート8140を公開

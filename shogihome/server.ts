@@ -25,6 +25,7 @@ const getBasePath = () => {
 dotenv.config({ path: path.join(getBasePath(), ".env") });
 
 const app = express();
+app.set("trust proxy", 1);
 const server = http.createServer(app);
 
 const PORT = parseInt(process.env.PORT || "8140", 10);
@@ -208,6 +209,10 @@ app.get("/api/kifu/list", async (req, res) => {
   } catch (e) {
     res.status(500).send("failed to get kifu list: " + e);
   }
+});
+
+app.get("/api/kifu/enabled", (req, res) => {
+  res.json({ enabled: !!KIFU_DIR });
 });
 
 app.get("/api/kifu/get", async (req, res) => {
