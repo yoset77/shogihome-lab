@@ -11,7 +11,13 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { getLocalIpAddresses } from "./src/background/helpers/ip";
-import { getKifuList, resolveKifuPath } from "./src/background/helpers/kifu";
+import {
+  getKifuList,
+  resolveKifuPath,
+  clearKifuListCache,
+  setupKifuWatcher,
+} from "./src/background/helpers/kifu";
+import { writeFileAtomic, writeFileAtomicSync } from "./src/background/file/atomic";
 
 const getBasePath = () => {
   // SEA (Single Executable Application) environment check
@@ -107,7 +113,7 @@ const updatePuzzlesManifest = () => {
       }
     });
 
-    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+    writeFileAtomicSync(manifestPath, JSON.stringify(manifest, null, 2));
     console.log(`Updated puzzle manifest at ${manifestPath}`);
   } catch (error) {
     console.error("Failed to update puzzle manifest:", error);
@@ -119,6 +125,7 @@ updatePuzzlesManifest();
 const KIFU_DIR = process.env.KIFU_DIR ? path.resolve(getBasePath(), process.env.KIFU_DIR) : null;
 if (KIFU_DIR) {
   console.log(`Server-side kifu directory: ${KIFU_DIR}`);
+  setupKifuWatcher(KIFU_DIR);
 }
 
 // Verify Host header to prevent DNS Rebinding attacks
@@ -256,8 +263,8 @@ app.post("/api/kifu/save", express.raw({ limit: "10mb" }), async (req, res) => {
     return;
   }
   try {
-    await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.promises.writeFile(fullPath, req.body);
+    await writeFileAtomic(fullPath, req.body);
+    clearKifuListCache();
     res.send("ok");
   } catch (e) {
     console.error("failed to save kifu:", e);

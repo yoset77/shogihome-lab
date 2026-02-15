@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { getKifuList, resolveKifuPath } from "@/background/helpers/kifu";
+import { getKifuList, resolveKifuPath, clearKifuListCache } from "@/background/helpers/kifu";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -9,6 +9,7 @@ describe("background/helpers/kifu", () => {
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "shogihome-test-"));
+    clearKifuListCache();
   });
 
   afterEach(() => {
@@ -101,5 +102,35 @@ describe("background/helpers/kifu", () => {
     // typeof チェックの検証
     // @ts-expect-error: intentionally passing non-string
     expect(resolveKifuPath(tempDir, ["a", "b"])).toBeNull();
+  });
+
+  it("resolveKifuPath respects depth limit", () => {
+    // 11 levels deep (10 levels of directories + 1 file) is allowed
+    const validParts = Array.from({ length: 10 }, (_, i) => `${i}`);
+    const validPath = path.join(...validParts, "file.kifu");
+    expect(resolveKifuPath(tempDir, validPath)).not.toBeNull();
+
+    // 12 levels deep is denied
+    const invalidParts = Array.from({ length: 11 }, (_, i) => `${i}`);
+    const invalidPath = path.join(...invalidParts, "file.kifu");
+    expect(resolveKifuPath(tempDir, invalidPath)).toBeNull();
+  });
+
+  it("caching logic", async () => {
+    fs.writeFileSync(path.join(tempDir, "test1.kif"), "test");
+    const list1 = await getKifuList(tempDir);
+    expect(list1).toHaveLength(1);
+
+    // Add another file without clearing cache
+    fs.writeFileSync(path.join(tempDir, "test2.kif"), "test");
+    const list2 = await getKifuList(tempDir);
+    expect(list2).toHaveLength(1); // Should still be 1 due to cache
+    expect(list2).toBe(list1); // Should be the exact same array instance
+
+    // Clear cache
+    clearKifuListCache();
+    const list3 = await getKifuList(tempDir);
+    expect(list3).toHaveLength(2); // Now it should find both
+    expect(list3).not.toBe(list1);
   });
 });

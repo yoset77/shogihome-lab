@@ -35,7 +35,7 @@ const retryOptions: OperationOptions = {
  */
 export async function writeFileAtomic(
   filePath: string,
-  data: string,
+  data: string | Uint8Array,
   encoding?: BufferEncoding,
 ): Promise<void> {
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
@@ -58,7 +58,11 @@ export async function writeFileAtomic(
 /**
  * Synchronous version of writeFileAtomic.
  */
-export function writeFileAtomicSync(filePath: string, data: string, encoding?: BufferEncoding) {
+export function writeFileAtomicSync(
+  filePath: string,
+  data: string | Uint8Array,
+  encoding?: BufferEncoding,
+) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const tempFilePath = getTempFilePath(filePath);
   const unlock = lockfile.lockSync(filePath, lockOptions);

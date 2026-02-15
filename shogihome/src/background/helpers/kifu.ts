@@ -1,9 +1,19 @@
 import fs from "fs";
 import path from "path";
+import { watch, FSWatcher } from "chokidar";
 
 const SUPPORTED_EXTENSIONS = [".kif", ".kifu", ".ki2", ".ki2u", ".csa", ".jkf"];
 const MAX_DEPTH = 10;
 const MAX_FILES = 10000;
+
+let cachedKifuList: string[] | null = null;
+
+/**
+ * Clears the in-memory kifu list cache.
+ */
+export const clearKifuListCache = (): void => {
+  cachedKifuList = null;
+};
 
 /**
  * Recursively lists kifu files under the base directory.
@@ -11,6 +21,10 @@ const MAX_FILES = 10000;
  * @returns Relative paths of kifu files.
  */
 export const getKifuList = async (baseDir: string): Promise<string[]> => {
+  if (cachedKifuList !== null) {
+    return cachedKifuList;
+  }
+
   const result: string[] = [];
 
   const walk = async (dir: string, depth: number) => {
@@ -52,7 +66,39 @@ export const getKifuList = async (baseDir: string): Promise<string[]> => {
   }
 
   await walk(baseDir, 0);
+  cachedKifuList = result;
   return result;
+};
+
+/**
+ * Sets up a file system watcher to invalidate the cache when files change.
+ * @param baseDir Absolute path to the base directory.
+ * @returns The watcher instance or null if failed to start.
+ */
+export const setupKifuWatcher = (baseDir: string): FSWatcher | null => {
+  if (!fs.existsSync(baseDir)) {
+    return null;
+  }
+  try {
+    const watcher = watch(baseDir, {
+      ignored: /(^|[/\\])\../, // ignore dotfiles
+      persistent: true,
+      ignoreInitial: true,
+    });
+
+    watcher.on("all", (event, filePath) => {
+      const ext = path.extname(filePath).toLowerCase();
+      if (SUPPORTED_EXTENSIONS.includes(ext) || event === "addDir" || event === "unlinkDir") {
+        clearKifuListCache();
+      }
+    });
+
+    console.log(`Started watching kifu directory with chokidar: ${baseDir}`);
+    return watcher;
+  } catch (e) {
+    console.warn("Failed to start kifu directory watcher:", e);
+    return null;
+  }
 };
 
 /**
