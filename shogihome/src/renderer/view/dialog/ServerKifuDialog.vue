@@ -57,9 +57,13 @@ async function updateList() {
 }
 
 const filteredList = computed(() => {
-  const word = searchWord.value.toLowerCase();
+  const words = searchWord.value
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => !!w);
   return list.value.filter((file) => {
-    return !word || file.toLowerCase().includes(word);
+    const fileLower = file.toLowerCase();
+    return words.every((word) => fileLower.includes(word));
   });
 });
 
