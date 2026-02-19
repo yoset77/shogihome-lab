@@ -46,6 +46,9 @@
     "server:build": "webpack --config-name server",
     "server:exe": "npm run server:build && node scripts/build-sea.mjs"
   },
+  "overrides": {
+    "minimatch": "^10.2.1"
+  },
   "dependencies": {
     "@github/hotkey": "^3.1.0",
     "async-lock": "^1.4.0",
