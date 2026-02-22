@@ -94,8 +94,11 @@ graph LR
     - **静的解析**: `uv run ruff check .`
     - **フォーマット**: `uv run ruff format .`
     - **ライセンス生成**: `npm run py:license` (または `uv run python scripts/generate_licenses.py`)
-    - **配布用ビルド (Windows)**: `uv run nuitka --standalone --onefile --windows-console-mode=disable --msvc=14.3 engine_wrapper.py`
-
+    - **配布用ビルド (Windows)**:
+        - **Engine Wrapper**: `uv run nuitka --standalone --onefile --windows-console-mode=disable --msvc=14.3 engine_wrapper.py`
+        - **Config Editor**: `uv run nuitka --standalone --onefile --windows-console-mode=disable --enable-plugin=tk-inter --msvc=14.3 config_editor.py`
+        - **Launcher**: `uv run nuitka --standalone --onefile --windows-console-mode=disable --enable-plugin=tk-inter --msvc=14.3 launcher.py`
+        
 ### CI/CD (GitHub Actions)
 - **自動リリース**: `v*` タグをプッシュすると `.github/workflows/release.yml` が起動し、ビルド済みのZIPパッケージがドラフトとして作成されます。
 

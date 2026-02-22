@@ -56,7 +56,6 @@ class LauncherApp(ctk.CTk):
         self.server_process = None
         self.wrapper_process = None
         self.config_editor_process = None
-        self.config_editor_url = None
         self.is_running = False
         self.tray_icon = None
 
@@ -513,23 +512,9 @@ class LauncherApp(ctk.CTk):
 
     def open_settings(self):
         if self.config_editor_process and self.config_editor_process.poll() is None:
-            if self.config_editor_url:
-                import webbrowser
-
-                webbrowser.open(self.config_editor_url)
+            # The config editor is a GUI window, so we don't need to open a browser.
+            # Just bring it to front (if possible) or do nothing as it's already running.
             return
-
-        # Find an available port for config editor
-        import socket
-
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("127.0.0.1", 0))
-                port = s.getsockname()[1]
-        except Exception:
-            port = 5500  # Fallback
-
-        self.config_editor_url = f"http://127.0.0.1:{port}"
 
         startup_info = None
         if os.name == "nt":
@@ -537,11 +522,11 @@ class LauncherApp(ctk.CTk):
             startup_info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
         if IS_FROZEN:
-            cmd = [str(CONFIG_EXE), "--port", str(port)]
+            cmd = [str(CONFIG_EXE)]
             cwd = CONFIG_EXE.parent
         else:
             cwd = WRAPPER_DIR
-            cmd = ["uv", "run", "config_editor.py", "--port", str(port)]
+            cmd = ["uv", "run", "config_editor.py"]
 
         try:
             self.config_editor_process = subprocess.Popen(
@@ -550,9 +535,8 @@ class LauncherApp(ctk.CTk):
                 startupinfo=startup_info,
             )
             # Update button text to indicate it's already running
-            self.btn_settings.configure(text="Open Settings")
+            self.btn_settings.configure(text="Settings Running")
         except Exception as e:
-            # Fallback to simple alert or log if subprocess fails
             print(f"Failed to start config editor: {e}")
 
     def quit_app(self):

@@ -16,6 +16,7 @@
             --info: #0dcaf0;
             --warning: #ffc107;
             --border: #dee2e6;
+            --muted: #6c757d;
         }
         @media (prefers-color-scheme: dark) {
             :root {
@@ -66,7 +67,9 @@
         .btn-danger { background-color: var(--danger); color: white; }
         .btn-success { background-color: var(--success); color: white; }
         .btn-info { background-color: var(--info); color: #000; }
+        .btn-warning { background-color: var(--warning); color: #000; }
         .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
+        .btn:disabled { opacity: 0.65; cursor: not-allowed; }
         
         .form-group { margin-bottom: 1rem; }
         label { display: block; margin-bottom: 0.5rem; font-weight: bold; }
@@ -122,14 +125,14 @@
             margin-bottom: 10px;
             align-items: center;
             background: rgba(0,0,0,0.03);
-            padding: 5px;
+            padding: 8px;
             border-radius: 4px;
         }
         .option-row input.opt-key { flex: 0 0 200px; }
         .option-row .opt-val-container { flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; }
         .option-row input.opt-val, .option-row select.opt-val { width: 100%; }
         
-        .hint { font-size: 0.875rem; color: #6c757d; margin-top: 0.25rem; }
+        .hint { font-size: 0.875rem; color: var(--muted); margin-top: 0.25rem; }
         .bool-label { margin-left: 5px; font-weight: bold; }
         
         .loading-overlay {
@@ -140,6 +143,42 @@
         @media (prefers-color-scheme: dark) {
             .loading-overlay { background: rgba(0,0,0,0.7); }
         }
+
+        /* Toast Notification */
+        .toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 2000;
+        }
+        .toast {
+            min-width: 250px;
+            padding: 15px 20px;
+            margin-top: 10px;
+            border-radius: 4px;
+            color: white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s ease;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .toast-info { background-color: var(--primary); }
+        .toast-success { background-color: var(--success); }
+        .toast-error { background-color: var(--danger); }
+        .toast-close {
+            margin-left: 15px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1.2rem;
+            line-height: 1;
+        }
     </style>
 </head>
 <body>
@@ -147,7 +186,7 @@
 <div class="container">
     <h1>ShogiHome LAN 設定エディタ</h1>
     
-    <!-- File Load Section (Visible only in File Mode) -->
+    <!-- File Load Section -->
     <div class="card" id="fileLoadSection">
         <h2>1. 読み込み</h2>
         <p>既存の <code>engines.json</code> を選択するか、新規作成してください。</p>
@@ -180,7 +219,6 @@
             <p id="saveDesc">編集が終わったらファイルをダウンロードし、元の <code>engines.json</code> に上書きしてください。</p>
             <div style="display: flex; gap: 10px; align-items: center;">
                 <button id="saveBtn" class="btn btn-success" onclick="downloadConfig()">engines.json をダウンロード</button>
-                <span id="saveStatus" style="margin-left: 10px; font-weight: bold; display: none;"></span>
             </div>
         </div>
     </div>
@@ -215,7 +253,7 @@
             <div style="display:flex; gap:5px;">
                 <input type="text" id="editPath" placeholder="例: C:\Engines\yaneuraou.exe" oninput="cleanPath(this)">
                 <button id="browseBtn" class="btn" onclick="browseFile()" style="display:none; white-space:nowrap;">参照...</button>
-                <button id="analyzeBtn" class="btn btn-info" onclick="analyzeEngine()" style="display:none; white-space:nowrap;">オプション取得</button>
+                <button id="analyzeBtn" class="btn btn-info" onclick="analyzeEngine(true)" style="display:none; white-space:nowrap;">オプション取得</button>
             </div>
             <div class="hint">
                 絶対パス、または engine-wrapper からの相対パス。
@@ -225,14 +263,15 @@
         </div>
 
         <div class="form-group">
-            <label>オプション (Options)</label>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+                <label style="margin-bottom:0;">オプション (Options)</label>
+                <button id="resetAllBtn" class="btn btn-sm btn-warning" onclick="resetAllToDefault()" style="display:none;">すべて既定値に戻す</button>
+            </div>
             <div id="optionsList"></div>
             <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
                 <button class="btn btn-sm" onclick="addOptionRow('', '', 'string')">+ 文字列</button>
-                <button class="btn btn-sm" onclick="addOptionRow('', 0, 'number')">+ 数値</button>
+                <button class="btn btn-sm" onclick="addOptionRow('', 0, 'spin')">+ 数値</button>
                 <button class="btn btn-sm" onclick="addOptionRow('', true, 'boolean')">+ 真偽値</button>
-                <button class="btn btn-sm" onclick="addOptionRow('', 0, 'spin')">+ Spin (数値範囲)</button>
-                <button class="btn btn-sm" onclick="addOptionRow('', '', 'combo', [])">+ Combo (選択)</button>
             </div>
         </div>
 
@@ -244,107 +283,96 @@
         <div id="modalLoading" class="loading-overlay" style="display:none;">
             <div style="text-align:center;">
                 <div style="font-size: 2rem;">⏳</div>
-                <div>エンジン解析中...</div>
+                <div id="loadingText">エンジン解析中...</div>
             </div>
         </div>
     </div>
 </div>
+
+<!-- Toast Container -->
+<div id="toastContainer" class="toast-container"></div>
 
 <script>
     let engines = [];
     let editingIndex = -1;
     let isAppMode = false;
 
-    // --- Initialization ---
-    window.addEventListener('DOMContentLoaded', async () => {
-        // Try to connect to Python backend
-        try {
-            const res = await fetch('/api/load');
-            if (res.ok) {
-                const data = await res.json();
-                isAppMode = true;
-
-                // Handle new response format {engines: [], os: 'nt'} or old format []
-                if (data && typeof data === 'object' && !Array.isArray(data)) {
-                    engines = data.engines || [];
-                    const os = data.os;
-
-                    // On non-Windows platforms, remove the Browse button and Windows-specific hints
-                    if (os && os !== 'nt') {
-                        const browseBtn = document.getElementById('browseBtn');
-                        if (browseBtn) browseBtn.remove();
-                        const winHint = document.getElementById('winHint');
-                        if (winHint) winHint.remove();
-                    }
-                } else {
-                    engines = data;
+    // --- Toast Notification ---
+    function showMessage(text, type = 'info', duration = 3000) {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        const textSpan = document.createElement('span');
+        textSpan.textContent = text;
+        toast.appendChild(textSpan);
+        const closeBtn = document.createElement('span');
+        closeBtn.className = 'toast-close';
+        closeBtn.innerHTML = '&times;';
+        closeBtn.onclick = () => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        };
+        toast.appendChild(closeBtn);
+        container.appendChild(toast);
+        setTimeout(() => toast.classList.add('show'), 10);
+        if (duration > 0) {
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.classList.remove('show');
+                    setTimeout(() => toast.remove(), 300);
                 }
-
-                enableAppMode();
-                renderTable();
-                document.getElementById('editorSection').style.display = 'block';
-            }
-        } catch (e) {
-            console.error('Failed to initialize app mode:', e);
-            console.log('Running in standalone file mode');
+            }, duration);
         }
+    }
+
+    // --- Initialization ---
+    window.addEventListener('pywebviewready', () => { initAppMode(); });
+    window.addEventListener('DOMContentLoaded', async () => {
+        setTimeout(() => { if (!window.pywebview) console.log('Running in standalone file mode'); }, 500);
     });
 
-    function enableAppMode() {
+    async function initAppMode() {
+        if (!window.pywebview || !window.pywebview.api) return;
+        try {
+            const data = await window.pywebview.api.load();
+            if (data.error) throw new Error(data.error);
+            isAppMode = true;
+            engines = data.engines || [];
+            const os = data.os;
+            if (os && os !== 'nt') {
+                const browseBtn = document.getElementById('browseBtn');
+                if (browseBtn) browseBtn.remove();
+                const winHint = document.getElementById('winHint');
+                if (winHint) winHint.remove();
+            }
+            enableAppModeUI();
+            renderTable();
+            document.getElementById('editorSection').style.display = 'block';
+        } catch (e) { showMessage('初期化失敗: ' + e.message, 'error'); }
+    }
+
+    function enableAppModeUI() {
         document.getElementById('fileLoadSection').style.display = 'none';
-        
-        // Update Save section
         document.getElementById('saveHeader').innerText = '保存';
         document.getElementById('saveDesc').innerText = 'ボタンを押すと engines.json に直接保存されます。';
         const saveBtn = document.getElementById('saveBtn');
         saveBtn.innerText = '設定を保存';
         saveBtn.onclick = saveConfigToServer;
-        
-        // Enable Analyze and Browse buttons
         document.getElementById('analyzeBtn').style.display = 'block';
         const browseBtn = document.getElementById('browseBtn');
         if (browseBtn) browseBtn.style.display = 'block';
-
-        // Add Shutdown button to header area
-        const container = document.querySelector('.container');
-        const header = container.querySelector('h1');
-        
-        const shutdownBtn = document.createElement('button');
-        shutdownBtn.innerText = '終了';
-        shutdownBtn.className = 'btn btn-danger btn-sm';
-        shutdownBtn.style.float = 'right';
-        shutdownBtn.onclick = terminateServer;
-        
-        header.insertBefore(shutdownBtn, header.firstChild);
     }
 
     async function browseFile() {
+        if (!isAppMode) return;
         try {
-            const res = await fetch('/api/browse', {method: 'POST'});
-            const data = await res.json();
+            const data = await window.pywebview.api.browse();
+            if (data.error) throw new Error(data.error);
             if (data.status === 'ok' && data.path) {
-                document.getElementById('editPath').value = data.path;
+                const pathInput = document.getElementById('editPath');
+                pathInput.value = data.path;
             }
-        } catch (e) {
-            alert('ファイル選択エラー: ' + e.message);
-        }
-    }
-
-    async function terminateServer() {
-        if (!confirm('設定ツールを終了しますか？\n(保存していない変更は破棄されます)')) return;
-        
-        try {
-            await fetch('/api/shutdown', {method: 'POST'});
-        } catch(e) {
-            // Ignore network error as server dies
-        }
-        
-        document.body.innerHTML = `
-            <div style="display:flex; justify-content:center; align-items:center; height:100vh; flex-direction:column; text-align:center;">
-                <h2 style="color:var(--success)">終了しました</h2>
-                <p>この画面を閉じてください。</p>
-            </div>
-        `;
+        } catch (e) { showMessage('ファイル選択エラー: ' + e.message, 'error'); }
     }
 
     // --- File Mode Handlers ---
@@ -352,7 +380,6 @@
     fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        
         const reader = new FileReader();
         reader.onload = (e) => {
             try {
@@ -360,9 +387,8 @@
                 if (!Array.isArray(engines)) throw new Error('Root must be an array');
                 renderTable();
                 document.getElementById('editorSection').style.display = 'block';
-            } catch (err) {
-                alert('JSONの読み込みに失敗しました: ' + err.message);
-            }
+                showMessage('JSONを読み込みました', 'success');
+            } catch (err) { showMessage('JSONの読み込みに失敗しました: ' + err.message, 'error'); }
         };
         reader.readAsText(file);
     });
@@ -373,41 +399,29 @@
             renderTable();
             document.getElementById('editorSection').style.display = 'block';
             fileInput.value = '';
+            showMessage('新規作成を開始しました');
         }
     }
 
     // --- Main Logic ---
-
     function generateUlid() {
         const ENCODING = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
         const TIME_LEN = 10;
         const RANDOM_LEN = 16;
-        
         let time = Date.now();
         let s = "";
-        
-        // Timestamp (48-bit)
         for (let i = TIME_LEN; i > 0; i--) {
             const mod = time % 32;
             s = ENCODING.charAt(mod) + s;
             time = (time - mod) / 32;
         }
-        
-        // Randomness (80-bit)
         const randomValues = new Uint8Array(RANDOM_LEN);
         crypto.getRandomValues(randomValues);
-        
-        for (let i = 0; i < RANDOM_LEN; i++) {
-            // Simple mapping to base32 char
-            s += ENCODING.charAt(randomValues[i] % 32);
-        }
-        
+        for (let i = 0; i < RANDOM_LEN; i++) { s += ENCODING.charAt(randomValues[i] % 32); }
         return s;
     }
 
-    function generateId() {
-        return generateUlid();
-    }
+    function generateId() { return generateUlid(); }
 
     function regenerateId() {
         if (confirm('IDを再生成しますか？\n（通常は変更する必要はありません）')) {
@@ -420,13 +434,10 @@
         tbody.innerHTML = '';
         engines.forEach((eng, idx) => {
             const tr = document.createElement('tr');
-            
-            // Move buttons logic
             const isFirst = idx === 0;
             const isLast = idx === engines.length - 1;
             const upBtn = `<button class="btn btn-sm" onclick="moveEngine(${idx}, -1)" ${isFirst?'disabled':''} style="padding:2px 6px;">↑</button>`;
             const downBtn = `<button class="btn btn-sm" onclick="moveEngine(${idx}, 1)" ${isLast?'disabled':''} style="padding:2px 6px;">↓</button>`;
-
             tr.innerHTML = `
                 <td>${escapeHtml(eng.name)}</td>
                 <td>${escapeHtml(eng.type)}</td>
@@ -442,13 +453,8 @@
     }
 
     function moveEngine(index, direction) {
-        if (direction === -1 && index > 0) {
-            // Swap with previous
-            [engines[index], engines[index-1]] = [engines[index-1], engines[index]];
-        } else if (direction === 1 && index < engines.length - 1) {
-            // Swap with next
-            [engines[index], engines[index+1]] = [engines[index+1], engines[index]];
-        }
+        if (direction === -1 && index > 0) { [engines[index], engines[index-1]] = [engines[index-1], engines[index]]; }
+        else if (direction === 1 && index < engines.length - 1) { [engines[index], engines[index+1]] = [engines[index+1], engines[index]]; }
         renderTable();
     }
 
@@ -456,122 +462,94 @@
         editingIndex = index;
         const modal = document.getElementById('engineModal');
         const list = document.getElementById('optionsList');
+        document.getElementById('resetAllBtn').style.display = 'none';
         list.innerHTML = '';
-
         if (index >= 0) {
-            // Edit existing
             document.getElementById('modalTitle').innerText = 'エンジン編集';
             const eng = engines[index];
             document.getElementById('editName').value = eng.name || '';
-            document.getElementById('editId').value = eng.id || generateId(); // Fallback if missing
+            document.getElementById('editId').value = eng.id || generateId();
             document.getElementById('editType').value = eng.type || 'game';
             document.getElementById('editPath').value = eng.path || '';
-            
-            // Options
             if (eng.options) {
                 Object.entries(eng.options).forEach(([k, v]) => {
-                    // Infer type or use stored metadata if we had it (we don't store types in JSON usually, just values)
-                    // We try to guess better.
                     let type = 'string';
-                    let extra = null;
-
                     if (typeof v === 'boolean') type = 'boolean';
-                    else if (typeof v === 'number') type = 'number';
-                    else if (typeof v === 'object' && v !== null && v.value !== undefined) {
-                        // We'll treat them as simple types.
-                    }
-                    
+                    else if (typeof v === 'number') type = 'spin';
                     addOptionRow(k, v, type);
                 });
             }
+            if (isAppMode && eng.path) { analyzeEngine(false); }
         } else {
-            // New
             document.getElementById('modalTitle').innerText = 'エンジン追加';
             document.getElementById('editName').value = '';
             document.getElementById('editId').value = generateId();
             document.getElementById('editType').value = 'game';
             document.getElementById('editPath').value = '';
         }
-
         modal.style.display = 'block';
     }
 
-    function closeModal() {
-        document.getElementById('engineModal').style.display = 'none';
-    }
+    function closeModal() { document.getElementById('engineModal').style.display = 'none'; }
 
-    async function analyzeEngine() {
+    async function analyzeEngine(showAlert = true) {
+        if (!isAppMode) return;
         const path = document.getElementById('editPath').value;
-        if (!path) {
-            alert('パスを入力してください。');
-            return;
-        }
+        if (!path) { if(showAlert) showMessage('パスを入力してください。', 'error'); return; }
         
+        document.getElementById('loadingText').innerText = 'エンジン解析中...';
         document.getElementById('modalLoading').style.display = 'flex';
         
         try {
-            const res = await fetch('/api/analyze', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({path})
-            });
-            const data = await res.json();
+            const data = await window.pywebview.api.analyze(path);
+            if (data.error) throw new Error(data.error);
             
-            if (!res.ok) throw new Error(data.error || 'Unknown error');
-            
-            // Success, populate options
-            const options = data.options || {};
-            
-            // Backup current values from DOM to preserve user edits
+            const usiOptions = data.options || {};
             const currentValues = {};
             document.querySelectorAll('#optionsList .option-row').forEach(row => {
                 const key = row.querySelector('.opt-key').value.trim();
                 const input = row.querySelector('.opt-val');
                 if (key) {
                     if (row.dataset.type === 'boolean') currentValues[key] = input.checked;
-                    else if (row.dataset.type === 'number' || row.dataset.type === 'spin') currentValues[key] = Number(input.value);
+                    else if (row.dataset.type === 'spin') currentValues[key] = Number(input.value);
                     else currentValues[key] = input.value;
                 }
             });
 
             const list = document.getElementById('optionsList');
-            list.innerHTML = ''; // Clear existing
+            list.innerHTML = '';
             
-            Object.keys(options).forEach(name => {
-                const opt = options[name];
+            Object.keys(usiOptions).forEach(name => {
+                const opt = usiOptions[name];
                 let val = opt.default;
                 
-                // Use existing value if available (Priority: Current Input > Saved JSON > Default)
-                if (currentValues.hasOwnProperty(name)) {
-                    val = currentValues[name];
-                } else if (editingIndex >= 0 && engines[editingIndex].options && engines[editingIndex].options[name] !== undefined) {
+                if (currentValues.hasOwnProperty(name)) { val = currentValues[name]; }
+                else if (editingIndex >= 0 && engines[editingIndex].options && engines[editingIndex].options[name] !== undefined) {
                     val = engines[editingIndex].options[name];
                 }
                 
                 let type = 'string';
-                let extra = {};
-                
+                let extra = { default: opt.default };
                 if (opt.type === 'check') type = 'boolean';
-                else if (opt.type === 'spin') {
-                    type = 'spin';
-                    extra = {min: opt.min, max: opt.max};
+                else if (opt.type === 'spin') { 
+                    type = 'spin'; Object.assign(extra, {min: opt.min, max: opt.max});
+                    if (typeof val === 'number') {
+                        if (val < opt.min || val > opt.max) { val = opt.default; }
+                    } else { val = opt.default; }
                 }
-                else if (opt.type === 'combo') {
-                    type = 'combo';
-                    extra = {vars: opt.vars || []};
+                else if (opt.type === 'combo') { 
+                    type = 'combo'; Object.assign(extra, {vars: opt.vars || []}); 
+                    if (!extra.vars.includes(val)) { val = opt.default; }
                 }
-                else if (opt.type === 'button') return; // Skip buttons
+                else if (opt.type === 'button') return;
                 
-                // If it's a new engine, use default. 
-                // If we are editing and re-analyzing, maybe preserve current values?
-                // For now, overwrite with defaults from engine is safer to ensure valid set.
                 addOptionRow(name, val, type, extra);
             });
-            
-            alert(`取得成功: ${Object.keys(options).length} 個のオプションが見つかりました。`);
-            
+
+            document.getElementById('resetAllBtn').style.display = 'block';
+            if(showAlert) showMessage(`取得成功: ${Object.keys(usiOptions).length} 個のオプションが見つかりました。`, 'success');
         } catch (e) {
-            alert('解析失敗: ' + e.message);
+            if(showAlert) showMessage('解析失敗: ' + e.message, 'error');
         } finally {
             document.getElementById('modalLoading').style.display = 'none';
         }
@@ -582,111 +560,73 @@
         const div = document.createElement('div');
         div.className = 'option-row';
         div.dataset.type = type;
-        // Store extra data for spin/combo
         if (extra) div.dataset.extra = JSON.stringify(extra);
-
-        let typeLabelText = {string: '文字', number: '数値', boolean: '真偽', spin: '数値(範囲)', combo: '選択'}[type] || type;
-
-        // Create Name input
+        let typeLabelText = {string: '文字', boolean: '真偽', spin: '数値', combo: '選択'}[type] || type;
         const keyInput = document.createElement('input');
-        keyInput.type = 'text';
-        keyInput.placeholder = '名前';
-        keyInput.value = key;
-        keyInput.className = 'opt-key';
+        keyInput.type = 'text'; keyInput.placeholder = '名前'; keyInput.value = key; keyInput.className = 'opt-key';
         div.appendChild(keyInput);
-
-        // Container for Value input
         const valContainer = document.createElement('div');
         valContainer.className = 'opt-val-container';
-
         if (type === 'boolean') {
             const isChecked = val === true || String(val) === 'true';
-            valContainer.style.background = '#fff';
-            valContainer.style.border = '1px solid var(--border)';
-            valContainer.style.padding = '5px';
-
+            valContainer.style.background = '#fff'; valContainer.style.border = '1px solid var(--border)'; valContainer.style.padding = '5px';
             const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.className = 'opt-val';
-            checkbox.checked = isChecked;
-            checkbox.style.width = 'auto';
-
+            checkbox.type = 'checkbox'; checkbox.className = 'opt-val'; checkbox.checked = isChecked; checkbox.style.width = 'auto';
             const label = document.createElement('span');
-            label.className = 'bool-label';
-            label.textContent = isChecked ? 'true' : 'false';
-
-            checkbox.addEventListener('change', (e) => {
-                label.textContent = e.target.checked ? 'true' : 'false';
-            });
-
-            valContainer.appendChild(checkbox);
-            valContainer.appendChild(label);
+            label.className = 'bool-label'; label.textContent = isChecked ? 'true' : 'false';
+            checkbox.addEventListener('change', (e) => { label.textContent = e.target.checked ? 'true' : 'false'; });
+            valContainer.appendChild(checkbox); valContainer.appendChild(label);
         } else if (type === 'spin') {
             const min = extra.min !== undefined ? extra.min : 0;
-            const max = extra.max !== undefined ? extra.max : 999999;
-
+            const max = extra.max !== undefined ? extra.max : 999999999;
             const spinInput = document.createElement('input');
-            spinInput.type = 'number';
-            spinInput.className = 'opt-val';
-            spinInput.value = val;
-            spinInput.min = min;
-            spinInput.max = max;
-
-            const rangeLabel = document.createElement('span');
-            rangeLabel.style.fontSize = '0.8rem';
-            rangeLabel.style.color = '#666';
-            rangeLabel.textContent = `(${min}~${max})`;
-
+            spinInput.type = 'number'; spinInput.className = 'opt-val'; spinInput.value = val; spinInput.min = min; spinInput.max = max;
             valContainer.appendChild(spinInput);
-            valContainer.appendChild(rangeLabel);
         } else if (type === 'combo') {
             const select = document.createElement('select');
             select.className = 'opt-val';
             const vars = extra.vars || [];
             vars.forEach(v => {
                 const opt = document.createElement('option');
-                opt.value = v;
-                opt.textContent = v;
+                opt.value = v; opt.textContent = v;
                 if (v == val) opt.selected = true;
                 select.appendChild(opt);
             });
             valContainer.appendChild(select);
-        } else if (type === 'number') {
-            const numInput = document.createElement('input');
-            numInput.type = 'number';
-            numInput.className = 'opt-val';
-            numInput.value = val;
-            valContainer.appendChild(numInput);
         } else {
             const textInput = document.createElement('input');
-            textInput.type = 'text';
-            textInput.className = 'opt-val';
-            textInput.value = val;
+            textInput.type = 'text'; textInput.className = 'opt-val'; textInput.value = val;
             valContainer.appendChild(textInput);
         }
         div.appendChild(valContainer);
-
-        // Type Label
         const typeLabel = document.createElement('span');
-        typeLabel.style.fontSize = '0.8rem';
-        typeLabel.style.background = '#eee';
-        typeLabel.style.padding = '2px 6px';
-        typeLabel.style.borderRadius = '4px';
-        typeLabel.style.whiteSpace = 'nowrap';
-        typeLabel.style.flexShrink = '0';
-        typeLabel.style.minWidth = '60px';
-        typeLabel.style.textAlign = 'center';
+        typeLabel.style.fontSize = '0.8rem'; typeLabel.style.background = '#eee'; typeLabel.style.padding = '2px 6px';
+        typeLabel.style.borderRadius = '4px'; typeLabel.style.whiteSpace = 'nowrap'; typeLabel.style.flexShrink = '0';
+        typeLabel.style.minWidth = '60px'; typeLabel.style.textAlign = 'center';
         typeLabel.textContent = typeLabelText;
         div.appendChild(typeLabel);
-
-        // Delete button
         const delBtn = document.createElement('button');
-        delBtn.className = 'btn btn-sm btn-danger';
-        delBtn.textContent = '×';
+        delBtn.className = 'btn btn-sm btn-danger'; delBtn.textContent = '×';
         delBtn.onclick = () => div.remove();
         div.appendChild(delBtn);
-
         list.appendChild(div);
+    }
+
+    function resetAllToDefault() {
+        if (!confirm('すべてのオプションを既定値に戻しますか？')) return;
+        document.querySelectorAll('#optionsList .option-row').forEach(row => {
+            if (!row.dataset.extra) return;
+            const extra = JSON.parse(row.dataset.extra);
+            if (extra.default === undefined) return;
+            const input = row.querySelector('.opt-val');
+            const type = row.dataset.type;
+            if (type === 'boolean') {
+                input.checked = (String(extra.default).toLowerCase() === 'true');
+                const label = row.querySelector('.bool-label');
+                if (label) label.textContent = input.checked ? 'true' : 'false';
+            } else { input.value = extra.default; }
+        });
+        showMessage('すべてのオプションを既定値に戻しました');
     }
 
     function saveEngineFromModal() {
@@ -694,147 +634,96 @@
         const id = document.getElementById('editId').value.trim();
         const path = document.getElementById('editPath').value.trim();
         const type = document.getElementById('editType').value;
-
-        if (!name || !id || !path) {
-            alert('名前、ID、パスは必須です。');
-            return;
-        }
-
+        if (!name || !id || !path) { showMessage('名前、ID、パスは必須です。', 'error'); return; }
         const options = {};
+        const errors = [];
         document.querySelectorAll('#optionsList .option-row').forEach(row => {
             const key = row.querySelector('.opt-key').value.trim();
             if (!key) return; 
-
             const type = row.dataset.type;
             const input = row.querySelector('.opt-val');
             let val;
-
-            if (type === 'boolean') {
-                val = input.checked;
-            } else if (type === 'number' || type === 'spin') {
+            if (type === 'boolean') { val = input.checked; }
+            else if (type === 'spin') {
                 val = Number(input.value);
-            } else {
-                val = input.value;
-            }
+                if (row.dataset.extra) {
+                    const extra = JSON.parse(row.dataset.extra);
+                    if (val < extra.min || val > extra.max) {
+                        errors.push(`${key}: ${extra.min} から ${extra.max} の範囲で入力してください。`);
+                    }
+                }
+            } else { val = input.value; }
             options[key] = val;
         });
-
+        if (errors.length > 0) { showMessage('入力エラー:\n' + errors.join('\n'), 'error', 5000); return; }
         const newEngine = { id, name, type, path, options };
-
-        if (editingIndex >= 0) {
-            engines[editingIndex] = newEngine;
-        } else {
-            if (engines.some(e => e.id === id)) {
-                alert('このIDは既に使用されています: ' + id);
-                return;
-            }
+        if (editingIndex >= 0) { engines[editingIndex] = newEngine; }
+        else {
+            if (engines.some(e => e.id === id)) { showMessage('このIDは既に使用されています: ' + id, 'error'); return; }
             engines.push(newEngine);
         }
-
-        renderTable();
-        closeModal();
+        renderTable(); closeModal(); showMessage('一覧に反映しました');
     }
 
     // --- Saving ---
-
     function downloadConfig() {
-        if (engines.length === 0) {
-            alert('エンジンが1つも登録されていません。');
-            return;
-        }
+        if (engines.length === 0) { showMessage('エンジンが1つも登録されていません。', 'error'); return; }
         const jsonStr = JSON.stringify(engines, null, 2);
         const blob = new Blob([jsonStr], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = 'engines.json';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        a.href = url; a.download = 'engines.json';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        showMessage('ダウンロードを開始しました');
     }
 
     async function saveConfigToServer() {
+        if (!isAppMode) return;
         const btn = document.getElementById('saveBtn');
-        const status = document.getElementById('saveStatus');
-        
         btn.disabled = true;
-        status.innerText = '保存中...';
-        status.style.display = 'inline';
-        status.style.color = '#666';
-
         try {
-            const res = await fetch('/api/save', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(engines)
-            });
-            if (!res.ok) throw new Error('Server returned error');
-            
-            status.innerText = '保存完了！';
-            status.style.color = 'var(--success)';
-            setTimeout(() => { status.style.display = 'none'; }, 2000);
-            
-        } catch (e) {
-            alert('保存に失敗しました: ' + e.message);
-            status.innerText = '保存失敗';
-            status.style.color = 'var(--danger)';
-        } finally {
-            btn.disabled = false;
-        }
+            const data = await window.pywebview.api.save(engines);
+            if (data.error) throw new Error(data.error);
+            showMessage('engines.json に保存しました', 'success');
+        } catch (e) { showMessage('保存に失敗しました: ' + e.message, 'error'); }
+        finally { btn.disabled = false; }
     }
 
     // --- Helpers ---
-
     function duplicateEngine(index) {
         if (index < 0 || index >= engines.length) return;
-        
-        // Deep copy
         const source = engines[index];
         const newEngine = JSON.parse(JSON.stringify(source));
-        
-        // Modify name and ID to avoid conflicts
         newEngine.name = newEngine.name + ' (Copy)';
         newEngine.id = generateId();
-        
-        // Insert after the original
         engines.splice(index + 1, 0, newEngine);
         renderTable();
+        showMessage('エンジンを複製しました');
     }
 
     function deleteEngine(index) {
         if (confirm('本当に削除しますか？')) {
             engines.splice(index, 1);
             renderTable();
+            showMessage('エンジンを削除しました');
         }
     }
     
-    function editEngine(index) {
-        openEngineModal(index);
-    }
+    function editEngine(index) { openEngineModal(index); }
 
     function cleanPath(input) {
         const cleaned = input.value.replace(/"/g, '');
-        if (cleaned !== input.value) {
-            input.value = cleaned;
-        }
+        if (cleaned !== input.value) { input.value = cleaned; }
     }
 
     function escapeHtml(unsafe) {
         if (unsafe === null || unsafe === undefined) return '';
-        return String(unsafe)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
+        return String(unsafe).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
     }
 
     window.onclick = function(event) {
         const modal = document.getElementById('engineModal');
-        if (event.target == modal) {
-            closeModal();
-        }
+        if (event.target == modal) { closeModal(); }
     }
 </script>
 
