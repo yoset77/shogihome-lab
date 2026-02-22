@@ -12,15 +12,33 @@ def is_frozen():
     return getattr(sys, "frozen", False) or "__compiled__" in globals()
 
 
-def get_base_dir():
-    """実行ファイルまたはスクリプトが存在するディレクトリを返す"""
+def get_resource_dir():
+    """設定ファイルやリソースが存在するディレクトリを返す"""
+    # 優先順位 1: カレントディレクトリに engines.json または .env があればそこを採用 (開発時/Launcher経由)
+    cwd = Path.cwd()
+    if (cwd / "engines.json").exists() or (cwd / ".env").exists():
+        return cwd
+
+    # 実行ファイルの場所 (OneFileの場合やスクリプト実行時)
     if is_frozen():
-        return Path(sys.argv[0]).resolve().parent
-    return Path(__file__).resolve().parent
+        exe_dir = Path(sys.argv[0]).resolve().parent
+    else:
+        exe_dir = Path(__file__).resolve().parent
+
+    # 優先順位 2: 実行ファイルの場所に engines.json がある場合
+    if (exe_dir / "engines.json").exists():
+        return exe_dir
+
+    # 優先順位 3: 実行ファイルの親ディレクトリ (Standaloneの場合、1階層下にあるため)
+    if (exe_dir.parent / "engines.json").exists():
+        return exe_dir.parent
+
+    # デフォルト: 実行ファイルの場所
+    return exe_dir
 
 
 # 各スクリプトからの相対パスの起点となるディレクトリ
-BASE_DIR = get_base_dir()
+BASE_DIR = get_resource_dir()
 
 
 def load_env_value(env_path, key, default):

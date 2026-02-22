@@ -37,8 +37,9 @@ else:
 # Paths to executables/scripts
 if IS_FROZEN:
     SERVER_EXE = BASE_DIR / "shogihome" / "shogihome-server.exe"
-    WRAPPER_EXE = BASE_DIR / "engine-wrapper" / "engine_wrapper.exe"
-    CONFIG_EXE = BASE_DIR / "engine-wrapper" / "config_editor.exe"
+    # Standalone mode: EXEs are inside their own directories
+    WRAPPER_EXE = BASE_DIR / "engine-wrapper" / "engine_wrapper" / "engine_wrapper.exe"
+    CONFIG_EXE = BASE_DIR / "engine-wrapper" / "config_editor" / "config_editor.exe"
 else:
     # Development paths (using npm/python commands)
     SERVER_DIR = BASE_DIR.parent / "shogihome"
@@ -340,7 +341,8 @@ class LauncherApp(ctk.CTk):
         try:
             if IS_FROZEN:
                 wrapper_cmd = [str(WRAPPER_EXE)]
-                cwd = WRAPPER_EXE.parent
+                # Ensure CWD is where engines.json/.env reside (engine-wrapper root)
+                cwd = BASE_DIR / "engine-wrapper"
             else:
                 wrapper_cmd = ["uv", "run", "engine_wrapper.py"]
                 cwd = WRAPPER_DIR
@@ -523,7 +525,8 @@ class LauncherApp(ctk.CTk):
 
         if IS_FROZEN:
             cmd = [str(CONFIG_EXE)]
-            cwd = CONFIG_EXE.parent
+            # Ensure CWD is where engines.json/.env reside
+            cwd = BASE_DIR / "engine-wrapper"
         else:
             cwd = WRAPPER_DIR
             cmd = ["uv", "run", "config_editor.py"]

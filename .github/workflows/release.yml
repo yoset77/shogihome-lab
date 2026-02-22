@@ -56,12 +56,12 @@ jobs:
 
       - name: Build Python Wrapper (Nuitka)
         working-directory: engine-wrapper
-        # Build standalone executable in current directory
-        run: uv run nuitka --standalone --onefile --windows-console-mode=disable --msvc=14.3 --assume-yes-for-downloads engine_wrapper.py
+        # Build standalone executable (directory based)
+        run: uv run nuitka --standalone --windows-console-mode=disable --msvc=14.3 --assume-yes-for-downloads engine_wrapper.py
 
       - name: Build Config Editor (Nuitka)
         working-directory: engine-wrapper
-        run: uv run nuitka --standalone --onefile --windows-console-mode=disable --enable-plugin=tk-inter --msvc=14.3 --assume-yes-for-downloads config_editor.py
+        run: uv run nuitka --standalone --windows-console-mode=disable --enable-plugin=tk-inter --msvc=14.3 --assume-yes-for-downloads config_editor.py
 
       - name: Build Launcher (Nuitka)
         working-directory: engine-wrapper
@@ -93,11 +93,12 @@ jobs:
 
           # 2. Engine Wrapper
           New-Item -ItemType Directory -Path "$pkgName/engine-wrapper" -Force
-          Copy-Item "engine-wrapper/engine_wrapper.exe" -Destination "$pkgName/engine-wrapper/"
+          Copy-Item -Path "engine-wrapper/engine_wrapper.dist" -Destination "$pkgName/engine-wrapper/engine_wrapper" -Recurse
+          Copy-Item -Path "engine-wrapper/config_editor.dist" -Destination "$pkgName/engine-wrapper/config_editor" -Recurse
+          
           Copy-Item "engine-wrapper/engines.json.default" -Destination "$pkgName/engine-wrapper/engines.json"
           Copy-Item "engine-wrapper/.env.example" -Destination "$pkgName/engine-wrapper/.env"
           Copy-Item "engine-wrapper/config_editor.html" -Destination "$pkgName/engine-wrapper/"
-          Copy-Item "engine-wrapper/config_editor.exe" -Destination "$pkgName/engine-wrapper/"
           
           # Wrapper Licenses
           New-Item -ItemType Directory -Path "$pkgName/engine-wrapper/licenses" -Force

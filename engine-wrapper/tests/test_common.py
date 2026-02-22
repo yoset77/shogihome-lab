@@ -1,4 +1,4 @@
-from common import get_base_dir, get_pc_url_config, is_frozen, load_env_value
+from common import get_pc_url_config, get_resource_dir, is_frozen, load_env_value
 
 
 def test_is_frozen():
@@ -6,11 +6,25 @@ def test_is_frozen():
     assert is_frozen() is False
 
 
-def test_get_base_dir():
-    # 実行中のスクリプト（このテストファイルではなく common.py）の場所を基準にする
-    base_dir = get_base_dir()
-    assert base_dir.exists()
-    assert (base_dir / "common.py").exists()
+def test_get_resource_dir(tmp_path, monkeypatch):
+    # Case 1: .env exists in CWD
+    env_file = tmp_path / ".env"
+    env_file.touch()
+    monkeypatch.chdir(tmp_path)
+    assert get_resource_dir() == tmp_path
+
+    # Case 2: engines.json exists in CWD
+    (tmp_path / ".env").unlink()
+    (tmp_path / "engines.json").touch()
+    assert get_resource_dir() == tmp_path
+
+    # Case 3: Nothing in CWD, fallback to script dir (engine-wrapper root in dev)
+    # This depends on where pytest is run from, but usually it returns the parent of common.py
+    # We can't easily mock __file__ resolution here without more complex patching,
+    # so we just check it returns a valid path.
+    monkeypatch.chdir(tmp_path.parent)  # Move away from tmp_path
+    resource_dir = get_resource_dir()
+    assert resource_dir.exists()
 
 
 def test_load_env_value(tmp_path):

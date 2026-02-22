@@ -12,7 +12,6 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "pywebview>=6.1",
     "qrcode>=8.2",
-    "zstandard>=0.25.0",
 ]
 
 [dependency-groups]
