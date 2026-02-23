@@ -20,30 +20,26 @@ APP_NAME = "ShogiHome LAN"
 # Determine execution mode (Source or Frozen/Compiled)
 IS_FROZEN = is_frozen()
 
+# Paths to directories
+DIST_ROOT = BASE_DIR.parent
+SHOGIHOME_DIR = DIST_ROOT / "shogihome"
+WRAPPER_DIR = BASE_DIR
+
 if IS_FROZEN:
-    # Exe location (Distribution root)
-    ICON_PATH = BASE_DIR / "icon.png"  # Assuming icon is copied next to exe
+    ICON_PATH = DIST_ROOT / "icon.png"
+    SERVER_ENV_PATH = SHOGIHOME_DIR / ".env"
+    WRAPPER_ENV_PATH = WRAPPER_DIR / ".env"
 
-    SERVER_ENV_PATH = BASE_DIR / "shogihome" / ".env"
-    WRAPPER_ENV_PATH = BASE_DIR / "engine-wrapper" / ".env"
+    SERVER_EXE = SHOGIHOME_DIR / "shogihome-server.exe"
+    # Files are placed directly in engine-wrapper/ in the flattened distribution
+    WRAPPER_EXE = WRAPPER_DIR / "engine_wrapper.exe"
+    CONFIG_EXE = WRAPPER_DIR / "config_editor.exe"
 else:
-    # Script location (engine-wrapper/)
-    # Fallback to dev icon path
-    ICON_PATH = BASE_DIR.parent / "shogihome" / "public" / "favicon.png"
+    ICON_PATH = SHOGIHOME_DIR / "public" / "favicon.png"
+    SERVER_ENV_PATH = SHOGIHOME_DIR / ".env"
+    WRAPPER_ENV_PATH = WRAPPER_DIR / ".env"
 
-    SERVER_ENV_PATH = BASE_DIR.parent / "shogihome" / ".env"
-    WRAPPER_ENV_PATH = BASE_DIR / ".env"
-
-# Paths to executables/scripts
-if IS_FROZEN:
-    SERVER_EXE = BASE_DIR / "shogihome" / "shogihome-server.exe"
-    # Standalone mode: EXEs are inside their own directories
-    WRAPPER_EXE = BASE_DIR / "engine-wrapper" / "engine_wrapper" / "engine_wrapper.exe"
-    CONFIG_EXE = BASE_DIR / "engine-wrapper" / "config_editor" / "config_editor.exe"
-else:
-    # Development paths (using npm/python commands)
-    SERVER_DIR = BASE_DIR.parent / "shogihome"
-    WRAPPER_DIR = BASE_DIR
+    SERVER_DIR = SHOGIHOME_DIR
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -342,7 +338,7 @@ class LauncherApp(ctk.CTk):
             if IS_FROZEN:
                 wrapper_cmd = [str(WRAPPER_EXE)]
                 # Ensure CWD is where engines.json/.env reside (engine-wrapper root)
-                cwd = BASE_DIR / "engine-wrapper"
+                cwd = WRAPPER_DIR
             else:
                 wrapper_cmd = ["uv", "run", "engine_wrapper.py"]
                 cwd = WRAPPER_DIR
@@ -526,7 +522,7 @@ class LauncherApp(ctk.CTk):
         if IS_FROZEN:
             cmd = [str(CONFIG_EXE)]
             # Ensure CWD is where engines.json/.env reside
-            cwd = BASE_DIR / "engine-wrapper"
+            cwd = WRAPPER_DIR
         else:
             cwd = WRAPPER_DIR
             cmd = ["uv", "run", "config_editor.py"]
@@ -535,7 +531,7 @@ class LauncherApp(ctk.CTk):
             self.config_editor_process = subprocess.Popen(
                 cmd,
                 cwd=str(cwd),
-                startupinfo=startup_info,
+                # config_editor is a GUI app, so we don't need startupinfo to hide console
             )
             # Update button text to indicate it's already running
             self.btn_settings.configure(text="Settings Running")

@@ -65,7 +65,11 @@ jobs:
 
       - name: Build Launcher (Nuitka)
         working-directory: engine-wrapper
-        run: uv run nuitka --standalone --onefile --windows-console-mode=disable --enable-plugin=tk-inter --msvc=14.3 --assume-yes-for-downloads launcher.py
+        run: uv run nuitka --standalone --windows-console-mode=disable --enable-plugin=tk-inter --msvc=14.3 --assume-yes-for-downloads launcher.py
+
+      - name: Build Shim (C#)
+        run: |
+          & "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /target:winexe /out:ShogiHomeLAN.exe /r:System.Windows.Forms.dll "assets\release\shim.cs"
 
       - name: Debug List Files
         run: |
@@ -80,8 +84,8 @@ jobs:
           $pkgName = "shogihome-lan-$tagName"
           New-Item -ItemType Directory -Path $pkgName -Force
 
-          # 0. Launcher & Root
-          Copy-Item "engine-wrapper/launcher.exe" -Destination "$pkgName/ShogiHomeLAN.exe"
+          # 0. Shim & Root
+          Copy-Item "ShogiHomeLAN.exe" -Destination "$pkgName/"
           Copy-Item "shogihome/build/icon.png" -Destination "$pkgName/icon.png"
           Copy-Item "assets/release/README.txt" -Destination "$pkgName/"
 
@@ -91,11 +95,16 @@ jobs:
           Copy-Item -Path "shogihome/docs/webapp" -Destination "$pkgName/shogihome/docs/webapp" -Recurse
           Copy-Item "shogihome/.env.example" -Destination "$pkgName/shogihome/.env"
 
-          # 2. Engine Wrapper
+          # 2. Engine Wrapper (Flattened)
           New-Item -ItemType Directory -Path "$pkgName/engine-wrapper" -Force
-          Copy-Item -Path "engine-wrapper/engine_wrapper.dist" -Destination "$pkgName/engine-wrapper/engine_wrapper" -Recurse
-          Copy-Item -Path "engine-wrapper/config_editor.dist" -Destination "$pkgName/engine-wrapper/config_editor" -Recurse
           
+          # Copy and merge all standalone contents into the engine-wrapper/ directory
+          # This allows sharing of common DLLs (Python runtime, etc.)
+          Copy-Item -Path "engine-wrapper/launcher.dist/*" -Destination "$pkgName/engine-wrapper/" -Recurse -Force
+          Copy-Item -Path "engine-wrapper/engine_wrapper.dist/*" -Destination "$pkgName/engine-wrapper/" -Recurse -Force
+          Copy-Item -Path "engine-wrapper/config_editor.dist/*" -Destination "$pkgName/engine-wrapper/" -Recurse -Force
+          
+          # Configuration and Resources
           Copy-Item "engine-wrapper/engines.json.default" -Destination "$pkgName/engine-wrapper/engines.json"
           Copy-Item "engine-wrapper/.env.example" -Destination "$pkgName/engine-wrapper/.env"
           Copy-Item "engine-wrapper/config_editor.html" -Destination "$pkgName/engine-wrapper/"

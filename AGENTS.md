@@ -95,9 +95,9 @@ graph LR
     - **フォーマット**: `uv run ruff format .`
     - **ライセンス生成**: `npm run py:license` (または `uv run python scripts/generate_licenses.py`)
     - **配布用ビルド (Windows)**:
-        - **Engine Wrapper**: `uv run nuitka --standalone --onefile --windows-console-mode=disable --msvc=14.3 engine_wrapper.py`
-        - **Config Editor**: `uv run nuitka --standalone --onefile --windows-console-mode=disable --enable-plugin=tk-inter --msvc=14.3 config_editor.py`
-        - **Launcher**: `uv run nuitka --standalone --onefile --windows-console-mode=disable --enable-plugin=tk-inter --msvc=14.3 launcher.py`
+        - **Engine Wrapper**: `uv run nuitka --standalone --windows-console-mode=disable --msvc=14.3 engine_wrapper.py` (出力: `engine_wrapper.dist/`)
+        - **Config Editor**: `uv run nuitka --standalone --windows-console-mode=disable --enable-plugin=tk-inter --msvc=14.3 config_editor.py` (出力: `config_editor.dist/`)
+        - **Launcher**: `uv run nuitka --standalone --windows-console-mode=disable --enable-plugin=tk-inter --msvc=14.3 launcher.py` (出力: `launcher.dist/`)
         
 ### CI/CD (GitHub Actions)
 - **自動リリース**: `v*` タグをプッシュすると `.github/workflows/release.yml` が起動し、ビルド済みのZIPパッケージがドラフトとして作成されます。
@@ -135,11 +135,12 @@ graph LR
 | `engines.json.example` | 開発者向け設定例。 |
 | `.env` | 環境設定 (Git管理対象外)。ポート番号等を設定。原本として `.env.example` を参照。 |
 
-### C. Release Assets
+### C. Release Assets (`assets/release/`)
 
 | パス | 説明 |
 | :--- | :--- |
-| `assets/release/` | 配布用パッケージに同梱される `README.txt` の原本。 |
+| `README.txt` | 配布用パッケージに同梱される `README.txt` の原本。 |
+| `shim.cs` | 配布用パッケージのルートに配置する軽量ランチャー。 |
 
 ## 8. 機能実装の詳細仕様
 
