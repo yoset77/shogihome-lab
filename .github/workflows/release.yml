@@ -32,6 +32,8 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
 
       # --- Frontend & Server Build ---
       - name: Install Node dependencies
@@ -98,11 +100,13 @@ jobs:
           # 2. Engine Wrapper (Flattened)
           New-Item -ItemType Directory -Path "$pkgName/engine-wrapper" -Force
           
-          # Copy and merge all standalone contents into the engine-wrapper/ directory
-          # This allows sharing of common DLLs (Python runtime, etc.)
-          Copy-Item -Path "engine-wrapper/launcher.dist/*" -Destination "$pkgName/engine-wrapper/" -Recurse -Force
-          Copy-Item -Path "engine-wrapper/engine_wrapper.dist/*" -Destination "$pkgName/engine-wrapper/" -Recurse -Force
-          Copy-Item -Path "engine-wrapper/config_editor.dist/*" -Destination "$pkgName/engine-wrapper/" -Recurse -Force
+          # Use robocopy to merge all standalone contents into the engine-wrapper/ directory.
+          # This ensures that subdirectories (like webview/ or clr_loader/) are correctly merged 
+          # rather than potentially being overwritten as with Copy-Item.
+          # Robocopy returns exit code 1 on success (new files copied), so we use || $true to prevent the step from failing.
+          robocopy "engine-wrapper/launcher.dist" "$pkgName/engine-wrapper" /E /MT /R:3 /W:3 /NP /NS /NC /NFL /NDL /NJH /NJS || $true
+          robocopy "engine-wrapper/engine_wrapper.dist" "$pkgName/engine-wrapper" /E /MT /R:3 /W:3 /NP /NS /NC /NFL /NDL /NJH /NJS || $true
+          robocopy "engine-wrapper/config_editor.dist" "$pkgName/engine-wrapper" /E /MT /R:3 /W:3 /NP /NS /NC /NFL /NDL /NJH /NJS || $true
           
           # Configuration and Resources
           Copy-Item "engine-wrapper/engines.json.default" -Destination "$pkgName/engine-wrapper/engines.json"
