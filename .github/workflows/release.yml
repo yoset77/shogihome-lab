@@ -56,18 +56,9 @@ jobs:
         working-directory: engine-wrapper
         run: uv run python scripts/generate_licenses.py
 
-      - name: Build Python Wrapper (Nuitka)
-        working-directory: engine-wrapper
-        # Build standalone executable (directory based)
-        run: uv run nuitka --standalone --windows-console-mode=disable --msvc=14.3 --assume-yes-for-downloads engine_wrapper.py
-
-      - name: Build Config Editor (Nuitka)
-        working-directory: engine-wrapper
-        run: uv run nuitka --standalone --windows-console-mode=disable --enable-plugin=tk-inter --msvc=14.3 --assume-yes-for-downloads config_editor.py
-
-      - name: Build Launcher (Nuitka)
-        working-directory: engine-wrapper
-        run: uv run nuitka --standalone --windows-console-mode=disable --enable-plugin=tk-inter --msvc=14.3 --assume-yes-for-downloads launcher.py
+      - name: Build Embedded Python Distribution
+        run: |
+          python engine-wrapper/scripts/build_dist.py
 
       - name: Build Shim (C#)
         run: |
@@ -76,6 +67,7 @@ jobs:
       - name: Debug List Files
         run: |
           ls -R engine-wrapper
+          ls -R python
           ls -R shogihome/dist
 
       # --- Packaging ---
@@ -97,18 +89,12 @@ jobs:
           Copy-Item -Path "shogihome/docs/webapp" -Destination "$pkgName/shogihome/docs/webapp" -Recurse
           Copy-Item "shogihome/.env.example" -Destination "$pkgName/shogihome/.env"
 
-          # 2. Engine Wrapper (Flattened)
+          # 2. Embedded Python
+          Copy-Item -Path "python" -Destination "$pkgName/python" -Recurse
+
+          # 3. Engine Wrapper (Scripts)
           New-Item -ItemType Directory -Path "$pkgName/engine-wrapper" -Force
-          
-          # Use robocopy to merge all standalone contents into the engine-wrapper/ directory.
-          # This ensures that subdirectories (like webview/ or clr_loader/) are correctly merged 
-          # rather than potentially being overwritten as with Copy-Item.
-          # Robocopy returns exit code 1 on success (new files copied), so we use || $true to prevent the step from failing.
-          robocopy "engine-wrapper/launcher.dist" "$pkgName/engine-wrapper" /E /MT /R:3 /W:3 /NP /NS /NC /NFL /NDL /NJH /NJS || $true
-          robocopy "engine-wrapper/engine_wrapper.dist" "$pkgName/engine-wrapper" /E /MT /R:3 /W:3 /NP /NS /NC /NFL /NDL /NJH /NJS || $true
-          robocopy "engine-wrapper/config_editor.dist" "$pkgName/engine-wrapper" /E /MT /R:3 /W:3 /NP /NS /NC /NFL /NDL /NJH /NJS || $true
-          
-          # Configuration and Resources
+          Copy-Item "engine-wrapper/*.py" -Destination "$pkgName/engine-wrapper/"
           Copy-Item "engine-wrapper/engines.json.default" -Destination "$pkgName/engine-wrapper/engines.json"
           Copy-Item "engine-wrapper/.env.example" -Destination "$pkgName/engine-wrapper/.env"
           Copy-Item "engine-wrapper/config_editor.html" -Destination "$pkgName/engine-wrapper/"
@@ -116,6 +102,9 @@ jobs:
           # Wrapper Licenses
           New-Item -ItemType Directory -Path "$pkgName/engine-wrapper/licenses" -Force
           Copy-Item "engine-wrapper/licenses/*" -Destination "$pkgName/engine-wrapper/licenses/"
+
+          # Zip it
+          Compress-Archive -Path "$pkgName" -DestinationPath "$pkgName.zip"
 
           # Zip it
           Compress-Archive -Path "$pkgName" -DestinationPath "$pkgName.zip"

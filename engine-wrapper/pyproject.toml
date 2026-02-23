@@ -16,7 +16,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "nuitka>=2.4.8",
     "pip-licenses>=5.0.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",

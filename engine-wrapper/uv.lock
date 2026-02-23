@@ -167,12 +167,6 @@ wheels = [
 ]
 
 [[package]]
-name = "nuitka"
-version = "4.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e5/d6/477dc84457fc07885f5fd020da4920e8a2787b2c04563ad444ac98f7d3eb/nuitka-4.0.tar.gz", hash = "sha256:0f404f292c3c2cc808d186d05a6d06a4b0aeca93f299cdfd5e33ddbcd19ab560", size = 4410008, upload-time = "2026-02-05T20:52:39.747Z" }
-
-[[package]]
 name = "packaging"
 version = "26.0"
 source = { registry = "https://pypi.org/simple" }
@@ -607,7 +601,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "nuitka" },
     { name = "pip-licenses" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -628,7 +621,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "nuitka", specifier = ">=2.4.8" },
     { name = "pip-licenses", specifier = ">=5.0.0" },
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", specifier = ">=0.23.0" },

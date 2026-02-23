@@ -12,34 +12,46 @@ import qrcode
 from PIL import Image
 from pystray import MenuItem
 
-from common import BASE_DIR, get_local_ip, get_pc_url_config, is_frozen, is_port_open, kill_proc_tree, load_env_value
+from common import (
+    BASE_DIR,
+    get_local_ip,
+    get_pc_url_config,
+    get_python_exe,
+    is_bundled,
+    is_port_open,
+    kill_proc_tree,
+    load_env_value,
+)
 
 # --- Configuration ---
 APP_NAME = "ShogiHome LAN"
 
-# Determine execution mode (Source or Frozen/Compiled)
-IS_FROZEN = is_frozen()
+# Determine execution mode (Source or Bundled)
+IS_BUNDLED = is_bundled()
+PYTHON_EXE = get_python_exe()
 
 # Paths to directories
 DIST_ROOT = BASE_DIR.parent
 SHOGIHOME_DIR = DIST_ROOT / "shogihome"
 WRAPPER_DIR = BASE_DIR
 
-if IS_FROZEN:
+if IS_BUNDLED:
     ICON_PATH = DIST_ROOT / "icon.png"
     SERVER_ENV_PATH = SHOGIHOME_DIR / ".env"
     WRAPPER_ENV_PATH = WRAPPER_DIR / ".env"
 
     SERVER_EXE = SHOGIHOME_DIR / "shogihome-server.exe"
-    # Files are placed directly in engine-wrapper/ in the flattened distribution
-    WRAPPER_EXE = WRAPPER_DIR / "engine_wrapper.exe"
-    CONFIG_EXE = WRAPPER_DIR / "config_editor.exe"
+    # In bundled environment, we run .py scripts using python.exe
+    WRAPPER_PY = WRAPPER_DIR / "engine_wrapper.py"
+    CONFIG_PY = WRAPPER_DIR / "config_editor.py"
 else:
-    ICON_PATH = SHOGIHOME_DIR / "public" / "favicon.png"
-    SERVER_ENV_PATH = SHOGIHOME_DIR / ".env"
+    ICON_PATH = SHOGIHOME_DIR / "shogihome" / "public" / "favicon.png"
+    SERVER_ENV_PATH = SHOGIHOME_DIR / "shogihome" / ".env"
     WRAPPER_ENV_PATH = WRAPPER_DIR / ".env"
 
-    SERVER_DIR = SHOGIHOME_DIR
+    SERVER_DIR = SHOGIHOME_DIR / "shogihome"
+    WRAPPER_PY = WRAPPER_DIR / "engine_wrapper.py"
+    CONFIG_PY = WRAPPER_DIR / "config_editor.py"
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -335,8 +347,8 @@ class LauncherApp(ctk.CTk):
 
         # Start Wrapper
         try:
-            if IS_FROZEN:
-                wrapper_cmd = [str(WRAPPER_EXE)]
+            if IS_BUNDLED:
+                wrapper_cmd = [str(PYTHON_EXE), str(WRAPPER_PY)]
                 # Ensure CWD is where engines.json/.env reside (engine-wrapper root)
                 cwd = WRAPPER_DIR
             else:
@@ -359,14 +371,14 @@ class LauncherApp(ctk.CTk):
 
         # Start Server
         try:
-            if IS_FROZEN:
+            if IS_BUNDLED:
                 server_cmd = [str(SERVER_EXE)]
                 cwd = SERVER_EXE.parent
             else:
                 server_cmd = ["npm", "run", "server:start"]
                 cwd = SERVER_DIR
 
-            use_shell = not IS_FROZEN
+            use_shell = not IS_BUNDLED
 
             server_log.write(f"Executing Server: {server_cmd}\nCWD: {cwd}\n")
             server_log.flush()
@@ -519,8 +531,8 @@ class LauncherApp(ctk.CTk):
             startup_info = subprocess.STARTUPINFO()
             startup_info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
-        if IS_FROZEN:
-            cmd = [str(CONFIG_EXE)]
+        if IS_BUNDLED:
+            cmd = [str(PYTHON_EXE), str(CONFIG_PY)]
             # Ensure CWD is where engines.json/.env reside
             cwd = WRAPPER_DIR
         else:

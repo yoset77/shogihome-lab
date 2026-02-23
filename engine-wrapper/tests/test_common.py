@@ -1,9 +1,33 @@
-from common import get_pc_url_config, get_resource_dir, is_frozen, load_env_value
+from pathlib import Path
+
+from common import get_pc_url_config, get_python_exe, get_resource_dir, is_bundled, load_env_value
 
 
-def test_is_frozen():
-    # 通常のテスト実行時は False になるはず
-    assert is_frozen() is False
+def test_is_bundled(tmp_path, monkeypatch):
+    # python ディレクトリがない場合は False
+    monkeypatch.setattr("common.BASE_DIR", tmp_path / "wrapper")
+    assert is_bundled() is False
+
+    # python ディレクトリがある場合は True
+    (tmp_path / "python").mkdir()
+    assert is_bundled() is True
+
+
+def test_get_python_exe(tmp_path, monkeypatch):
+    monkeypatch.setattr("common.BASE_DIR", tmp_path / "wrapper")
+    (tmp_path / "wrapper").mkdir()
+
+    # 同梱の pythonw.exe がない場合は sys.executable を返す
+    import sys
+
+    assert get_python_exe() == Path(sys.executable)
+
+    # 同梱の pythonw.exe がある場合はそれを返す
+    python_dir = tmp_path / "python"
+    python_dir.mkdir()
+    pythonw = python_dir / "pythonw.exe"
+    pythonw.touch()
+    assert get_python_exe() == pythonw
 
 
 def test_get_resource_dir():

@@ -41,6 +41,11 @@ engine-wrapper/*.exe
 engine-wrapper/*.dist/
 engine-wrapper/*.build/
 engine-wrapper/*.onefile-build/
+python/
+python-*.zip
+shogihome-lan-v*/
+shogihome-lan-local-dist/
+ShogiHomeLAN.exe
 
 # puzzles
 shogihome/public/puzzles/*.json

@@ -13,8 +13,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from common import BASE_DIR
-from common import is_frozen as is_compiled_or_frozen
+from common import BASE_DIR, is_bundled
 
 # Configure logging
 log_handlers = []
@@ -23,8 +22,8 @@ log_handlers = []
 if sys.stderr is not None:
     # Primary: Log to standard stream (captured by Launcher or Console)
     log_handlers.append(logging.StreamHandler())
-elif is_compiled_or_frozen:
-    # Fallback: Only log to file if running as frozen AND no console is attached
+elif is_bundled():
+    # Fallback: Only log to file if running as bundled AND no console is attached
     log_file = BASE_DIR / "engine_wrapper.log"
     log_handlers.append(RotatingFileHandler(log_file, maxBytes=1 * 1024 * 1024, backupCount=2, encoding="utf-8"))
 else:
@@ -39,7 +38,7 @@ logging.basicConfig(
 )
 logging.Formatter.converter = lambda *args: datetime.now(timezone.utc).timetuple()
 
-logging.debug(f"is_compiled_or_frozen: {is_compiled_or_frozen}")
+logging.debug(f"is_bundled: {is_bundled()}")
 logging.debug(f"sys.executable: {sys.executable}")
 logging.debug(f"sys.argv[0]: {sys.argv[0]}")
 logging.debug(f"Resolved BASE_DIR: {BASE_DIR}")

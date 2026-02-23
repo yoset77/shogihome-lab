@@ -87,18 +87,16 @@ graph LR
 - **Node.js版**:
     - **依存関係インストール**: `npm install`
     - **起動**: `npm run start`
-- **Python版 (Releases推奨)**:
-    - **依存関係インストール**: `uv sync`
-    - **起動**: `uv run engine_wrapper.py`
-    - **テスト**: `uv run pytest`
-    - **静的解析**: `uv run ruff check .`
-    - **フォーマット**: `uv run ruff format .`
-    - **ライセンス生成**: `npm run py:license` (または `uv run python scripts/generate_licenses.py`)
-    - **配布用ビルド (Windows)**:
-        - **Engine Wrapper**: `uv run nuitka --standalone --windows-console-mode=disable --msvc=14.3 engine_wrapper.py` (出力: `engine_wrapper.dist/`)
-        - **Config Editor**: `uv run nuitka --standalone --windows-console-mode=disable --enable-plugin=tk-inter --msvc=14.3 config_editor.py` (出力: `config_editor.dist/`)
-        - **Launcher**: `uv run nuitka --standalone --windows-console-mode=disable --enable-plugin=tk-inter --msvc=14.3 launcher.py` (出力: `launcher.dist/`)
-        
+    - **Python版 (Releases推奨)**:
+        - **依存関係インストール**: `uv sync`
+        - **起動**: `uv run launcher.py` (GUIランチャー) または `uv run engine_wrapper.py`
+        - **テスト**: `uv run pytest`
+        - **静的解析**: `uv run ruff check .`
+        - **フォーマット**: `uv run ruff format .`
+        - **ライセンス生成**: `npm run py:license` (または `uv run python scripts/generate_licenses.py`)
+        - **配布用ビルド (Windows)**:
+            - **Embedded Python構築**: `python engine-wrapper/scripts/build_dist.py` (ルートにある `python-*.zip` を使用して依存関係とTkinterを同梱した環境を構築)
+            - **パッケージング**: `shogihome-lan-vX.Y.Z/` ディレクトリに `python/`, `engine-wrapper/*.py`, `shogihome/` などを配置。
 ### CI/CD (GitHub Actions)
 - **自動リリース**: `v*` タグをプッシュすると `.github/workflows/release.yml` が起動し、ビルド済みのZIPパッケージがドラフトとして作成されます。
 

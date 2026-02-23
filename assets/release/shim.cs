@@ -11,19 +11,27 @@ namespace ShogiHomeLauncher
         static void Main()
         {
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            string launcherPath = Path.Combine(baseDir, "engine-wrapper");
-            launcherPath = Path.Combine(launcherPath, "launcher.exe");
+            string pythonPath = Path.Combine(baseDir, "python", "pythonw.exe");
+            string launcherScript = Path.Combine(baseDir, "engine-wrapper", "launcher.py");
 
-            if (!File.Exists(launcherPath))
+            if (!File.Exists(pythonPath))
             {
-                MessageBox.Show("Could not find the launcher executable at:\n" + launcherPath, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Could not find the Python executable at:\n" + pythonPath, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            if (!File.Exists(launcherScript))
+            {
+                MessageBox.Show("Could not find the launcher script at:\n" + launcherScript, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
             ProcessStartInfo startInfo = new ProcessStartInfo();
-            startInfo.FileName = launcherPath;
+            startInfo.FileName = pythonPath;
+            startInfo.Arguments = "\"" + launcherScript + "\"";
             startInfo.WorkingDirectory = baseDir;
             startInfo.UseShellExecute = false;
+            startInfo.CreateNoWindow = true;
 
             try
             {
