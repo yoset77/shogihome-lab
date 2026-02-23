@@ -82,13 +82,32 @@ def copy_library_dlls():
     print("Collecting and copying library DLLs to Python root...")
     site_packages = PYTHON_DIST_DIR / "site-packages"
 
+    # Copy Python.Runtime.dll and its companion files
+    runtime_dir = None
     for dll in site_packages.rglob("Python.Runtime.dll"):
-        shutil.copy2(dll, PYTHON_DIST_DIR)
+        runtime_dir = dll.parent
         break
 
+    if runtime_dir:
+        print(f"Found Python.Runtime.dll in {runtime_dir}. Copying all files from this directory...")
+        for f in runtime_dir.glob("*"):
+            if f.is_file():
+                shutil.copy2(f, PYTHON_DIST_DIR)
+    else:
+        print("Warning: Python.Runtime.dll not found in site-packages!")
+
+    # Copy WebView2Loader.dll
     for dll in site_packages.rglob("WebView2Loader.dll"):
         if "x64" in str(dll) or not (PYTHON_DIST_DIR / "WebView2Loader.dll").exists():
             shutil.copy2(dll, PYTHON_DIST_DIR)
+
+    # Ensure pythonnet can find the python DLLs by copying them next to Python.Runtime.dll
+    print("Copying Python DLLs to pythonnet runtime directory...")
+    for runtime_dll in site_packages.rglob("Python.Runtime.dll"):
+        runtime_dir = runtime_dll.parent
+        for py_dll in PYTHON_DIST_DIR.glob("python*.dll"):
+            print(f"Copying {py_dll.name} to {runtime_dir}...")
+            shutil.copy2(py_dll, runtime_dir)
 
 
 def copy_tkinter():
@@ -129,6 +148,21 @@ def copy_tkinter():
         shutil.copytree(src_tcl, dest_tcl)
 
 
+def create_dotnet_config():
+    print("Creating .config files for .NET runtime...")
+    config_content = """<?xml version="1.0" encoding="utf-8" ?>
+<configuration>
+  <runtime>
+    <loadFromRemoteSources enabled="true"/>
+  </runtime>
+</configuration>
+"""
+    for exe_name in ["python.exe", "pythonw.exe"]:
+        config_path = PYTHON_DIST_DIR / f"{exe_name}.config"
+        print(f"Creating {config_path}...")
+        config_path.write_text(config_content, encoding="utf-8")
+
+
 if __name__ == "__main__":
     try:
         download_python()
@@ -137,6 +171,7 @@ if __name__ == "__main__":
         fix_pth_file()
         copy_library_dlls()
         copy_tkinter()
+        create_dotnet_config()
         print(f"\nEmbedded Python {PYTHON_VERSION} distribution built successfully!")
     except Exception as e:
         print(f"\nError building distribution: {e}")

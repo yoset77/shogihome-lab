@@ -8,9 +8,16 @@ import threading
 import time
 from pathlib import Path
 
-import webview
+from common import BASE_DIR, is_bundled
 
-from common import BASE_DIR
+# --- pythonnet / clr-loader initialization ---
+# For bundled environment, explicitly set the Python DLL path for pythonnet
+if is_bundled() and os.name == "nt":
+    python_dll = BASE_DIR / "python" / "python313.dll"
+    if python_dll.exists():
+        os.environ["PYTHONNET_PYDLL"] = str(python_dll)
+
+import webview
 
 # --- Path Resolution Logic ---
 
