@@ -245,7 +245,7 @@ const onStart = async () => {
   font-size: 0.85em;
   background-color: var(--button-bg-color);
   border: 1px solid var(--dialog-border-color);
-  color: var(--main-color);
+  color: var(--control-button-color);
   display: flex;
   align-items: center;
   gap: 5px;
