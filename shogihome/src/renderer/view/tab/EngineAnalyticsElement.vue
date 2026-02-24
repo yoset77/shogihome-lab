@@ -420,6 +420,7 @@ const updateMultiPV = (add: number) => {
   margin: 0px 5px 0px 0px;
   padding: 0px 5px 0px 5px;
   background-color: var(--text-bg-color);
+  color: var(--text-color);
 }
 .paused .header {
   background-color: var(--text-bg-color-disabled);
@@ -432,6 +433,7 @@ const updateMultiPV = (add: number) => {
   width: 100%;
   overflow-y: scroll;
   background-color: var(--text-bg-color);
+  color: var(--text-color);
 }
 .paused .list-area {
   background-color: var(--text-bg-color-disabled);
@@ -446,6 +448,7 @@ tr.list-header > td {
   width: 100%;
   font-size: 12px;
   background-color: var(--text-bg-color);
+  color: var(--text-color);
   position: sticky;
   top: 0;
   left: 0;
@@ -515,6 +518,7 @@ button span {
 .multi-pv-control {
   font-size: 12px;
   text-align: left;
+  color: var(--text-color);
 }
 .multi-pv-control > * {
   margin: 0px 0px 0px 5px;
@@ -529,6 +533,7 @@ button span {
   height: 100%;
   overflow-y: auto;
   background-color: var(--text-bg-color);
+  color: var(--text-color);
   font-size: 14px;
   text-align: left;
 }
@@ -538,7 +543,7 @@ button span {
 .mobile-pv-card {
   border-bottom: 1px solid var(--text-separator-color);
   padding: 8px 5px;
-  color: var(--main-color);
+  color: var(--text-color);
   -webkit-text-fill-color: initial;
   text-shadow: none;
 }
@@ -551,13 +556,13 @@ button span {
 .mobile-pv-header .multipv-index {
   font-weight: bold;
   flex-shrink: 0;
-  color: black;
+  color: var(--text-color);
 }
 .mobile-pv-header .score {
   flex-grow: 1;
   text-align: left;
   white-space: nowrap;
-  color: black;
+  color: var(--text-color);
 }
 .mobile-pv-header .play-button {
   flex-shrink: 0;
@@ -569,6 +574,6 @@ button span {
   padding-top: 5px;
   word-break: break-all;
   white-space: normal;
-  color: black; /* Use explicit color instead of variable */
+  color: var(--text-color);
 }
 </style>

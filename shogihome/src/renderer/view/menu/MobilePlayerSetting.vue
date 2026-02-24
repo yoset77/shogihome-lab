@@ -144,7 +144,7 @@ const getTimeDescription = () => {
 .time-text {
   font-size: 1em;
   font-weight: bold;
-  color: var(--main-color);
+  color: var(--text-color);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
