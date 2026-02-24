@@ -8,12 +8,50 @@ vi.mock("@/renderer/network/lan_engine");
 vi.mock("@/renderer/players/usi.js");
 
 describe("LanPlayer", () => {
+  let messageHandler: (message: string) => void;
+  let messageListeners: ((message: string) => boolean)[] = [];
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
-    (LanEngine.prototype.connect as Mock).mockResolvedValue(undefined);
-    (LanEngine.prototype.startEngine as Mock).mockResolvedValue(undefined);
+    messageListeners = [];
+
+    // Functional mock for connect
+    (LanEngine.prototype.connect as Mock).mockImplementation(function (
+      this: LanEngine,
+      handler?: (message: string) => void,
+    ) {
+      if (handler) {
+        messageHandler = handler;
+      }
+      return Promise.resolve();
+    });
+
+    // Functional mock for adding listeners
+    (LanEngine.prototype.addMessageListener as Mock).mockImplementation((l) => {
+      messageListeners.push(l);
+    });
+
+    // Functional mock for removing listeners
+    (LanEngine.prototype.removeMessageListener as Mock).mockImplementation((l) => {
+      messageListeners = messageListeners.filter((item) => item !== l);
+    });
+
+    // Mock startEngine to trigger the ready sequence
+    (LanEngine.prototype.startEngine as Mock).mockImplementation(() => {
+      const readyMsg = JSON.stringify({ info: "info: engine is ready" });
+      // In real LanEngine, ws.onmessage triggers both the handler and the listeners.
+      // We simulate this by calling them in the next microtask to let the caller setup if needed.
+      process.nextTick(() => {
+        if (messageHandler) {
+          messageHandler(readyMsg);
+        }
+        messageListeners = messageListeners.filter((l) => !l(readyMsg));
+      });
+    });
+
     (LanEngine.prototype.sendCommand as Mock).mockResolvedValue(undefined);
+    (LanEngine.prototype.setOption as Mock).mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -24,18 +62,9 @@ describe("LanPlayer", () => {
     const onSearchInfo = vi.fn();
     const player = new LanPlayer("test-session", "test-engine", "Test Engine", onSearchInfo);
 
-    // Launch the player
-    let messageHandler: (message: string) => void = () => {};
-    (LanEngine.prototype.connect as Mock).mockImplementation(function (
-      this: LanEngine,
-      handler?: (message: string) => void,
-    ) {
-      if (handler) {
-        messageHandler = handler;
-      }
-      return Promise.resolve();
-    });
-    await player.launch();
+    const launchPromise = player.launch();
+    await vi.runAllTimersAsync();
+    await launchPromise;
 
     const usi = "position startpos";
     const record = Record.newByUSI(usi) as Record;
@@ -88,17 +117,9 @@ describe("LanPlayer", () => {
     const onSearchInfo = vi.fn();
     const player = new LanPlayer("test-session", "test-engine", "Test Engine", onSearchInfo);
 
-    let messageHandler: (message: string) => void = () => {};
-    (LanEngine.prototype.connect as Mock).mockImplementation(function (
-      this: LanEngine,
-      handler?: (message: string) => void,
-    ) {
-      if (handler) {
-        messageHandler = handler;
-      }
-      return Promise.resolve();
-    });
-    await player.launch();
+    const launchPromise = player.launch();
+    await vi.runAllTimersAsync();
+    await launchPromise;
 
     const usi1 = "position startpos moves 7g7f";
     const usi2 = "position startpos moves 7g7f 3c3d";
@@ -156,17 +177,9 @@ describe("LanPlayer", () => {
     const onSearchInfo = vi.fn();
     const player = new LanPlayer("test-session", "test-engine", "Test Engine", onSearchInfo);
 
-    let messageHandler: (message: string) => void = () => {};
-    (LanEngine.prototype.connect as Mock).mockImplementation(function (
-      this: LanEngine,
-      handler?: (message: string) => void,
-    ) {
-      if (handler) {
-        messageHandler = handler;
-      }
-      return Promise.resolve();
-    });
-    await player.launch();
+    const launchPromise = player.launch();
+    await vi.runAllTimersAsync();
+    await launchPromise;
 
     const usi1 = "position startpos moves 7g7f";
     const usi2 = "position startpos moves 7g7f 3c3d";
@@ -211,17 +224,9 @@ describe("LanPlayer", () => {
       /* noop */
     });
 
-    let messageHandler: (message: string) => void = () => {};
-    (LanEngine.prototype.connect as Mock).mockImplementation(function (
-      this: LanEngine,
-      handler?: (message: string) => void,
-    ) {
-      if (handler) {
-        messageHandler = handler;
-      }
-      return Promise.resolve();
-    });
-    await player.launch();
+    const launchPromise = player.launch();
+    await vi.runAllTimersAsync();
+    await launchPromise;
 
     const usi = "position startpos";
     const record = Record.newByUSI(usi) as Record;

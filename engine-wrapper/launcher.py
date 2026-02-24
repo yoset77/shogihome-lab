@@ -45,11 +45,11 @@ if IS_BUNDLED:
     WRAPPER_PY = WRAPPER_DIR / "engine_wrapper.py"
     CONFIG_PY = WRAPPER_DIR / "config_editor.py"
 else:
-    ICON_PATH = SHOGIHOME_DIR / "shogihome" / "public" / "favicon.png"
-    SERVER_ENV_PATH = SHOGIHOME_DIR / "shogihome" / ".env"
+    ICON_PATH = SHOGIHOME_DIR / "public" / "favicon.png"
+    SERVER_ENV_PATH = SHOGIHOME_DIR / ".env"
     WRAPPER_ENV_PATH = WRAPPER_DIR / ".env"
 
-    SERVER_DIR = SHOGIHOME_DIR / "shogihome"
+    SERVER_DIR = SHOGIHOME_DIR
     WRAPPER_PY = WRAPPER_DIR / "engine_wrapper.py"
     CONFIG_PY = WRAPPER_DIR / "config_editor.py"
 

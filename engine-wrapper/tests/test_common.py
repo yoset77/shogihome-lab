@@ -4,15 +4,28 @@ from common import get_pc_url_config, get_python_exe, get_resource_dir, is_bundl
 
 
 def test_is_bundled(tmp_path, monkeypatch):
+    # tmp_path/
+    #   shogihome/
+    #     shogihome-server.exe
+    #   wrapper/
+    #     python/
     wrapper_dir = tmp_path / "wrapper"
     wrapper_dir.mkdir()
+    shogihome_dir = tmp_path / "shogihome"
+    shogihome_dir.mkdir()
+    shogihome_exe = shogihome_dir / "shogihome-server.exe"
+
     monkeypatch.setattr("common.BASE_DIR", wrapper_dir)
 
     # python ディレクトリがない場合は False
     assert is_bundled() is False
 
-    # python ディレクトリがある場合は True
+    # python ディレクトリがあっても、shogihome-server.exe がない場合は False
     (wrapper_dir / "python").mkdir()
+    assert is_bundled() is False
+
+    # 両方揃えば True
+    shogihome_exe.touch()
     assert is_bundled() is True
 
 

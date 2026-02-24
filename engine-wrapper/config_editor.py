@@ -107,9 +107,34 @@ class Api:
 
     def save(self, data):
         try:
-            # Basic validation
+            # Basic structure validation
             if not isinstance(data, list):
                 raise ValueError("Root must be a list")
+
+            # Validate each entry
+            for i, entry in enumerate(data):
+                if not isinstance(entry, dict):
+                    raise ValueError(f"Entry at index {i} must be an object")
+
+                # Required fields
+                for field in ["id", "name", "path"]:
+                    if field not in entry:
+                        raise ValueError(f"Missing required field '{field}' in entry {i}")
+                    if not isinstance(entry[field], str):
+                        raise ValueError(f"Field '{field}' in entry {i} must be a string")
+
+                if not entry["id"].strip():
+                    raise ValueError(f"Engine ID in entry {i} cannot be empty")
+
+                # Optional fields validation
+                if "type" in entry:
+                    if not isinstance(entry["type"], str):
+                        raise ValueError(f"Field 'type' in entry {i} must be a string")
+                    if entry["type"] not in ["game", "research", "both"]:
+                        raise ValueError(f"Invalid type '{entry['type']}' in entry {i}")
+
+                if "options" in entry and not isinstance(entry["options"], dict):
+                    raise ValueError(f"Field 'options' in entry {i} must be an object")
 
             # Write to file
             with open(ENGINES_JSON_PATH, "w", encoding="utf-8") as f:
@@ -259,7 +284,7 @@ def run_app():
     api = Api()
     # Create window
     webview.create_window(
-        "ShogiHome Engine Config Editor",
+        "ShogiHome LAN Config Editor",
         str(HTML_PATH),
         js_api=api,
         width=800,

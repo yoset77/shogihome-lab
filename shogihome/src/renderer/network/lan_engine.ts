@@ -27,6 +27,7 @@ export class LanEngine {
   constructor(private sessionId: string) {
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", this.onVisibilityChange);
+      window.addEventListener("beforeunload", this.onBeforeUnload);
     }
   }
 
@@ -43,6 +44,10 @@ export class LanEngine {
       }
       this.connect();
     }
+  };
+
+  private onBeforeUnload = () => {
+    this.disconnect();
   };
 
   get status(): LanEngineStatus {
@@ -211,6 +216,7 @@ export class LanEngine {
     this.isExplicitlyClosed = true;
     if (typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", this.onVisibilityChange);
+      window.removeEventListener("beforeunload", this.onBeforeUnload);
     }
     this.clearReconnect();
     this.stopHeartbeat();
@@ -261,6 +267,14 @@ export class LanEngine {
 
   isConnected(): boolean {
     return !!this.ws && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  addMessageListener(listener: MessageListener) {
+    this.messageListeners.push(listener);
+  }
+
+  removeMessageListener(listener: MessageListener) {
+    this.messageListeners = this.messageListeners.filter((l) => l !== listener);
   }
 
   async getEngineList(force = false): Promise<LanEngineInfo[]> {

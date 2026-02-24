@@ -306,6 +306,40 @@ interface ExtendedWebSocket extends WebSocket {
   isAlive?: boolean;
 }
 
+async function authenticateSocket(
+  socket: net.Socket,
+  accessToken: string,
+): Promise<readline.Interface> {
+  return new Promise((resolve, reject) => {
+    const rl = readline.createInterface({ input: socket });
+    const onLine = (line: string) => {
+      const msg = line.trim();
+      if (msg.startsWith("auth_cram_sha256 ")) {
+        const nonce = msg.substring("auth_cram_sha256 ".length).trim();
+        const digest = crypto.createHmac("sha256", accessToken).update(nonce).digest("hex");
+        socket.write(`auth ${digest}\n`);
+      } else if (msg === "auth_ok") {
+        rl.off("line", onLine);
+        resolve(rl);
+      } else if (msg.includes("WRAPPER_ERROR:")) {
+        rl.close();
+        reject(new Error(msg));
+      } else if (msg !== "") {
+        console.warn("Unexpected message during auth:", msg);
+      }
+    };
+    rl.on("line", onLine);
+    socket.once("error", (err) => {
+      rl.close();
+      reject(err);
+    });
+    socket.once("close", () => {
+      rl.close();
+      reject(new Error("Socket closed during authentication"));
+    });
+  });
+}
+
 class EngineSession {
   private currentEngineId: string | null = null;
   private engineHandle: EngineHandle | null = null;
@@ -321,7 +355,19 @@ class EngineSession {
   private cleanupTimeout: NodeJS.Timeout | null = null;
   private messageBuffer: { data: unknown; createdAt: number }[] = [];
 
+  private readonly MAX_QUEUE_SIZE = 100;
+
   constructor(public readonly sessionId: string) {}
+
+  private pushToQueue(queue: string[], command: string) {
+    if (this.isExplicitlyTerminated || this.engineState === EngineState.TERMINATING) {
+      return;
+    }
+    queue.push(command);
+    if (queue.length > this.MAX_QUEUE_SIZE) {
+      queue.shift();
+    }
+  }
 
   attach(ws: ExtendedWebSocket) {
     console.log(`Attaching session ${this.sessionId} to new WebSocket`);
@@ -593,9 +639,9 @@ class EngineSession {
     this.sendToClient({ info: "info: engine stopped" });
   }
 
-  private setupEngineHandlers(stream: NodeJS.ReadableStream) {
-    const rl = readline.createInterface({ input: stream });
-    rl.on("line", (line) => {
+  private setupEngineHandlers(stream: NodeJS.ReadableStream, rl?: readline.Interface) {
+    const interface_ = rl || readline.createInterface({ input: stream });
+    interface_.on("line", (line) => {
       if (!line.startsWith("info")) {
         console.log(`Engine output (${this.sessionId}): ${line}`);
       }
@@ -616,35 +662,53 @@ class EngineSession {
             this.stopTimeout = null;
           }
 
-          let latestSetoptionMultiPV: string | null = null;
+          // Filter and collect commands to replay.
+          // We keep:
+          // 1. All gameover and usinewgame commands.
+          // 2. The latest MultiPV setoption.
+          // 3. The latest position and go pair.
+          let latestMultiPV: string | null = null;
           let latestGoIndex = -1;
+          const importantCommands: { index: number; command: string }[] = [];
 
           for (let i = 0; i < this.postStopCommandQueue.length; i++) {
-            const command = this.postStopCommandQueue[i];
-            if (command.startsWith("setoption name MultiPV")) {
-              latestSetoptionMultiPV = command;
-            } else if (command.startsWith("go")) {
+            const cmd = this.postStopCommandQueue[i];
+            if (cmd.startsWith("setoption name MultiPV")) {
+              latestMultiPV = cmd;
+            } else if (cmd.startsWith("go")) {
               latestGoIndex = i;
+            } else if (cmd === "usinewgame" || cmd.startsWith("gameover")) {
+              importantCommands.push({ index: i, command: cmd });
             }
           }
 
           const commandsToRun: string[] = [];
-          if (latestSetoptionMultiPV) {
-            commandsToRun.push(latestSetoptionMultiPV);
+          // 1. Replay MultiPV first if updated
+          if (latestMultiPV) {
+            commandsToRun.push(latestMultiPV);
           }
 
-          if (latestGoIndex !== -1) {
-            let correspondingPosition: string | null = null;
-            for (let i = latestGoIndex - 1; i >= 0; i--) {
-              if (this.postStopCommandQueue[i].startsWith("position")) {
-                correspondingPosition = this.postStopCommandQueue[i];
-                break;
+          // 2. Replay all other commands and the latest position/go in their relative order
+          for (let i = 0; i < this.postStopCommandQueue.length; i++) {
+            if (i === latestGoIndex) {
+              // Find the corresponding position for this go
+              let correspondingPosition: string | null = null;
+              for (let j = i - 1; j >= 0; j--) {
+                if (this.postStopCommandQueue[j].startsWith("position")) {
+                  correspondingPosition = this.postStopCommandQueue[j];
+                  break;
+                }
+              }
+              if (correspondingPosition) {
+                commandsToRun.push(correspondingPosition);
+              }
+              commandsToRun.push(this.postStopCommandQueue[i]);
+            } else {
+              const important = importantCommands.find((ic) => ic.index === i);
+              if (important) {
+                commandsToRun.push(important.command);
               }
             }
-            if (correspondingPosition) {
-              commandsToRun.push(correspondingPosition);
-            }
-            commandsToRun.push(this.postStopCommandQueue[latestGoIndex]);
           }
 
           this.postStopCommandQueue.length = 0;
@@ -697,14 +761,14 @@ class EngineSession {
       this.onEngineClose();
     }, 5000);
 
-    socket.on("connect", () => {
+    socket.on("connect", async () => {
       clearTimeout(connectionTimeout);
       this.connectingSocket = null;
       console.log(`Connected to remote engine. Specifying engine ID: ${engineId}`);
 
       const accessToken = process.env.WRAPPER_ACCESS_TOKEN;
 
-      const setup = () => {
+      const setup = (rl?: readline.Interface) => {
         socket.write(`run ${engineId}\n`);
 
         this.engineState = EngineState.WAITING_USIOK;
@@ -715,7 +779,7 @@ class EngineSession {
           off: (e, l) => socket.off(e, l),
           removeAllListeners: (e) => socket.removeAllListeners(e),
         };
-        this.setupEngineHandlers(socket);
+        this.setupEngineHandlers(socket, rl);
         this.engineHandle.on("close", () => this.onEngineClose());
         this.engineHandle.on("error", (err) => {
           console.error("Remote engine connection error:", err);
@@ -726,24 +790,15 @@ class EngineSession {
       };
 
       if (accessToken) {
-        const onData = (data: Buffer) => {
-          const msg = data.toString().trim();
-          if (msg.startsWith("auth_cram_sha256 ")) {
-            const nonce = msg.substring("auth_cram_sha256 ".length).trim();
-            const digest = crypto.createHmac("sha256", accessToken).update(nonce).digest("hex");
-            socket.write(`auth ${digest}\n`);
-          } else if (msg === "auth_ok") {
-            socket.off("data", onData);
-            setup();
-          } else if (msg.includes("WRAPPER_ERROR:")) {
-            console.error(`Authentication failed: ${msg}`);
-            this.sendError(msg);
-            socket.destroy();
-          } else {
-            console.warn("Unexpected message during auth:", msg);
-          }
-        };
-        socket.on("data", onData);
+        try {
+          const rl = await authenticateSocket(socket, accessToken);
+          setup(rl);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`Authentication failed: ${message}`);
+          this.sendError(message);
+          socket.destroy();
+        }
       } else {
         setup();
       }
@@ -768,6 +823,9 @@ class EngineSession {
   }
 
   private handleMessage(command: string) {
+    if (this.isExplicitlyTerminated || this.engineState === EngineState.TERMINATING) {
+      return;
+    }
     console.log(`Received command (${this.sessionId}): ${command}`);
 
     if (command === "get_engine_list") {
@@ -804,6 +862,7 @@ class EngineSession {
     }
 
     if (command === "quit") {
+      this.isExplicitlyTerminated = true;
       this.sendToEngine(command);
       return;
     }
@@ -812,14 +871,16 @@ class EngineSession {
       this.engineState === EngineState.THINKING &&
       (command.startsWith("position") ||
         command.startsWith("go") ||
-        command.startsWith("setoption"))
+        command.startsWith("setoption") ||
+        command.startsWith("gameover") ||
+        command === "usinewgame")
     ) {
       console.warn(`Implicitly stopping engine for session ${this.sessionId}`);
       handleStop();
     }
 
     if (this.engineState === EngineState.STOPPING_SEARCH) {
-      if (command !== "stop") this.postStopCommandQueue.push(command);
+      if (command !== "stop") this.pushToQueue(this.postStopCommandQueue, command);
       return;
     }
 
@@ -842,7 +903,7 @@ class EngineSession {
       if (
         this.engineHandle ||
         this.engineState === EngineState.STARTING ||
-        this.engineState === EngineState.TERMINATING
+        (this.engineState as unknown) === EngineState.TERMINATING
       ) {
         this.sendError("engine already running, starting, or stopping");
         return;
@@ -871,10 +932,19 @@ class EngineSession {
     if (command === "usi" || command === "isready") return;
 
     if (command.startsWith("setoption ")) {
-      if (this.engineState >= EngineState.WAITING_USIOK) {
+      if (this.engineState >= EngineState.READY) {
         this.sendToEngine(command);
       } else {
-        this.commandQueue.push(command);
+        this.pushToQueue(this.commandQueue, command);
+      }
+      return;
+    }
+
+    if (command === "usinewgame" || command.startsWith("gameover")) {
+      if (this.engineState === EngineState.READY) {
+        this.sendToEngine(command);
+      } else {
+        this.pushToQueue(this.commandQueue, command);
       }
       return;
     }
@@ -885,7 +955,7 @@ class EngineSession {
       this.engineState > EngineState.UNINITIALIZED &&
       this.engineState < EngineState.READY
     ) {
-      this.commandQueue.push(command);
+      this.pushToQueue(this.commandQueue, command);
     } else {
       this.sendError(`engine not started. Cannot process command: ${command}`);
     }
@@ -924,41 +994,37 @@ const getEngineList = (ws: WebSocket) => {
   const socket = new net.Socket();
   let data = "";
   const accessToken = process.env.WRAPPER_ACCESS_TOKEN;
-  let authenticated = !accessToken;
   const MAX_ENGINE_LIST_BYTES = 1 * 1024 * 1024; // 1 MB
 
   const connectionTimeout = setTimeout(() => {
     socket.destroy(new Error("Connection timed out"));
   }, 5000);
 
-  socket.on("connect", () => {
+  socket.on("connect", async () => {
     clearTimeout(connectionTimeout);
-    if (authenticated) {
-      socket.write("list\n");
-    }
-  });
-
-  socket.on("data", (chunk) => {
-    const str = chunk.toString();
-    if (!authenticated) {
-      if (str.startsWith("auth_cram_sha256 ")) {
-        const nonce = str.substring("auth_cram_sha256 ".length).trim();
-        const digest = crypto.createHmac("sha256", accessToken!).update(nonce).digest("hex");
-        socket.write(`auth ${digest}\n`);
-        return;
-      } else if (str.trim() === "auth_ok") {
-        authenticated = true;
-        socket.write("list\n");
-        return;
-      } else if (str.includes("WRAPPER_ERROR:")) {
-        console.error(`Engine wrapper authentication failed: ${str}`);
-        socket.destroy();
-        return;
+    try {
+      let rl: readline.Interface;
+      if (accessToken) {
+        rl = await authenticateSocket(socket, accessToken);
+      } else {
+        rl = readline.createInterface({ input: socket });
       }
-    }
-    data += str;
-    if (data.length > MAX_ENGINE_LIST_BYTES) {
-      console.error("Engine list response too large, aborting.");
+
+      socket.write("list\n");
+
+      rl.on("line", (line) => {
+        const str = line.trim();
+        if (str !== "") {
+          data += str + "\n";
+          if (data.length > MAX_ENGINE_LIST_BYTES) {
+            console.error("Engine list response too large, aborting.");
+            socket.destroy();
+          }
+        }
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`Failed to get engine list: ${message}`);
       socket.destroy();
     }
   });

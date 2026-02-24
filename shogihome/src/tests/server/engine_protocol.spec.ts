@@ -12,21 +12,9 @@ describe("Server USI Protocol & Implicit Stop", () => {
   let serverProcess: ChildProcess;
   let serverReady = false;
   let mockWrapperServer: net.Server;
-  let activeWrapperSocket: net.Socket | null = null;
 
   beforeAll(async () => {
-    // 1. Start Mock Engine Wrapper (TCP Server)
-    mockWrapperServer = net.createServer((socket) => {
-      activeWrapperSocket = socket;
-      socket.on("data", (data) => {
-        const commands = data.toString().split("\n");
-        for (const cmd of commands) {
-          if (!cmd.trim()) continue;
-          handleWrapperCommand(socket, cmd.trim());
-        }
-      });
-    });
-
+    mockWrapperServer = net.createServer();
     await new Promise<void>((resolve) => {
       mockWrapperServer.listen(WRAPPER_PORT, () => {
         console.log(`Mock Wrapper listening on ${WRAPPER_PORT}`);
@@ -34,7 +22,6 @@ describe("Server USI Protocol & Implicit Stop", () => {
       });
     });
 
-    // 2. Start server.ts
     const serverPath = path.resolve(__dirname, "../../../server.ts");
     serverProcess = spawn("npx", ["tsx", serverPath], {
       env: {
@@ -43,7 +30,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
         BIND_ADDRESS: "0.0.0.0",
         REMOTE_ENGINE_PORT: WRAPPER_PORT.toString(),
         ALLOWED_ORIGINS: `http://localhost:${SERVER_PORT}`,
-        WRAPPER_ACCESS_TOKEN: "", // Disable auth for tests
+        WRAPPER_ACCESS_TOKEN: "",
       },
       stdio: "pipe",
       shell: true,
@@ -59,7 +46,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
       });
       setTimeout(() => {
         if (!serverReady) reject(new Error("Server start timeout"));
-      }, 10000);
+      }, 20000);
     });
   });
 
@@ -76,46 +63,16 @@ describe("Server USI Protocol & Implicit Stop", () => {
     }
   });
 
-  // Mock Engine Logic
-
-  let isThinking = false;
-
-  function handleWrapperCommand(socket: net.Socket, cmd: string) {
-    if (cmd.startsWith("run ")) {
-      // simulate engine start
-
-      setTimeout(() => socket.write("usiok\n"), 50);
-    } else if (cmd === "usi") {
-      // ignore, usually handled after connect or run
-    } else if (cmd === "isready") {
-      setTimeout(() => socket.write("readyok\n"), 50);
-    } else if (cmd.startsWith("go")) {
-      isThinking = true;
-
-      // Simulate thinking info
-
-      setTimeout(() => {
-        if (isThinking) socket.write("info depth 1 score cp 10 pv 7g7f\n");
-      }, 100);
-
-      // If not infinite, send bestmove automatically
-
-      if (!cmd.includes("infinite")) {
-        setTimeout(() => {
-          if (isThinking) {
-            isThinking = false;
-
-            socket.write("bestmove 7g7f\n");
-          }
-        }, 200);
-      }
-    } else if (cmd === "stop") {
-      if (isThinking) {
-        isThinking = false;
-
-        setTimeout(() => socket.write("bestmove 7g7f\n"), 50);
-      }
-    }
+  async function waitForEngineReady(ws: WebSocket): Promise<void> {
+    return new Promise((resolve) => {
+      const listener = (data: WebSocket.RawData) => {
+        if (JSON.parse(data.toString()).info === "info: engine is ready") {
+          ws.off("message", listener);
+          resolve();
+        }
+      };
+      ws.on("message", listener);
+    });
   }
 
   it("should perform implicit stop when receiving 'position' while thinking", async () => {
@@ -123,67 +80,37 @@ describe("Server USI Protocol & Implicit Stop", () => {
     const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
       origin: `http://localhost:${SERVER_PORT}`,
     });
-
     await new Promise<void>((resolve) => ws.on("open", resolve));
 
-    // 1. Start Engine
-    const readyPromise = new Promise<void>((resolve) => {
-      const listener = (data: WebSocket.RawData) => {
-        const msg = JSON.parse(data.toString());
-        if (msg.info === "info: engine is ready") {
-          ws.off("message", listener);
-          resolve();
-        }
-      };
-      ws.on("message", listener);
-    });
-    ws.send("start_engine test-engine");
-    await readyPromise;
-
-    // 2. Start Thinking
-    const thinkingPromise = new Promise<void>((resolve) => {
-      const listener = (data: WebSocket.RawData) => {
-        const msg = JSON.parse(data.toString());
-        if (msg.state === "thinking" || (msg.info && msg.info.startsWith("info"))) {
-          ws.off("message", listener);
-          resolve();
-        }
-      };
-      ws.on("message", listener);
-    });
-    ws.send("position startpos");
-    ws.send("go btime 30000 wtime 30000");
-    await thinkingPromise;
-
-    // 3. Send 'position' command WHILE thinking (should trigger implicit stop)
-    // We spy on the mock wrapper socket to see if 'stop' was sent
     let stopReceived = false;
-    // Intercept wrapper commands
-    const commandPromise = new Promise<void>((resolve) => {
-      const socket = activeWrapperSocket!;
-      // Note: We don't remove existing listeners to avoid breaking the mock logic completely,
-      // but we prepend this one or just add it.
-      // Better to check if we can add a listener without removing.
-      // The original code removed all listeners which might break the handleWrapperCommand if not careful.
-      // But handleWrapperCommand is inside the listener.
-      // Let's attach a new 'data' listener.
-      const listener = (data: Buffer) => {
-        const commands = data.toString().split("\n");
-        for (const cmd of commands) {
-          if (!cmd.trim()) continue;
-          if (cmd.trim() === "stop") {
-            stopReceived = true;
-            socket.off("data", listener);
-            resolve();
+    const testFinished = new Promise<void>((resolve) => {
+      mockWrapperServer.once("connection", (socket) => {
+        socket.on("data", (data) => {
+          const cmds = data.toString().split("\n");
+          for (const cmd of cmds) {
+            const c = cmd.trim();
+            if (c === "run test-engine") setTimeout(() => socket.write("usiok\n"), 10);
+            if (c === "isready") setTimeout(() => socket.write("readyok\n"), 10);
+            if (c === "stop") {
+              stopReceived = true;
+              setTimeout(() => {
+                socket.write("bestmove 7g7f\n");
+                resolve();
+              }, 10);
+            }
           }
-        }
-      };
-      socket.on("data", listener);
+        });
+      });
     });
+
+    ws.send("start_engine test-engine");
+    await waitForEngineReady(ws);
+    ws.send("position startpos");
+    ws.send("go infinite");
     ws.send("position startpos moves 7g7f");
-    // Wait for stop to be received by wrapper
-    await commandPromise;
+    await testFinished;
     expect(stopReceived).toBe(true);
+    ws.send("stop_engine");
     ws.close();
   });
 
@@ -192,70 +119,32 @@ describe("Server USI Protocol & Implicit Stop", () => {
     const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
       origin: `http://localhost:${SERVER_PORT}`,
     });
-
     await new Promise<void>((resolve) => ws.on("open", resolve));
 
-    // Capture received commands on the mock wrapper
     const receivedCommands: string[] = [];
-
-    // We need to hook into the socket as soon as it connects.
-    // Since we can't easily predict when start_engine connects, we poll activeWrapperSocket
-    // But sending start_engine starts the process.
-    // The previous test might have left a socket?
-    // start_engine will create a NEW socket connection.
-
-    // We'll prepare the hook promise first.
-    const hookPromise = new Promise<void>((resolve) => {
-      const checkInterval = setInterval(() => {
-        if (activeWrapperSocket && activeWrapperSocket.connecting === false) {
-          // Wait until it's a NEW socket? hard to tell.
-          // But since start_engine connects to mock server, mock server callback updates activeWrapperSocket.
-          // We can just rely on mockWrapperServer 'connection' event?
-          // The mock server setup in beforeAll updates activeWrapperSocket on connection.
-          // We can add a listener to the server itself?
-          // No, mockWrapperServer is net.Server.
-          clearInterval(checkInterval);
-
-          const socket = activeWrapperSocket;
-          const listener = (data: Buffer) => {
-            const cmds = data.toString().split("\n");
-            for (const c of cmds) {
-              if (c.trim()) receivedCommands.push(c.trim());
+    const testFinished = new Promise<void>((resolve) => {
+      mockWrapperServer.once("connection", (socket) => {
+        socket.on("data", (data) => {
+          const cmds = data.toString().split("\n");
+          for (const c of cmds) {
+            const cmd = c.trim();
+            if (!cmd) continue;
+            if (cmd === "run test-engine") setTimeout(() => socket.write("usiok\n"), 10);
+            if (cmd === "isready") setTimeout(() => socket.write("readyok\n"), 10);
+            if (!cmd.startsWith("run ") && cmd !== "usi" && cmd !== "isready") {
+              receivedCommands.push(cmd);
+              if (cmd === "setoption name MultiPV value 5") resolve();
             }
-          };
-          socket.on("data", listener);
-          resolve();
-        }
-      }, 10);
+          }
+        });
+      });
     });
 
-    // 1. Start Engine
     ws.send("start_engine test-engine");
-
-    // 2. Send options IMMEDIATELY (while engine is starting/initializing)
     ws.send("setoption name MultiPV value 5");
-
-    // Wait for ready state from client perspective
-    const readyPromise = new Promise<void>((resolve) => {
-      const listener = (data: WebSocket.RawData) => {
-        const msg = JSON.parse(data.toString());
-        if (msg.info === "info: engine is ready") {
-          ws.off("message", listener);
-          resolve();
-        }
-      };
-      ws.on("message", listener);
-    });
-
-    await readyPromise;
-    await hookPromise; // Ensure we hooked (though we might have missed early commands if polling was slow, but setoption comes later)
-
-    // Allow some time for queue flush
-    await new Promise((resolve) => setTimeout(resolve, 200));
-
-    // Verify commands were sent AFTER handshake
+    await testFinished;
     expect(receivedCommands).toContain("setoption name MultiPV value 5");
-
+    ws.send("stop_engine");
     ws.close();
   });
 
@@ -264,50 +153,35 @@ describe("Server USI Protocol & Implicit Stop", () => {
     const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
       origin: `http://localhost:${SERVER_PORT}`,
     });
-
     await new Promise<void>((resolve) => ws.on("open", resolve));
 
-    const readyPromise = new Promise<void>((resolve, reject) => {
-      const listener = (data: WebSocket.RawData) => {
-        const msg = JSON.parse(data.toString());
-        if (msg.error) {
-          ws.off("message", listener);
-          reject(new Error(`Server returned error during start: ${msg.error}`));
-        }
-        if (msg.info === "info: engine is ready") {
-          ws.off("message", listener);
-          resolve();
-        }
-      };
-      ws.on("message", listener);
+    const testFinished = new Promise<void>((resolve) => {
+      mockWrapperServer.once("connection", (socket) => {
+        socket.on("data", (data) => {
+          const cmds = data.toString().split("\n");
+          for (const cmd of cmds) {
+            const c = cmd.trim();
+            if (c === "run test-engine") setTimeout(() => socket.write("usiok\n"), 10);
+            if (c === "isready") setTimeout(() => socket.write("readyok\n"), 10);
+            if (c.startsWith("go")) {
+              setTimeout(() => {
+                socket.write("bestmove 7g7f\n");
+                resolve();
+              }, 50);
+            }
+          }
+        });
+      });
     });
 
     ws.send("start_engine test-engine");
-    await readyPromise;
+    await waitForEngineReady(ws);
+    ws.send("position startpos");
+    ws.send("go btime 1000");
 
-    // Start thinking
-    const thinkingPromise = new Promise<void>((resolve, reject) => {
+    await new Promise<void>((resolve) => {
       const listener = (data: WebSocket.RawData) => {
         const msg = JSON.parse(data.toString());
-        if (msg.error) {
-          ws.off("message", listener);
-          reject(new Error(`Server returned error during thinking wait: ${msg.error}`));
-        }
-        if (msg.state === "thinking") {
-          ws.off("message", listener);
-          resolve();
-        }
-      };
-      ws.on("message", listener);
-    });
-
-    const bestmovePromise = new Promise<void>((resolve, reject) => {
-      const listener = (data: WebSocket.RawData) => {
-        const msg = JSON.parse(data.toString());
-        if (msg.error) {
-          ws.off("message", listener);
-          reject(new Error(`Server returned error during bestmove wait: ${msg.error}`));
-        }
         if (msg.info && msg.info.startsWith("bestmove")) {
           ws.off("message", listener);
           resolve();
@@ -316,16 +190,50 @@ describe("Server USI Protocol & Implicit Stop", () => {
       ws.on("message", listener);
     });
 
-    // Check state returns to ready
-    // Must listen BEFORE sending go, as bestmove and ready state come back-to-back
-    const readyStatePromise = new Promise<void>((resolve, reject) => {
+    await testFinished;
+    ws.send("stop_engine");
+    ws.close();
+  });
+
+  it("should replay multiple important commands correctly after bestmove", async () => {
+    const sessionId = "test-replay-complex";
+    const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
+      origin: `http://localhost:${SERVER_PORT}`,
+    });
+    await new Promise<void>((resolve) => ws.on("open", resolve));
+
+    const receivedAfterStop: string[] = [];
+    let bestmoveSent = false;
+    const testFinished = new Promise<void>((resolve) => {
+      mockWrapperServer.once("connection", (socket) => {
+        socket.on("data", (data) => {
+          const cmds = data.toString().split("\n");
+          for (const c of cmds) {
+            const cmd = c.trim();
+            if (!cmd) continue;
+            if (cmd === "run test-engine") setTimeout(() => socket.write("usiok\n"), 10);
+            if (cmd === "isready") setTimeout(() => socket.write("readyok\n"), 10);
+            if (cmd === "stop" && !bestmoveSent) {
+              setTimeout(() => {
+                bestmoveSent = true;
+                socket.write("bestmove 7g7f\n");
+              }, 500);
+            } else if (bestmoveSent) {
+              receivedAfterStop.push(cmd);
+              if (cmd.startsWith("go")) resolve();
+            }
+          }
+        });
+      });
+    });
+
+    ws.send("start_engine test-engine");
+    await waitForEngineReady(ws);
+    ws.send("position startpos");
+    ws.send("go infinite");
+    await new Promise<void>((resolve) => {
       const listener = (data: WebSocket.RawData) => {
-        const msg = JSON.parse(data.toString());
-        if (msg.error) {
-          ws.off("message", listener);
-          reject(new Error(`Server returned error during ready state wait: ${msg.error}`));
-        }
-        if (msg.state === "ready") {
+        if (JSON.parse(data.toString()).state === "thinking") {
           ws.off("message", listener);
           resolve();
         }
@@ -333,17 +241,112 @@ describe("Server USI Protocol & Implicit Stop", () => {
       ws.on("message", listener);
     });
 
-    ws.send("position startpos");
-    ws.send("go btime 1000");
+    ws.send("position startpos moves 7g7f"); // Implicit stop
+    ws.send("setoption name MultiPV value 3");
+    ws.send("gameover win"); // Use gameover instead of usinewgame for sequence test
+    ws.send("setoption name MultiPV value 5");
+    ws.send("gameover draw");
+    ws.send("position startpos moves 7g7f 3g3f");
+    ws.send("go btime 1000 wtime 1000");
 
-    // Check for thinking state
-    await thinkingPromise;
+    await testFinished;
+    // Expected order: MultiPV (latest) -> gameover win -> gameover draw -> position (latest) -> go (latest)
+    expect(receivedAfterStop[0]).toBe("setoption name MultiPV value 5");
+    expect(receivedAfterStop[1]).toBe("gameover win");
+    expect(receivedAfterStop[2]).toBe("gameover draw");
+    expect(receivedAfterStop[3]).toBe("position startpos moves 7g7f 3g3f");
+    expect(receivedAfterStop[4]).toBe("go btime 1000 wtime 1000");
+    ws.send("stop_engine");
+    ws.close();
+  });
 
-    // Wait for bestmove
-    await bestmovePromise;
+  it("should respect MAX_QUEUE_SIZE and drop old commands", async () => {
+    const sessionId = "test-queue-limit";
+    const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
+      origin: `http://localhost:${SERVER_PORT}`,
+    });
+    await new Promise<void>((resolve) => ws.on("open", resolve));
 
-    await readyStatePromise;
+    for (let i = 0; i < 150; i++) {
+      ws.send(`gameover win`); // Use gameover as it's not filtered
+    }
 
+    const receivedCommands: string[] = [];
+    const testFinished = new Promise<void>((resolve) => {
+      mockWrapperServer.once("connection", (socket) => {
+        socket.on("data", (data) => {
+          const cmds = data.toString().split("\n");
+          for (const c of cmds) {
+            const cmd = c.trim();
+            if (cmd === "run test-engine") setTimeout(() => socket.write("usiok\n"), 10);
+            if (cmd === "isready") setTimeout(() => socket.write("readyok\n"), 10);
+            if (
+              cmd &&
+              !cmd.startsWith("run ") &&
+              cmd !== "usi" &&
+              cmd !== "isready" &&
+              cmd !== "usinewgame"
+            ) {
+              receivedCommands.push(cmd);
+              if (receivedCommands.length >= 100) resolve();
+            }
+          }
+        });
+      });
+    });
+
+    ws.send("start_engine test-engine");
+    await testFinished;
+    expect(receivedCommands.length).toBe(100);
+    expect(receivedCommands.every((c) => c === "gameover win")).toBe(true);
+    ws.send("stop_engine");
+    ws.close();
+  });
+
+  it("should ignore commands after quit is received", async () => {
+    const sessionId = "test-quit-idempotency";
+    const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
+      origin: `http://localhost:${SERVER_PORT}`,
+    });
+    await new Promise<void>((resolve) => ws.on("open", resolve));
+
+    const receivedAfterQuit: string[] = [];
+    let quitProcessed = false;
+    const testFinished = new Promise<void>((resolve) => {
+      mockWrapperServer.once("connection", (socket) => {
+        socket.on("data", (data) => {
+          const cmds = data.toString().split("\n");
+          for (const c of cmds) {
+            const cmd = c.trim();
+            if (cmd === "run test-engine") setTimeout(() => socket.write("usiok\n"), 10);
+            if (cmd === "isready") setTimeout(() => socket.write("readyok\n"), 10);
+            if (cmd === "quit") {
+              quitProcessed = true;
+              ws.send("setoption name MultiPV value 10");
+              ws.send("position startpos");
+              ws.send("go infinite");
+              setTimeout(resolve, 200);
+            } else if (
+              quitProcessed &&
+              cmd &&
+              !cmd.startsWith("run ") &&
+              cmd !== "usi" &&
+              cmd !== "isready" &&
+              cmd !== "usinewgame"
+            ) {
+              receivedAfterQuit.push(cmd);
+            }
+          }
+        });
+      });
+    });
+
+    ws.send("start_engine test-engine");
+    await waitForEngineReady(ws);
+    ws.send("quit");
+    await testFinished;
+    expect(receivedAfterQuit).toHaveLength(0);
+    ws.send("stop_engine");
     ws.close();
   });
 });

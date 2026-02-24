@@ -29,7 +29,6 @@ export class LanPlayer implements Player {
   private engineId: string;
   private engineName: string;
   private currentSfen: string = "";
-  private lastGoCommand: string = "";
   private isThinking: boolean = false;
   private stopPromiseResolver: (() => void) | null = null;
   private stopPromiseRejector: ((err: Error) => void) | null = null;
@@ -68,19 +67,41 @@ export class LanPlayer implements Player {
   }
 
   async launch(): Promise<void> {
+    await this.lanEngine.connect((message: string) => {
+      this.onMessage(message);
+    });
+
     return new Promise((resolve, reject) => {
-      this.lanEngine
-        .connect((message: string) => {
-          this.onMessage(message);
-        })
-        .then(() => {
-          this.lanEngine.startEngine(this.engineId);
-          if (this._multiPV !== 1) {
-            this.lanEngine.setOption("MultiPV", this._multiPV);
+      const readyListener = (message: string) => {
+        try {
+          const data = JSON.parse(message);
+          if (data.info === "info: engine is ready" || data.state === "ready") {
+            clearTimeout(timeout);
+            this.lanEngine.removeMessageListener(readyListener);
+            resolve();
+          } else if (data.error) {
+            clearTimeout(timeout);
+            this.lanEngine.removeMessageListener(readyListener);
+            reject(new Error(data.error));
           }
-          resolve();
-        })
-        .catch(reject);
+        } catch (e) {
+          // ignore
+        }
+        return false;
+      };
+
+      this.lanEngine.addMessageListener(readyListener);
+      this.lanEngine.startEngine(this.engineId);
+      if (this._multiPV !== 1) {
+        this.lanEngine.setOption("MultiPV", this._multiPV);
+      }
+
+      // Start timeout after sending startEngine
+      const timeout = window.setTimeout(() => {
+        this.lanEngine.removeMessageListener(readyListener);
+        this.lanEngine.disconnect();
+        reject(new Error("Timeout waiting for engine to become ready"));
+      }, 15000);
     });
   }
 
@@ -88,7 +109,7 @@ export class LanPlayer implements Player {
     if (this.isThinking) {
       await this.stopAndWait();
     }
-    // Note: 'isready' and 'usinewgame' are handled automatically by the server.
+    this.lanEngine.sendCommand("usinewgame");
   }
 
   async startSearch(
@@ -127,7 +148,6 @@ export class LanPlayer implements Player {
     } else if (binc > 0 || winc > 0) {
       goCommand += ` binc ${binc} winc ${winc}`;
     }
-    this.lastGoCommand = goCommand;
     this.lanEngine.sendCommand(goCommand);
     this.isThinking = true;
   }
@@ -143,7 +163,6 @@ export class LanPlayer implements Player {
       await this.stopAndWait();
     }
     this.lanEngine.sendCommand(usi);
-    this.lastGoCommand = "go infinite";
     this.lanEngine.sendCommand("go infinite");
     this.isThinking = true;
   }
@@ -344,18 +363,19 @@ export class LanPlayer implements Player {
     const result: USIInfoCommand = {};
     for (let i = 1; i < parts.length; i++) {
       const key = parts[i];
-      if (key === "depth") result.depth = parseInt(parts[++i]);
-      else if (key === "seldepth") result.seldepth = parseInt(parts[++i]);
-      else if (key === "nodes") result.nodes = parseInt(parts[++i]);
-      else if (key === "time") result.timeMs = parseInt(parts[++i]);
-      else if (key === "score") {
+      if (key === "depth" && i + 1 < parts.length) result.depth = parseInt(parts[++i]);
+      else if (key === "seldepth" && i + 1 < parts.length) result.seldepth = parseInt(parts[++i]);
+      else if (key === "nodes" && i + 1 < parts.length) result.nodes = parseInt(parts[++i]);
+      else if (key === "time" && i + 1 < parts.length) result.timeMs = parseInt(parts[++i]);
+      else if (key === "score" && i + 2 < parts.length) {
         const type = parts[++i];
         const value = parseInt(parts[++i]);
         if (type === "cp") result.scoreCP = value;
         else if (type === "mate") result.scoreMate = value;
-      } else if (key === "multipv") result.multipv = parseInt(parts[++i]);
-      else if (key === "nps") result.nps = parseInt(parts[++i]);
-      else if (key === "hashfull") result.hashfullPerMill = parseInt(parts[++i]);
+      } else if (key === "multipv" && i + 1 < parts.length) result.multipv = parseInt(parts[++i]);
+      else if (key === "nps" && i + 1 < parts.length) result.nps = parseInt(parts[++i]);
+      else if (key === "hashfull" && i + 1 < parts.length)
+        result.hashfullPerMill = parseInt(parts[++i]);
       else if (key === "pv") {
         result.pv = parts.slice(i + 1);
         break; // pv is usually the last part

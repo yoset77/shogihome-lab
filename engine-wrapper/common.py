@@ -36,7 +36,10 @@ def get_python_exe():
 
 def is_bundled():
     """同梱環境（配布用パッケージ）として動いているか判定"""
-    return (BASE_DIR / "python").exists()
+    # python ディレクトリが存在し、かつ shogihome-server.exe が所定の位置にある場合のみ同梱環境とみなす
+    # (開発環境で配布用バイナリ構築スクリプトを実行した際などの誤判定を防止)
+    shogihome_exe = BASE_DIR.parent / "shogihome" / "shogihome-server.exe"
+    return (BASE_DIR / "python").exists() and shogihome_exe.exists()
 
 
 def load_env_value(env_path, key, default):
