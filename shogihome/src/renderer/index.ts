@@ -30,8 +30,16 @@ import * as _zh_tw from "dayjs/locale/zh-tw";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { useErrorStore } from "@/renderer/store/error.js";
 import { UIMode } from "@/common/settings/app.js";
+// eslint-disable-next-line import/no-unresolved
+import { registerSW } from "virtual:pwa-register";
 
 api.log(LogLevel.INFO, `start renderer process: APP_VERSION=${appInfo.appVersion}`);
+
+registerSW({
+  onNeedRefresh() {
+    location.reload();
+  },
+});
 
 // setup libraries
 import("dayjs/locale/en");
