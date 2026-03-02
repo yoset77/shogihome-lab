@@ -4,7 +4,7 @@ import { TimeStates } from "@/common/game/time";
 import { LanEngine } from "@/renderer/network/lan_engine";
 import { GameResult } from "@/common/game/result";
 import { parseUSIPV, USIInfoCommand } from "@/common/game/usi";
-import { dispatchUSIInfoUpdate } from "./usi";
+import { dispatchUSIInfoUpdate, setOnStartSearchHandler } from "./usi";
 import { t } from "@/common/i18n";
 
 function getSessionId(sessionKey: string): string {
@@ -17,6 +17,24 @@ function getSessionId(sessionKey: string): string {
     localStorage.setItem(localStorageKey, id);
   }
   return id;
+}
+
+let onStartSearch: (sessionID: number, position: ImmutablePosition) => void = () => {};
+
+setOnStartSearchHandler((sessionID, position) => {
+  onStartSearch(sessionID, position);
+});
+
+export function setOnStartSearchHandlerForLan(
+  handler: (sessionID: number, position: ImmutablePosition) => void,
+) {
+  onStartSearch = handler;
+}
+
+const lanPlayers: { [sessionID: number]: LanPlayer } = {};
+
+export function isActiveLanPlayerSession(sessionID: number): boolean {
+  return !!lanPlayers[sessionID];
 }
 
 export class LanPlayer implements Player {
@@ -48,9 +66,20 @@ export class LanPlayer implements Player {
     this.engineName = engineName;
     this.onSearchInfo = onSearchInfo;
     this.onErrorCallback = onError;
-    const randomBuffer = new Uint32Array(1);
-    window.crypto.getRandomValues(randomBuffer);
-    this._sessionID = randomBuffer[0] % 100000;
+
+    // Use deterministic session ID for LAN engines to avoid collisions and pruning.
+    // USIPlayer uses IDs from 1. We use a high offset.
+    if (sessionKey === "research_main") {
+      this._sessionID = 200000;
+    } else if (sessionKey.startsWith("research_sub_")) {
+      const index = parseInt(sessionKey.substring("research_sub_".length));
+      this._sessionID = 200000 + index;
+    } else {
+      const randomBuffer = new Uint32Array(1);
+      window.crypto.getRandomValues(randomBuffer);
+      this._sessionID = 300000 + (randomBuffer[0] % 100000);
+    }
+
     this.lanEngine = new LanEngine(getSessionId(sessionKey));
   }
 
@@ -67,6 +96,7 @@ export class LanPlayer implements Player {
   }
 
   async launch(): Promise<void> {
+    lanPlayers[this._sessionID] = this;
     await this.lanEngine.connect((message: string) => {
       this.onMessage(message);
     });
@@ -75,7 +105,11 @@ export class LanPlayer implements Player {
       const readyListener = (message: string) => {
         try {
           const data = JSON.parse(message);
-          if (data.info === "info: engine is ready" || data.state === "ready") {
+          if (
+            data.info === "info: engine is ready" ||
+            data.state === "ready" ||
+            data.state === "thinking"
+          ) {
             clearTimeout(timeout);
             this.lanEngine.removeMessageListener(readyListener);
             resolve();
@@ -150,6 +184,7 @@ export class LanPlayer implements Player {
     }
     this.lanEngine.sendCommand(goCommand);
     this.isThinking = true;
+    onStartSearch(this._sessionID, this.position);
   }
 
   async startResearch(position: ImmutablePosition, usi: string): Promise<void> {
@@ -165,6 +200,7 @@ export class LanPlayer implements Player {
     this.lanEngine.sendCommand(usi);
     this.lanEngine.sendCommand("go infinite");
     this.isThinking = true;
+    onStartSearch(this._sessionID, this.position);
   }
 
   /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -207,6 +243,7 @@ export class LanPlayer implements Player {
     } finally {
       this.lanEngine.stopEngine();
       this.lanEngine.disconnect();
+      delete lanPlayers[this._sessionID];
     }
   }
 
@@ -313,6 +350,9 @@ export class LanPlayer implements Player {
           this.updateInfo(infoCommand, data.sfen);
         }
       } else if (data.state) {
+        if (data.state === "thinking") {
+          this.isThinking = true;
+        }
         if (
           this.isThinking &&
           (data.state === "uninitialized" || data.state === "stopped" || data.state === "ready")

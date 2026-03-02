@@ -23,7 +23,7 @@ try {
 } catch (error) {
   console.error("Failed to generate puzzle manifest:", error);
   // If the puzzles directory does not exist, create an empty manifest.
-  if (error.code === "ENOENT") {
+  if ((error as { code?: string }).code === "ENOENT") {
     fs.writeFileSync(manifestPath, JSON.stringify([], null, 2));
     console.log(`Puzzles directory not found. Generated an empty puzzle manifest.`);
   } else {

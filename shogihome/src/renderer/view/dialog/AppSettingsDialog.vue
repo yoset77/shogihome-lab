@@ -355,6 +355,11 @@
             ]"
           />
         </div>
+        <!-- 定跡タブを表示 (モバイル) -->
+        <div v-if="isMobileWebApp()" class="form-item">
+          <div class="form-item-label-wide">{{ t.showBookTableOnMobile }}</div>
+          <ToggleButton v-model:value="update.showBookTableOnMobile" />
+        </div>
       </div>
       <hr />
       <!-- 音 -->
@@ -529,14 +534,19 @@
           <div class="form-item-label-wide">{{ t.pasteDialog }}</div>
           <ToggleButton v-model:value="update.showPasteDialog" />
         </div>
+        <!-- 同一局面を常に検出 -->
+        <div class="form-item">
+          <div class="form-item-label-wide">{{ t.liveDuplicatePositionDetection }}</div>
+          <ToggleButton v-model:value="update.liveDuplicatePositionDetection" />
+        </div>
       </div>
-      <hr v-if="!isMobileWebApp()" />
+      <hr />
       <!-- 定跡 -->
-      <div v-if="!isMobileWebApp()" class="section">
+      <div class="section">
         <div class="section-title">{{ t.book }}</div>
         <!-- 読み専モード閾値 -->
         <div class="form-item">
-          <div class="form-item-label-wide">{{ t.readOnlyThreshold }}</div>
+          <div class="form-item-label-wide">{{ t.onTheFlyThreshold }}</div>
           <input v-model.number="update.bookOnTheFlyThresholdMB" type="number" max="4096" min="0" />
           <div class="form-item-small-label">MB ({{ t.between(0, 4096) }})</div>
         </div>
@@ -880,6 +890,7 @@ const update = ref({
   enableUSIFileStartpos: org.enableUSIFileStartpos,
   enableUSIFileResign: org.enableUSIFileResign,
   showPasteDialog: org.showPasteDialog,
+  liveDuplicatePositionDetection: org.liveDuplicatePositionDetection,
   bookOnTheFlyThresholdMB: org.bookOnTheFlyThresholdMB,
   translateEngineOptionName: org.translateEngineOptionName,
   engineTimeoutSeconds: org.engineTimeoutSeconds,
@@ -901,6 +912,7 @@ const update = ref({
   enableCSALog: org.enableCSALog,
   logLevel: org.logLevel,
   enableHardwareAcceleration: org.enableHardwareAcceleration,
+  showBookTableOnMobile: org.showBookTableOnMobile,
 });
 const versionStatus = ref({} as VersionStatus);
 

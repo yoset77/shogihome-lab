@@ -10,6 +10,7 @@ import { t } from "@/common/i18n/index.js";
 import { defaultCSAGameSettingsHistory } from "@/common/settings/csa.js";
 import { defaultMateSearchSettings } from "@/common/settings/mate.js";
 import { defaultBatchConversionSettings } from "@/common/settings/conversion.js";
+import { defaultBookImportSettings } from "@/common/settings/book.js";
 import { getEmptyHistory } from "@/common/file/history.js";
 import { BookLoadingMode } from "@/common/book.js";
 import { VersionStatus } from "@/common/version.js";
@@ -25,6 +26,7 @@ enum STORAGE_KEY {
   GAME_SETTINGS = "gameSetting",
   MATE_SEARCH_SETTINGS = "mateSearchSetting",
   CSA_GAME_SETTINGS_HISTORY = "csaGameSettingHistory",
+  BOOK_IMPORT_SETTINGS = "bookImportSetting",
 }
 
 const fileCache = new Map<string, ArrayBuffer>();
@@ -171,10 +173,17 @@ export const webAPI: Bridge = {
     // Do Nothing
   },
   async loadBookImportSettings(): Promise<string> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
+    const json = localStorage.getItem(STORAGE_KEY.BOOK_IMPORT_SETTINGS);
+    if (!json) {
+      return JSON.stringify(defaultBookImportSettings());
+    }
+    return JSON.stringify({
+      ...defaultBookImportSettings(),
+      ...JSON.parse(json),
+    });
   },
-  async saveBookImportSettings(): Promise<void> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
+  async saveBookImportSettings(json: string): Promise<void> {
+    localStorage.setItem(STORAGE_KEY.BOOK_IMPORT_SETTINGS, json);
   },
   onUpdateAppSettings(): void {
     // Do Nothing
@@ -284,34 +293,137 @@ export const webAPI: Bridge = {
 
   // Book
   async showOpenBookDialog(): Promise<string> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
+    const response = await fetchWithTimeout("/api/kifu/enabled");
+    const json = await response.json();
+    if (!json.enabled) {
+      throw new Error(t.thisFeatureNotAvailableOnWebApp);
+    }
+    // Return a dummy path to trigger the server-side openBook.
+    // The actual path will be selected from the kifu list in the UI.
+    return "server://";
   },
-  async showSaveBookDialog(): Promise<string> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
+  async showSaveBookDialog(_session: number, defaultPath: string): Promise<string> {
+    const response = await fetchWithTimeout("/api/kifu/enabled");
+    const json = await response.json();
+    if (!json.enabled) {
+      throw new Error(t.thisFeatureNotAvailableOnWebApp);
+    }
+    const path = window.prompt(t.cannotOverwriteOnTheFlyBook, defaultPath);
+    if (!path) {
+      return "";
+    }
+    return "server://" + path;
   },
   async clearBook(): Promise<void> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
+    const response = await fetchWithTimeout("/api/book/clear", { method: "POST" });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
   },
-  async openBook(): Promise<BookLoadingMode> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
+  async openBook(_session: number, path: string, options: string): Promise<BookLoadingMode> {
+    if (!path.startsWith("server://")) {
+      throw new Error("Only server-side books are supported");
+    }
+    const relPath = path.substring(9);
+    const response = await fetchWithTimeout(
+      `/api/book/open?path=${encodeURIComponent(relPath)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: options,
+      },
+      60000,
+    );
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const json = await response.json();
+    return json.mode;
   },
-  async saveBook(): Promise<void> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
+  async saveBook(_session: number, path: string): Promise<void> {
+    if (!path.startsWith("server://")) {
+      throw new Error("Only server-side books are supported");
+    }
+    const relPath = path.substring(9);
+    const response = await fetchWithTimeout(
+      `/api/book/save?path=${encodeURIComponent(relPath)}`,
+      {
+        method: "POST",
+      },
+      600000,
+    );
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
   },
-  async searchBookMoves(): Promise<string> {
-    return "[]";
+  async searchBookMoves(_session: number, sfen: string): Promise<string> {
+    const response = await fetchWithTimeout(`/api/book/search?sfen=${encodeURIComponent(sfen)}`);
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const json = await response.json();
+    return JSON.stringify(json);
   },
-  async updateBookMove(): Promise<void> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
+  async searchBookMovesBatch(_session: number, sfens: string[]): Promise<string> {
+    const response = await fetchWithTimeout("/api/book/search/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sfens }),
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const json = await response.json();
+    return JSON.stringify(json);
   },
-  async removeBookMove(): Promise<void> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
+  async updateBookMove(_session: number, sfen: string, move: string): Promise<void> {
+    const response = await fetchWithTimeout(`/api/book/update?sfen=${encodeURIComponent(sfen)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: move,
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
   },
-  async updateBookMoveOrder(): Promise<void> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
+  async removeBookMove(_session: number, sfen: string, usi: string): Promise<void> {
+    const response = await fetchWithTimeout(
+      `/api/book/remove?sfen=${encodeURIComponent(sfen)}&usi=${encodeURIComponent(usi)}`,
+      { method: "POST" },
+    );
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
   },
-  async importBookMoves(): Promise<string> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
+  async updateBookMoveOrder(
+    _session: number,
+    sfen: string,
+    usi: string,
+    order: number,
+  ): Promise<void> {
+    const response = await fetchWithTimeout(
+      `/api/book/order?sfen=${encodeURIComponent(sfen)}&usi=${encodeURIComponent(usi)}&order=${order}`,
+      { method: "POST" },
+    );
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+  },
+  async importBookMoves(_session: number, json: string): Promise<string> {
+    const response = await fetchWithTimeout(
+      "/api/book/import",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: json,
+      },
+      600000,
+    );
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const result = await response.json();
+    return JSON.stringify(result);
   },
 
   // USI
@@ -524,6 +636,13 @@ export const webAPI: Bridge = {
   },
   async listServerKifu(reload?: boolean): Promise<string[]> {
     const response = await fetchWithTimeout(`/api/kifu/list${reload ? "?reload=true" : ""}`);
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  },
+  async listServerBook(): Promise<string[]> {
+    const response = await fetchWithTimeout("/api/book/list");
     if (!response.ok) {
       throw new Error(await response.text());
     }

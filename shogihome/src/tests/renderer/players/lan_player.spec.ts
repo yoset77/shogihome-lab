@@ -1,4 +1,8 @@
-import { LanPlayer } from "@/renderer/players/lan_player";
+import {
+  LanPlayer,
+  isActiveLanPlayerSession,
+  setOnStartSearchHandlerForLan,
+} from "@/renderer/players/lan_player";
 import { LanEngine } from "@/renderer/network/lan_engine";
 import { dispatchUSIInfoUpdate } from "@/renderer/players/usi.js";
 import { Record } from "tsshogi";
@@ -37,20 +41,20 @@ describe("LanPlayer", () => {
       messageListeners = messageListeners.filter((item) => item !== l);
     });
 
-    // Mock startEngine to trigger the ready sequence
+    // Mock startEngine
     (LanEngine.prototype.startEngine as Mock).mockImplementation(() => {
-      const readyMsg = JSON.stringify({ info: "info: engine is ready" });
-      // In real LanEngine, ws.onmessage triggers both the handler and the listeners.
-      // We simulate this by calling them in the next microtask to let the caller setup if needed.
-      process.nextTick(() => {
-        if (messageHandler) {
-          messageHandler(readyMsg);
-        }
-        messageListeners = messageListeners.filter((l) => !l(readyMsg));
-      });
+      // noop
     });
 
-    (LanEngine.prototype.sendCommand as Mock).mockResolvedValue(undefined);
+    // Mock sendCommand to automatically resolve stopAndWait
+    (LanEngine.prototype.sendCommand as Mock).mockImplementation((cmd: string) => {
+      if (cmd === "stop") {
+        setTimeout(() => {
+          sendMsg({ info: "bestmove 7g7f" });
+        }, 10);
+      }
+      return Promise.resolve();
+    });
     (LanEngine.prototype.setOption as Mock).mockResolvedValue(undefined);
   });
 
@@ -58,13 +62,26 @@ describe("LanPlayer", () => {
     vi.useRealTimers();
   });
 
+  function sendMsg(msg: unknown) {
+    const json = JSON.stringify(msg);
+    if (messageHandler) {
+      messageHandler(json);
+    }
+    messageListeners.forEach((l) => l(json));
+  }
+
+  async function launchPlayer(player: LanPlayer, msg: unknown = { info: "info: engine is ready" }) {
+    const launchPromise = player.launch();
+    await vi.advanceTimersByTimeAsync(100);
+    sendMsg(msg);
+    await launchPromise;
+  }
+
   it("updateInfo should filter multipv > 1 and use throttling", async () => {
     const onSearchInfo = vi.fn();
     const player = new LanPlayer("test-session", "test-engine", "Test Engine", onSearchInfo);
 
-    const launchPromise = player.launch();
-    await vi.runAllTimersAsync();
-    await launchPromise;
+    await launchPlayer(player);
 
     const usi = "position startpos";
     const record = Record.newByUSI(usi) as Record;
@@ -117,9 +134,7 @@ describe("LanPlayer", () => {
     const onSearchInfo = vi.fn();
     const player = new LanPlayer("test-session", "test-engine", "Test Engine", onSearchInfo);
 
-    const launchPromise = player.launch();
-    await vi.runAllTimersAsync();
-    await launchPromise;
+    await launchPlayer(player);
 
     const usi1 = "position startpos moves 7g7f";
     const usi2 = "position startpos moves 7g7f 3c3d";
@@ -127,19 +142,12 @@ describe("LanPlayer", () => {
     const record2 = Record.newByUSI(usi2) as Record;
 
     // Start search on position 1
-    const p1 = player.startResearch(record1.position, usi1);
-    await vi.runAllTimersAsync();
-    await p1;
+    await player.startResearch(record1.position, usi1);
 
     // Position changes to 2
     const p2 = player.startResearch(record2.position, usi2);
     // Simulate bestmove for position 1 to resolve stopAndWait
-    messageHandler(
-      JSON.stringify({
-        info: "bestmove 7g7f",
-      }),
-    );
-    await vi.runAllTimersAsync();
+    sendMsg({ info: "bestmove 7g7f" });
     await p2;
 
     // Stale message from position 1 arrives
@@ -177,9 +185,7 @@ describe("LanPlayer", () => {
     const onSearchInfo = vi.fn();
     const player = new LanPlayer("test-session", "test-engine", "Test Engine", onSearchInfo);
 
-    const launchPromise = player.launch();
-    await vi.runAllTimersAsync();
-    await launchPromise;
+    await launchPlayer(player);
 
     const usi1 = "position startpos moves 7g7f";
     const usi2 = "position startpos moves 7g7f 3c3d";
@@ -187,9 +193,7 @@ describe("LanPlayer", () => {
     const record2 = Record.newByUSI(usi2) as Record;
 
     // Start search on position 1
-    const p1 = player.startResearch(record1.position, usi1);
-    await vi.runAllTimersAsync();
-    await p1;
+    await player.startResearch(record1.position, usi1);
 
     // Info for position 1 arrives and is throttled
     messageHandler(
@@ -203,13 +207,10 @@ describe("LanPlayer", () => {
     // Position changes to 2 before throttle expires
     const p2 = player.startResearch(record2.position, usi2);
     // Simulate bestmove for position 1 to resolve stopAndWait
-    messageHandler(
-      JSON.stringify({
-        sfen: usi1, // Server still tags it with old SFEN
-        info: "bestmove 7g7f",
-      }),
-    );
-    await vi.runAllTimersAsync();
+    sendMsg({
+      sfen: usi1, // Server still tags it with old SFEN
+      info: "bestmove 7g7f",
+    });
     await p2;
 
     // Advance time to trigger throttle
@@ -224,9 +225,7 @@ describe("LanPlayer", () => {
       /* noop */
     });
 
-    const launchPromise = player.launch();
-    await vi.runAllTimersAsync();
-    await launchPromise;
+    await launchPlayer(player);
 
     const usi = "position startpos";
     const record = Record.newByUSI(usi) as Record;
@@ -242,5 +241,74 @@ describe("LanPlayer", () => {
 
     // dispatchUSIInfoUpdate should be called for UI display
     expect(dispatchUSIInfoUpdate).toBeCalled();
+  });
+
+  it("should resolve launch and set isThinking to true when re-attaching to a thinking engine", async () => {
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine");
+    await launchPlayer(player, { state: "thinking" });
+
+    // Check if isThinking is true
+    expect((player as unknown as { isThinking: boolean }).isThinking).toBe(true);
+  });
+
+  it("should use deterministic sessionID", () => {
+    const playerMain = new LanPlayer("research_main", "test-engine", "Test Engine");
+    expect(playerMain.sessionID).toBe(200000);
+
+    const playerSub1 = new LanPlayer("research_sub_1", "test-engine", "Test Engine");
+    expect(playerSub1.sessionID).toBe(200001);
+
+    const playerSub2 = new LanPlayer("research_sub_2", "test-engine", "Test Engine");
+    expect(playerSub2.sessionID).toBe(200002);
+  });
+
+  it("isActiveLanPlayerSession should track active sessions", async () => {
+    const player = new LanPlayer("research_main", "test-engine", "Test Engine");
+    expect(isActiveLanPlayerSession(200000)).toBe(false);
+
+    await launchPlayer(player);
+
+    expect(isActiveLanPlayerSession(200000)).toBe(true);
+
+    await player.close();
+    expect(isActiveLanPlayerSession(200000)).toBe(false);
+  });
+
+  it("should trigger onStartSearch when starting search or research", async () => {
+    const onStartSearch = vi.fn();
+    setOnStartSearchHandlerForLan(onStartSearch);
+
+    const player = new LanPlayer("research_main", "test-engine", "Test Engine");
+    await launchPlayer(player);
+
+    const usi = "position startpos";
+    const record = Record.newByUSI(usi) as Record;
+
+    // Test startResearch
+    const p1 = player.startResearch(record.position, usi);
+    await vi.advanceTimersByTimeAsync(100);
+    await p1;
+    expect(onStartSearch).toBeCalledWith(200000, record.position);
+
+    onStartSearch.mockClear();
+
+    // Test startSearch
+    const p2 = player.startSearch(
+      record.position,
+      usi,
+      {
+        black: { timeMs: 1000, byoyomi: 0, increment: 0 },
+        white: { timeMs: 1000, byoyomi: 0, increment: 0 },
+      },
+      {
+        onMove: vi.fn(),
+        onResign: vi.fn(),
+        onWin: vi.fn(),
+        onError: vi.fn(),
+      },
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    await p2;
+    expect(onStartSearch).toBeCalledWith(200000, record.position);
   });
 });

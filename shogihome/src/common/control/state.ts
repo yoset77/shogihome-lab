@@ -21,6 +21,9 @@ export enum AppState {
   SHARE_DIALOG = "shareDialog",
   ADD_BOOK_MOVES_DIALOG = "addBookMovesDialog",
   SERVER_KIFU_DIALOG = "serverKifuDialog",
+  BOOK_SELECT_DIALOG = "bookSelectDialog",
+  DUPLICATE_POSITIONS_DIALOG = "duplicatePositionsDialog",
+  SEARCH_DUPLICATE_POSITIONS_DIALOG = "searchDuplicatePositionsDialog",
   PUZZLE = "puzzle",
 }
 

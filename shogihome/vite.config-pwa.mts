@@ -8,6 +8,7 @@ export default defineConfig({
   plugins: [
     ...(base.plugins || []),
     VitePWA({
+      registerType: "autoUpdate",
       devOptions: {
         enabled: true,
       },
@@ -22,6 +23,8 @@ export default defineConfig({
         icons: [{ sizes: "512x512", src: "favicon.png", type: "image/png" }],
       },
       workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
         navigateFallbackDenylist: [/^\/third-party-licenses/],
       },
     }),

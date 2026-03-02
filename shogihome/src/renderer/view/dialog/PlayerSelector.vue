@@ -18,15 +18,17 @@
     <span class="player-info-key">{{ t.suggestionsCount }}:</span>
     <span class="player-info-value">{{ multiPVState || "---" }}</span>
   </div>
-  <button
-    v-if="enableEditButton"
-    class="player-settings"
-    :disabled="!isPlayerSettingsEnabled"
-    @click="openPlayerSettings"
-  >
-    <Icon :icon="IconType.SETTINGS" />
-    <span>{{ t.settings }}</span>
-  </button>
+  <div class="horizontal-buttons">
+    <button
+      v-if="enableEditButton && isPlayerSettingsEnabled"
+      class="player-settings"
+      @click="openPlayerSettings"
+    >
+      <Icon :icon="IconType.SETTINGS" />
+      <span>{{ t.settings }}</span>
+    </button>
+    <slot name="extra-buttons"></slot>
+  </div>
   <USIEngineOptionsDialog
     v-if="engineOptionsDialog"
     :latest="engineOptionsDialog"
@@ -272,7 +274,11 @@ const closePlayerSettings = () => {
   text-align: left;
   vertical-align: baseline;
 }
-.player-settings {
-  margin: 5px auto 0px auto;
+.horizontal-buttons {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
 }
 </style>

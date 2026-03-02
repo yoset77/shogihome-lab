@@ -3,6 +3,7 @@ import {
   Color,
   exportCSA,
   ImmutableRecord,
+  ImmutableNode,
   Move,
   PositionChange,
   formatSpecialMove,
@@ -70,6 +71,7 @@ import { useBusyState } from "./busy.js";
 import { Confirmation, useConfirmationStore } from "./confirm.js";
 import { LayoutProfile, LayoutProfileList } from "@/common/settings/layout.js";
 import { clearURLParams, loadRecordForWebApp, saveRecordForWebApp } from "./webapp.js";
+import { useBookStore } from "./book.js";
 import { CommentBehavior } from "@/common/settings/comment.js";
 import { Attachment, ListItem } from "@/common/message.js";
 
@@ -209,6 +211,7 @@ function getMessageAttachmentsByGameResults(results: GameResults): Attachment[] 
 class Store {
   private recordManager = new RecordManager(loadRecordForWebApp());
   private _appState = AppState.NORMAL;
+  private _lastAppState = AppState.NORMAL;
   private _customLayout: LayoutProfile | null = null;
   private _isAppSettingsDialogVisible = false;
   private _isServerSideKifuEnabled = false;
@@ -222,6 +225,7 @@ class Store {
   private mateSearchManager = new MateSearchManager();
   private _researchState = ResearchState.IDLE;
   private researchManager = new ResearchManager();
+  private _duplicatePositionsSFEN = "";
   private isForceStopping = false;
   private _puzzle: Puzzle | null = null;
   private _reactive: UnwrapNestedRefs<Store>;
@@ -298,6 +302,14 @@ class Store {
       .on("error", this.onCheckmateError.bind(refs));
     setOnStartSearchHandler(this.endUSIIteration.bind(refs));
     setOnUpdateUSIInfoHandler(this.updateUSIInfo.bind(refs));
+
+    const bookStore = useBookStore(this.recordManager.record);
+    this.addEventListener("changePosition", () => {
+      bookStore.onChangePosition(this.recordManager.record);
+    });
+    bookStore.onShowBookSelectDialog(() => {
+      this.showBookSelectDialog();
+    });
   }
 
   addEventListener(event: "changePosition", handler: ChangePositionHandler): void;
@@ -356,6 +368,29 @@ class Store {
 
   get serverKifuPath(): string | undefined {
     return this.recordManager.serverKifuPath;
+  }
+
+  get positionCounts(): ReadonlyMap<string, number> {
+    return this.recordManager.positionCounts;
+  }
+
+  changeNode(node: ImmutableNode): void {
+    this.recordManager.changeNode(node);
+  }
+
+  get duplicatePositions(): ImmutableNode[] {
+    const sfen = this.record.position.sfen;
+    const result: ImmutableNode[] = [];
+    this.record.forEach((node) => {
+      if (node.sfen === sfen && node !== this.record.current) {
+        result.push(node);
+      }
+    });
+    return result;
+  }
+
+  get duplicatePositionsSFEN(): string {
+    return this._duplicatePositionsSFEN;
   }
 
   get inCommentPVs(): Move[][] {
@@ -508,7 +543,12 @@ class Store {
   }
 
   showLoadRemoteFileDialog(): void {
-    if (this.appState === AppState.NORMAL) {
+    if (
+      this.appState === AppState.NORMAL ||
+      this.appState === AppState.GAME ||
+      this.appState === AppState.CSA_GAME
+    ) {
+      this._lastAppState = this.appState;
       this._appState = AppState.LOAD_REMOTE_FILE_DIALOG;
     }
   }
@@ -526,8 +566,37 @@ class Store {
   }
 
   showServerKifuDialog(): void {
-    if (this.appState === AppState.NORMAL) {
+    if (
+      this.appState === AppState.NORMAL ||
+      this.appState === AppState.GAME ||
+      this.appState === AppState.CSA_GAME
+    ) {
+      this._lastAppState = this.appState;
       this._appState = AppState.SERVER_KIFU_DIALOG;
+    }
+  }
+
+  showDuplicatePositionsDialog(sfen: string): void {
+    if (this.appState === AppState.NORMAL) {
+      this._duplicatePositionsSFEN = sfen;
+      this._appState = AppState.DUPLICATE_POSITIONS_DIALOG;
+    }
+  }
+
+  showSearchDuplicatePositionsDialog(): void {
+    if (this.appState === AppState.NORMAL) {
+      this._appState = AppState.SEARCH_DUPLICATE_POSITIONS_DIALOG;
+    }
+  }
+
+  showBookSelectDialog(): void {
+    if (
+      this.appState === AppState.NORMAL ||
+      this.appState === AppState.GAME ||
+      this.appState === AppState.CSA_GAME
+    ) {
+      this._lastAppState = this.appState;
+      this._appState = AppState.BOOK_SELECT_DIALOG;
     }
   }
 
@@ -547,9 +616,13 @@ class Store {
       this.appState === AppState.LOAD_REMOTE_FILE_DIALOG ||
       this.appState === AppState.SHARE_DIALOG ||
       this.appState === AppState.ADD_BOOK_MOVES_DIALOG ||
-      this.appState === AppState.SERVER_KIFU_DIALOG
+      this.appState === AppState.SERVER_KIFU_DIALOG ||
+      this.appState === AppState.BOOK_SELECT_DIALOG ||
+      this.appState === AppState.DUPLICATE_POSITIONS_DIALOG ||
+      this.appState === AppState.SEARCH_DUPLICATE_POSITIONS_DIALOG
     ) {
-      this._appState = AppState.NORMAL;
+      this._appState = this._lastAppState;
+      this._lastAppState = AppState.NORMAL;
     }
   }
 
@@ -1556,103 +1629,113 @@ class Store {
     }
   }
 
-  openRecord(path?: string, opt?: { ply?: number }): void {
-    if (this.appState !== AppState.NORMAL || useBusyState().isBusy) {
+  async openRecord(path?: string, opt?: { ply?: number }): Promise<void> {
+    if (
+      (this.appState !== AppState.NORMAL &&
+        this.appState !== AppState.SERVER_KIFU_DIALOG &&
+        this.appState !== AppState.BOOK_SELECT_DIALOG &&
+        !path?.endsWith(".db") &&
+        !path?.endsWith(".bin")) ||
+      useBusyState().isBusy
+    ) {
       useErrorStore().add(t.pleaseEndActiveFeaturesBeforeOpenRecord);
       return;
     }
     useBusyState().retain();
-    Promise.resolve()
-      .then(() => {
-        return path || api.showOpenRecordDialog(getStandardRecordFileFormats());
-      })
-      .then((path) => {
-        if (!path) {
-          return;
-        }
-        const appSettings = useAppSettings();
-        const autoDetect = appSettings.textDecodingRule == TextDecodingRule.AUTO_DETECT;
-        return api.openRecord(path).then((data) => {
-          const e = this.recordManager.importRecordFromBuffer(data, path, {
-            autoDetect,
-          });
-          return e && Promise.reject(e);
-        });
-      })
-      .then(() => {
-        if (opt?.ply) {
-          this.recordManager.changePly(opt.ply);
-        }
-      })
-      .catch((e) => {
-        useErrorStore().add("棋譜の読み込み中にエラーが出ました: " + e); // TODO: i18n
-      })
-      .finally(() => {
-        useBusyState().release();
+    try {
+      if (!path) {
+        path = await api.showOpenRecordDialog(getStandardRecordFileFormats());
+      }
+      if (!path) {
+        return;
+      }
+      // Check if it's a book file. Book files are allowed to open even during a game.
+      if (path.endsWith(".db") || path.endsWith(".bin")) {
+        await useBookStore().openBook(path);
+        return;
+      } // Standard record file
+      const appSettings = useAppSettings();
+      const autoDetect = appSettings.textDecodingRule == TextDecodingRule.AUTO_DETECT;
+      const data = await api.openRecord(path);
+      const e = this.recordManager.importRecordFromBuffer(data, path, {
+        autoDetect,
       });
+      if (e) {
+        throw e;
+      }
+      if (opt?.ply) {
+        this.recordManager.changePly(opt.ply);
+      }
+    } catch (e) {
+      useErrorStore().add("棋譜の読み込み中にエラーが出ました: " + e); // TODO: i18n
+    } finally {
+      useBusyState().release();
+    }
   }
 
-  saveRecord(options?: { overwrite?: boolean; format?: RecordFileFormat; path?: string }): void {
+  async saveRecord(options?: {
+    overwrite?: boolean;
+    format?: RecordFileFormat;
+    path?: string;
+  }): Promise<void> {
     if (this.appState !== AppState.NORMAL || useBusyState().isBusy) {
       return;
     }
     useBusyState().retain();
-    Promise.resolve()
-      .then(() => {
-        if (options?.path) {
-          return options.path;
-        }
-        const path = this.recordManager.recordFilePath;
+    try {
+      let path = options?.path;
+      if (!path) {
+        const recordFilePath = this.recordManager.recordFilePath;
         const serverPath = this.recordManager.serverKifuPath;
-        if (options?.overwrite && (path || serverPath)) {
-          return path || "server://" + serverPath;
+        if (options?.overwrite && (recordFilePath || serverPath)) {
+          path = recordFilePath || "server://" + serverPath;
         }
+      }
+      if (!path) {
+        const recordFilePath = this.recordManager.recordFilePath;
+        const serverPath = this.recordManager.serverKifuPath;
         const appSettings = useAppSettings();
         const defaultPath =
-          (!options?.format && (path || (serverPath && "server://" + serverPath))) ||
+          (!options?.format && (recordFilePath || (serverPath && "server://" + serverPath))) ||
           generateRecordFileName(this.recordManager.record, {
             template: appSettings.recordFileNameTemplate,
             extension: options?.format || appSettings.defaultRecordFileFormat,
           });
-        return api.showSaveRecordDialog(defaultPath);
-      })
-      .then((path) => {
-        if (!path) {
-          return;
-        }
-        return this.saveRecordByPath(path, { detectGarbled: true }).then(() => {
-          const actualPath = path.startsWith("server://") ? path.substring(9) : path;
-          const fileFormat = detectRecordFileFormatByPath(actualPath) as RecordFileFormat;
-          const props = detectUnsupportedRecordProperties(this.recordManager.record, fileFormat);
-          const items = Object.entries(props)
-            .filter(([, v]) => v)
-            .map(([k]) => {
-              switch (k) {
-                case "branch":
-                  return t.branches;
-                case "comment":
-                  return t.comments;
-                case "bookmark":
-                  return t.bookmark;
-                case "time":
-                  return t.elapsedTime;
-              }
-            })
-            .map((v) => ({ text: v })) as ListItem[];
-          if (items.length) {
-            useMessageStore().enqueue({
-              text: t.followingDataNotSavedBecauseNotSupporetedBy(fileFormat),
-              attachments: [{ type: "list", items }],
-            });
+        path = await api.showSaveRecordDialog(defaultPath);
+      }
+      if (!path) {
+        return;
+      }
+      await this.saveRecordByPath(path, { detectGarbled: true });
+      const actualPath = path.startsWith("server://") ? path.substring(9) : path;
+      const fileFormat = detectRecordFileFormatByPath(actualPath) as RecordFileFormat;
+      const props = detectUnsupportedRecordProperties(this.recordManager.record, fileFormat);
+      const items = Object.entries(props)
+        .filter(([, v]) => v)
+        .map(([k]) => {
+          switch (k) {
+            case "branch":
+              return t.branches;
+            case "comment":
+              return t.comments;
+            case "bookmark":
+              return t.bookmark;
+            case "time":
+              return t.elapsedTime;
           }
+        })
+        .map((v) => ({ text: v })) as ListItem[];
+      if (items.length) {
+        useMessageStore().enqueue({
+          text: t.followingDataNotSavedBecauseNotSupporetedBy(fileFormat),
+          attachments: [{ type: "list", items }],
         });
-      })
-      .catch((e) => {
-        useErrorStore().add(e);
-      })
-      .finally(() => {
-        useBusyState().release();
-      });
+      }
+    } catch (e) {
+      useErrorStore().add(e);
+    } finally {
+      useBusyState().release();
+    }
   }
 
   private async saveRecordByPath(path: string, opt?: { detectGarbled: boolean }): Promise<void> {

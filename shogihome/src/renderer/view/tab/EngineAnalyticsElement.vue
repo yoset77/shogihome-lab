@@ -228,7 +228,7 @@ import { useAppSettings } from "@/renderer/store/settings";
 import { useStore } from "@/renderer/store";
 import { readInputAsNumber } from "@/renderer/helpers/form";
 import { useConfirmationStore } from "@/renderer/store/confirm";
-import { ResearchState } from "@/common/control/state.js";
+import { AppState, ResearchState } from "@/common/control/state.js";
 
 let ignoreSuggestionsCountLimit = false;
 const suggestionsCountLimit = 10;
@@ -276,13 +276,16 @@ const isResearchSession = computed(() => {
 });
 
 const paused = computed(() => {
-  if (props.mobileLayout) {
-    return (
-      store.researchState !== ResearchState.RUNNING ||
-      store.isPausedResearchEngine(props.monitor.sessionID)
-    );
+  if (isResearchSession.value) {
+    if (props.mobileLayout) {
+      return (
+        store.researchState !== ResearchState.RUNNING ||
+        store.isPausedResearchEngine(props.monitor.sessionID)
+      );
+    }
+    return store.isPausedResearchEngine(props.monitor.sessionID);
   }
-  return store.isPausedResearchEngine(props.monitor.sessionID);
+  return store.appState !== AppState.GAME && store.appState !== AppState.CSA_GAME;
 });
 
 const formatNodeCount = computed(() => {

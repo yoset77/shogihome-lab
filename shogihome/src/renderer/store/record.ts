@@ -31,6 +31,7 @@ import {
   Color,
   formatCSAMove,
   formatKIFMove,
+  ImmutableNode,
 } from "tsshogi";
 import { getSituationText } from "./score.js";
 import { CommentBehavior, SearchCommentFormat } from "@/common/settings/comment.js";
@@ -355,6 +356,7 @@ export class RecordManager {
   private _serverKifuPath?: string;
   private _unsaved = false;
   private _sourceURL?: string;
+  private _positionCounts = new Map<string, number>();
   private changePositionHandler: ChangePositionHandler | null = null;
   private updateTreeHandler: UpdateTreeHandler | null = null;
   private updateCommentHandler: UpdateCommentHandler | null = null;
@@ -363,6 +365,7 @@ export class RecordManager {
   private backupHandler: BackupHandler | null = null;
 
   constructor(private _record: Record = new Record()) {
+    this.resetPositionCounts();
     this.bindRecordHandlers();
   }
 
@@ -384,6 +387,10 @@ export class RecordManager {
 
   get sourceURL(): string | undefined {
     return this._sourceURL;
+  }
+
+  get positionCounts(): ReadonlyMap<string, number> {
+    return this._positionCounts;
   }
 
   private updateRecordFilePath(recordFilePath: string | undefined): void {
@@ -433,6 +440,7 @@ export class RecordManager {
   private replaceRecord(record: Record, option?: replaceRecordOption): void {
     this.saveBackupOnBackground();
     this._record = record;
+    this.resetPositionCounts();
     this.bindRecordHandlers();
     if (option?.path?.startsWith("server://")) {
       this.updateServerKifuPath(option.path.substring(9));
@@ -656,6 +664,10 @@ export class RecordManager {
 
   changeBranch(index: number): boolean {
     return this._record.switchBranchByIndex(index);
+  }
+
+  changeNode(node: ImmutableNode): boolean {
+    return this._record.gotoNode(node);
   }
 
   swapWithNextBranch(): boolean {
@@ -946,8 +958,46 @@ export class RecordManager {
     return this.backupHandler ? this.backupHandler() : null;
   }
 
+  private resetPositionCounts(): void {
+    this._positionCounts.clear();
+    this._record.forEach((node) => {
+      this.addPositionCount(node);
+    });
+  }
+
+  private isPositionCountTarget(node: ImmutableNode): boolean {
+    return node.ply === 0 || node.move instanceof Move;
+  }
+
+  private addPositionCount(node: ImmutableNode) {
+    if (!this.isPositionCountTarget(node)) {
+      return;
+    }
+    const old = this._positionCounts.get(node.sfen) || 0;
+    this._positionCounts.set(node.sfen, old + 1);
+  }
+
+  private reducePositionCount(node: ImmutableNode) {
+    if (!this.isPositionCountTarget(node)) {
+      return;
+    }
+    const old = this._positionCounts.get(node.sfen) || 0;
+    if (old > 1) {
+      this._positionCounts.set(node.sfen, old - 1);
+    } else {
+      this._positionCounts.delete(node.sfen);
+    }
+  }
+
   private bindRecordHandlers(): void {
     this._record.on("changePosition", this.onChangePosition.bind(this));
+    this._record.on("clear", this.resetPositionCounts.bind(this));
+    this._record.on("addNode", (node) => {
+      this.addPositionCount(node);
+    });
+    this._record.on("removeNode", (node) => {
+      this.reducePositionCount(node);
+    });
   }
 
   private unbindRecordHandlers(): void {

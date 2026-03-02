@@ -87,6 +87,23 @@ describe("background/helpers/kifu", () => {
     const result3 = resolveKifuPath(tempDir, maliciousPath3);
     expect(result3).toBeNull();
 
+    // Supported Book DB extension
+    const bookPath = "book.db";
+    expect(resolveKifuPath(tempDir, bookPath)).toBe(path.resolve(tempDir, bookPath));
+
+    // Valid Directory path
+    const subdirPath = "subdir";
+    fs.mkdirSync(path.join(tempDir, subdirPath));
+    expect(resolveKifuPath(tempDir, subdirPath)).toBe(path.resolve(tempDir, subdirPath));
+
+    // Valid Non-existent File path (for creation)
+    const newFilePath = path.join("subdir", "newfile.kifu");
+    expect(resolveKifuPath(tempDir, newFilePath)).toBe(path.resolve(tempDir, newFilePath));
+
+    // Invalid Directory path (not exists)
+    const missingDirPath = "missing_dir";
+    expect(resolveKifuPath(tempDir, missingDirPath)).toBeNull();
+
     // Null/Empty path
     expect(resolveKifuPath(tempDir, "")).toBeNull();
   });

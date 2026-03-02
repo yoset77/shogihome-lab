@@ -181,6 +181,9 @@ class AppSettingsStore {
   get showPasteDialog(): boolean {
     return this.merged.showPasteDialog;
   }
+  get liveDuplicatePositionDetection(): boolean {
+    return this.merged.liveDuplicatePositionDetection;
+  }
   get bookOnTheFlyThresholdMB(): number {
     return this.merged.bookOnTheFlyThresholdMB;
   }
@@ -294,6 +297,9 @@ class AppSettingsStore {
   }
   get emptyRecordInfoVisibility(): boolean {
     return this.merged.emptyRecordInfoVisibility;
+  }
+  get showBookTableOnMobile(): boolean {
+    return this.merged.showBookTableOnMobile;
   }
   get enableHardwareAcceleration(): boolean {
     return this.merged.enableHardwareAcceleration;

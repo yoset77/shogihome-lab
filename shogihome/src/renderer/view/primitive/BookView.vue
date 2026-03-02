@@ -3,6 +3,9 @@
     <!-- NOTE: 背景だけを透過させるために背景専用の要素を作る。 -->
     <div class="background" :style="{ opacity }"></div>
     <div ref="main" class="full main">
+      <div v-if="path" class="path">
+        <span>{{ path }}</span>
+      </div>
       <table class="list">
         <thead>
           <tr>
@@ -116,6 +119,11 @@ const props = defineProps({
     required: false,
     default: true,
   },
+  path: {
+    type: String,
+    required: false,
+    default: undefined,
+  },
 });
 
 const emit = defineEmits<{
@@ -173,6 +181,17 @@ const moveList = computed(() => {
   overflow-y: auto;
   color: var(--text-color);
   font-size: 0.85em;
+}
+.path {
+  padding: 0 5px;
+  font-size: 0.8em;
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+table.list {
+  margin-top: 2px;
 }
 table.list > thead > tr > td {
   background-color: var(--text-bg-color);

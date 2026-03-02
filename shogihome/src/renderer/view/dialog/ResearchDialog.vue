@@ -22,12 +22,19 @@
           :display-thread-state="true"
           :display-multi-pv-state="true"
           @update-engines="onUpdatePlayerSettings"
-        />
-        <button class="remove-button" @click="secondaryEngineURIs.splice(index, 1)">
-          {{ t.remove }}
-        </button>
+        >
+          <template #extra-buttons>
+            <button @click="secondaryEngineURIs.splice(index, 1)">
+              {{ t.remove }}
+            </button>
+          </template>
+        </PlayerSelector>
       </div>
-      <button class="center thin" disabled @click="secondaryEngineURIs.push('')">
+      <button
+        v-if="secondaryEngineURIs.length < MAX_SECONDARY_ENGINES"
+        class="center thin"
+        @click="secondaryEngineURIs.push('')"
+      >
         <Icon :icon="IconType.ADD" />
         {{ t.addNthEngine(secondaryEngineURIs.length + 2) }}
       </button>
@@ -96,6 +103,8 @@ const engines = ref(new USIEngines());
 const engineURI = ref("");
 const secondaryEngineURIs = ref([] as string[]);
 const lanStore = useLanStore();
+
+const MAX_SECONDARY_ENGINES = 2;
 
 busyState.retain();
 
@@ -189,9 +198,6 @@ const onUpdatePlayerSettings = async (val: USIEngines) => {
 <style scoped>
 .root {
   width: 450px;
-}
-.remove-button {
-  margin-top: 5px;
 }
 input.number {
   text-align: right;

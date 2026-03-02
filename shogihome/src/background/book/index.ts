@@ -1,5 +1,11 @@
 import fs, { ReadStream } from "node:fs";
-import { BookImportSummary, BookLoadingMode, BookLoadingOptions, BookMove } from "@/common/book.js";
+import path from "node:path";
+import {
+  BookImportSummary,
+  BookLoadingOptions,
+  BookMove,
+  defaultBookSession,
+} from "@/common/book.js";
 import { getAppLogger } from "@/background/log.js";
 import {
   arrayMoveToCommonBookMove,
@@ -9,9 +15,11 @@ import {
   commonBookMoveToArray,
   IDX_COUNT,
   IDX_USI,
+  mergeBookEntries,
 } from "./types.js";
 import {
   loadYaneuraOuBook,
+  mergeYaneuraOuBook,
   searchYaneuraOuBookMovesOnTheFly,
   storeYaneuraOuBook,
   validateBookPositionOrdering,
@@ -29,56 +37,110 @@ import {
   Color,
   getBlackPlayerName,
   getWhitePlayerName,
-  ImmutablePosition,
+  ImmutableNode,
   Move,
-  Node,
   Record,
 } from "tsshogi";
 import { t } from "@/common/i18n/index.js";
 import { hash as aperyHash } from "./apery_zobrist.js";
-import { loadAperyBook, searchAperyBookMovesOnTheFly, storeAperyBook } from "./apery.js";
+import {
+  loadAperyBook,
+  mergeAperyBook,
+  searchAperyBookMovesOnTheFly,
+  storeAperyBook,
+} from "./apery.js";
+import { writeStreamAtomic } from "@/background/file/atomic_stream.js";
 
 type BookHandle = InMemoryBook | OnTheFlyBook;
 
 type InMemoryBook = Book & {
   type: "in-memory";
   saved: boolean;
+  busy: boolean;
 };
 
-type OnTheFlyBook = {
+type OnTheFlyBook = Book & {
   type: "on-the-fly";
-  format: BookFormat;
+  path: string;
   file: fs.promises.FileHandle;
   size: number;
+  saved: boolean;
+  busy: boolean;
 };
 
-function retrieveEntry(book: InMemoryBook, sfen: string): BookEntry | undefined {
+// マージ済みのエントリーを取得する。
+async function retrieveMergedEntry(book: BookHandle, sfen: string): Promise<BookEntry | undefined> {
+  switch (book.format) {
+    case "yane2016": {
+      const entry = book.entries.get(sfen);
+      if (book.type === "in-memory" || entry?.type === "normal") {
+        return entry;
+      }
+      const base = await searchYaneuraOuBookMovesOnTheFly(sfen, book.file, book.size);
+      return mergeBookEntries(base, entry);
+    }
+    case "apery": {
+      const entry = book.entries.get(aperyHash(sfen));
+      if (book.type === "in-memory" || entry?.type === "normal") {
+        return entry;
+      }
+      const base = await searchAperyBookMovesOnTheFly(sfen, book.file, book.size);
+      return mergeBookEntries(base, entry);
+    }
+  }
+}
+
+// メモリ上のエントリーを取得する。返されたエントリーを更新した場合に book に反映されることを保証する。
+function retrieveEntry(book: BookHandle, sfen: string): BookEntry | undefined {
   switch (book.format) {
     case "yane2016":
-      return book.yaneEntries[sfen];
+      return book.entries.get(sfen);
     case "apery":
-      return book.aperyEntries.get(aperyHash(sfen));
+      return book.entries.get(aperyHash(sfen));
   }
+}
+
+function storeEntry(book: BookHandle, sfen: string, entry: BookEntry): void {
+  switch (book.format) {
+    case "yane2016":
+      book.entries.set(sfen, entry);
+      break;
+    case "apery":
+      book.entries.set(aperyHash(sfen), entry);
+      break;
+  }
+  book.saved = false;
 }
 
 function emptyBook(): BookHandle {
   return {
     type: "in-memory",
     format: "yane2016",
-    yaneEntries: {},
-    entryCount: 0,
-    duplicateCount: 0,
+    entries: new Map<string, BookEntry>(),
     saved: true,
+    busy: false,
   };
 }
 
-let book: BookHandle = emptyBook();
+const bookFiles = new Map<number, BookHandle>();
+bookFiles.set(defaultBookSession, emptyBook());
+let nextBookSession = defaultBookSession + 1;
 
-export function isBookUnsaved(): boolean {
-  return book.type === "in-memory" && !book.saved;
+function getBook(session: number): BookHandle {
+  const book = bookFiles.get(session);
+  if (!book) {
+    throw new Error("Book session not found: " + session);
+  }
+  return book;
 }
 
-export function getBookFormat(): BookFormat {
+export function isBookUnsaved(session: number): boolean {
+  const book = getBook(session);
+  return !book.saved;
+}
+
+export function getBookFormat(session: number): BookFormat {
+  const book = getBook(session);
   return book.format;
 }
 
@@ -86,7 +148,7 @@ function getFormatByPath(path: string): "yane2016" | "apery" {
   return path.endsWith(".db") ? "yane2016" : "apery";
 }
 
-async function openBookOnTheFly(path: string, size: number): Promise<void> {
+async function openBookOnTheFly(session: number, path: string, size: number): Promise<void> {
   getAppLogger().info("Loading book on-the-fly: path=%s size=%d", path, size);
   const format = getFormatByPath(path);
   const file = await fs.promises.open(path, "r");
@@ -101,32 +163,43 @@ async function openBookOnTheFly(path: string, size: number): Promise<void> {
     await file.close();
     throw e;
   }
-  replaceBook({
-    type: "on-the-fly",
-    format,
-    file,
-    size,
-  });
+  const common = { path, file, size, saved: true, busy: false };
+  if (format === "yane2016") {
+    replaceBook(session, {
+      ...common,
+      type: "on-the-fly",
+      format: "yane2016",
+      entries: new Map<string, BookEntry>(),
+    });
+  } else {
+    replaceBook(session, {
+      ...common,
+      type: "on-the-fly",
+      format: "apery",
+      entries: new Map<bigint, BookEntry>(),
+    });
+  }
 }
 
-async function openBookInMemory(path: string, size: number): Promise<void> {
+async function openBookInMemory(session: number, path: string, size: number): Promise<void> {
   getAppLogger().info("Loading book in-memory: path=%s size=%d", path, size);
   let file: ReadStream | undefined;
   try {
     let book: Book;
     switch (getFormatByPath(path)) {
       case "yane2016":
-        file = fs.createReadStream(path, "utf-8");
+        file = fs.createReadStream(path, { encoding: "utf-8", highWaterMark: 1024 * 1024 });
         book = await loadYaneuraOuBook(file);
         break;
       case "apery":
-        file = fs.createReadStream(path, { highWaterMark: 128 * 1024 });
+        file = fs.createReadStream(path, { highWaterMark: 1024 * 1024 });
         book = await loadAperyBook(file);
         break;
     }
-    replaceBook({
+    replaceBook(session, {
       type: "in-memory",
       saved: true,
+      busy: false,
       ...book,
     });
   } finally {
@@ -135,80 +208,127 @@ async function openBookInMemory(path: string, size: number): Promise<void> {
 }
 
 export async function openBook(
+  session: number,
   path: string,
   options?: BookLoadingOptions,
-): Promise<BookLoadingMode> {
+): Promise<"in-memory" | "on-the-fly"> {
   const stat = await fs.promises.lstat(path);
   if (!stat.isFile()) {
     throw new Error("Not a file: " + path);
   }
 
   const size = stat.size;
-  if (options && size > options.onTheFlyThresholdMB * 1024 * 1024) {
-    await openBookOnTheFly(path, size);
+  if (
+    options?.forceOnTheFly ||
+    (options?.onTheFlyThresholdMB !== undefined && size > options.onTheFlyThresholdMB * 1024 * 1024)
+  ) {
+    await openBookOnTheFly(session, path, size);
     return "on-the-fly";
   } else {
-    await openBookInMemory(path, size);
+    await openBookInMemory(session, path, size);
     return "in-memory";
   }
 }
 
-function replaceBook(newBook: BookHandle) {
-  clearBook();
-  book = newBook;
-  if (book.type === "in-memory") {
-    if (book.duplicateCount) {
-      getAppLogger().warn("Duplicated entries: %d", book.duplicateCount);
-    }
-    getAppLogger().info("Loaded book with %d entries", book.entryCount);
-  }
+export async function openBookAsNewSession(
+  path: string,
+  options?: BookLoadingOptions,
+): Promise<{ session: number; mode: "in-memory" | "on-the-fly" }> {
+  const session = nextBookSession++;
+  const mode = await openBook(session, path, options);
+  return { session, mode };
 }
 
-export async function saveBook(path: string) {
+export function closeBookSession(session: number): void {
+  if (session === defaultBookSession) {
+    throw new Error("Cannot close default book session");
+  }
+  clearBook(session);
+  bookFiles.delete(session);
+}
+
+function replaceBook(session: number, newBook: BookHandle) {
+  clearBook(session);
+  bookFiles.set(session, newBook);
+}
+
+export async function saveBook(session: number, filePath: string) {
+  const book = getBook(session);
+  if (book.busy) {
+    throw new Error(t.processingPleaseWait);
+  }
+  // on-the-fly の場合は上書きを禁止
   if (book.type === "on-the-fly") {
-    throw new Error("Cannot save on-the-fly book");
-  }
-  const file = fs.createWriteStream(path, "utf-8");
-  try {
-    book.saved = true;
-    switch (book.format) {
-      case "yane2016":
-        if (!path.endsWith(".db")) {
-          throw new Error("Invalid file extension: " + path);
-        }
-        await storeYaneuraOuBook(book, file);
-        break;
-      case "apery":
-        if (!path.endsWith(".bin")) {
-          throw new Error("Invalid file extension: " + path);
-        }
-        await storeAperyBook(book, file);
-        break;
+    if (path.resolve(book.path) === path.resolve(filePath)) {
+      throw new Error(t.cannotOverwriteOnTheFlyBook);
     }
-  } catch (e) {
-    file.close();
-    book.saved = false;
-    throw e;
+  }
+
+  book.busy = true;
+  try {
+    await writeStreamAtomic(
+      filePath,
+      async (file) => {
+        switch (book.format) {
+          case "yane2016":
+            if (!filePath.endsWith(".db")) {
+              throw new Error("Invalid file extension: " + filePath);
+            }
+            if (book.type === "in-memory") {
+              await storeYaneuraOuBook(book, file);
+            } else {
+              const input = book.file.createReadStream({
+                encoding: "utf-8",
+                autoClose: false,
+                start: 0,
+                highWaterMark: 1024 * 1024,
+              });
+              await mergeYaneuraOuBook(input, book, file);
+            }
+            break;
+          case "apery":
+            if (!filePath.endsWith(".bin")) {
+              throw new Error("Invalid file extension: " + filePath);
+            }
+            if (book.type === "in-memory") {
+              await storeAperyBook(book, file);
+            } else {
+              const input = book.file.createReadStream({
+                autoClose: false,
+                start: 0,
+                highWaterMark: 1024 * 1024,
+              });
+              await mergeAperyBook(input, book, file);
+            }
+            break;
+        }
+      },
+      {
+        encoding: "utf-8",
+        highWaterMark: 1024 * 1024,
+      },
+    );
+    book.saved = true;
+  } finally {
+    book.busy = false;
   }
 }
 
-export function clearBook(): void {
+export function clearBook(session: number): void {
+  const book = bookFiles.get(session);
+  if (!book) {
+    return;
+  }
   if (book.type === "on-the-fly") {
     book.file.close();
   }
-  book = emptyBook();
+  bookFiles.set(session, emptyBook());
 }
 
-export async function searchBookMoves(sfen: string): Promise<BookMove[]> {
-  if (book.type === "in-memory") {
-    const moves = retrieveEntry(book, sfen)?.moves || [];
-    return moves.map(arrayMoveToCommonBookMove);
-  } else {
-    const searchFunc =
-      book.format === "yane2016" ? searchYaneuraOuBookMovesOnTheFly : searchAperyBookMovesOnTheFly;
-    const moves = await searchFunc(sfen, book.file, book.size);
-    return moves.map(arrayMoveToCommonBookMove);
-  }
+export async function searchBookMoves(session: number, sfen: string): Promise<BookMove[]> {
+  const book = getBook(session);
+  const entry = await retrieveMergedEntry(book, sfen);
+  return entry ? entry.moves.map(arrayMoveToCommonBookMove) : [];
 }
 
 function updateBookEntry(entry: BookEntry, move: BookMove): void {
@@ -221,22 +341,23 @@ function updateBookEntry(entry: BookEntry, move: BookMove): void {
   entry.moves.push(commonBookMoveToArray(move));
 }
 
-export function updateBookMove(sfen: string, move: BookMove): void {
-  if (book.type === "on-the-fly") {
-    return;
+export async function updateBookMove(session: number, sfen: string, move: BookMove) {
+  const book = getBook(session);
+  if (book.busy) {
+    throw new Error(t.processingPleaseWait);
   }
-  book.saved = false;
+  const entry = await retrieveMergedEntry(book, sfen);
   if (book.format === "yane2016") {
-    const entry = book.yaneEntries[sfen];
     if (entry) {
       updateBookEntry(entry, move);
+      book.entries.set(sfen, entry);
     } else {
-      book.yaneEntries[sfen] = {
+      book.entries.set(sfen, {
+        type: "normal",
         comment: "",
         moves: [commonBookMoveToArray(move)],
         minPly: 0,
-      };
-      book.entryCount++;
+      });
     }
   } else {
     const sanitizedMove = {
@@ -248,37 +369,45 @@ export function updateBookMove(sfen: string, move: BookMove): void {
     delete sanitizedMove.usi2; // not supported
     delete sanitizedMove.depth; // not supported
     const hash = aperyHash(sfen);
-    const entry = book.aperyEntries.get(hash);
     if (entry) {
       updateBookEntry(entry, sanitizedMove);
+      book.entries.set(hash, entry);
     } else {
-      book.aperyEntries.set(hash, {
+      book.entries.set(hash, {
+        type: "normal",
         comment: "",
         moves: [commonBookMoveToArray(sanitizedMove)],
         minPly: 0,
       });
-      book.entryCount++;
     }
   }
+  book.saved = false;
 }
 
-export function removeBookMove(sfen: string, usi: string): void {
-  if (book.type === "on-the-fly") {
-    return;
+export async function removeBookMove(session: number, sfen: string, usi: string) {
+  const book = getBook(session);
+  if (book.busy) {
+    throw new Error(t.processingPleaseWait);
   }
-  const entry = retrieveEntry(book, sfen);
+  const entry = await retrieveMergedEntry(book, sfen);
   if (!entry) {
     return;
   }
   entry.moves = entry.moves.filter((move) => move[IDX_USI] !== usi);
-  book.saved = false;
+  storeEntry(book, sfen, entry);
 }
 
-export function updateBookMoveOrder(sfen: string, usi: string, order: number): void {
-  if (book.type === "on-the-fly") {
-    return;
+export async function updateBookMoveOrder(
+  session: number,
+  sfen: string,
+  usi: string,
+  order: number,
+) {
+  const book = getBook(session);
+  if (book.busy) {
+    throw new Error(t.processingPleaseWait);
   }
-  const entry = retrieveEntry(book, sfen);
+  const entry = await retrieveMergedEntry(book, sfen);
   if (!entry) {
     return;
   }
@@ -288,60 +417,64 @@ export function updateBookMoveOrder(sfen: string, usi: string, order: number): v
   }
   entry.moves = entry.moves.filter((move) => move[IDX_USI] !== usi);
   entry.moves.splice(order, 0, move);
-  book.saved = false;
+  storeEntry(book, sfen, entry);
 }
 
-function updateBookMoveOrderByCounts(sfen: string): void {
-  if (book.type === "on-the-fly") {
-    return;
-  }
-  const entry = retrieveEntry(book, sfen);
-  if (!entry) {
-    return;
+function updateBookMovePatch(book: BookHandle, sfen: string, move: BookMove) {
+  let entry = retrieveEntry(book, sfen);
+  if (book.format === "yane2016") {
+    if (entry) {
+      updateBookEntry(entry, move);
+    } else {
+      entry = {
+        type: book.type === "in-memory" ? "normal" : "patch",
+        comment: "",
+        moves: [commonBookMoveToArray(move)],
+        minPly: 0,
+      };
+      book.entries.set(sfen, entry);
+    }
+  } else {
+    const sanitizedMove = {
+      score: 0, // required for Apery book
+      count: 0, // required for Apery book
+      ...move,
+      comment: "", // not supported
+    };
+    delete sanitizedMove.usi2; // not supported
+    delete sanitizedMove.depth; // not supported
+    const hash = aperyHash(sfen);
+    if (entry) {
+      updateBookEntry(entry, sanitizedMove);
+    } else {
+      entry = {
+        type: book.type === "in-memory" ? "normal" : "patch",
+        comment: "",
+        moves: [commonBookMoveToArray(sanitizedMove)],
+        minPly: 0,
+      };
+      book.entries.set(hash, entry);
+    }
   }
   entry.moves.sort((a, b) => (b[IDX_COUNT] || 0) - (a[IDX_COUNT] || 0));
   book.saved = false;
 }
 
 export async function importBookMoves(
+  session: number,
   settings: BookImportSettings,
   onProgress?: (progress: number) => void,
+  rootDirectory?: string,
 ): Promise<BookImportSummary> {
+  if (!rootDirectory) {
+    throw new Error("rootDirectory is required for security in this environment");
+  }
+
   getAppLogger().info("Importing book moves: %s", JSON.stringify(settings));
 
-  if (book.type === "on-the-fly") {
-    throw new Error("Cannot import to on-the-fly book");
-  }
-  const bookRef = book;
-
-  const appSettings = await loadAppSettings();
-
-  let paths: string[];
-  switch (settings.sourceType) {
-    case SourceType.FILE:
-      if (!settings.sourceRecordFile) {
-        throw new Error("source record file is not set");
-      }
-      if (!detectRecordFileFormatByPath(settings.sourceRecordFile)) {
-        throw new Error("unknown file format: " + settings.sourceRecordFile);
-      }
-      if (!(await exists(settings.sourceRecordFile))) {
-        throw new Error(t.fileNotFound(settings.sourceRecordFile));
-      }
-      paths = [settings.sourceRecordFile];
-      break;
-    case SourceType.DIRECTORY:
-      if (!settings.sourceDirectory) {
-        throw new Error("source directory is not set");
-      }
-      if (!(await exists(settings.sourceDirectory))) {
-        throw new Error(t.directoryNotFound(settings.sourceDirectory));
-      }
-      paths = await listFiles(settings.sourceDirectory, Infinity);
-      paths = paths.filter(detectRecordFileFormatByPath);
-      break;
-    default:
-      throw new Error("invalid source type");
+  const book = getBook(session);
+  if (book.busy) {
+    throw new Error(t.processingPleaseWait);
   }
 
   let successFileCount = 0;
@@ -350,7 +483,7 @@ export async function importBookMoves(
   let entryCount = 0;
   let duplicateCount = 0;
 
-  function importMove(node: Node, position: ImmutablePosition) {
+  function importMove(node: ImmutableNode, sfen: string) {
     if (!(node.move instanceof Move)) {
       return;
     }
@@ -360,9 +493,9 @@ export async function importBookMoves(
       return;
     }
 
-    const sfen = position.sfen;
     const usi = node.move.usi;
-    const bookMoves = retrieveEntry(bookRef, sfen)?.moves || [];
+    const entry = retrieveEntry(book, sfen);
+    const bookMoves = entry?.moves || [];
     const moves = bookMoves.map(arrayMoveToCommonBookMove);
     const existing = moves.find((move) => move.usi === usi);
     if (existing) {
@@ -372,107 +505,198 @@ export async function importBookMoves(
     }
     const bookMove = existing || { usi, comment: "" };
     bookMove.count = (bookMove.count || 0) + 1;
-    updateBookMove(sfen, bookMove);
-    updateBookMoveOrderByCounts(sfen);
+    updateBookMovePatch(book, sfen, bookMove);
   }
 
-  for (const path of paths) {
-    if (onProgress) {
-      const progress = (successFileCount + errorFileCount + skippedFileCount) / paths.length;
-      onProgress(progress);
-    }
+  book.busy = true;
+  try {
+    const appSettings = await loadAppSettings();
 
-    const targetColorSet = {
-      [Color.BLACK]: true,
-      [Color.WHITE]: true,
-    };
-    switch (settings.playerCriteria) {
-      case PlayerCriteria.BLACK:
-        targetColorSet[Color.WHITE] = false;
-        break;
-      case PlayerCriteria.WHITE:
-        targetColorSet[Color.BLACK] = false;
-        break;
-    }
-
-    getAppLogger().debug("Importing book moves from: %s", path);
-    const format = detectRecordFileFormatByPath(path) as RecordFileFormat;
-    const sourceData = await fs.promises.readFile(path);
-
-    if (format === RecordFileFormat.SFEN) {
-      if (settings.playerCriteria === PlayerCriteria.FILTER_BY_NAME && settings.playerName) {
-        getAppLogger().debug("Ignoring SFEN file: %s", path);
-        skippedFileCount++;
-        continue; // skip SFEN files when filtering by player name
-      }
-      const lines = sourceData.toString("utf-8").split(/\r?\n/);
-      let hasValidLines = false;
-      let invalidLine = "";
-      lines.forEach((line) => {
-        const record = Record.newByUSI(line.trim());
-        if (record instanceof Error) {
-          invalidLine = line;
-          return;
+    let paths: string[];
+    switch (settings.sourceType) {
+      case SourceType.FILE: {
+        if (!settings.sourceRecordFile) {
+          throw new Error("source record file is not set");
         }
-        hasValidLines = true;
-        record.forEach((node, position) => {
-          if (!targetColorSet[position.color]) {
-            return;
-          }
-          if (node.move instanceof Move) {
-            importMove(node, position);
-          }
-        });
-      });
-      if (hasValidLines) {
-        successFileCount++;
-      } else if (invalidLine) {
-        getAppLogger().debug("Invalid lines found in SFEN file: %s: [%s]", path, invalidLine);
+        if (!detectRecordFileFormatByPath(settings.sourceRecordFile)) {
+          throw new Error("unknown file format: " + settings.sourceRecordFile);
+        }
+
+        // UNCONDITIONAL SANITIZATION
+        const fileResolved = path.resolve(settings.sourceRecordFile);
+        const fileRoot = path.resolve(rootDirectory);
+        if (
+          !fileResolved.startsWith(fileRoot.endsWith(path.sep) ? fileRoot : fileRoot + path.sep) &&
+          fileResolved !== fileRoot
+        ) {
+          throw new Error("Forbidden path: " + fileResolved);
+        }
+
+        if (!(await exists(settings.sourceRecordFile))) {
+          throw new Error(t.fileNotFound(settings.sourceRecordFile));
+        }
+        paths = [settings.sourceRecordFile];
+        break;
+      }
+      case SourceType.DIRECTORY: {
+        if (!settings.sourceDirectory) {
+          throw new Error("source directory is not set");
+        }
+
+        // UNCONDITIONAL SANITIZATION
+        const dirResolved = path.resolve(settings.sourceDirectory);
+        const dirRoot = path.resolve(rootDirectory);
+        if (
+          !dirResolved.startsWith(dirRoot.endsWith(path.sep) ? dirRoot : dirRoot + path.sep) &&
+          dirResolved !== dirRoot
+        ) {
+          throw new Error("Forbidden path: " + dirResolved);
+        }
+
+        if (!(await exists(settings.sourceDirectory))) {
+          throw new Error(t.directoryNotFound(settings.sourceDirectory));
+        }
+        paths = await listFiles(settings.sourceDirectory, Infinity);
+        paths = paths.filter(detectRecordFileFormatByPath);
+        break;
+      }
+      default:
+        throw new Error("invalid source type");
+    }
+
+    for (const recordFilePath of paths) {
+      if (onProgress) {
+        const progress = (successFileCount + errorFileCount + skippedFileCount) / paths.length;
+        onProgress(progress);
+      }
+
+      const targetColorSet = {
+        [Color.BLACK]: true,
+        [Color.WHITE]: true,
+      };
+      switch (settings.playerCriteria) {
+        case PlayerCriteria.BLACK:
+          targetColorSet[Color.WHITE] = false;
+          break;
+        case PlayerCriteria.WHITE:
+          targetColorSet[Color.BLACK] = false;
+          break;
+      }
+
+      const absolutePath = path.resolve(recordFilePath);
+      const normalizedRoot = path.resolve(rootDirectory);
+      const rootWithSep = normalizedRoot.endsWith(path.sep)
+        ? normalizedRoot
+        : normalizedRoot + path.sep;
+      if (!absolutePath.startsWith(rootWithSep) && absolutePath !== normalizedRoot) {
+        getAppLogger().error("Forbidden path in importBookMoves: %s", absolutePath);
         errorFileCount++;
-      } else {
-        getAppLogger().debug("No valid lines found in SFEN file: %s", path);
-        skippedFileCount++;
+        continue;
       }
-      continue;
+
+      getAppLogger().debug("Importing book moves from: %s", absolutePath);
+      const format = detectRecordFileFormatByPath(absolutePath) as RecordFileFormat;
+      const sourceData = await fs.promises.readFile(absolutePath);
+
+      if (format === RecordFileFormat.SFEN) {
+        if (settings.playerCriteria === PlayerCriteria.FILTER_BY_NAME && settings.playerName) {
+          getAppLogger().debug("Ignoring SFEN file: %s", absolutePath);
+          skippedFileCount++;
+          continue; // skip SFEN files when filtering by player name
+        }
+        const lines = sourceData.toString("utf-8").split(/\r?\n/);
+        let hasValidLines = false;
+        let invalidLine = "";
+        for (let index = 0; index < lines.length; index++) {
+          if (onProgress) {
+            const progress =
+              (successFileCount + errorFileCount + skippedFileCount + index / lines.length) /
+              paths.length;
+            onProgress(progress);
+          }
+          const line = lines[index];
+          const record = Record.newByUSI(line.trim());
+          if (record instanceof Error) {
+            invalidLine = line;
+            continue;
+          }
+          hasValidLines = true;
+          record.forEach((node) => {
+            const prev = node.prev;
+            if (prev && targetColorSet[prev.nextColor]) {
+              importMove(node, prev.sfen);
+            }
+          });
+        }
+        if (hasValidLines) {
+          successFileCount++;
+        } else if (invalidLine) {
+          getAppLogger().debug(
+            "Invalid lines found in SFEN file: %s: [%s]",
+            absolutePath,
+            invalidLine,
+          );
+          errorFileCount++;
+        } else {
+          getAppLogger().debug("No valid lines found in SFEN file: %s", absolutePath);
+          skippedFileCount++;
+        }
+        continue;
+      }
+
+      const record = importRecordFromBuffer(sourceData, format, {
+        autoDetect: appSettings.textDecodingRule === TextDecodingRule.AUTO_DETECT,
+      });
+      if (record instanceof Error) {
+        getAppLogger().debug("Failed to import book moves from: %s: %s", absolutePath, record);
+        errorFileCount++;
+        continue;
+      }
+
+      if (settings.playerCriteria === PlayerCriteria.FILTER_BY_NAME) {
+        const blackPlayerName = getBlackPlayerName(record.metadata)?.toLowerCase();
+        const whitePlayerName = getWhitePlayerName(record.metadata)?.toLowerCase();
+        if (!settings.playerName) {
+          throw new Error("player name is not set");
+        }
+        if (
+          !blackPlayerName ||
+          blackPlayerName?.indexOf(settings.playerName.toLowerCase()) === -1
+        ) {
+          targetColorSet[Color.BLACK] = false;
+        }
+        if (
+          !whitePlayerName ||
+          whitePlayerName?.indexOf(settings.playerName.toLowerCase()) === -1
+        ) {
+          targetColorSet[Color.WHITE] = false;
+        }
+      }
+
+      record.forEach((node) => {
+        const prev = node.prev;
+        if (prev && targetColorSet[prev.nextColor]) {
+          importMove(node, prev.sfen);
+        }
+      });
+      successFileCount++;
     }
 
-    const record = importRecordFromBuffer(sourceData, format, {
-      autoDetect: appSettings.textDecodingRule === TextDecodingRule.AUTO_DETECT,
-    });
-    if (record instanceof Error) {
-      getAppLogger().debug("Failed to import book moves from: %s: %s", path, record);
-      errorFileCount++;
-      continue;
+    if (book.type === "in-memory") {
+      return {
+        successFileCount,
+        errorFileCount,
+        skippedFileCount,
+        entryCount,
+        duplicateCount,
+      };
     }
-
-    if (settings.playerCriteria === PlayerCriteria.FILTER_BY_NAME) {
-      const blackPlayerName = getBlackPlayerName(record.metadata)?.toLowerCase();
-      const whitePlayerName = getWhitePlayerName(record.metadata)?.toLowerCase();
-      if (!settings.playerName) {
-        throw new Error("player name is not set");
-      }
-      if (!blackPlayerName || blackPlayerName?.indexOf(settings.playerName.toLowerCase()) === -1) {
-        targetColorSet[Color.BLACK] = false;
-      }
-      if (!whitePlayerName || whitePlayerName?.indexOf(settings.playerName.toLowerCase()) === -1) {
-        targetColorSet[Color.WHITE] = false;
-      }
-    }
-
-    record.forEach((node, position) => {
-      if (!targetColorSet[position.color]) {
-        return;
-      }
-      importMove(node, position);
-    });
-    successFileCount++;
+    return {
+      successFileCount,
+      errorFileCount,
+      skippedFileCount,
+    };
+  } finally {
+    book.busy = false;
   }
-
-  return {
-    successFileCount,
-    errorFileCount,
-    skippedFileCount,
-    entryCount,
-    duplicateCount,
-  };
 }

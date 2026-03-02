@@ -5,6 +5,7 @@
         class="book-list"
         :position="store.record.position"
         :moves="bookStore.moves"
+        :path="bookStore.path"
         :playable="store.isMovableByUser"
         :editable="bookEditable"
         @play="playBookMove"
@@ -57,10 +58,8 @@ const store = useStore();
 const bookStore = useBookStore();
 const appSettings = useAppSettings();
 
-const isBookOperational = computed(
-  () => store.appState === AppState.NORMAL && bookStore.mode === "in-memory",
-);
-const bookEditable = computed(() => bookStore.mode === "in-memory");
+const isBookOperational = computed(() => store.appState === AppState.NORMAL);
+const bookEditable = computed(() => true);
 const editingData = ref<
   BookMove & {
     sfen: string;
@@ -77,7 +76,7 @@ const onOpenBook = () => {
 };
 
 const onSaveBook = () => {
-  bookStore.saveBookFile();
+  bookStore.saveBookFileAs();
 };
 
 const onAddBookMoves = () => {

@@ -51,14 +51,31 @@ function main() {
     if (module.startsWith(".")) {
       continue;
     }
+    const modulePath = `node_modules/${module}`;
+    if (!fs.statSync(modulePath).isDirectory()) {
+      continue;
+    }
     if (module.startsWith("@")) {
-      const subModules = fs.readdirSync(`node_modules/${module}`);
+      const subModules = fs.readdirSync(modulePath);
       for (const subModule of subModules) {
-        checkPackageJson(`node_modules/${module}/${subModule}/package.json`);
+        if (subModule.startsWith(".")) {
+          continue;
+        }
+        const subModulePath = `${modulePath}/${subModule}`;
+        if (!fs.statSync(subModulePath).isDirectory()) {
+          continue;
+        }
+        const packageJsonPath = `${subModulePath}/package.json`;
+        if (fs.existsSync(packageJsonPath)) {
+          checkPackageJson(packageJsonPath);
+        }
       }
       continue;
     }
-    checkPackageJson(`node_modules/${module}/package.json`);
+    const packageJsonPath = `${modulePath}/package.json`;
+    if (fs.existsSync(packageJsonPath)) {
+      checkPackageJson(packageJsonPath);
+    }
   }
 }
 

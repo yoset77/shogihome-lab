@@ -219,6 +219,7 @@ export type AppSettings = {
   enableUSIFileStartpos: boolean;
   enableUSIFileResign: boolean;
   showPasteDialog: boolean;
+  liveDuplicatePositionDetection: boolean;
 
   // Opening Book
   bookOnTheFlyThresholdMB: number;
@@ -273,6 +274,9 @@ export type AppSettings = {
 
   // Record Info View
   emptyRecordInfoVisibility: boolean;
+
+  // Mobile
+  showBookTableOnMobile: boolean;
 
   // Low Level
   enableHardwareAcceleration: boolean;
@@ -375,6 +379,7 @@ export function defaultAppSettings(opt?: {
     enableUSIFileStartpos: true,
     enableUSIFileResign: false,
     showPasteDialog: true,
+    liveDuplicatePositionDetection: true,
     bookOnTheFlyThresholdMB: 256,
     flippedBook: true,
     translateEngineOptionName: true,
@@ -413,6 +418,7 @@ export function defaultAppSettings(opt?: {
     lastImageExportFilePath: "",
     lastOtherFilePath: "",
     emptyRecordInfoVisibility: true,
+    showBookTableOnMobile: false,
     enableHardwareAcceleration: true,
     uiMode: UIMode.AUTO,
   };
