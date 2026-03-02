@@ -1,6 +1,5 @@
-import { BookLoadingMode, BookMove, BookMoveEx } from "@/common/book.js";
+import { BookLoadingMode, BookMove, BookMoveEx, defaultBookSession } from "@/common/book.js";
 import { reactive, UnwrapNestedRefs } from "vue";
-import { useStore } from ".";
 import api from "@/renderer/ipc/api.js";
 import { useErrorStore } from "./error.js";
 import { useBusyState } from "./busy.js";
@@ -11,11 +10,15 @@ import { BookImportSettings, SourceType } from "@/common/settings/book.js";
 import { t } from "@/common/i18n/index.js";
 import { ImmutableRecord } from "tsshogi";
 import { flippedSFEN, flippedUSIMove } from "@/common/helpers/sfen.js";
+import { Lazy } from "@/renderer/helpers/lazy.js";
 
 export class BookStore {
   private _mode: BookLoadingMode = "in-memory";
+  private _path: string | undefined;
   private _moves: BookMoveEx[] = [];
+  private _lazy = new Lazy();
   private _reactive: UnwrapNestedRefs<BookStore>;
+  private _onShowBookSelectDialog?: () => void;
 
   constructor(private record: ImmutableRecord) {
     this._reactive = reactive(this);
@@ -29,14 +32,25 @@ export class BookStore {
     return this._mode;
   }
 
+  get path(): string | undefined {
+    return this._path;
+  }
+
   get moves(): BookMoveEx[] {
     return this._moves;
+  }
+
+  onShowBookSelectDialog(handler: () => void) {
+    this._onShowBookSelectDialog = handler;
   }
 
   async reloadBookMoves() {
     try {
       const sfen = this.record.position.sfen;
       const moves = await this.searchMoves(sfen);
+      if (sfen !== this.record.position.sfen) {
+        return;
+      }
       this._moves = moves.map((bookMove) => {
         const position = this.record.position.clone();
         const move = position.createMoveByUSI(bookMove.usi);
@@ -57,7 +71,10 @@ export class BookStore {
 
   onChangePosition(record: ImmutableRecord) {
     this.record = record;
-    this.reloadBookMoves();
+    this._moves = [];
+    this._lazy.after(() => {
+      this.reloadBookMoves();
+    }, 200);
   }
 
   reset() {
@@ -69,9 +86,10 @@ export class BookStore {
       onOk: () => {
         useBusyState().retain();
         api
-          .clearBook()
+          .clearBook(defaultBookSession)
           .then(() => {
             this._mode = "in-memory";
+            this._path = undefined;
             return this.reloadBookMoves();
           })
           .catch((e) => {
@@ -84,24 +102,72 @@ export class BookStore {
     });
   }
 
-  openBookFile() {
+  async openBookFile() {
     useBusyState().retain();
-    api
-      .showOpenBookDialog()
-      .then(async (path) => {
-        if (!path) {
-          return;
+    try {
+      const enabled = await api.isServerKifuEnabled();
+      if (enabled) {
+        if (this._onShowBookSelectDialog) {
+          this._onShowBookSelectDialog();
         }
-        const mode = await api.openBook(path, {
-          onTheFlyThresholdMB: useAppSettings().bookOnTheFlyThresholdMB,
+      } else {
+        const path = await api.showOpenBookDialog();
+        if (path) {
+          await this.openBook(path);
+        }
+      }
+    } catch (e) {
+      useErrorStore().add(e);
+    } finally {
+      useBusyState().release();
+    }
+  }
+
+  async openBook(path: string) {
+    try {
+      const mode = await api.openBook(defaultBookSession, path, {
+        onTheFlyThresholdMB: useAppSettings().bookOnTheFlyThresholdMB,
+      });
+      this._mode = mode;
+      this._path = path;
+      await this.reloadBookMoves();
+    } catch (e) {
+      useErrorStore().add(e);
+      throw e;
+    }
+  }
+
+  saveBookFile() {
+    if (useBusyState().isBusy) {
+      return;
+    }
+    if (this._mode === "in-memory" && this._path?.startsWith("server://")) {
+      useBusyState().retain();
+      api
+        .saveBook(defaultBookSession, this._path)
+        .then(() => {
+          useMessageStore().enqueue({ text: t.bookDataWasSaved });
+        })
+        .catch((e) => {
+          useErrorStore().add(e);
+        })
+        .finally(() => {
+          useBusyState().release();
         });
-        if (mode === "on-the-fly") {
-          useMessageStore().enqueue({
-            text: `${t.bookDataOpendAsReadOnlyModeBecauseOfLargeFile} ${t.youCanChangeFileSizeThresholdFromPreferencesDialog}`,
-          });
+      return;
+    }
+    useBusyState().retain();
+    const defaultPath = this._path?.startsWith("server://")
+      ? this._path.substring(9)
+      : "new_book.db";
+    api
+      .showSaveBookDialog(defaultBookSession, defaultPath)
+      .then(async (path) => {
+        if (path) {
+          await api.saveBook(defaultBookSession, path);
+          this._path = path;
+          useMessageStore().enqueue({ text: t.bookDataWasSaved });
         }
-        this._mode = mode;
-        await this.reloadBookMoves();
       })
       .catch((e) => {
         useErrorStore().add(e);
@@ -111,16 +177,21 @@ export class BookStore {
       });
   }
 
-  saveBookFile() {
+  saveBookFileAs() {
     if (useBusyState().isBusy) {
       return;
     }
     useBusyState().retain();
+    const defaultPath = this._path?.startsWith("server://")
+      ? this._path.substring(9)
+      : "new_book.db";
     api
-      .showSaveBookDialog()
+      .showSaveBookDialog(defaultBookSession, defaultPath)
       .then(async (path) => {
         if (path) {
-          await api.saveBook(path);
+          await api.saveBook(defaultBookSession, path);
+          this._path = path;
+          useMessageStore().enqueue({ text: t.bookDataWasSaved });
         }
       })
       .catch((e) => {
@@ -134,7 +205,7 @@ export class BookStore {
   async updateMove(sfen: string, move: BookMove) {
     useBusyState().retain();
     return api
-      .updateBookMove(sfen, move)
+      .updateBookMove(defaultBookSession, sfen, move)
       .then(() => this.reloadBookMoves())
       .then(async () => {
         const settings = await api.loadBookImportSettings();
@@ -149,7 +220,7 @@ export class BookStore {
   removeMove(sfen: string, usi: string) {
     useBusyState().retain();
     api
-      .removeBookMove(sfen, usi)
+      .removeBookMove(defaultBookSession, sfen, usi)
       .then(() => this.reloadBookMoves())
       .catch((e) => {
         useErrorStore().add(e);
@@ -162,7 +233,7 @@ export class BookStore {
   updateMoveOrder(sfen: string, usi: string, order: number) {
     useBusyState().retain();
     api
-      .updateBookMoveOrder(sfen, usi, order)
+      .updateBookMoveOrder(defaultBookSession, sfen, usi, order)
       .then(() => this.reloadBookMoves())
       .catch((e) => {
         useErrorStore().add(e);
@@ -173,7 +244,7 @@ export class BookStore {
   }
 
   async searchMoves(sfen: string): Promise<BookMove[]> {
-    const moves = await api.searchBookMoves(sfen);
+    const moves = await api.searchBookMoves(defaultBookSession, sfen);
     if (moves.length !== 0) {
       return moves;
     }
@@ -181,7 +252,7 @@ export class BookStore {
     if (!appSettings.flippedBook) {
       return [];
     }
-    return (await api.searchBookMoves(flippedSFEN(sfen))).map((move) => {
+    return (await api.searchBookMoves(defaultBookSession, flippedSFEN(sfen))).map((move) => {
       move.usi = flippedUSIMove(move.usi);
       if (move.usi2) {
         move.usi2 = flippedUSIMove(move.usi2);
@@ -190,36 +261,68 @@ export class BookStore {
     });
   }
 
+  async searchMovesBatch(sfens: string[]): Promise<Map<string, BookMove[]>> {
+    const appSettings = useAppSettings();
+    const querySfens = [...sfens];
+    if (appSettings.flippedBook) {
+      sfens.forEach((sfen) => querySfens.push(flippedSFEN(sfen)));
+    }
+
+    const results = await api.searchBookMovesBatch(defaultBookSession, querySfens);
+    const resultMap = new Map<string, BookMove[]>();
+    results.forEach((r) => resultMap.set(r.sfen, r.moves));
+
+    const finalMap = new Map<string, BookMove[]>();
+    sfens.forEach((sfen) => {
+      const moves = resultMap.get(sfen) || [];
+      if (moves.length > 0) {
+        finalMap.set(sfen, moves);
+      } else if (appSettings.flippedBook) {
+        const flipped = flippedSFEN(sfen);
+        const flippedMoves = (resultMap.get(flipped) || []).map((move) => {
+          const m = { ...move };
+          m.usi = flippedUSIMove(m.usi);
+          if (m.usi2) {
+            m.usi2 = flippedUSIMove(m.usi2);
+          }
+          return m;
+        });
+        finalMap.set(sfen, flippedMoves);
+      } else {
+        finalMap.set(sfen, []);
+      }
+    });
+    return finalMap;
+  }
+
   importBookMoves(settings: BookImportSettings) {
     useBusyState().retain();
     api
       .saveBookImportSettings(settings)
-      .then(() => api.importBookMoves(settings))
+      .then(() => api.importBookMoves(defaultBookSession, settings))
       .then((summary) => {
+        const items = [
+          {
+            text: t.file,
+            children: [
+              `${t.success}: ${summary.successFileCount}`,
+              `${t.failed}: ${summary.errorFileCount}`,
+              `${t.skipped}: ${summary.skippedFileCount}`,
+            ],
+          },
+        ];
+        if (summary.entryCount !== undefined && summary.duplicateCount !== undefined) {
+          items.push({
+            text: t.moveEntry,
+            children: [
+              `${t.new}: ${summary.entryCount}`,
+              `${t.duplicated}: ${summary.duplicateCount}`,
+            ],
+          });
+        }
         useMessageStore().enqueue({
           text: t.bookMovesWereImported,
-          attachments: [
-            {
-              type: "list",
-              items: [
-                {
-                  text: t.file,
-                  children: [
-                    `${t.success}: ${summary.successFileCount}`,
-                    `${t.failed}: ${summary.errorFileCount}`,
-                    `${t.skipped}: ${summary.skippedFileCount}`,
-                  ],
-                },
-                {
-                  text: t.moveEntry,
-                  children: [
-                    `${t.new}: ${summary.entryCount}`,
-                    `${t.duplicated}: ${summary.duplicateCount}`,
-                  ],
-                },
-              ],
-            },
-          ],
+          attachments: [{ type: "list", items }],
         });
         return this.reloadBookMoves();
       })
@@ -232,20 +335,14 @@ export class BookStore {
   }
 }
 
-export function createBookStore(): UnwrapNestedRefs<BookStore> {
-  const store = useStore();
-  const bookStore = new BookStore(store.record).reactive;
-  store.addEventListener("changePosition", () => {
-    bookStore.onChangePosition(store.record);
-  });
-  return bookStore;
-}
-
 let store: UnwrapNestedRefs<BookStore>;
 
-export function useBookStore(): UnwrapNestedRefs<BookStore> {
+export function useBookStore(record?: ImmutableRecord): UnwrapNestedRefs<BookStore> {
   if (!store) {
-    store = createBookStore();
+    if (!record) {
+      throw new Error("BookStore must be initialized with a record.");
+    }
+    store = new BookStore(record).reactive;
   }
   return store;
 }

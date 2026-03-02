@@ -71,15 +71,19 @@ export interface API {
 
   // Book
   showOpenBookDialog(): Promise<string>;
-  showSaveBookDialog(): Promise<string>;
-  openBook(path: string, options: BookLoadingOptions): Promise<BookLoadingMode>;
-  saveBook(path: string): Promise<void>;
-  clearBook(): Promise<void>;
-  searchBookMoves(sfen: string): Promise<BookMove[]>;
-  updateBookMove(sfen: string, move: BookMove): Promise<void>;
-  removeBookMove(sfen: string, usi: string): Promise<void>;
-  updateBookMoveOrder(sfen: string, usi: string, order: number): Promise<void>;
-  importBookMoves(settings: BookImportSettings): Promise<BookImportSummary>;
+  showSaveBookDialog(session: number, defaultPath: string): Promise<string>;
+  openBook(session: number, path: string, options: BookLoadingOptions): Promise<BookLoadingMode>;
+  saveBook(session: number, path: string): Promise<void>;
+  clearBook(session: number): Promise<void>;
+  searchBookMoves(session: number, sfen: string): Promise<BookMove[]>;
+  searchBookMovesBatch(
+    session: number,
+    sfens: string[],
+  ): Promise<{ sfen: string; moves: BookMove[] }[]>;
+  updateBookMove(session: number, sfen: string, move: BookMove): Promise<void>;
+  removeBookMove(session: number, sfen: string, usi: string): Promise<void>;
+  updateBookMoveOrder(session: number, sfen: string, usi: string, order: number): Promise<void>;
+  importBookMoves(session: number, settings: BookImportSettings): Promise<BookImportSummary>;
 
   // USI
   showSelectUSIEngineDialog(): Promise<string>;
@@ -144,6 +148,7 @@ export interface API {
   // Server Kifu (LAN only)
   isServerKifuEnabled(): Promise<boolean>;
   listServerKifu(reload?: boolean): Promise<string[]>;
+  listServerBook(): Promise<string[]>;
   loadServerKifu(path: string): Promise<string>;
   saveServerKifu(path: string, data: Uint8Array): Promise<void>;
 }
@@ -225,17 +230,23 @@ const api: API = {
   },
 
   // Book
-  openBook(path: string, options: BookLoadingOptions): Promise<BookLoadingMode> {
-    return bridge.openBook(path, JSON.stringify(options));
+  openBook(session: number, path: string, options: BookLoadingOptions): Promise<BookLoadingMode> {
+    return bridge.openBook(session, path, JSON.stringify(options));
   },
-  async searchBookMoves(sfen: string): Promise<BookMove[]> {
-    return JSON.parse(await bridge.searchBookMoves(sfen));
+  async searchBookMoves(session: number, sfen: string): Promise<BookMove[]> {
+    return JSON.parse(await bridge.searchBookMoves(session, sfen));
   },
-  updateBookMove(sfen: string, move: BookMove): Promise<void> {
-    return bridge.updateBookMove(sfen, JSON.stringify(move));
+  async searchBookMovesBatch(
+    session: number,
+    sfens: string[],
+  ): Promise<{ sfen: string; moves: BookMove[] }[]> {
+    return JSON.parse(await bridge.searchBookMovesBatch(session, sfens));
   },
-  async importBookMoves(settings: BookImportSettings): Promise<BookImportSummary> {
-    return JSON.parse(await bridge.importBookMoves(JSON.stringify(settings)));
+  updateBookMove(session: number, sfen: string, move: BookMove): Promise<void> {
+    return bridge.updateBookMove(session, sfen, JSON.stringify(move));
+  },
+  async importBookMoves(session: number, settings: BookImportSettings): Promise<BookImportSummary> {
+    return JSON.parse(await bridge.importBookMoves(session, JSON.stringify(settings)));
   },
 
   // USI
@@ -299,6 +310,9 @@ const api: API = {
   },
   async listServerKifu(reload?: boolean): Promise<string[]> {
     return await bridge.listServerKifu(reload);
+  },
+  async listServerBook(): Promise<string[]> {
+    return await bridge.listServerBook();
   },
   loadServerKifu(path: string): Promise<string> {
     return bridge.loadServerKifu(path);

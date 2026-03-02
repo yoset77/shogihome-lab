@@ -30,6 +30,16 @@
     <ShareDialog v-if="store.appState === AppState.SHARE_DIALOG" />
     <AddBookMovesDialog v-if="store.appState === AppState.ADD_BOOK_MOVES_DIALOG" />
     <ServerKifuDialog v-if="store.appState === AppState.SERVER_KIFU_DIALOG" />
+    <BookSelectDialog v-if="store.appState === AppState.BOOK_SELECT_DIALOG" />
+    <DuplicatePositionsDialog
+      v-if="store.appState === AppState.DUPLICATE_POSITIONS_DIALOG"
+      :sfen="store.duplicatePositionsSFEN"
+      @select="(node) => store.changeNode(node)"
+      @close="store.destroyModalDialog()"
+    />
+    <SearchDuplicatePositionsDialog
+      v-if="store.appState === AppState.SEARCH_DUPLICATE_POSITIONS_DIALOG"
+    />
     <PieceSetChangeDialog v-if="store.appState === AppState.PIECE_SET_CHANGE_DIALOG" />
     <ResearchDialog v-if="store.researchState === ResearchState.STARTUP_DIALOG" />
     <CSAGameReadyDialog
@@ -116,6 +126,9 @@ import LoadRemoteFileDialog from "./view/dialog/LoadRemoteFileDialog.vue";
 import ShareDialog from "./view/dialog/ShareDialog.vue";
 import AddBookMovesDialog from "./view/dialog/AddBookMovesDialog.vue";
 import ServerKifuDialog from "./view/dialog/ServerKifuDialog.vue";
+import BookSelectDialog from "./view/dialog/BookSelectDialog.vue";
+import DuplicatePositionsDialog from "./view/dialog/DuplicatePositionsDialog.vue";
+import SearchDuplicatePositionsDialog from "./view/dialog/SearchDuplicatePositionsDialog.vue";
 import { useBusyState } from "./store/busy";
 import { useMessageStore } from "./store/message";
 import { useErrorStore } from "./store/error";

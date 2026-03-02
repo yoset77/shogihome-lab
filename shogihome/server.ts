@@ -13,10 +13,22 @@ import crypto from "crypto";
 import { getLocalIpAddresses } from "./src/background/helpers/ip";
 import {
   getKifuList,
+  getBookList,
   resolveKifuPath,
   clearKifuListCache,
   setupKifuWatcher,
 } from "./src/background/helpers/kifu";
+import {
+  openBook,
+  saveBook,
+  clearBook,
+  searchBookMoves,
+  updateBookMove,
+  removeBookMove,
+  updateBookMoveOrder,
+  importBookMoves,
+} from "./src/background/book/index";
+import { defaultBookSession } from "./src/common/book";
 import { writeFileAtomic, writeFileAtomicSync } from "./src/background/file/atomic";
 
 const getBasePath = () => {
@@ -33,6 +45,7 @@ dotenv.config({ path: path.join(getBasePath(), ".env") });
 const app = express();
 app.set("trust proxy", 1);
 const server = http.createServer(app);
+server.timeout = 900000;
 
 const PORT = parseInt(process.env.PORT || "8140", 10);
 const DISABLE_AUTO_ALLOWED_ORIGINS = process.env.DISABLE_AUTO_ALLOWED_ORIGINS === "true";
@@ -272,6 +285,179 @@ app.post("/api/kifu/save", express.raw({ limit: "10mb" }), async (req, res) => {
   } catch (e) {
     console.error("failed to save kifu:", e);
     res.status(500).send("failed to save kifu");
+  }
+});
+
+app.post("/api/book/open", express.json(), async (req, res) => {
+  if (!KIFU_DIR) {
+    res.status(404).send("KIFU_DIR is not configured");
+    return;
+  }
+  const relPath = req.query.path;
+  if (typeof relPath !== "string") {
+    res.status(400).send("path is required");
+    return;
+  }
+  const fullPath = resolveKifuPath(KIFU_DIR, relPath);
+  if (!fullPath) {
+    res.status(403).send("forbidden");
+    return;
+  }
+  try {
+    const mode = await openBook(defaultBookSession, fullPath, req.body);
+    res.json({ mode });
+  } catch (e) {
+    console.error("failed to open book:", e);
+    res.status(500).send(e instanceof Error ? e.message : "failed to open book");
+  }
+});
+
+app.get("/api/book/list", async (req, res) => {
+  if (!KIFU_DIR) {
+    res.status(404).send("KIFU_DIR is not configured");
+    return;
+  }
+  try {
+    const list = await getBookList(KIFU_DIR);
+    res.json(list);
+  } catch (e) {
+    console.error("failed to get book list:", e);
+    res.status(500).send(e instanceof Error ? e.message : "failed to get book list");
+  }
+});
+
+app.post("/api/book/save", async (req, res) => {
+  if (!KIFU_DIR) {
+    res.status(404).send("KIFU_DIR is not configured");
+    return;
+  }
+  const relPath = req.query.path;
+  if (typeof relPath !== "string") {
+    res.status(400).send("path is required");
+    return;
+  }
+  const fullPath = resolveKifuPath(KIFU_DIR, relPath);
+  if (!fullPath) {
+    res.status(403).send("forbidden");
+    return;
+  }
+  try {
+    await saveBook(defaultBookSession, fullPath);
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to save book:", e);
+    res.status(500).send(e instanceof Error ? e.message : "failed to save book");
+  }
+});
+
+app.post("/api/book/clear", async (req, res) => {
+  try {
+    clearBook(defaultBookSession);
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to clear book:", e);
+    res.status(500).send(e instanceof Error ? e.message : "failed to clear book");
+  }
+});
+
+app.get("/api/book/search", async (req, res) => {
+  const sfen = req.query.sfen;
+  if (typeof sfen !== "string") {
+    res.status(400).send("sfen is required");
+    return;
+  }
+  try {
+    const moves = await searchBookMoves(defaultBookSession, sfen);
+    res.json(moves);
+  } catch (e) {
+    console.error("failed to search book moves:", e);
+    res.status(500).send(e instanceof Error ? e.message : "failed to search book moves");
+  }
+});
+
+app.post("/api/book/search/batch", express.json({ limit: "10mb" }), async (req, res) => {
+  const sfens = req.body.sfens;
+  if (!Array.isArray(sfens)) {
+    res.status(400).send("sfens must be an array");
+    return;
+  }
+  try {
+    const results = await Promise.all(
+      sfens.map(async (sfen) => {
+        const moves = await searchBookMoves(defaultBookSession, sfen);
+        return { sfen, moves };
+      }),
+    );
+    res.json(results);
+  } catch (e) {
+    console.error("failed to batch search book moves:", e);
+    res.status(500).send(e instanceof Error ? e.message : "failed to batch search book moves");
+  }
+});
+
+app.post("/api/book/update", express.json(), async (req, res) => {
+  const sfen = req.query.sfen;
+  if (typeof sfen !== "string") {
+    res.status(400).send("sfen is required");
+    return;
+  }
+  try {
+    await updateBookMove(defaultBookSession, sfen, req.body);
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to update book move:", e);
+    res.status(500).send(e instanceof Error ? e.message : "failed to update book move");
+  }
+});
+
+app.post("/api/book/remove", express.json(), async (req, res) => {
+  const sfen = req.query.sfen;
+  const usi = req.query.usi;
+  if (typeof sfen !== "string" || typeof usi !== "string") {
+    res.status(400).send("sfen and usi are required");
+    return;
+  }
+  try {
+    await removeBookMove(defaultBookSession, sfen, usi);
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to remove book move:", e);
+    res.status(500).send(e instanceof Error ? e.message : "failed to remove book move");
+  }
+});
+
+app.post("/api/book/order", express.json(), async (req, res) => {
+  const sfen = req.query.sfen;
+  const usi = req.query.usi;
+  const order = parseInt(req.query.order as string, 10);
+  if (typeof sfen !== "string" || typeof usi !== "string" || isNaN(order)) {
+    res.status(400).send("sfen, usi and order are required");
+    return;
+  }
+  try {
+    await updateBookMoveOrder(defaultBookSession, sfen, usi, order);
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to update book move order:", e);
+    res.status(500).send(e instanceof Error ? e.message : "failed to update book move order");
+  }
+});
+
+app.post("/api/book/import", express.json(), async (req, res) => {
+  if (!KIFU_DIR) {
+    res.status(404).send("KIFU_DIR is not configured");
+    return;
+  }
+  try {
+    const settings = req.body;
+    if (settings.sourceRecordFile && settings.sourceRecordFile.startsWith("server://")) {
+      settings.sourceRecordFile = resolveKifuPath(KIFU_DIR, settings.sourceRecordFile.substring(9));
+    }
+    const summary = await importBookMoves(defaultBookSession, settings);
+    res.json(summary);
+  } catch (e) {
+    console.error("failed to import book moves:", e);
+    res.status(500).send(e instanceof Error ? e.message : "failed to import book moves");
   }
 });
 

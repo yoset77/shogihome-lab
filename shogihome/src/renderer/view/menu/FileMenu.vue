@@ -121,6 +121,10 @@
           <Icon :icon="IconType.SHARE" />
           <div class="label">{{ t.share }}</div>
         </button>
+        <button :disabled="!states.searchDuplicatePositions" @click="onSearchDuplicatePositions">
+          <Icon :icon="IconType.PV" />
+          <div class="label">{{ t.searchDuplicatePositions }}</div>
+        </button>
         <button v-if="!isMobileWebApp()" :disabled="!states.exportImage" @click="onExportImage">
           <Icon :icon="IconType.GRID" />
           <div class="label">{{ t.positionImage }}</div>
@@ -359,6 +363,10 @@ const onShare = () => {
   store.showShareDialog();
   emit("close");
 };
+const onSearchDuplicatePositions = () => {
+  store.showSearchDuplicatePositionsDialog();
+  emit("close");
+};
 const onBatchConversion = () => {
   store.showBatchConversionDialog();
   emit("close");
@@ -430,6 +438,7 @@ const states = computed(() => {
     history: store.appState === AppState.NORMAL,
     loadRemoteFile: store.appState === AppState.NORMAL,
     share: store.appState === AppState.NORMAL,
+    searchDuplicatePositions: store.appState === AppState.NORMAL,
     batchConversion: store.appState === AppState.NORMAL,
     exportImage: store.appState === AppState.NORMAL,
     paste: store.appState === AppState.NORMAL,

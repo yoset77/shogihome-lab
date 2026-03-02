@@ -180,6 +180,9 @@ const bridge: Bridge = {
   async searchBookMoves(): Promise<string> {
     throw new Error("This feature is not available on command line tool");
   },
+  async searchBookMovesBatch(): Promise<string> {
+    throw new Error("This feature is not available on command line tool");
+  },
   async updateBookMove(): Promise<void> {
     throw new Error("This feature is not available on command line tool");
   },
@@ -394,6 +397,9 @@ const bridge: Bridge = {
     return false;
   },
   async listServerKifu(): Promise<string[]> {
+    throw new Error("This feature is not available on command line tool");
+  },
+  async listServerBook(): Promise<string[]> {
     throw new Error("This feature is not available on command line tool");
   },
   async loadServerKifu(): Promise<string> {

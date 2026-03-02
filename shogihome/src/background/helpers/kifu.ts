@@ -3,6 +3,7 @@ import path from "path";
 import { watch, FSWatcher } from "chokidar";
 
 const SUPPORTED_EXTENSIONS = [".kif", ".kifu", ".ki2", ".ki2u", ".csa", ".jkf"];
+const BOOK_EXTENSIONS = [".db", ".bin"];
 const MAX_DEPTH = 10;
 const MAX_FILES = 10000;
 
@@ -16,15 +17,12 @@ export const clearKifuListCache = (): void => {
 };
 
 /**
- * Recursively lists kifu files under the base directory.
+ * Recursively lists files under the base directory.
  * @param baseDir Absolute path to the base directory.
- * @returns Relative paths of kifu files.
+ * @param extensions Allowed extensions.
+ * @returns Relative paths of files.
  */
-export const getKifuList = async (baseDir: string): Promise<string[]> => {
-  if (cachedKifuList !== null) {
-    return cachedKifuList;
-  }
-
+const getFileList = async (baseDir: string, extensions: string[]): Promise<string[]> => {
   const result: string[] = [];
 
   const walk = async (dir: string, depth: number) => {
@@ -54,7 +52,7 @@ export const getKifuList = async (baseDir: string): Promise<string[]> => {
         await walk(res, depth + 1);
       } else if (entry.isFile()) {
         const ext = path.extname(entry.name).toLowerCase();
-        if (SUPPORTED_EXTENSIONS.includes(ext)) {
+        if (extensions.includes(ext)) {
           result.push(path.relative(baseDir, res));
         }
       }
@@ -66,8 +64,29 @@ export const getKifuList = async (baseDir: string): Promise<string[]> => {
   }
 
   await walk(baseDir, 0);
-  cachedKifuList = result;
   return result;
+};
+
+/**
+ * Recursively lists kifu files under the base directory.
+ * @param baseDir Absolute path to the base directory.
+ * @returns Relative paths of kifu files.
+ */
+export const getKifuList = async (baseDir: string): Promise<string[]> => {
+  if (cachedKifuList !== null) {
+    return cachedKifuList;
+  }
+  cachedKifuList = await getFileList(baseDir, SUPPORTED_EXTENSIONS);
+  return cachedKifuList;
+};
+
+/**
+ * Recursively lists book files under the base directory.
+ * @param baseDir Absolute path to the base directory.
+ * @returns Relative paths of book files.
+ */
+export const getBookList = async (baseDir: string): Promise<string[]> => {
+  return await getFileList(baseDir, BOOK_EXTENSIONS);
 };
 
 /**
@@ -91,7 +110,12 @@ export const setupKifuWatcher = (baseDir: string, usePolling = false): FSWatcher
 
     watcher.on("all", (event, filePath) => {
       const ext = path.extname(filePath).toLowerCase();
-      if (SUPPORTED_EXTENSIONS.includes(ext) || event === "addDir" || event === "unlinkDir") {
+      if (
+        SUPPORTED_EXTENSIONS.includes(ext) ||
+        BOOK_EXTENSIONS.includes(ext) ||
+        event === "addDir" ||
+        event === "unlinkDir"
+      ) {
         clearKifuListCache();
       }
     });
@@ -129,7 +153,7 @@ export const resolveKifuPath = (baseDir: string, relPath: string): string | null
 
   // Security: Basic check for extension.
   const ext = path.extname(relPath).toLowerCase();
-  if (!SUPPORTED_EXTENSIONS.includes(ext)) {
+  if (!SUPPORTED_EXTENSIONS.includes(ext) && !BOOK_EXTENSIONS.includes(ext)) {
     return null;
   }
 

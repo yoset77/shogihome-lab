@@ -35,6 +35,13 @@ vi.mock("@/renderer/store/game.js");
 vi.mock("@/renderer/store/csa.js");
 vi.mock("@/renderer/store/analysis.js");
 vi.mock("@/renderer/store/mate.js");
+vi.mock("@/renderer/store/book.ts", () => ({
+  useBookStore: vi.fn().mockReturnValue({
+    openBook: vi.fn().mockResolvedValue(undefined),
+    onChangePosition: vi.fn(),
+    onShowBookSelectDialog: vi.fn(),
+  }),
+}));
 vi.mock("@/renderer/store/research.js", () => {
   const mock = {
     on: vi.fn().mockReturnThis(),
@@ -728,9 +735,9 @@ describe("store/index", () => {
       new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "SJIS" })),
     );
     const store = createStore();
-    store.openRecord();
+    const promise = store.openRecord();
     expect(useBusyState().isBusy).toBeTruthy();
-    await new Promise((resolve) => setTimeout(resolve));
+    await promise;
     expect(useBusyState().isBusy).toBeFalsy();
     expect(useErrorStore().errors).toStrictEqual([]);
     expect(store.recordFilePath).toBe("/test/sample.kif");
@@ -751,9 +758,7 @@ describe("store/index", () => {
       new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "UTF8" })),
     );
     const store = createStore();
-    store.openRecord();
-    expect(useBusyState().isBusy).toBeTruthy();
-    await new Promise((resolve) => setTimeout(resolve));
+    await store.openRecord();
     expect(useBusyState().isBusy).toBeFalsy();
     expect(useErrorStore().errors).toStrictEqual([]);
     expect(store.recordFilePath).toBe("/test/sample.kif");
@@ -774,9 +779,7 @@ describe("store/index", () => {
       new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "UTF8" })),
     );
     const store = createStore();
-    store.openRecord();
-    expect(useBusyState().isBusy).toBeTruthy();
-    await new Promise((resolve) => setTimeout(resolve));
+    await store.openRecord();
     expect(useBusyState().isBusy).toBeFalsy();
     expect(useErrorStore().errors).toStrictEqual([]);
     expect(store.recordFilePath).toBe("/test/sample.kifu");
@@ -795,9 +798,7 @@ describe("store/index", () => {
     mockAPI.showOpenRecordDialog.mockResolvedValue("/test/sample.csa");
     mockAPI.openRecord.mockResolvedValue(new TextEncoder().encode(sampleCSA));
     const store = createStore();
-    store.openRecord();
-    expect(useBusyState().isBusy).toBeTruthy();
-    await new Promise((resolve) => setTimeout(resolve));
+    await store.openRecord();
     expect(useBusyState().isBusy).toBeFalsy();
     expect(useErrorStore().errors).toStrictEqual([]);
     expect(store.recordFilePath).toBe("/test/sample.csa");
@@ -835,8 +836,7 @@ describe("store/index", () => {
     mockAPI.showSaveRecordDialog.mockResolvedValue("/test/sample.csa");
     mockAPI.saveRecord.mockResolvedValue();
     const store = createStore();
-    store.saveRecord();
-    await new Promise((resolve) => setTimeout(resolve));
+    await store.saveRecord();
     expect(useBusyState().isBusy).toBeFalsy();
     expect(store.recordFilePath).toBe("/test/sample.csa");
     expect(useErrorStore().hasError).toBeFalsy();
@@ -859,8 +859,7 @@ describe("store/index", () => {
   it("saveRecord/cancel", async () => {
     mockAPI.showSaveRecordDialog.mockResolvedValue("");
     const store = createStore();
-    store.saveRecord();
-    await new Promise((resolve) => setTimeout(resolve));
+    await store.saveRecord();
     expect(useBusyState().isBusy).toBeFalsy();
     expect(store.recordFilePath).toBeUndefined();
     expect(useErrorStore().hasError).toBeFalsy();
@@ -875,10 +874,8 @@ describe("store/index", () => {
     mockAPI.showSaveRecordDialog.mockResolvedValue("/test/sample2.csa");
     mockAPI.saveRecord.mockResolvedValue();
     const store = createStore();
-    store.openRecord("/test/sample1.csa");
-    await new Promise((resolve) => setTimeout(resolve));
-    store.saveRecord();
-    await new Promise((resolve) => setTimeout(resolve));
+    await store.openRecord("/test/sample1.csa");
+    await store.saveRecord();
     expect(useBusyState().isBusy).toBeFalsy();
     expect(store.recordFilePath).toBe("/test/sample2.csa");
     expect(useErrorStore().hasError).toBeFalsy();
@@ -894,10 +891,8 @@ describe("store/index", () => {
     mockAPI.showSaveRecordDialog.mockResolvedValue("/test/sample2.csa");
     mockAPI.saveRecord.mockResolvedValue();
     const store = createStore();
-    store.openRecord("/test/sample1.csa");
-    await new Promise((resolve) => setTimeout(resolve));
-    store.saveRecord({ overwrite: true });
-    await new Promise((resolve) => setTimeout(resolve));
+    await store.openRecord("/test/sample1.csa");
+    await store.saveRecord({ overwrite: true });
     expect(useBusyState().isBusy).toBeFalsy();
     expect(store.recordFilePath).toBe("/test/sample1.csa");
     expect(useErrorStore().hasError).toBeFalsy();
@@ -910,8 +905,7 @@ describe("store/index", () => {
     mockAPI.showSaveRecordDialog.mockResolvedValue("/test/sample.jkf");
     mockAPI.saveRecord.mockResolvedValue();
     const store = createStore();
-    store.saveRecord({ format: RecordFileFormat.JKF });
-    await new Promise((resolve) => setTimeout(resolve));
+    await store.saveRecord({ format: RecordFileFormat.JKF });
     expect(useBusyState().isBusy).toBeFalsy();
     expect(store.recordFilePath).toBe("/test/sample.jkf");
     expect(useErrorStore().hasError).toBeFalsy();
@@ -959,5 +953,16 @@ describe("store/index", () => {
         },
       ],
     });
+  });
+
+  it("openRecord/book/success", async () => {
+    const { useBookStore } = await import("@/renderer/store/book.js");
+    const mockBookStore = useBookStore();
+    const store = createStore();
+    await store.openRecord("/test/sample.db");
+    expect(useBusyState().isBusy).toBeFalsy();
+    expect(useErrorStore().errors).toStrictEqual([]);
+    expect(mockBookStore.openBook).toBeCalledTimes(1);
+    expect(mockBookStore.openBook).toBeCalledWith("/test/sample.db");
   });
 });

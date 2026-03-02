@@ -71,16 +71,15 @@
           :thema="appSettings.thema"
           :coefficient-in-sigmoid="appSettings.coefficientInSigmoid"
         />
+        <BookPane
+          v-if="showRecordViewOnBottom && !isEvaluationPuzzle"
+          v-show="bottomUIType === BottomUIType.BOOK"
+          :size="bottomViewSize"
+        />
         <HorizontalSelector
           v-if="showRecordViewOnBottom && !isEvaluationPuzzle"
           v-model:value="bottomUIType"
-          :items="[
-            { label: t.pv, value: BottomUIType.PV },
-            { label: t.chart, value: BottomUIType.CHART },
-            { label: t.record, value: BottomUIType.RECORD },
-            { label: t.comments, value: BottomUIType.COMMENT },
-            { label: t.recordProperties, value: BottomUIType.INFO },
-          ]"
+          :items="bottomUIItems"
           :height="selectorHeight"
           :scroll="true"
           style="flex-shrink: 0"
@@ -143,15 +142,15 @@
           :thema="appSettings.thema"
           :coefficient-in-sigmoid="appSettings.coefficientInSigmoid"
         />
+        <BookPane
+          v-if="!showRecordViewOnBottom && !isEvaluationPuzzle"
+          v-show="sideUIType === SideUIType.BOOK"
+          :size="sideViewSize"
+        />
         <HorizontalSelector
           v-if="!isEvaluationPuzzle"
           v-model:value="sideUIType"
-          :items="[
-            { label: t.pv, value: SideUIType.PV },
-            { label: t.chart, value: SideUIType.CHART },
-            { label: t.record, value: SideUIType.RECORD },
-            { label: t.recordProperties, value: SideUIType.INFO },
-          ]"
+          :items="sideUIItems"
           :height="selectorHeight"
           :scroll="true"
           style="flex-shrink: 0"
@@ -168,12 +167,14 @@ enum BottomUIType {
   INFO = "info",
   PV = "pv",
   CHART = "chart",
+  BOOK = "book",
 }
 enum SideUIType {
   RECORD = "record",
   INFO = "info",
   PV = "pv",
   CHART = "chart",
+  BOOK = "book",
 }
 </script>
 
@@ -192,6 +193,7 @@ import RecordInfo from "@/renderer/view/tab/RecordInfo.vue";
 import EngineAnalytics from "@/renderer/view/tab/EngineAnalytics.vue";
 import EvaluationChart from "@/renderer/view/tab/EvaluationChart.vue";
 import PuzzlePane from "@/renderer/view/tab/PuzzlePane.vue";
+import BookPane from "@/renderer/view/tab/BookPane.vue";
 import { useAppSettings } from "@/renderer/store/settings";
 import { useStore } from "@/renderer/store";
 import { AppState } from "@/common/control/state";
@@ -259,6 +261,37 @@ const sideViewSize = computed(() => {
     windowSize.width - boardPaneSize.value.width,
     windowSize.height - controlPaneHeight.value - selectorHeight,
   );
+});
+
+const bottomUIItems = computed(() => {
+  const items = [
+    { label: t.pv, value: BottomUIType.PV },
+    { label: t.chart, value: BottomUIType.CHART },
+  ];
+  if (appSettings.showBookTableOnMobile) {
+    items.push({ label: t.book, value: BottomUIType.BOOK });
+  }
+  items.push(
+    { label: t.record, value: BottomUIType.RECORD },
+    { label: t.comments, value: BottomUIType.COMMENT },
+    { label: t.recordProperties, value: BottomUIType.INFO },
+  );
+  return items;
+});
+
+const sideUIItems = computed(() => {
+  const items = [
+    { label: t.pv, value: SideUIType.PV },
+    { label: t.chart, value: SideUIType.CHART },
+  ];
+  if (appSettings.showBookTableOnMobile) {
+    items.push({ label: t.book, value: SideUIType.BOOK });
+  }
+  items.push(
+    { label: t.record, value: SideUIType.RECORD },
+    { label: t.recordProperties, value: SideUIType.INFO },
+  );
+  return items;
 });
 
 onMounted(() => {
