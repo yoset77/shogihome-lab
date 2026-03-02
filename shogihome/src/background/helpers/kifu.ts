@@ -153,9 +153,7 @@ export const resolveKifuPath = (baseDir: string, relPath: string): string | null
 
   // Security: Basic check for extension.
   const ext = path.extname(relPath).toLowerCase();
-  if (!SUPPORTED_EXTENSIONS.includes(ext) && !BOOK_EXTENSIONS.includes(ext)) {
-    return null;
-  }
+  const isSupportedExt = SUPPORTED_EXTENSIONS.includes(ext) || BOOK_EXTENSIONS.includes(ext);
 
   // Normalize and resolve the path.
   const fullPath = path.resolve(baseDir, relPath);
@@ -168,6 +166,13 @@ export const resolveKifuPath = (baseDir: string, relPath: string): string | null
     : normalizedBaseDir + path.sep;
 
   if (!fullPath.startsWith(baseDirWithSep)) {
+    return null;
+  }
+
+  // Security: Check if it's a supported extension OR it's an existing directory.
+  // We allow non-existent paths only if they have a supported extension (for file creation).
+  // For paths without a supported extension, we only allow them if they are existing directories.
+  if (!isSupportedExt && !(fs.existsSync(fullPath) && fs.lstatSync(fullPath).isDirectory())) {
     return null;
   }
 

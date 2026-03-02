@@ -464,7 +464,12 @@ export async function importBookMoves(
   session: number,
   settings: BookImportSettings,
   onProgress?: (progress: number) => void,
+  rootDirectory?: string,
 ): Promise<BookImportSummary> {
+  if (!rootDirectory) {
+    throw new Error("rootDirectory is required for security in this environment");
+  }
+
   getAppLogger().info("Importing book moves: %s", JSON.stringify(settings));
 
   const book = getBook(session);
@@ -509,33 +514,57 @@ export async function importBookMoves(
 
     let paths: string[];
     switch (settings.sourceType) {
-      case SourceType.FILE:
+      case SourceType.FILE: {
         if (!settings.sourceRecordFile) {
           throw new Error("source record file is not set");
         }
         if (!detectRecordFileFormatByPath(settings.sourceRecordFile)) {
           throw new Error("unknown file format: " + settings.sourceRecordFile);
         }
+
+        // UNCONDITIONAL SANITIZATION
+        const fileResolved = path.resolve(settings.sourceRecordFile);
+        const fileRoot = path.resolve(rootDirectory);
+        if (
+          !fileResolved.startsWith(fileRoot.endsWith(path.sep) ? fileRoot : fileRoot + path.sep) &&
+          fileResolved !== fileRoot
+        ) {
+          throw new Error("Forbidden path: " + fileResolved);
+        }
+
         if (!(await exists(settings.sourceRecordFile))) {
           throw new Error(t.fileNotFound(settings.sourceRecordFile));
         }
         paths = [settings.sourceRecordFile];
         break;
-      case SourceType.DIRECTORY:
+      }
+      case SourceType.DIRECTORY: {
         if (!settings.sourceDirectory) {
           throw new Error("source directory is not set");
         }
+
+        // UNCONDITIONAL SANITIZATION
+        const dirResolved = path.resolve(settings.sourceDirectory);
+        const dirRoot = path.resolve(rootDirectory);
+        if (
+          !dirResolved.startsWith(dirRoot.endsWith(path.sep) ? dirRoot : dirRoot + path.sep) &&
+          dirResolved !== dirRoot
+        ) {
+          throw new Error("Forbidden path: " + dirResolved);
+        }
+
         if (!(await exists(settings.sourceDirectory))) {
           throw new Error(t.directoryNotFound(settings.sourceDirectory));
         }
         paths = await listFiles(settings.sourceDirectory, Infinity);
         paths = paths.filter(detectRecordFileFormatByPath);
         break;
+      }
       default:
         throw new Error("invalid source type");
     }
 
-    for (const path of paths) {
+    for (const recordFilePath of paths) {
       if (onProgress) {
         const progress = (successFileCount + errorFileCount + skippedFileCount) / paths.length;
         onProgress(progress);
@@ -554,13 +583,24 @@ export async function importBookMoves(
           break;
       }
 
-      getAppLogger().debug("Importing book moves from: %s", path);
-      const format = detectRecordFileFormatByPath(path) as RecordFileFormat;
-      const sourceData = await fs.promises.readFile(path);
+      const absolutePath = path.resolve(recordFilePath);
+      const normalizedRoot = path.resolve(rootDirectory);
+      const rootWithSep = normalizedRoot.endsWith(path.sep)
+        ? normalizedRoot
+        : normalizedRoot + path.sep;
+      if (!absolutePath.startsWith(rootWithSep) && absolutePath !== normalizedRoot) {
+        getAppLogger().error("Forbidden path in importBookMoves: %s", absolutePath);
+        errorFileCount++;
+        continue;
+      }
+
+      getAppLogger().debug("Importing book moves from: %s", absolutePath);
+      const format = detectRecordFileFormatByPath(absolutePath) as RecordFileFormat;
+      const sourceData = await fs.promises.readFile(absolutePath);
 
       if (format === RecordFileFormat.SFEN) {
         if (settings.playerCriteria === PlayerCriteria.FILTER_BY_NAME && settings.playerName) {
-          getAppLogger().debug("Ignoring SFEN file: %s", path);
+          getAppLogger().debug("Ignoring SFEN file: %s", absolutePath);
           skippedFileCount++;
           continue; // skip SFEN files when filtering by player name
         }
@@ -591,10 +631,14 @@ export async function importBookMoves(
         if (hasValidLines) {
           successFileCount++;
         } else if (invalidLine) {
-          getAppLogger().debug("Invalid lines found in SFEN file: %s: [%s]", path, invalidLine);
+          getAppLogger().debug(
+            "Invalid lines found in SFEN file: %s: [%s]",
+            absolutePath,
+            invalidLine,
+          );
           errorFileCount++;
         } else {
-          getAppLogger().debug("No valid lines found in SFEN file: %s", path);
+          getAppLogger().debug("No valid lines found in SFEN file: %s", absolutePath);
           skippedFileCount++;
         }
         continue;
@@ -604,7 +648,7 @@ export async function importBookMoves(
         autoDetect: appSettings.textDecodingRule === TextDecodingRule.AUTO_DETECT,
       });
       if (record instanceof Error) {
-        getAppLogger().debug("Failed to import book moves from: %s: %s", path, record);
+        getAppLogger().debug("Failed to import book moves from: %s: %s", absolutePath, record);
         errorFileCount++;
         continue;
       }

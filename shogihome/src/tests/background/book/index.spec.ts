@@ -496,10 +496,15 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
     ];
     for (const pattern of patterns) {
       it(pattern.title, async () => {
-        const summary = await importBookMoves(defaultBookSession, {
-          ...defaultBookImportSettings(),
-          ...pattern.settings,
-        });
+        const summary = await importBookMoves(
+          defaultBookSession,
+          {
+            ...defaultBookImportSettings(),
+            ...pattern.settings,
+          },
+          undefined,
+          process.cwd(),
+        );
         expect(summary).toEqual(pattern.summary);
         for (const sfen of pattern.includedSFEN) {
           expect((await searchBookMoves(defaultBookSession, sfen)).length).not.toBe(0);
@@ -687,11 +692,16 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
       await openBook(defaultBookSession, "src/tests/testdata/book/yaneuraou.db");
 
       // Start importing (async)
-      const importPromise = importBookMoves(defaultBookSession, {
-        ...defaultBookImportSettings(),
-        sourceType: SourceType.DIRECTORY,
-        sourceDirectory: "src/tests/testdata/book/source",
-      });
+      const importPromise = importBookMoves(
+        defaultBookSession,
+        {
+          ...defaultBookImportSettings(),
+          sourceType: SourceType.DIRECTORY,
+          sourceDirectory: "src/tests/testdata/book/source",
+        },
+        undefined,
+        process.cwd(),
+      );
 
       try {
         // Try to save while importing
