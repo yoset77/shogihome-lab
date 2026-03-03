@@ -255,6 +255,9 @@ export class USIMonitor {
     let monitor = this._sessions.find((session) => session.sessionID === update.sessionID);
     if (!monitor) {
       monitor = this.addSession(update.sessionID, update.name);
+    } else if (monitor.name !== update.name) {
+      monitor.name = update.name;
+      monitor.clear();
     }
     monitor.update(update.sfen, update.info, update.maxPVLength, update.ponderMove);
   }
