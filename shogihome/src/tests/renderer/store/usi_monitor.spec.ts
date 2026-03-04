@@ -85,4 +85,44 @@ describe("USIMonitor", () => {
 
     vi.useRealTimers();
   });
+
+  it("should only update global stats from multipv 1 or undefined", () => {
+    const monitor = new USIMonitor();
+    const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+    const position = { sfen, color: Color.BLACK } as unknown as ImmutablePosition;
+
+    (isActiveLanPlayerSession as Mock).mockReturnValue(true);
+    vi.useFakeTimers();
+
+    // multipv 1 の更新
+    monitor.update(
+      200000,
+      position,
+      "Engine",
+      { multipv: 1, nodes: 10000, nps: 20000, hashfullPerMill: 500, currmove: "7g7f" },
+      100,
+    );
+    vi.advanceTimersByTime(500);
+    expect(monitor.sessions[0].nodes).toBe(10000);
+    expect(monitor.sessions[0].nps).toBe(20000);
+    expect(monitor.sessions[0].hashfull).toBe(0.5);
+    expect(monitor.sessions[0].currentMove).toBe("7g7f");
+
+    // multipv 2 の更新 (小さなノード数などを送ってきたと想定)
+    monitor.update(
+      200000,
+      position,
+      "Engine",
+      { multipv: 2, nodes: 3000, nps: 20000, currmove: "2g2f" },
+      100,
+    );
+    vi.advanceTimersByTime(500);
+    // 全体の統計は multipv 1 の時のまま維持されていること
+    expect(monitor.sessions[0].nodes).toBe(10000);
+    expect(monitor.sessions[0].currentMove).toBe("7g7f");
+    // ただし、個別行の情報としては 3000 が保持されていること
+    expect(monitor.sessions[0].infoList[0].nodes).toBe(3000);
+
+    vi.useRealTimers();
+  });
 });
