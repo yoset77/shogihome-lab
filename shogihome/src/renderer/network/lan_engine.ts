@@ -328,13 +328,10 @@ export class LanEngine {
   }
 }
 
+import { generateSessionId } from "@/renderer/helpers/unique";
+
 const getDiscoveryId = () => {
-  if (typeof window !== "undefined" && window.crypto) {
-    const array = new Uint32Array(1);
-    window.crypto.getRandomValues(array);
-    return array[0].toString(36);
-  }
-  return Date.now().toString(36);
+  return generateSessionId();
 };
 
 export const lanDiscoveryEngine = new LanEngine("discovery-" + getDiscoveryId());

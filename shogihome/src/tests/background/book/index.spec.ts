@@ -13,11 +13,13 @@ import {
   searchBookMoves,
   updateBookMove,
   updateBookMoveOrder,
+  initBookSession,
 } from "@/background/book/index.js";
 import { getTempPathForTesting } from "@/background/proc/env.js";
 import { defaultBookImportSettings, PlayerCriteria, SourceType } from "@/common/settings/book.js";
 import { createTestAperyBookFile } from "@/tests/mock/book.js";
-import { defaultBookSession } from "@/common/book.js";
+
+const defaultBookSession = 1;
 
 const tmpdir = path.join(getTempPathForTesting(), "book");
 
@@ -39,6 +41,7 @@ describe("background/book", () => {
   });
 
   beforeEach(() => {
+    initBookSession(defaultBookSession);
     clearBook(defaultBookSession);
   });
 

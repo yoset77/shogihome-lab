@@ -28,8 +28,9 @@ import {
   removeBookMove,
   updateBookMoveOrder,
   importBookMoves,
-} from "./src/background/book/index";
-import { defaultBookSession } from "./src/common/book";
+  closeBookSession,
+  initBookSession,
+} from "./src/background/book";
 import { writeFileAtomic, writeFileAtomicSync } from "./src/background/file/atomic";
 
 const getBasePath = () => {
@@ -43,7 +44,7 @@ const getBasePath = () => {
 
 dotenv.config({ path: path.join(getBasePath(), ".env") });
 
-const app = express();
+export const app = express();
 app.set("trust proxy", 1);
 const server = http.createServer(app);
 server.timeout = 900000;
@@ -137,6 +138,58 @@ const updatePuzzlesManifest = () => {
 updatePuzzlesManifest();
 
 const KIFU_DIR = process.env.KIFU_DIR ? path.resolve(getBasePath(), process.env.KIFU_DIR) : null;
+
+const SESSION_ID_HEADER_REGEX = /^[a-zA-Z0-9_-]{8,128}$/;
+
+class BookSessionManager {
+  private sessions = new Map<string, number>();
+  private lastAccess = new Map<string, number>();
+  private nextSessionId = 1;
+  private readonly MAX_SESSIONS = 50;
+
+  get(sessionId: string): number {
+    this.lastAccess.set(sessionId, Date.now());
+    if (!this.sessions.has(sessionId)) {
+      if (this.sessions.size >= this.MAX_SESSIONS) {
+        throw new Error(`Book session limit reached (${this.MAX_SESSIONS})`);
+      }
+      const id = this.nextSessionId++;
+      this.sessions.set(sessionId, id);
+      initBookSession(id);
+    }
+    return this.sessions.get(sessionId)!;
+  }
+
+  cleanup() {
+    const now = Date.now();
+    for (const [sessionId, lastTime] of this.lastAccess.entries()) {
+      if (now - lastTime > 1000 * 60 * 60) {
+        // 1 hour
+        const internalId = this.sessions.get(sessionId);
+        if (internalId) {
+          try {
+            closeBookSession(internalId);
+          } catch (e) {
+            console.error("failed to close book session", e);
+          }
+          this.sessions.delete(sessionId);
+        }
+        this.lastAccess.delete(sessionId);
+      }
+    }
+  }
+}
+
+const bookSessionManager = new BookSessionManager();
+setInterval(() => bookSessionManager.cleanup(), 1000 * 60 * 10);
+
+function getBookSession(req: express.Request): number {
+  const sessionId = req.header("X-Book-Session-Id");
+  if (!sessionId || !SESSION_ID_HEADER_REGEX.test(sessionId)) {
+    throw new Error("Invalid or missing X-Book-Session-Id header");
+  }
+  return bookSessionManager.get(sessionId);
+}
 if (KIFU_DIR) {
   console.log(`Server-side kifu directory: ${KIFU_DIR}`);
   setupKifuWatcher(KIFU_DIR, process.env.KIFU_DIR_USE_POLLING === "true");
@@ -310,7 +363,8 @@ app.post("/api/book/open", express.json(), async (req, res) => {
     return;
   }
   try {
-    const mode = await openBook(defaultBookSession, fullPath, req.body);
+    const bookSession = getBookSession(req);
+    const mode = await openBook(bookSession, fullPath, req.body);
     res.json({ mode });
   } catch (e) {
     console.error("failed to open book:", e);
@@ -348,7 +402,8 @@ app.post("/api/book/save", async (req, res) => {
     return;
   }
   try {
-    await saveBook(defaultBookSession, fullPath);
+    const bookSession = getBookSession(req);
+    await saveBook(bookSession, fullPath);
     res.send("ok");
   } catch (e) {
     console.error("failed to save book:", e);
@@ -358,7 +413,8 @@ app.post("/api/book/save", async (req, res) => {
 
 app.post("/api/book/clear", async (req, res) => {
   try {
-    clearBook(defaultBookSession);
+    const bookSession = getBookSession(req);
+    clearBook(bookSession);
     res.send("ok");
   } catch (e) {
     console.error("failed to clear book:", e);
@@ -373,7 +429,8 @@ app.get("/api/book/search", async (req, res) => {
     return;
   }
   try {
-    const moves = await searchBookMoves(defaultBookSession, sfen);
+    const bookSession = getBookSession(req);
+    const moves = await searchBookMoves(bookSession, sfen);
     res.json(moves);
   } catch (e) {
     console.error("failed to search book moves:", e);
@@ -387,10 +444,15 @@ app.post("/api/book/search/batch", express.json({ limit: "10mb" }), async (req, 
     sendError(res, 400, "sfens must be an array");
     return;
   }
+  if (sfens.length > 10000) {
+    sendError(res, 400, "sfens array is too large (max 10000)");
+    return;
+  }
   try {
+    const bookSession = getBookSession(req);
     const results = await Promise.all(
       sfens.map(async (sfen) => {
-        const moves = await searchBookMoves(defaultBookSession, sfen);
+        const moves = await searchBookMoves(bookSession, sfen);
         return { sfen, moves };
       }),
     );
@@ -408,7 +470,8 @@ app.post("/api/book/update", express.json(), async (req, res) => {
     return;
   }
   try {
-    await updateBookMove(defaultBookSession, sfen, req.body);
+    const bookSession = getBookSession(req);
+    await updateBookMove(bookSession, sfen, req.body);
     res.send("ok");
   } catch (e) {
     console.error("failed to update book move:", e);
@@ -424,7 +487,8 @@ app.post("/api/book/remove", express.json(), async (req, res) => {
     return;
   }
   try {
-    await removeBookMove(defaultBookSession, sfen, usi);
+    const bookSession = getBookSession(req);
+    await removeBookMove(bookSession, sfen, usi);
     res.send("ok");
   } catch (e) {
     console.error("failed to remove book move:", e);
@@ -441,7 +505,8 @@ app.post("/api/book/order", express.json(), async (req, res) => {
     return;
   }
   try {
-    await updateBookMoveOrder(defaultBookSession, sfen, usi, order);
+    const bookSession = getBookSession(req);
+    await updateBookMoveOrder(bookSession, sfen, usi, order);
     res.send("ok");
   } catch (e) {
     console.error("failed to update book move order:", e);
@@ -455,8 +520,16 @@ app.post("/api/book/import", express.json(), async (req, res) => {
     return;
   }
   try {
-    const settings = req.body;
-    if (settings.sourceRecordFile) {
+    const settings = {
+      sourceType: req.body.sourceType,
+      sourceDirectory: req.body.sourceDirectory,
+      sourceRecordFile: req.body.sourceRecordFile,
+      minPly: Number(req.body.minPly),
+      maxPly: Number(req.body.maxPly),
+      playerCriteria: req.body.playerCriteria,
+      playerName: req.body.playerName,
+    };
+    if (typeof settings.sourceRecordFile === "string" && settings.sourceRecordFile) {
       if (!settings.sourceRecordFile.startsWith("server://")) {
         sendError(res, 400, "sourceRecordFile must be a server:// URI");
         return;
@@ -468,7 +541,7 @@ app.post("/api/book/import", express.json(), async (req, res) => {
       }
       settings.sourceRecordFile = resolved;
     }
-    if (settings.sourceDirectory) {
+    if (typeof settings.sourceDirectory === "string" && settings.sourceDirectory) {
       if (!settings.sourceDirectory.startsWith("server://")) {
         sendError(res, 400, "sourceDirectory must be a server:// URI");
         return;
@@ -480,7 +553,8 @@ app.post("/api/book/import", express.json(), async (req, res) => {
       }
       settings.sourceDirectory = resolved;
     }
-    const summary = await importBookMoves(defaultBookSession, settings, undefined, KIFU_DIR);
+    const bookSession = getBookSession(req);
+    const summary = await importBookMoves(bookSession, settings, undefined, KIFU_DIR);
     res.json(summary);
   } catch (e) {
     console.error("failed to import book moves:", e);

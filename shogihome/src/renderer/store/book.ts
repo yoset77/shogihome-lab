@@ -1,4 +1,4 @@
-import { BookLoadingMode, BookMove, BookMoveEx, defaultBookSession } from "@/common/book.js";
+import { BookLoadingMode, BookMove, BookMoveEx } from "@/common/book.js";
 import { reactive, UnwrapNestedRefs } from "vue";
 import api from "@/renderer/ipc/api.js";
 import { useErrorStore } from "./error.js";
@@ -86,7 +86,7 @@ export class BookStore {
       onOk: () => {
         useBusyState().retain();
         api
-          .clearBook(defaultBookSession)
+          .clearBook()
           .then(() => {
             this._mode = "in-memory";
             this._path = undefined;
@@ -125,7 +125,7 @@ export class BookStore {
 
   async openBook(path: string) {
     try {
-      const mode = await api.openBook(defaultBookSession, path, {
+      const mode = await api.openBook(path, {
         onTheFlyThresholdMB: useAppSettings().bookOnTheFlyThresholdMB,
       });
       this._mode = mode;
@@ -144,7 +144,7 @@ export class BookStore {
     if (this._mode === "in-memory" && this._path?.startsWith("server://")) {
       useBusyState().retain();
       api
-        .saveBook(defaultBookSession, this._path)
+        .saveBook(this._path)
         .then(() => {
           useMessageStore().enqueue({ text: t.bookDataWasSaved });
         })
@@ -161,10 +161,10 @@ export class BookStore {
       ? this._path.substring(9)
       : "new_book.db";
     api
-      .showSaveBookDialog(defaultBookSession, defaultPath)
+      .showSaveBookDialog(defaultPath)
       .then(async (path) => {
         if (path) {
-          await api.saveBook(defaultBookSession, path);
+          await api.saveBook(path);
           this._path = path;
           useMessageStore().enqueue({ text: t.bookDataWasSaved });
         }
@@ -186,10 +186,10 @@ export class BookStore {
       ? this._path.substring(9)
       : "new_book.db";
     api
-      .showSaveBookDialog(defaultBookSession, defaultPath)
+      .showSaveBookDialog(defaultPath)
       .then(async (path) => {
         if (path) {
-          await api.saveBook(defaultBookSession, path);
+          await api.saveBook(path);
           this._path = path;
           useMessageStore().enqueue({ text: t.bookDataWasSaved });
         }
@@ -205,7 +205,7 @@ export class BookStore {
   async updateMove(sfen: string, move: BookMove) {
     useBusyState().retain();
     return api
-      .updateBookMove(defaultBookSession, sfen, move)
+      .updateBookMove(sfen, move)
       .then(() => this.reloadBookMoves())
       .then(async () => {
         const settings = await api.loadBookImportSettings();
@@ -220,7 +220,7 @@ export class BookStore {
   removeMove(sfen: string, usi: string) {
     useBusyState().retain();
     api
-      .removeBookMove(defaultBookSession, sfen, usi)
+      .removeBookMove(sfen, usi)
       .then(() => this.reloadBookMoves())
       .catch((e) => {
         useErrorStore().add(e);
@@ -233,7 +233,7 @@ export class BookStore {
   updateMoveOrder(sfen: string, usi: string, order: number) {
     useBusyState().retain();
     api
-      .updateBookMoveOrder(defaultBookSession, sfen, usi, order)
+      .updateBookMoveOrder(sfen, usi, order)
       .then(() => this.reloadBookMoves())
       .catch((e) => {
         useErrorStore().add(e);
@@ -244,7 +244,7 @@ export class BookStore {
   }
 
   async searchMoves(sfen: string): Promise<BookMove[]> {
-    const moves = await api.searchBookMoves(defaultBookSession, sfen);
+    const moves = await api.searchBookMoves(sfen);
     if (moves.length !== 0) {
       return moves;
     }
@@ -252,7 +252,7 @@ export class BookStore {
     if (!appSettings.flippedBook) {
       return [];
     }
-    return (await api.searchBookMoves(defaultBookSession, flippedSFEN(sfen))).map((move) => {
+    return (await api.searchBookMoves(flippedSFEN(sfen))).map((move) => {
       move.usi = flippedUSIMove(move.usi);
       if (move.usi2) {
         move.usi2 = flippedUSIMove(move.usi2);
@@ -268,7 +268,7 @@ export class BookStore {
       sfens.forEach((sfen) => querySfens.push(flippedSFEN(sfen)));
     }
 
-    const results = await api.searchBookMovesBatch(defaultBookSession, querySfens);
+    const results = await api.searchBookMovesBatch(querySfens);
     const resultMap = new Map<string, BookMove[]>();
     results.forEach((r) => resultMap.set(r.sfen, r.moves));
 
@@ -299,7 +299,7 @@ export class BookStore {
     useBusyState().retain();
     api
       .saveBookImportSettings(settings)
-      .then(() => api.importBookMoves(defaultBookSession, settings))
+      .then(() => api.importBookMoves(settings))
       .then((summary) => {
         const items = [
           {
