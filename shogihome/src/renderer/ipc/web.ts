@@ -17,6 +17,7 @@ import { VersionStatus } from "@/common/version.js";
 import { SessionStates } from "@/common/advanced/monitor.js";
 import { emptyLayoutProfileList } from "@/common/settings/layout.js";
 import * as uri from "@/common/uri.js";
+import { normalizePath } from "@/common/helpers/path.js";
 
 enum STORAGE_KEY {
   APP_SETTINGS = "appSetting",
@@ -237,7 +238,7 @@ export const webAPI: Bridge = {
   },
   async saveRecord(path: string, data: Uint8Array): Promise<void> {
     // パスからファイル名を抽出
-    const filename = path.split(/[/\\]/).pop() || "record.kif";
+    const filename = normalizePath(path).split("/").pop() || "record.kif";
 
     // 拡張子からMIMEタイプを決定
     let mimeType = "application/octet-stream";

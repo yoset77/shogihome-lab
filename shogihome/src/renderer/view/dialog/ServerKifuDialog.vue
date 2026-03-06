@@ -61,6 +61,7 @@ import { useErrorStore } from "@/renderer/store/error";
 import { useBusyState } from "@/renderer/store/busy";
 import DialogFrame from "./DialogFrame.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
+import { normalizePath } from "@/common/helpers/path";
 
 const store = useStore();
 const busyState = useBusyState();
@@ -93,7 +94,7 @@ interface Entry {
 
 const breadcrumbs = computed(() => {
   if (!currentDir.value) return [];
-  const parts = currentDir.value.split(/[/\\]/);
+  const parts = normalizePath(currentDir.value).split("/");
   return parts.map((part, index) => ({
     name: part,
     path: parts.slice(0, index + 1).join("/"),
@@ -113,21 +114,22 @@ const displayEntries = computed<Entry[]>(() => {
         return words.every((word) => fileLower.includes(word));
       })
       .map((file) => ({
-        name: file.replace(/\\/g, "/"),
+        name: normalizePath(file),
         relPath: file,
         isDirectory: false,
       }));
   }
 
   // hierarchy mode
-  const currentDirLower = currentDir.value.toLowerCase().replace(/\\/g, "/");
-  const prefix = currentDir.value ? currentDir.value.replace(/\\/g, "/") + "/" : "";
+  const currentDirNormalized = normalizePath(currentDir.value);
+  const currentDirLower = currentDirNormalized.toLowerCase();
+  const prefix = currentDirNormalized ? currentDirNormalized + "/" : "";
 
   // 検索ワードがある場合は再帰的に検索
   if (words.length > 0) {
     return list.value
       .filter((file) => {
-        const fileNormalized = file.replace(/\\/g, "/");
+        const fileNormalized = normalizePath(file);
         if (!fileNormalized.toLowerCase().startsWith(currentDirLower)) {
           return false;
         }
@@ -135,7 +137,7 @@ const displayEntries = computed<Entry[]>(() => {
         return words.every((word) => relative.includes(word));
       })
       .map((file) => ({
-        name: file.replace(/\\/g, "/").substring(prefix.length),
+        name: normalizePath(file).substring(prefix.length),
         relPath: file,
         isDirectory: false,
       }))
@@ -145,7 +147,7 @@ const displayEntries = computed<Entry[]>(() => {
   // 検索ワードがない場合は現在の階層のファイルとフォルダを表示
   const entriesMap = new Map<string, Entry>();
   list.value.forEach((file) => {
-    const fileNormalized = file.replace(/\\/g, "/");
+    const fileNormalized = normalizePath(file);
     if (fileNormalized.toLowerCase().startsWith(currentDirLower)) {
       const relative = fileNormalized.substring(prefix.length);
       const parts = relative.split("/");

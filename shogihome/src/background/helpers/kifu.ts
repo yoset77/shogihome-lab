@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { watch, FSWatcher } from "chokidar";
+import { normalizePath } from "@/common/helpers/path";
 
 const SUPPORTED_EXTENSIONS = [".kif", ".kifu", ".ki2", ".ki2u", ".csa", ".jkf"];
 const BOOK_EXTENSIONS = [".db", ".bin"];
@@ -142,12 +143,13 @@ export const resolveKifuPath = (baseDir: string, relPath: string): string | null
   }
 
   // Security: Do not allow any path traversal segments.
-  if (relPath.split(/[/\\]/).some((segment) => segment === "..")) {
+  const segments = normalizePath(relPath).split("/");
+  if (segments.some((segment) => segment === "..")) {
     return null;
   }
 
   // Security: Limit directory depth.
-  if (relPath.split(/[/\\]/).filter(Boolean).length > 11) {
+  if (segments.filter(Boolean).length > 11) {
     return null;
   }
 

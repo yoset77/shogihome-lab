@@ -39,6 +39,7 @@ import { useErrorStore } from "@/renderer/store/error";
 import { useBusyState } from "@/renderer/store/busy";
 import { useBookStore } from "@/renderer/store/book";
 import DialogFrame from "./DialogFrame.vue";
+import { normalizePath } from "@/common/helpers/path";
 
 const store = useStore();
 const bookStore = useBookStore();
@@ -70,7 +71,7 @@ const filteredList = computed(() => {
 });
 
 const displayPath = (file: string) => {
-  return file.replace(/\\/g, "/");
+  return normalizePath(file);
 };
 
 async function open(relPath: string) {
