@@ -467,27 +467,51 @@
           />
         </div>
         <!-- 自動保存先 -->
-        <div v-if="isNative()" class="form-item row">
+        <div class="form-item row responsive">
           <div class="form-item-label-wide">
             {{ t.autoSavingDirectory }}
           </div>
-          <input v-model="update.autoSaveDirectory" class="file-path" type="text" />
-          <button class="thin" @click="selectAutoSaveDirectory">
-            {{ t.select }}
-          </button>
-          <button class="thin auxiliary" @click="onOpenAutoSaveDirectory">
-            <Icon :icon="IconType.OPEN_FOLDER" />
-          </button>
+          <div class="row grow">
+            <div v-if="!isNative()" class="server-prefix">server://</div>
+            <input
+              v-if="!isNative()"
+              :value="
+                update.autoSaveDirectory.startsWith('server://')
+                  ? update.autoSaveDirectory.substring(9)
+                  : update.autoSaveDirectory
+              "
+              class="file-path grow"
+              type="text"
+              @input="
+                (e) =>
+                  (update.autoSaveDirectory = 'server://' + (e.target as HTMLInputElement).value)
+              "
+            />
+            <input
+              v-if="isNative()"
+              v-model="update.autoSaveDirectory"
+              class="file-path grow"
+              type="text"
+            />
+            <button v-if="isNative()" class="thin" @click="selectAutoSaveDirectory">
+              {{ t.select }}
+            </button>
+            <button v-if="isNative()" class="thin auxiliary" @click="onOpenAutoSaveDirectory">
+              <Icon :icon="IconType.OPEN_FOLDER" />
+            </button>
+          </div>
         </div>
         <!-- 棋譜ファイル名-->
-        <div v-if="!isMobileWebApp()" class="form-item row">
+        <div class="form-item row responsive">
           <div class="form-item-label-wide">
             {{ t.recordFileName }}
           </div>
-          <input v-model="update.recordFileNameTemplate" class="file-path" type="text" />
-          <button class="thin auxiliary" @click="howToWriteFileNameTemplate">
-            <Icon :icon="IconType.HELP" />
-          </button>
+          <div class="row grow">
+            <input v-model="update.recordFileNameTemplate" class="file-path grow" type="text" />
+            <button class="thin auxiliary" @click="howToWriteFileNameTemplate">
+              <Icon :icon="IconType.HELP" />
+            </button>
+          </div>
         </div>
         <!-- CSA V3 で出力 -->
         <div class="form-item">
@@ -591,9 +615,9 @@
       <div class="section">
         <div class="section-title">{{ t.evaluationAndEstimatedWinRateAndPV }}</div>
         <!-- デフォルトの検討エンジン -->
-        <div class="form-item">
+        <div class="form-item row responsive">
           <div class="form-item-label-wide">{{ t.defaultResearchEngine }}</div>
-          <div class="selector">
+          <div class="selector grow">
             <PlayerSelector
               v-model:player-uri="update.defaultResearchEngineURI"
               :engines="engines"
@@ -1022,6 +1046,24 @@ const cancel = () => {
 }
 input.file-path {
   width: 250px;
+}
+input.file-path.full-width {
+  width: 400px;
+}
+.server-prefix {
+  margin-right: 5px;
+  line-height: 27px;
+  font-size: 0.9em;
+  opacity: 0.6;
+}
+@media (max-width: 600px) {
+  .responsive {
+    flex-direction: column !important;
+  }
+  .responsive .form-item-label-wide {
+    width: 100% !important;
+    margin-bottom: 5px;
+  }
 }
 .image-selector {
   display: inline-block;

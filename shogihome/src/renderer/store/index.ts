@@ -1,4 +1,4 @@
-import api from "@/renderer/ipc/api.js";
+import api, { isNative } from "@/renderer/ipc/api.js";
 import {
   Color,
   exportCSA,
@@ -960,11 +960,15 @@ class Store {
 
   private onSaveRecord(): void {
     const appSettings = useAppSettings();
+    let dir = appSettings.autoSaveDirectory;
+    if (!isNative() && dir && !dir.startsWith("server://")) {
+      dir = "server://" + dir;
+    }
     const fname = generateRecordFileName(this.recordManager.record, {
       template: appSettings.recordFileNameTemplate,
       extension: appSettings.defaultRecordFileFormat,
     });
-    const path = join(appSettings.autoSaveDirectory, fname);
+    const path = join(dir, fname);
     this.saveRecordByPath(path).catch((e) => {
       useErrorStore().add(e);
     });
