@@ -815,4 +815,7 @@ export const ja: Texts = {
   showBookTableOnMobile: "定跡タブを表示",
   noBookFoundCheckKifuDir:
     "定跡ファイルが見つかりませんでした。KIFU_DIR が設定されているか、対象の拡張子（.db, .bin）が含まれているか確認してください。",
+  hierarchy: "階層",
+  list: "一覧",
+  folderView: "フォルダ表示",
 };

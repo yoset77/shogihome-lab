@@ -90,7 +90,8 @@ onMounted(() => {
 <style scoped>
 .form-group {
   width: 600px;
-  max-width: calc(100vw - 50px);
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .header {
   margin: 10px 5px;
@@ -99,8 +100,13 @@ onMounted(() => {
   text-align: left;
   width: 100%;
 }
+.search-filter {
+  flex: 1;
+  min-width: 0;
+}
 .search-filter > input {
-  width: 200px;
+  width: 100%;
+  min-width: 100px;
 }
 .search-filter > button {
   font-size: 0.62em;
@@ -108,6 +114,15 @@ onMounted(() => {
 }
 button.reload {
   width: 120px;
+  margin-left: 10px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  button.reload {
+    width: auto;
+    padding: 5px 10px;
+  }
 }
 .book-list {
   height: calc(100vh - 300px);
@@ -117,12 +132,17 @@ button.reload {
 .book-list-entry {
   padding: 8px 10px;
 }
+.book-list-entry button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .book-header {
   font-size: 0.9em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 450px;
+  min-width: 0;
 }
 .connector {
   flex: 1;

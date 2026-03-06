@@ -42,7 +42,7 @@ graph LR
 
 | パス | 説明 |
 | :--- | :--- |
-| `engine_wrapper.py` | **推奨ラッパー (バイナリ配布用)**。Python製。Nuitkaで実行ファイル化されます。 |
+| `engine_wrapper.py` | **エンジンラッパー**。エンジンをTCPサーバーとして公開するツール。エンジンオプションの注入も担当。 |
 | `config_editor.py` | **設定エディタ (Backend/GUI)**。`pywebview` を使用して `config_editor.html` をデスクトップアプリとして表示し、 `engines.json` を編集するツール。 |
 | `config_editor.html` | **設定エディタ (Frontend)**。単独でファイル編集ツールとしても、`config_editor.py` のUIとしても動作するハイブリッド設計。 |
 | `scripts/generate_licenses.py` | Python依存ライブラリのライセンスを生成。 |

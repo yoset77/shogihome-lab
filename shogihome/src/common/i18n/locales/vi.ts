@@ -811,4 +811,7 @@ export const vi: Texts = {
   showBookTableOnMobile: "Hiện thẻ định thức",
   noBookFoundCheckKifuDir:
     "Không tìm thấy tệp định thức. Vui lòng kiểm tra cấu hình KIFU_DIR và đảm bảo có các định dạng hỗ trợ (.db, .bin).",
+  hierarchy: "Hệ thống cấp bậc",
+  list: "Danh sách",
+  folderView: "Xem thư mục",
 };

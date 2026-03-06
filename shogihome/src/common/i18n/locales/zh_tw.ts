@@ -800,4 +800,7 @@ export const zh_tw: Texts = {
   showBookTableOnMobile: "顯示定跡分頁",
   noBookFoundCheckKifuDir:
     "未找到定跡檔案。請檢查 KIFU_DIR 是否正確配置，且包含支援的副檔名（.db, .bin）。",
+  hierarchy: "階層",
+  list: "列表",
+  folderView: "資料夾顯示",
 };

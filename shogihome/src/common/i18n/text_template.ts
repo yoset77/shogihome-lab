@@ -763,4 +763,7 @@ export type Texts = {
   openBook: string;
   showBookTableOnMobile: string;
   noBookFoundCheckKifuDir: string;
+  hierarchy: string;
+  list: string;
+  folderView: string;
 };

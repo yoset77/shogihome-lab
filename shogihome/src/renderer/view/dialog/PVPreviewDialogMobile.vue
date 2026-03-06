@@ -159,8 +159,8 @@ const record = reactive(new Record());
 const flip = ref(appSettings.boardFlipping);
 
 const updateSize = () => {
-  maxSize.width = window.innerWidth - 70;
-  maxSize.height = window.innerHeight * 0.95 - 220;
+  maxSize.width = window.innerWidth * 0.95 - 34;
+  maxSize.height = window.innerHeight * 0.95 - 280;
 };
 
 const updateRecord = () => {
@@ -324,18 +324,21 @@ const insertToComment = () => {
   margin-top: 5px;
 }
 .control-item {
-  width: 16%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 15%;
   height: 40px;
   margin: 0px 1%;
   font-size: 100%;
-  padding: 0 5% 0 5%;
+  padding: 0;
 }
 .control-item .icon {
   height: 80%;
   width: auto;
 }
 .informations {
-  height: 120px;
+  height: 150px;
   width: 100%;
   overflow-y: scroll;
   margin-left: auto;
@@ -358,16 +361,18 @@ const insertToComment = () => {
   margin-top: 5px;
 }
 .control-item-wide {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
   width: 45%;
   height: 40px;
   margin: 0px 1%;
   font-size: 90%;
-  text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: clip;
-  line-height: 200%;
-  padding: 0 5% 0 5%;
+  padding: 0;
 }
 .control-item-wide .icon {
   height: 68%;
