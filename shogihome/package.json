@@ -60,7 +60,7 @@
     "encoding-japanese": "^2.0.0",
     "escape-html": "^1.0.3",
     "express": "^4.21.2",
-    "express-rate-limit": "^8.2.1",
+    "express-rate-limit": "^8.2.2",
     "helmet": "^8.1.0",
     "jimp": "^1.6.0",
     "log4js": "^6.7.0",
