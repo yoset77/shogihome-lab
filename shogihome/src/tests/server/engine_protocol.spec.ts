@@ -250,12 +250,11 @@ describe("Server USI Protocol & Implicit Stop", () => {
     ws.send("go btime 1000 wtime 1000");
 
     await testFinished;
-    // Expected order: MultiPV (latest) -> gameover win -> gameover draw -> position (latest) -> go (latest)
+    // Expected order: MultiPV (latest) -> gameover (latest) -> position (latest) -> go (latest)
     expect(receivedAfterStop[0]).toBe("setoption name MultiPV value 5");
-    expect(receivedAfterStop[1]).toBe("gameover win");
-    expect(receivedAfterStop[2]).toBe("gameover draw");
-    expect(receivedAfterStop[3]).toBe("position startpos moves 7g7f 3g3f");
-    expect(receivedAfterStop[4]).toBe("go btime 1000 wtime 1000");
+    expect(receivedAfterStop[1]).toBe("gameover draw");
+    expect(receivedAfterStop[2]).toBe("position startpos moves 7g7f 3g3f");
+    expect(receivedAfterStop[3]).toBe("go btime 1000 wtime 1000");
     ws.send("stop_engine");
     ws.close();
   });

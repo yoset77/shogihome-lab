@@ -950,51 +950,36 @@ class EngineSession {
           }
 
           // Filter and collect commands to replay.
-          // We keep:
-          // 1. All gameover and usinewgame commands.
-          // 2. The latest MultiPV setoption.
-          // 3. The latest position and go pair.
-          let latestMultiPV: string | null = null;
-          let latestGoIndex = -1;
-          const importantCommands: { index: number; command: string }[] = [];
-
-          for (let i = 0; i < this.postStopCommandQueue.length; i++) {
-            const cmd = this.postStopCommandQueue[i];
-            if (cmd.startsWith("setoption name MultiPV")) {
-              latestMultiPV = cmd;
-            } else if (cmd.startsWith("go")) {
-              latestGoIndex = i;
-            } else if (cmd === "usinewgame" || cmd.startsWith("gameover")) {
-              importantCommands.push({ index: i, command: cmd });
-            }
-          }
-
+          // Resend all commands after the last usinewgame in order,
+          // keeping only the latest 1 of each same type.
           const commandsToRun: string[] = [];
-          // 1. Replay MultiPV first if updated
-          if (latestMultiPV) {
-            commandsToRun.push(latestMultiPV);
-          }
+          const seenKinds = new Set<string>();
 
-          // 2. Replay all other commands and the latest position/go in their relative order
-          for (let i = 0; i < this.postStopCommandQueue.length; i++) {
-            if (i === latestGoIndex) {
-              // Find the corresponding position for this go
-              let correspondingPosition: string | null = null;
-              for (let j = i - 1; j >= 0; j--) {
-                if (this.postStopCommandQueue[j].startsWith("position")) {
-                  correspondingPosition = this.postStopCommandQueue[j];
-                  break;
-                }
-              }
-              if (correspondingPosition) {
-                commandsToRun.push(correspondingPosition);
-              }
-              commandsToRun.push(this.postStopCommandQueue[i]);
+          for (let i = this.postStopCommandQueue.length - 1; i >= 0; i--) {
+            const cmd = this.postStopCommandQueue[i];
+
+            let kind = "";
+            if (cmd.startsWith("setoption name MultiPV")) {
+              kind = "setoption:multipv";
+            } else if (cmd.startsWith("position")) {
+              kind = "position";
+            } else if (cmd.startsWith("go")) {
+              kind = "go";
+            } else if (cmd.startsWith("gameover")) {
+              kind = "gameover";
+            } else if (cmd === "usinewgame") {
+              kind = "usinewgame";
             } else {
-              const important = importantCommands.find((ic) => ic.index === i);
-              if (important) {
-                commandsToRun.push(important.command);
-              }
+              kind = `other:${cmd}`;
+            }
+
+            if (!seenKinds.has(kind)) {
+              seenKinds.add(kind);
+              commandsToRun.unshift(cmd);
+            }
+
+            if (kind === "usinewgame") {
+              break;
             }
           }
 
@@ -1187,12 +1172,8 @@ class EngineSession {
         this.sendState();
         return;
       }
-      if (
-        this.engineHandle ||
-        this.engineState === EngineState.STARTING ||
-        (this.engineState as unknown) === EngineState.TERMINATING
-      ) {
-        this.sendError("engine already running, starting, or stopping");
+      if (this.engineHandle || this.engineState === EngineState.STARTING) {
+        this.sendError("engine already running or starting");
         return;
       }
       this.startEngine(engineId);
