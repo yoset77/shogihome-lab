@@ -130,12 +130,5 @@ export function validateGameSettings(gameSettings: GameSettings): Error | undefi
 }
 
 export function validateGameSettingsForWeb(gameSettings: GameSettings): Error | undefined {
-  const result = validateGameSettings(gameSettings);
-  if (result) {
-    return result;
-  }
-  if (gameSettings.enableAutoSave) {
-    return new Error("自動保存はWeb版で利用できません。");
-  }
-  return;
+  return validateGameSettings(gameSettings);
 }

@@ -1,6 +1,6 @@
 import api, { API } from "@/renderer/ipc/api.js";
 import { defaultAppSettings } from "@/common/settings/app.js";
-import { defaultBookSession, BookMove } from "@/common/book.js";
+import { BookMove } from "@/common/book.js";
 import { BookStore } from "@/renderer/store/book.js";
 import { useAppSettings } from "@/renderer/store/settings.js";
 import { Record } from "tsshogi";
@@ -36,7 +36,7 @@ describe("store/book", () => {
         { usi: "4d4e", comment: "bar" },
       ]);
       expect(mockAPI.searchBookMoves).toHaveBeenCalledTimes(1);
-      expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(1, defaultBookSession, sfen);
+      expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(1, sfen);
     });
 
     it("match/flipped", async () => {
@@ -56,8 +56,8 @@ describe("store/book", () => {
         { usi: "6f6e", comment: "bar" },
       ]);
       expect(mockAPI.searchBookMoves).toHaveBeenCalledTimes(2);
-      expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(1, defaultBookSession, sfen_r);
-      expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(2, defaultBookSession, sfen);
+      expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(1, sfen_r);
+      expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(2, sfen);
     });
 
     it("no match", async () => {
@@ -70,7 +70,7 @@ describe("store/book", () => {
       const moves = store.searchMoves(sfen);
       await expect(moves).resolves.toEqual([]);
       expect(mockAPI.searchBookMoves).toHaveBeenCalledTimes(1);
-      expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(1, defaultBookSession, sfen);
+      expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(1, sfen);
     });
   });
 

@@ -1,11 +1,6 @@
 import fs, { ReadStream } from "node:fs";
 import path from "node:path";
-import {
-  BookImportSummary,
-  BookLoadingOptions,
-  BookMove,
-  defaultBookSession,
-} from "@/common/book.js";
+import { BookImportSummary, BookLoadingOptions, BookMove } from "@/common/book.js";
 import { getAppLogger } from "@/background/log.js";
 import {
   arrayMoveToCommonBookMove,
@@ -123,8 +118,7 @@ function emptyBook(): BookHandle {
 }
 
 const bookFiles = new Map<number, BookHandle>();
-bookFiles.set(defaultBookSession, emptyBook());
-let nextBookSession = defaultBookSession + 1;
+let nextBookSession = 100;
 
 function getBook(session: number): BookHandle {
   const book = bookFiles.get(session);
@@ -239,10 +233,13 @@ export async function openBookAsNewSession(
   return { session, mode };
 }
 
-export function closeBookSession(session: number): void {
-  if (session === defaultBookSession) {
-    throw new Error("Cannot close default book session");
+export function initBookSession(session: number): void {
+  if (!bookFiles.has(session)) {
+    bookFiles.set(session, emptyBook());
   }
+}
+
+export function closeBookSession(session: number): void {
   clearBook(session);
   bookFiles.delete(session);
 }

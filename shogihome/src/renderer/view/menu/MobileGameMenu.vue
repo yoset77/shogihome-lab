@@ -55,6 +55,18 @@
             />
           </div>
         </div>
+        <!-- Section: Settings -->
+        <div class="section">
+          <div class="section-header">{{ t.settings }}</div>
+          <div class="section-body">
+            <div class="form-item">
+              <ToggleButton
+                v-model:value="settings.enableAutoSave"
+                :label="t.saveRecordAutomatically"
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="main-buttons">
@@ -82,6 +94,7 @@ import { InitialPositionType } from "tsshogi";
 import { onBeforeUnmount, onMounted, ref, reactive, computed } from "vue";
 import { useLanStore } from "@/renderer/store/lan";
 import MobilePlayerSetting from "./MobilePlayerSetting.vue";
+import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import api from "@/renderer/ipc/api";
 import * as uri from "@/common/uri";
 
@@ -96,6 +109,7 @@ const settings = reactive({
   blackTime: { timeSeconds: 600, byoyomi: 30, increment: 0 } as TimeLimitSettings,
   whiteTime: { timeSeconds: 600, byoyomi: 30, increment: 0 } as TimeLimitSettings,
   startPosition: InitialPositionType.STANDARD as InitialPositionType | "current",
+  enableAutoSave: false,
 });
 
 const emit = defineEmits<{
@@ -119,6 +133,7 @@ onMounted(async () => {
     if (saved.startPosition !== "list") {
       settings.startPosition = saved.startPosition;
     }
+    settings.enableAutoSave = saved.enableAutoSave;
     initialized.value = true;
   } catch (e) {
     console.error("Failed to load game settings:", e);
@@ -155,7 +170,7 @@ const onStart = async () => {
     timeLimit: { ...settings.blackTime },
     whiteTimeLimit: { ...settings.whiteTime },
     startPosition: settings.startPosition,
-    enableAutoSave: false,
+    enableAutoSave: settings.enableAutoSave,
     jishogiRule: store.gameSettings.jishogiRule,
     repeat: 1,
   };

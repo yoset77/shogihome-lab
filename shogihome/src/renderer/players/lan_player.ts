@@ -7,13 +7,13 @@ import { parseUSIPV, USIInfoCommand } from "@/common/game/usi";
 import { dispatchUSIInfoUpdate, setOnStartSearchHandler } from "./usi";
 import { t } from "@/common/i18n";
 
+import { generateSessionId } from "@/renderer/helpers/unique";
+
 function getSessionId(sessionKey: string): string {
   const localStorageKey = `shogihome-lan-session-id-${sessionKey}`;
   let id = localStorage.getItem(localStorageKey);
   if (!id) {
-    const array = new Uint32Array(2);
-    window.crypto.getRandomValues(array);
-    id = array[0].toString(36) + array[1].toString(36) + Date.now().toString(36);
+    id = generateSessionId();
     localStorage.setItem(localStorageKey, id);
   }
   return id;

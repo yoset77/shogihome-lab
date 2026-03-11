@@ -71,19 +71,16 @@ export interface API {
 
   // Book
   showOpenBookDialog(): Promise<string>;
-  showSaveBookDialog(session: number, defaultPath: string): Promise<string>;
-  openBook(session: number, path: string, options: BookLoadingOptions): Promise<BookLoadingMode>;
-  saveBook(session: number, path: string): Promise<void>;
-  clearBook(session: number): Promise<void>;
-  searchBookMoves(session: number, sfen: string): Promise<BookMove[]>;
-  searchBookMovesBatch(
-    session: number,
-    sfens: string[],
-  ): Promise<{ sfen: string; moves: BookMove[] }[]>;
-  updateBookMove(session: number, sfen: string, move: BookMove): Promise<void>;
-  removeBookMove(session: number, sfen: string, usi: string): Promise<void>;
-  updateBookMoveOrder(session: number, sfen: string, usi: string, order: number): Promise<void>;
-  importBookMoves(session: number, settings: BookImportSettings): Promise<BookImportSummary>;
+  showSaveBookDialog(defaultPath: string): Promise<string>;
+  openBook(path: string, options: BookLoadingOptions): Promise<BookLoadingMode>;
+  saveBook(path: string): Promise<void>;
+  clearBook(): Promise<void>;
+  searchBookMoves(sfen: string): Promise<BookMove[]>;
+  searchBookMovesBatch(sfens: string[]): Promise<{ sfen: string; moves: BookMove[] }[]>;
+  updateBookMove(sfen: string, move: BookMove): Promise<void>;
+  removeBookMove(sfen: string, usi: string): Promise<void>;
+  updateBookMoveOrder(sfen: string, usi: string, order: number): Promise<void>;
+  importBookMoves(settings: BookImportSettings): Promise<BookImportSummary>;
 
   // USI
   showSelectUSIEngineDialog(): Promise<string>;
@@ -230,23 +227,20 @@ const api: API = {
   },
 
   // Book
-  openBook(session: number, path: string, options: BookLoadingOptions): Promise<BookLoadingMode> {
-    return bridge.openBook(session, path, JSON.stringify(options));
+  openBook(path: string, options: BookLoadingOptions): Promise<BookLoadingMode> {
+    return bridge.openBook(path, JSON.stringify(options));
   },
-  async searchBookMoves(session: number, sfen: string): Promise<BookMove[]> {
-    return JSON.parse(await bridge.searchBookMoves(session, sfen));
+  async searchBookMoves(sfen: string): Promise<BookMove[]> {
+    return JSON.parse(await bridge.searchBookMoves(sfen));
   },
-  async searchBookMovesBatch(
-    session: number,
-    sfens: string[],
-  ): Promise<{ sfen: string; moves: BookMove[] }[]> {
-    return JSON.parse(await bridge.searchBookMovesBatch(session, sfens));
+  async searchBookMovesBatch(sfens: string[]): Promise<{ sfen: string; moves: BookMove[] }[]> {
+    return JSON.parse(await bridge.searchBookMovesBatch(sfens));
   },
-  updateBookMove(session: number, sfen: string, move: BookMove): Promise<void> {
-    return bridge.updateBookMove(session, sfen, JSON.stringify(move));
+  updateBookMove(sfen: string, move: BookMove): Promise<void> {
+    return bridge.updateBookMove(sfen, JSON.stringify(move));
   },
-  async importBookMoves(session: number, settings: BookImportSettings): Promise<BookImportSummary> {
-    return JSON.parse(await bridge.importBookMoves(session, JSON.stringify(settings)));
+  async importBookMoves(settings: BookImportSettings): Promise<BookImportSummary> {
+    return JSON.parse(await bridge.importBookMoves(JSON.stringify(settings)));
   },
 
   // USI

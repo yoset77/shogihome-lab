@@ -17,6 +17,7 @@ import { VersionStatus } from "@/common/version.js";
 import { SessionStates } from "@/common/advanced/monitor.js";
 import { emptyLayoutProfileList } from "@/common/settings/layout.js";
 import * as uri from "@/common/uri.js";
+import { normalizePath } from "@/common/helpers/path.js";
 
 enum STORAGE_KEY {
   APP_SETTINGS = "appSetting",
@@ -31,6 +32,10 @@ enum STORAGE_KEY {
 
 const fileCache = new Map<string, ArrayBuffer>();
 
+import { generateSessionId } from "@/renderer/helpers/unique.js";
+
+const webBookSessionId = generateSessionId();
+
 async function fetchWithTimeout(
   url: string,
   init?: RequestInit,
@@ -38,9 +43,14 @@ async function fetchWithTimeout(
 ): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
+
+  const headers = new Headers(init?.headers);
+  headers.set("X-Book-Session-Id", webBookSessionId);
+
   try {
     const response = await fetch(url, {
       ...init,
+      headers,
       signal: controller.signal,
     });
     return response;
@@ -237,7 +247,7 @@ export const webAPI: Bridge = {
   },
   async saveRecord(path: string, data: Uint8Array): Promise<void> {
     // パスからファイル名を抽出
-    const filename = path.split(/[/\\]/).pop() || "record.kif";
+    const filename = normalizePath(path).split("/").pop() || "record.kif";
 
     // 拡張子からMIMEタイプを決定
     let mimeType = "application/octet-stream";
@@ -302,7 +312,7 @@ export const webAPI: Bridge = {
     // The actual path will be selected from the kifu list in the UI.
     return "server://";
   },
-  async showSaveBookDialog(_session: number, defaultPath: string): Promise<string> {
+  async showSaveBookDialog(defaultPath: string): Promise<string> {
     const response = await fetchWithTimeout("/api/kifu/enabled");
     const json = await response.json();
     if (!json.enabled) {
@@ -314,13 +324,7 @@ export const webAPI: Bridge = {
     }
     return "server://" + path;
   },
-  async clearBook(): Promise<void> {
-    const response = await fetchWithTimeout("/api/book/clear", { method: "POST" });
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-  },
-  async openBook(_session: number, path: string, options: string): Promise<BookLoadingMode> {
+  async openBook(path: string, options: string): Promise<BookLoadingMode> {
     if (!path.startsWith("server://")) {
       throw new Error("Only server-side books are supported");
     }
@@ -340,7 +344,7 @@ export const webAPI: Bridge = {
     const json = await response.json();
     return json.mode;
   },
-  async saveBook(_session: number, path: string): Promise<void> {
+  async saveBook(path: string): Promise<void> {
     if (!path.startsWith("server://")) {
       throw new Error("Only server-side books are supported");
     }
@@ -356,7 +360,13 @@ export const webAPI: Bridge = {
       throw new Error(await response.text());
     }
   },
-  async searchBookMoves(_session: number, sfen: string): Promise<string> {
+  async clearBook(): Promise<void> {
+    const response = await fetchWithTimeout("/api/book/clear", { method: "POST" });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+  },
+  async searchBookMoves(sfen: string): Promise<string> {
     const response = await fetchWithTimeout(`/api/book/search?sfen=${encodeURIComponent(sfen)}`);
     if (!response.ok) {
       throw new Error(await response.text());
@@ -364,7 +374,7 @@ export const webAPI: Bridge = {
     const json = await response.json();
     return JSON.stringify(json);
   },
-  async searchBookMovesBatch(_session: number, sfens: string[]): Promise<string> {
+  async searchBookMovesBatch(sfens: string[]): Promise<string> {
     const response = await fetchWithTimeout("/api/book/search/batch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -376,7 +386,7 @@ export const webAPI: Bridge = {
     const json = await response.json();
     return JSON.stringify(json);
   },
-  async updateBookMove(_session: number, sfen: string, move: string): Promise<void> {
+  async updateBookMove(sfen: string, move: string): Promise<void> {
     const response = await fetchWithTimeout(`/api/book/update?sfen=${encodeURIComponent(sfen)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -386,7 +396,7 @@ export const webAPI: Bridge = {
       throw new Error(await response.text());
     }
   },
-  async removeBookMove(_session: number, sfen: string, usi: string): Promise<void> {
+  async removeBookMove(sfen: string, usi: string): Promise<void> {
     const response = await fetchWithTimeout(
       `/api/book/remove?sfen=${encodeURIComponent(sfen)}&usi=${encodeURIComponent(usi)}`,
       { method: "POST" },
@@ -395,12 +405,7 @@ export const webAPI: Bridge = {
       throw new Error(await response.text());
     }
   },
-  async updateBookMoveOrder(
-    _session: number,
-    sfen: string,
-    usi: string,
-    order: number,
-  ): Promise<void> {
+  async updateBookMoveOrder(sfen: string, usi: string, order: number): Promise<void> {
     const response = await fetchWithTimeout(
       `/api/book/order?sfen=${encodeURIComponent(sfen)}&usi=${encodeURIComponent(usi)}&order=${order}`,
       { method: "POST" },
@@ -409,7 +414,7 @@ export const webAPI: Bridge = {
       throw new Error(await response.text());
     }
   },
-  async importBookMoves(_session: number, json: string): Promise<string> {
+  async importBookMoves(json: string): Promise<string> {
     const response = await fetchWithTimeout(
       "/api/book/import",
       {

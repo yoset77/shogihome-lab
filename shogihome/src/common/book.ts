@@ -25,5 +25,3 @@ export type BookImportSummary = {
 export type BookMoveEx = BookMove & {
   repetition?: number; // 千日手
 };
-
-export const defaultBookSession = 1;

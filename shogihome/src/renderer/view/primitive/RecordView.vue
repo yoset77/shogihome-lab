@@ -345,7 +345,7 @@ onUpdated(() => {
   margin-top: 2px;
   width: 100%;
   height: calc(40% - 15px);
-  min-height: 40px;
+  min-height: 70px;
 }
 .branch-list-area {
   position: relative;
@@ -353,15 +353,18 @@ onUpdated(() => {
   margin-top: 2px;
   width: 100%;
   height: calc(26.2% - 15px);
-  min-height: 40px;
+  min-height: 70px;
 }
 .branch-list-main {
   width: auto;
   height: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
 }
 .branch-list {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
   color: var(--text-color);
 }
 .branch-bottom-control {

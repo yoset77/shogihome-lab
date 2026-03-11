@@ -210,6 +210,7 @@ import MobileGameMenu from "@/renderer/view/menu/MobileGameMenu.vue";
 import { defaultResearchSettings } from "@/common/settings/research";
 import { USIEngine } from "@/common/settings/usi";
 import { useLanStore } from "@/renderer/store/lan";
+import { generateRecordFileName } from "@/renderer/helpers/path";
 
 const emit = defineEmits<{
   close: [];
@@ -337,7 +338,14 @@ const onSave = () => {
   emit("close");
 };
 const onSaveToServer = () => {
-  const name = window.prompt(t.enterFileName, "record.kif");
+  const defaultName =
+    store.serverKifuPath ||
+    (store.recordFilePath ? store.recordFilePath.split(/[\\/]/).pop() : undefined) ||
+    generateRecordFileName(store.record, {
+      template: appSettings.recordFileNameTemplate,
+      extension: appSettings.defaultRecordFileFormat,
+    });
+  const name = window.prompt(t.enterFileName, defaultName);
   if (name) {
     store.saveRecord({ path: "server://" + name });
   }

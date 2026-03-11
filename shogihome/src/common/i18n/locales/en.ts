@@ -817,4 +817,7 @@ export const en: Texts = {
   showBookTableOnMobile: "Show Book Tab",
   noBookFoundCheckKifuDir:
     "No book found. Please check if KIFU_DIR is configured correctly and contains supported extensions (.db, .bin).",
+  hierarchy: "Hierarchy",
+  list: "List",
+  folderView: "Folder View",
 };
