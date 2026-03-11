@@ -56,7 +56,11 @@
             v-for="(branch, index) in branches"
             :key="index"
             class="row move-element"
-            :class="{ selected: branch.activeBranch }"
+            :class="{
+              selected:
+                (branchListMode !== BranchListMode.NEXT_MOVE && branch.activeBranch) ||
+                (branchListMode === BranchListMode.NEXT_MOVE && selectedNextBranchIndex === index),
+            }"
             @click="changeBranch(index)"
           >
             <div class="move-text">{{ branch.displayText }}</div>
@@ -117,11 +121,12 @@
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import { ImmutableRecord, ImmutableNode } from "tsshogi";
-import { computed, ref, PropType, onUpdated } from "vue";
+import { computed, ref, PropType, onUpdated, watch } from "vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { IconType } from "@/renderer/assets/icons";
 import ToggleButton from "./ToggleButton.vue";
 import { RecordShortcutKeys } from "./board/shortcut";
+import { BranchListMode } from "@/common/settings/app";
 
 const props = defineProps({
   record: {
@@ -188,6 +193,11 @@ const props = defineProps({
     type: Object as PropType<RecordShortcutKeys>,
     required: true,
   },
+  branchListMode: {
+    type: String as PropType<BranchListMode>,
+    required: false,
+    default: BranchListMode.SIBLING,
+  },
 });
 
 const emit = defineEmits<{
@@ -197,9 +207,12 @@ const emit = defineEmits<{
   goEnd: [];
   selectMove: [ply: number];
   selectBranch: [index: number];
+  selectNextBranch: [index: number];
   backToMainBranch: [];
   swapWithPreviousBranch: [];
   swapWithNextBranch: [];
+  swapNextWithPreviousBranch: [index: number];
+  swapNextWithNextBranch: [index: number];
   showDuplicatePositions: [sfen: string];
   toggleShowElapsedTime: [enabled: boolean];
   toggleShowComment: [enabled: boolean];
@@ -208,6 +221,14 @@ const emit = defineEmits<{
 const moveList = ref(null as HTMLDivElement | null);
 const branchList = ref(null as HTMLDivElement | null);
 const showSubArea = ref(false);
+const selectedNextBranchIndex = ref(-1);
+
+watch(
+  () => props.record.current,
+  () => {
+    selectedNextBranchIndex.value = -1;
+  },
+);
 
 const goBegin = () => {
   if (props.operational) {
@@ -241,19 +262,39 @@ const changePly = (number: number) => {
 
 const changeBranch = (index: number) => {
   if (props.operational) {
-    emit("selectBranch", Number(index));
+    if (props.branchListMode === BranchListMode.NEXT_MOVE) {
+      if (selectedNextBranchIndex.value === index) {
+        emit("selectNextBranch", Number(index));
+      } else {
+        selectedNextBranchIndex.value = index;
+      }
+    } else {
+      emit("selectBranch", Number(index));
+    }
   }
 };
 
 const swapWithPreviousBranch = () => {
   if (props.operational) {
-    emit("swapWithPreviousBranch");
+    if (props.branchListMode === BranchListMode.NEXT_MOVE) {
+      if (selectedNextBranchIndex.value !== -1) {
+        emit("swapNextWithPreviousBranch", selectedNextBranchIndex.value);
+      }
+    } else {
+      emit("swapWithPreviousBranch");
+    }
   }
 };
 
 const swapWithNextBranch = () => {
   if (props.operational) {
-    emit("swapWithNextBranch");
+    if (props.branchListMode === BranchListMode.NEXT_MOVE) {
+      if (selectedNextBranchIndex.value !== -1) {
+        emit("swapNextWithNextBranch", selectedNextBranchIndex.value);
+      }
+    } else {
+      emit("swapWithNextBranch");
+    }
   }
 };
 
@@ -271,15 +312,29 @@ const isMainBranch = computed(() => {
 });
 
 const branches = computed(() => {
-  if (!props.record.branchBegin.branch) {
-    return null;
+  if (props.branchListMode === BranchListMode.NEXT_MOVE) {
+    // Show next move branches (children of current position)
+    const next = props.record.current.next;
+    if (!next || !next.branch) {
+      // No branches or only one next move - don't show
+      return null;
+    }
+    const ret: ImmutableNode[] = [];
+    for (let p: ImmutableNode | null = next; p; p = p.branch) {
+      ret.push(p);
+    }
+    return ret;
+  } else {
+    // Current behavior - show sibling branches
+    if (!props.record.branchBegin.branch) {
+      return null;
+    }
+    const ret: ImmutableNode[] = [];
+    for (let p: ImmutableNode | null = props.record.branchBegin; p; p = p.branch) {
+      ret.push(p);
+    }
+    return ret;
   }
-  const ret: ImmutableNode[] = [];
-  let p: ImmutableNode | null;
-  for (p = props.record.branchBegin; p; p = p.branch) {
-    ret.push(p);
-  }
-  return ret;
 });
 
 onUpdated(() => {
@@ -303,7 +358,7 @@ onUpdated(() => {
   user-select: none;
 }
 .record-view.limited {
-  max-width: 600px;
+  max-width: calc(max(100vh, 600px));
 }
 .control {
   width: 100%;

@@ -16,15 +16,19 @@
         :show-bottom-control="showBottomControl"
         :show-branches="showBranches"
         :shortcut-keys="getRecordShortcutKeys(appSettings.recordShortcutKeys)"
+        :branch-list-mode="appSettings.branchListMode"
         @go-begin="store.changePly(0)"
         @go-back="store.goBack()"
         @go-forward="store.goForward()"
         @go-end="store.changePly(Number.MAX_SAFE_INTEGER)"
         @select-move="(ply) => store.changePly(ply)"
         @select-branch="(index) => store.changeBranch(index)"
+        @select-next-branch="selectNextBranch"
         @back-to-main-branch="store.backToMainBranch()"
         @swap-with-previous-branch="store.swapWithPreviousBranch()"
         @swap-with-next-branch="store.swapWithNextBranch()"
+        @swap-next-with-previous-branch="(index) => swapNextWithPreviousBranch(index)"
+        @swap-next-with-next-branch="(index) => swapNextWithNextBranch(index)"
         @show-duplicate-positions="showDuplicatePositions"
         @toggle-show-elapsed-time="onToggleElapsedTime"
         @toggle-show-comment="onToggleComment"
@@ -112,6 +116,25 @@ const isRecordOperational = computed(() => store.appState === AppState.NORMAL);
 
 const showDuplicatePositions = (sfen: string) => {
   duplicatePositionsDialog.value = sfen;
+};
+
+const selectNextBranch = (index: number) => {
+  store.goForward();
+  store.changeBranch(index);
+};
+
+const swapNextWithPreviousBranch = (index: number) => {
+  store.goForward();
+  store.changeBranch(index);
+  store.swapWithPreviousBranch();
+  store.goBack();
+};
+
+const swapNextWithNextBranch = (index: number) => {
+  store.goForward();
+  store.changeBranch(index);
+  store.swapWithNextBranch();
+  store.goBack();
 };
 
 const changeNode = (node: ImmutableNode) => {
