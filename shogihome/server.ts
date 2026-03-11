@@ -30,6 +30,7 @@ import {
   importBookMoves,
   closeBookSession,
   initBookSession,
+  isBookOnTheFly,
 } from "./src/background/book";
 import { writeFileAtomic, writeFileAtomicSync } from "./src/background/file/atomic";
 
@@ -138,6 +139,17 @@ const updatePuzzlesManifest = () => {
 updatePuzzlesManifest();
 
 const KIFU_DIR = process.env.KIFU_DIR ? path.resolve(getBasePath(), process.env.KIFU_DIR) : null;
+
+const ONTHEFLY_THRESHOLD_MB = (() => {
+  const raw = process.env.ONTHEFLY_THRESHOLD_MB;
+  if (!raw) return 256;
+  const val = parseInt(raw, 10);
+  if (isNaN(val) || val <= 0) {
+    console.error(`Invalid ONTHEFLY_THRESHOLD_MB: "${raw}". Using default (256 MB).`);
+    return 256;
+  }
+  return val;
+})();
 
 const SESSION_ID_HEADER_REGEX = /^[a-zA-Z0-9_-]{8,128}$/;
 
@@ -364,7 +376,13 @@ app.post("/api/book/open", express.json(), async (req, res) => {
   }
   try {
     const bookSession = getBookSession(req);
-    const mode = await openBook(bookSession, fullPath, req.body);
+    // Override the threshold with the server-side environment variable to protect server memory.
+    // Also, explicitly map expected properties to avoid passing unknown fields from req.body.
+    const options = {
+      forceOnTheFly: req.body?.forceOnTheFly === true,
+      onTheFlyThresholdMB: ONTHEFLY_THRESHOLD_MB,
+    };
+    const mode = await openBook(bookSession, fullPath, options);
     res.json({ mode });
   } catch (e) {
     console.error("failed to open book:", e);
@@ -444,22 +462,33 @@ app.post("/api/book/search/batch", express.json({ limit: "10mb" }), async (req, 
     sendError(res, 400, "sfens must be an array");
     return;
   }
-  if (sfens.length > 10000) {
-    sendError(res, 400, "sfens array is too large (max 10000)");
+  if (sfens.length > 100000) {
+    sendError(res, 400, "sfens array is too large (max 100000)");
     return;
   }
   try {
     const bookSession = getBookSession(req);
-    const results = await Promise.all(
-      sfens.map(async (sfen) => {
+    const results = new Array(sfens.length);
+    let nextIndex = 0;
+    const maxConcurrency = isBookOnTheFly(bookSession) ? 16 : 1;
+    const concurrency = Math.min(sfens.length, maxConcurrency);
+    const worker = async () => {
+      while (nextIndex < sfens.length) {
+        const i = nextIndex++;
+        const sfen = sfens[i];
         const moves = await searchBookMoves(bookSession, sfen);
-        return { sfen, moves };
-      }),
-    );
+        results[i] = { sfen, moves };
+      }
+    };
+    const workers = [];
+    for (let i = 0; i < concurrency; i++) {
+      workers.push(worker());
+    }
+    await Promise.all(workers);
     res.json(results);
   } catch (e) {
-    console.error("failed to batch search book moves:", e);
-    sendError(res, 500, e instanceof Error ? e.message : "failed to batch search book moves");
+    console.error("failed to search book moves batch:", e);
+    sendError(res, 500, e instanceof Error ? e.message : "failed to search book moves batch");
   }
 });
 

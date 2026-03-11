@@ -32,6 +32,7 @@ vi.mock("@/background/book/index.js", () => {
     closeBookSession: vi.fn((session: number) => {
       sessions.delete(session);
     }),
+    isBookOnTheFly: vi.fn(() => false),
     openBookAsNewSession: vi.fn(async () => {
       const session = sessionCounter++;
       sessions.add(session);
@@ -96,7 +97,7 @@ describe("Book Session API", () => {
   });
 
   it("should return 400 error when batch search sfens array is too large", async () => {
-    const largeSfens = new Array(10001).fill("startpos");
+    const largeSfens = new Array(100001).fill("startpos");
     const response = await request(app)
       .post("/api/book/search/batch")
       .set("X-Book-Session-Id", "client-A")
@@ -104,6 +105,33 @@ describe("Book Session API", () => {
       .send({ sfens: largeSfens });
 
     expect(response.status).toBe(400);
-    expect(response.text).toContain("max 10000");
+    expect(response.text).toContain("max 100000");
+  });
+
+  it("should return batch search results in correct order even with worker pool", async () => {
+    const sfens = Array.from({ length: 100 }, (_, i) => `sfen_at_index_${i}`);
+    const response = await request(app)
+      .post("/api/book/search/batch")
+      .set("X-Book-Session-Id", "client-A")
+      .set("Host", "localhost:8140")
+      .send({ sfens });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toHaveLength(100);
+    response.body.forEach((item: { sfen: string }, i: number) => {
+      expect(item.sfen).toBe(sfens[i]);
+    });
+  });
+
+  it("should handle large batch search up to 10000 items without error", async () => {
+    const sfens = new Array(10000).fill("startpos");
+    const response = await request(app)
+      .post("/api/book/search/batch")
+      .set("X-Book-Session-Id", "client-A")
+      .set("Host", "localhost:8140")
+      .send({ sfens });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toHaveLength(10000);
   });
 });

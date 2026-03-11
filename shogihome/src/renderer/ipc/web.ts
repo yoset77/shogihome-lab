@@ -42,7 +42,7 @@ async function fetchWithTimeout(
   timeoutMs = 10000,
 ): Promise<Response> {
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeoutMs);
+  const id = setTimeout(() => controller.abort(new Error("Request timeout")), timeoutMs);
 
   const headers = new Headers(init?.headers);
   headers.set("X-Book-Session-Id", webBookSessionId);
@@ -375,11 +375,15 @@ export const webAPI: Bridge = {
     return JSON.stringify(json);
   },
   async searchBookMovesBatch(sfens: string[]): Promise<string> {
-    const response = await fetchWithTimeout("/api/book/search/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sfens }),
-    });
+    const response = await fetchWithTimeout(
+      "/api/book/search/batch",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sfens }),
+      },
+      60000,
+    );
     if (!response.ok) {
       throw new Error(await response.text());
     }

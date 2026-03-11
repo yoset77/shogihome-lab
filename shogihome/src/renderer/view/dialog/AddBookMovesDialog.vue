@@ -5,10 +5,13 @@
       <HorizontalSelector v-model:value="settings.sourceType" :items="sourceTypeOptions" />
     </div>
     <div class="form-group scroll">
-      <div v-show="settings.sourceType === 'memory' && !inMemoryList.length">
+      <div v-show="settings.sourceType === SourceType.MEMORY && !inMemoryList.length">
         {{ t.noMoves }}
       </div>
-      <table v-show="settings.sourceType === 'memory' && inMemoryList.length" class="move-list">
+      <table
+        v-show="settings.sourceType === SourceType.MEMORY && inMemoryList.length"
+        class="move-list"
+      >
         <tbody>
           <tr v-for="move of inMemoryList" :key="move.ply">
             <td v-if="move.type === 'move'">{{ move.ply }}</td>
@@ -33,7 +36,7 @@
           </tr>
         </tbody>
       </table>
-      <div v-show="settings.sourceType === 'directory'" class="form-item row">
+      <div v-show="settings.sourceType === SourceType.DIRECTORY" class="form-item row">
         <input
           v-model="settings.sourceDirectory"
           class="grow"
@@ -47,7 +50,7 @@
           <Icon :icon="IconType.OPEN_FOLDER" />
         </button>
       </div>
-      <div v-show="settings.sourceType === 'file'" class="form-item row">
+      <div v-show="settings.sourceType === SourceType.FILE" class="form-item row">
         <input
           v-model="settings.sourceRecordFile"
           class="grow"
@@ -58,23 +61,49 @@
           {{ t.select }}
         </button>
       </div>
-      <div v-if="!isNative() && serverSelectionList.length > 0" class="server-selection-list">
-        <div class="server-selection-header">
-          {{ t.recordFile }}
+      <div
+        v-if="
+          !isNative() && settings.sourceType !== SourceType.MEMORY && serverSelectionList.length > 0
+        "
+        class="server-selection-list"
+      >
+        <div class="server-selection-header breadcrumbs">
+          <span class="breadcrumb-item" @click="currentServerDir = ''">Root</span>
+          <template v-for="(dir, index) in breadcrumbs" :key="index">
+            <span class="breadcrumb-separator">/</span>
+            <span class="breadcrumb-item" @click="currentServerDir = dir.path">
+              {{ dir.name }}
+            </span>
+          </template>
         </div>
         <div class="server-selection-scroll">
           <div
-            v-for="item in serverSelectionList"
-            :key="item"
-            class="server-selection-item"
-            @click="onSelectServerItem(item)"
+            v-for="entry in serverSelectionEntries"
+            :key="entry.path"
+            class="server-selection-item row align-center"
           >
-            {{ item || "/" }}
+            <div class="entry-header grow" @click="onSelectServerItem(entry)">
+              <Icon v-if="entry.isDirectory" :icon="IconType.OPEN_FOLDER" class="entry-icon" />
+              {{ entry.name }}
+            </div>
+            <button
+              v-if="
+                settings.sourceType === SourceType.DIRECTORY &&
+                entry.isDirectory &&
+                entry.name !== '..'
+              "
+              class="thin"
+              @click="onConfirmServerDirectory(entry.path)"
+            >
+              {{ t.select }}
+            </button>
           </div>
         </div>
       </div>
       <div
-        v-show="settings.sourceType === 'directory' || settings.sourceType === 'file'"
+        v-show="
+          settings.sourceType === SourceType.DIRECTORY || settings.sourceType === SourceType.FILE
+        "
         class="form-item row"
       >
         <span>{{ t.fromPrefix }}</span>
@@ -89,7 +118,9 @@
         <span>{{ t.plySuffix }}{{ t.fromSuffix }}</span>
       </div>
       <div
-        v-show="settings.sourceType === 'directory' || settings.sourceType === 'file'"
+        v-show="
+          settings.sourceType === SourceType.DIRECTORY || settings.sourceType === SourceType.FILE
+        "
         class="form-item row"
       >
         <span>{{ t.toPrefix }}</span>
@@ -104,7 +135,9 @@
         <span>{{ t.plySuffix }}{{ t.toSuffix }}</span>
       </div>
       <div
-        v-show="settings.sourceType === 'directory' || settings.sourceType === 'file'"
+        v-show="
+          settings.sourceType === SourceType.DIRECTORY || settings.sourceType === SourceType.FILE
+        "
         class="form-item row"
       >
         <HorizontalSelector
@@ -118,7 +151,9 @@
         />
       </div>
       <div
-        v-show="settings.sourceType === 'directory' || settings.sourceType === 'file'"
+        v-show="
+          settings.sourceType === SourceType.DIRECTORY || settings.sourceType === SourceType.FILE
+        "
         class="form-item row"
       >
         <input
@@ -130,7 +165,11 @@
         />
       </div>
     </div>
-    <div v-show="settings.sourceType === 'directory' || settings.sourceType === 'file'">
+    <div
+      v-show="
+        settings.sourceType === SourceType.DIRECTORY || settings.sourceType === SourceType.FILE
+      "
+    >
       <button class="import" @click="importMoves">{{ t.import }}</button>
     </div>
     <div class="main-buttons">
@@ -144,7 +183,7 @@
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import { useStore } from "@/renderer/store";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useBusyState } from "@/renderer/store/busy";
 import { Color, formatMove, ImmutableNode, Move, Position } from "tsshogi";
 import { useBookStore } from "@/renderer/store/book";
@@ -155,6 +194,7 @@ import { IconType } from "@/renderer/assets/icons";
 import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import api, { isNative } from "@/renderer/ipc/api";
+import { normalizePath } from "@/common/helpers/path";
 import {
   defaultBookImportSettings,
   PlayerCriteria,
@@ -188,19 +228,75 @@ const busyState = useBusyState();
 const settings = ref(defaultBookImportSettings());
 const inMemoryList = ref<(InMemoryMove | Branch)[]>([]);
 const serverSelectionList = ref<string[]>([]);
+const currentServerDir = ref("");
+
+watch(
+  () => settings.value.sourceType,
+  () => {
+    serverSelectionList.value = [];
+  },
+);
+
+const breadcrumbs = computed(() => {
+  if (!currentServerDir.value) return [];
+  const parts = normalizePath(currentServerDir.value).split("/");
+  return parts.map((part, index) => ({
+    name: part,
+    path: parts.slice(0, index + 1).join("/"),
+  }));
+});
 
 const sourceTypeOptions = computed(() => {
-  const options = [
+  return [
     { value: SourceType.MEMORY, label: t.fromCurrentRecord },
     { value: SourceType.FILE, label: t.fromFile },
+    { value: SourceType.DIRECTORY, label: t.fromDirectory },
   ];
-  if (isNative()) {
-    options.push({ value: SourceType.DIRECTORY, label: t.fromDirectory });
+});
+
+const serverSelectionEntries = computed(() => {
+  const currentDirNormalized = normalizePath(currentServerDir.value);
+  const currentDirLower = currentDirNormalized.toLowerCase();
+  const prefix = currentDirNormalized ? currentDirNormalized + "/" : "";
+
+  const entriesMap = new Map<string, { name: string; path: string; isDirectory: boolean }>();
+  if (currentServerDir.value) {
+    const parent = currentDirNormalized.split("/").slice(0, -1).join("/");
+    entriesMap.set("..", { name: "..", path: parent, isDirectory: true });
   }
-  return options;
+
+  serverSelectionList.value.forEach((file) => {
+    const fileNormalized = normalizePath(file);
+    if (fileNormalized.toLowerCase().startsWith(currentDirLower)) {
+      const relative = fileNormalized.substring(prefix.length);
+      const parts = relative.split("/");
+      if (parts.length > 1) {
+        const dirName = parts[0];
+        const dirPath = prefix + dirName;
+        if (!entriesMap.has(dirName)) {
+          entriesMap.set(dirName, { name: dirName, path: dirPath, isDirectory: true });
+        }
+      } else if (
+        parts.length === 1 &&
+        parts[0] !== "" &&
+        settings.value.sourceType !== SourceType.DIRECTORY
+      ) {
+        const fileName = parts[0];
+        entriesMap.set(fileName, { name: fileName, path: file, isDirectory: false });
+      }
+    }
+  });
+
+  return Array.from(entriesMap.values()).sort((a, b) => {
+    if (a.name === "..") return -1;
+    if (b.name === "..") return 1;
+    if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
 });
 
 const setupInMemoryList = async () => {
+  inMemoryList.value = [];
   const nodes: { node: ImmutableNode; sfen: string }[] = [];
   const sfens = new Set<string>();
   store.record.forEach((node) => {
@@ -255,9 +351,6 @@ onMounted(async () => {
   try {
     await setupInMemoryList();
     settings.value = await api.loadBookImportSettings();
-    if (!isNative() && settings.value.sourceType === SourceType.DIRECTORY) {
-      settings.value.sourceType = SourceType.MEMORY;
-    }
   } catch (e) {
     errorStore.add(e);
     store.destroyModalDialog();
@@ -291,6 +384,15 @@ const updateScore = (move: InMemoryMove) => {
 
 const selectDirectory = async () => {
   if (!isNative()) {
+    try {
+      busyState.retain();
+      serverSelectionList.value = await api.listServerKifu();
+      currentServerDir.value = "";
+    } catch (e) {
+      useErrorStore().add(e);
+    } finally {
+      busyState.release();
+    }
     return;
   }
   busyState.retain();
@@ -338,8 +440,17 @@ const selectRecordFile = async () => {
   }
 };
 
-const onSelectServerItem = (item: string) => {
-  settings.value.sourceRecordFile = "server://" + item;
+const onSelectServerItem = (entry: { name: string; path: string; isDirectory: boolean }) => {
+  if (entry.isDirectory) {
+    currentServerDir.value = entry.path;
+    return;
+  }
+  settings.value.sourceRecordFile = "server://" + entry.path;
+  serverSelectionList.value = [];
+};
+
+const onConfirmServerDirectory = (path: string) => {
+  settings.value.sourceDirectory = "server://" + path;
   serverSelectionList.value = [];
 };
 
@@ -390,6 +501,22 @@ button.import {
   background-color: var(--selector-bg-color);
   border-bottom: 1px solid var(--dialog-border-color);
 }
+.server-selection-header.breadcrumbs {
+  text-align: left;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+.breadcrumb-item {
+  cursor: pointer;
+  color: var(--text-color-link);
+}
+.breadcrumb-item:hover {
+  text-decoration: underline;
+}
+.breadcrumb-separator {
+  margin: 0 5px;
+  color: var(--text-color-sub);
+}
 .server-selection-scroll {
   max-height: 400px;
   overflow-y: auto;
@@ -404,10 +531,25 @@ button.import {
   text-overflow: ellipsis;
   border-bottom: 1px solid var(--dialog-border-color);
 }
+.server-selection-item .entry-header {
+  min-width: 0;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.server-selection-item button {
+  flex-shrink: 0;
+  margin-left: 10px;
+}
 .server-selection-item:last-child {
   border-bottom: none;
 }
 .server-selection-item:hover {
   background-color: var(--selector-bg-color);
+}
+.entry-icon {
+  width: 1.2em;
+  height: 1.2em;
+  vertical-align: middle;
+  margin-right: 5px;
 }
 </style>

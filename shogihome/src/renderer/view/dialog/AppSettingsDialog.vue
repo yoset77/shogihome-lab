@@ -355,6 +355,11 @@
             ]"
           />
         </div>
+        <!-- 定跡タブを表示 (モバイル) -->
+        <div v-if="isMobileWebApp()" class="form-item">
+          <div class="form-item-label-wide">{{ t.showBookTableOnMobile }}</div>
+          <ToggleButton v-model:value="update.showBookTableOnMobile" />
+        </div>
       </div>
       <hr />
       <!-- 音 -->
@@ -558,11 +563,6 @@
           <div class="form-item-label-wide">{{ t.liveDuplicatePositionDetection }}</div>
           <ToggleButton v-model:value="update.liveDuplicatePositionDetection" />
         </div>
-        <!-- 定跡タブを表示 (モバイル) -->
-        <div v-if="isMobileWebApp()" class="form-item">
-          <div class="form-item-label-wide">{{ t.showBookTableOnMobile }}</div>
-          <ToggleButton v-model:value="update.showBookTableOnMobile" />
-        </div>
         <!-- 分岐の表示 -->
         <div class="form-item">
           <div class="form-item-label-wide">{{ t.branchListMode }}</div>
@@ -578,7 +578,7 @@
       </div>
       <hr />
       <!-- 定跡 -->
-      <div class="section">
+      <div v-if="isNative()" class="section">
         <div class="section-title">{{ t.book }}</div>
         <!-- 読み専モード閾値 -->
         <div class="form-item">
@@ -587,7 +587,7 @@
           <div class="form-item-small-label">MB ({{ t.between(0, 4096) }})</div>
         </div>
       </div>
-      <hr />
+      <hr v-if="isNative()" />
       <!-- USI プロトコル -->
       <div class="section">
         <div class="section-title">{{ t.usiProtocol }}</div>
