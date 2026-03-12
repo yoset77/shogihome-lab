@@ -38,7 +38,7 @@
         </template>
       </RecordView>
     </div>
-    <div v-if="store.remoteRecordFileURL">
+    <div v-if="store.remoteRecordFileURL" class="fetch-button-container">
       <button class="wide" @click="store.loadRemoteRecordFile()">{{ t.fetchLatestData }}</button>
     </div>
     <DuplicatePositionsDialog
@@ -162,6 +162,11 @@ const onToggleComment = (enabled: boolean) => {
 .record {
   width: 100%;
   min-height: 0;
+}
+.fetch-button-container {
+  width: 100%;
+  padding: 0 5px;
+  box-sizing: border-box;
 }
 button.wide {
   width: 100%;

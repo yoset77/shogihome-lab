@@ -285,8 +285,13 @@ export const webAPI: Bridge = {
   async loadRecordFileBackup(): Promise<string> {
     throw new Error(t.thisFeatureNotAvailableOnWebApp);
   },
-  async loadRemoteTextFile(): Promise<string> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
+  async loadRemoteTextFile(url: string): Promise<string> {
+    const response = await fetchWithTimeout(`/api/fetch-remote?url=${encodeURIComponent(url)}`);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Failed to fetch remote text: ${response.status} ${text}`);
+    }
+    return await response.text();
   },
   async convertRecordFiles(): Promise<string> {
     throw new Error(t.thisFeatureNotAvailableOnWebApp);

@@ -33,6 +33,7 @@ import {
   isBookOnTheFly,
 } from "./src/background/book";
 import { writeFileAtomic, writeFileAtomicSync } from "./src/background/file/atomic";
+import { fetch as fetchRemote } from "./src/background/helpers/http";
 
 const getBasePath = () => {
   // SEA (Single Executable Application) environment check
@@ -308,6 +309,44 @@ app.get("/api/kifu/list", async (req, res) => {
 
 app.get("/api/kifu/enabled", (req, res) => {
   res.json({ enabled: !!KIFU_DIR });
+});
+
+const allowedFetchDomains = new Set(
+  (process.env.ALLOWED_FETCH_DOMAINS || "")
+    .split(",")
+    .map((d) => d.trim().toLowerCase())
+    .filter((d) => d !== ""),
+);
+
+app.get("/api/fetch-remote", async (req, res) => {
+  const targetUrl = req.query.url;
+  if (typeof targetUrl !== "string") {
+    sendError(res, 400, "url is required");
+    return;
+  }
+
+  try {
+    const urlObj = new URL(targetUrl);
+    if (urlObj.protocol !== "http:" && urlObj.protocol !== "https:") {
+      sendError(res, 400, `Unsupported protocol: ${urlObj.protocol}`);
+      return;
+    }
+    if (!allowedFetchDomains.has(urlObj.hostname.toLowerCase())) {
+      console.warn(`Blocked remote fetch for unauthorized domain: ${urlObj.hostname}`);
+      sendError(
+        res,
+        403,
+        `Forbidden: domain ${urlObj.hostname} is not allowed by ALLOWED_FETCH_DOMAINS.`,
+      );
+      return;
+    }
+
+    const text = await fetchRemote(urlObj.href);
+    res.type("text/plain").send(text);
+  } catch (e) {
+    console.error("failed to fetch remote kifu:", e);
+    sendError(res, 500, e instanceof Error ? e.message : "failed to fetch remote kifu");
+  }
 });
 
 app.get("/api/kifu/get", async (req, res) => {

@@ -113,7 +113,7 @@
           <Icon :icon="IconType.HISTORY" />
           <div class="label">{{ t.history }}</div>
         </button>
-        <button v-if="isNative()" :disabled="!states.loadRemoteFile" @click="onLoadRemoteFile">
+        <button :disabled="!states.loadRemoteFile" @click="onLoadRemoteFile">
           <Icon :icon="IconType.INTERNET" />
           <div class="label">{{ t.loadRecordFromWeb }}</div>
         </button>
