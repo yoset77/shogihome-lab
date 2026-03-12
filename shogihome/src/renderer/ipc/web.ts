@@ -18,6 +18,7 @@ import { SessionStates } from "@/common/advanced/monitor.js";
 import { emptyLayoutProfileList } from "@/common/settings/layout.js";
 import * as uri from "@/common/uri.js";
 import { normalizePath } from "@/common/helpers/path.js";
+import { convert } from "encoding-japanese";
 
 enum STORAGE_KEY {
   APP_SETTINGS = "appSetting",
@@ -216,7 +217,6 @@ export const webAPI: Bridge = {
             .arrayBuffer()
             .then((data) => {
               const fileURI = uri.issueTempFileURI(file.name);
-              fileCache.clear();
               fileCache.set(fileURI, data);
               resolve(fileURI);
             })
@@ -239,9 +239,21 @@ export const webAPI: Bridge = {
     throw new Error(t.thisFeatureNotAvailableOnWebApp);
   },
   async openRecord(uri: string): Promise<Uint8Array> {
-    const data = fileCache.get(uri);
-    if (data) {
-      return new Uint8Array(data);
+    const cached = fileCache.get(uri);
+    if (cached) {
+      return new Uint8Array(cached);
+    }
+    if (uri.startsWith("server://")) {
+      const relPath = uri.substring(9);
+      const response = await fetchWithTimeout(`/api/kifu/get?path=${encodeURIComponent(relPath)}`);
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return new Uint8Array(await response.arrayBuffer());
+    }
+    if (uri.startsWith("http://") || uri.startsWith("https://")) {
+      const text = await this.loadRemoteTextFile(uri);
+      return new TextEncoder().encode(text);
     }
     return Promise.reject(new Error("invalid URI"));
   },
@@ -271,16 +283,55 @@ export const webAPI: Bridge = {
     URL.revokeObjectURL(url);
   },
   async loadRecordFileHistory(): Promise<string> {
+    try {
+      const response = await fetchWithTimeout("/api/history");
+      if (response.ok) {
+        const data = await response.json();
+        return JSON.stringify(data);
+      }
+    } catch (e) {
+      // Ignore errors silently as backup is an auxiliary feature
+    }
     return JSON.stringify(getEmptyHistory());
   },
-  addRecordFileHistory(): void {
-    // Do Nothing
+  addRecordFileHistory(path: string): void {
+    if (path.startsWith(uri.ES_TEMP_FILE_PREFIX)) {
+      const data = fileCache.get(path);
+      if (data) {
+        const kif = convert(new Uint8Array(data), { to: "UNICODE", type: "string" });
+        this.saveRecordFileBackup(kif);
+      }
+      return;
+    }
+    fetchWithTimeout("/api/history/add", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ path }),
+    }).catch(() => {
+      // Ignore errors silently
+    });
   },
   async clearRecordFileHistory(): Promise<void> {
-    // Do Nothing
+    try {
+      await fetchWithTimeout("/api/history/clear", { method: "POST" });
+    } catch (e) {
+      // Ignore errors
+    }
   },
-  async saveRecordFileBackup(): Promise<void> {
-    // Do Nothing
+  async saveRecordFileBackup(kif: string): Promise<void> {
+    try {
+      await fetchWithTimeout("/api/history/backup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+        },
+        body: kif,
+      });
+    } catch (e) {
+      // Ignore errors silently
+    }
   },
   async loadRecordFileBackup(): Promise<string> {
     throw new Error(t.thisFeatureNotAvailableOnWebApp);

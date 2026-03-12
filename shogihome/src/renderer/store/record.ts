@@ -407,8 +407,14 @@ export class RecordManager {
 
   private updateServerKifuPath(serverKifuPath: string | undefined): void {
     this._unsaved = false;
+    if (serverKifuPath === this._serverKifuPath) {
+      return;
+    }
     this._serverKifuPath = serverKifuPath;
     this._recordFilePath = undefined;
+    if (serverKifuPath) {
+      api.addRecordFileHistory("server://" + serverKifuPath);
+    }
   }
 
   async saveBackup(): Promise<void> {

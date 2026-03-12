@@ -34,6 +34,7 @@ import {
 } from "./src/background/book";
 import { writeFileAtomic, writeFileAtomicSync } from "./src/background/file/atomic";
 import { fetch as fetchRemote } from "./src/background/helpers/http";
+import { getHistory, saveBackup, clearHistory, addHistory } from "./src/background/file/history";
 
 const getBasePath = () => {
   // SEA (Single Executable Application) environment check
@@ -346,6 +347,56 @@ app.get("/api/fetch-remote", async (req, res) => {
   } catch (e) {
     console.error("failed to fetch remote kifu:", e);
     sendError(res, 500, e instanceof Error ? e.message : "failed to fetch remote kifu");
+  }
+});
+
+app.get("/api/history", async (req, res) => {
+  try {
+    const history = await getHistory();
+    res.json(history);
+  } catch (e) {
+    console.error("failed to get history:", e);
+    sendError(res, 500, "failed to get history");
+  }
+});
+
+app.post("/api/history/add", express.json(), async (req, res) => {
+  try {
+    const { path } = req.body;
+    if (typeof path !== "string" || !path) {
+      sendError(res, 400, "path is required");
+      return;
+    }
+    addHistory(path);
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to add history:", e);
+    sendError(res, 500, "failed to add history");
+  }
+});
+
+app.post("/api/history/backup", express.text({ limit: "10mb" }), async (req, res) => {
+  try {
+    const kif = req.body;
+    if (typeof kif !== "string" || !kif) {
+      sendError(res, 400, "kif text body is required");
+      return;
+    }
+    await saveBackup(kif);
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to save backup:", e);
+    sendError(res, 500, "failed to save backup");
+  }
+});
+
+app.post("/api/history/clear", async (req, res) => {
+  try {
+    await clearHistory();
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to clear history:", e);
+    sendError(res, 500, "failed to clear history");
   }
 });
 

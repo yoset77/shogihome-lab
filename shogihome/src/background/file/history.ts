@@ -60,7 +60,7 @@ function removeBackupFile(fileName: string): void {
   });
 }
 
-function trancate(history: RecordFileHistory): void {
+function truncate(history: RecordFileHistory): void {
   while (history.entries.length > historyMaxLength) {
     const entry = history.entries.shift() as RecordFileHistoryEntry;
     if (entry.class === HistoryClass.BACKUP && entry.backupFileName) {
@@ -88,7 +88,7 @@ export function addHistory(path: string): void {
         class: HistoryClass.USER,
         userFilePath: path,
       });
-      trancate(history);
+      truncate(history);
       await saveHistories(history);
     } catch (e) {
       getAppLogger().error("failed to add history: %s", e);
@@ -129,7 +129,7 @@ export function saveBackup(kif: string): Promise<void> {
       time: new Date().toISOString(),
       ...entry,
     });
-    trancate(history);
+    truncate(history);
     await saveHistories(history);
   });
 }

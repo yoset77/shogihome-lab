@@ -109,7 +109,7 @@
             <div class="label">{{ format }}</div>
           </button>
         </template>
-        <button v-if="isNative()" :disabled="!states.history" @click="onHistory">
+        <button :disabled="!states.history" @click="onHistory">
           <Icon :icon="IconType.HISTORY" />
           <div class="label">{{ t.history }}</div>
         </button>
