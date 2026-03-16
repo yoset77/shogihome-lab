@@ -128,7 +128,8 @@ Promise.allSettled([
     default:
       // eslint-disable-next-line no-case-declarations
       const isPC =
-        /Windows|Mac|Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
+        /Windows|Mac|Linux/.test(navigator.userAgent) &&
+        !/Android|iPhone/.test(navigator.userAgent);
       if (!isPC && !hasMobileParam) {
         url.searchParams.set("mobile", "");
         reload = true;

@@ -894,7 +894,7 @@ const update = ref({
   backgroundImageFileURL: org.backgroundImageFileURL,
   boardLayoutType:
     isMobileWebApp() && org.boardLayoutType === BoardLayoutType.STANDARD
-      ? BoardLayoutType.PORTRAIT
+      ? BoardLayoutType.COMPACT
       : org.boardLayoutType,
   pieceImage: org.pieceImage,
   pieceImageFileURL: org.pieceImageFileURL,

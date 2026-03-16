@@ -241,7 +241,7 @@ const boardPaneMaxSize = computed(() => {
 });
 const boardLayoutType = computed(() => {
   return appSettings.boardLayoutType === BoardLayoutType.STANDARD
-    ? BoardLayoutType.PORTRAIT
+    ? BoardLayoutType.COMPACT
     : appSettings.boardLayoutType;
 });
 

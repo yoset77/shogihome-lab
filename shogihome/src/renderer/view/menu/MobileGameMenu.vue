@@ -313,7 +313,8 @@ const onStart = async () => {
   border-bottom: 1px solid var(--text-separator-color);
 }
 .content {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 10px;
 }
