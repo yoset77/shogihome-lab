@@ -347,11 +347,17 @@ export const webAPI: Bridge = {
   async convertRecordFiles(): Promise<string> {
     throw new Error(t.thisFeatureNotAvailableOnWebApp);
   },
-  async showSelectSFENDialog(): Promise<string> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
-  },
-  async loadSFENFile(): Promise<string[]> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
+  async loadSFENFile(path: string): Promise<string[]> {
+    if (!path.startsWith("server://")) {
+      throw new Error("Only server-side SFEN files are supported");
+    }
+    const relPath = path.substring(9);
+    const response = await fetchWithTimeout(`/api/sfen/load?path=${encodeURIComponent(relPath)}`);
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const json = await response.json();
+    return json.lines;
   },
   onOpenRecord(): void {
     // Do Nothing
@@ -708,6 +714,13 @@ export const webAPI: Bridge = {
   },
   async listServerBook(): Promise<string[]> {
     const response = await fetchWithTimeout("/api/book/list");
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  },
+  async listServerPosition(): Promise<string[]> {
+    const response = await fetchWithTimeout("/api/sfen/list");
     if (!response.ok) {
       throw new Error(await response.text());
     }

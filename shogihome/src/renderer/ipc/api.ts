@@ -66,7 +66,6 @@ export interface API {
   loadRecordFileBackup(name: string): Promise<string>;
   loadRemoteTextFile(url: string): Promise<string>;
   convertRecordFiles(settings: BatchConversionSettings): Promise<BatchConversionResult>;
-  showSelectSFENDialog(lastPath: string): Promise<string>;
   loadSFENFile(path: string): Promise<string[]>;
 
   // Book
@@ -146,6 +145,7 @@ export interface API {
   isServerKifuEnabled(): Promise<boolean>;
   listServerKifu(reload?: boolean): Promise<string[]>;
   listServerBook(): Promise<string[]>;
+  listServerPosition(): Promise<string[]>;
   loadServerKifu(path: string): Promise<string>;
   saveServerKifu(path: string, data: Uint8Array): Promise<void>;
 }
@@ -307,6 +307,9 @@ const api: API = {
   },
   async listServerBook(): Promise<string[]> {
     return await bridge.listServerBook();
+  },
+  async listServerPosition(): Promise<string[]> {
+    return await bridge.listServerPosition();
   },
   loadServerKifu(path: string): Promise<string> {
     return bridge.loadServerKifu(path);

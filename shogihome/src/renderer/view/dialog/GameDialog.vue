@@ -172,8 +172,12 @@
             </select>
           </div>
           <div v-show="gameSettings.startPosition === 'list'" class="form-item">
-            <input v-model="gameSettings.startPositionListFile" type="text" placeholder="*.sfen" />
-            <button class="thin" @click="onSelectStartPositionListFile">{{ t.select }}</button>
+            <DropdownList
+              :value="gameSettings.startPositionListFile"
+              :items="sfenFileList"
+              :tags="[]"
+              @update:value="(val: string) => (gameSettings.startPositionListFile = val)"
+            />
           </div>
           <div v-show="gameSettings.startPosition === 'list'" class="form-item">
             <ToggleButton v-model:value="startPositionListShuffle" :label="t.shuffle" />
@@ -256,6 +260,7 @@ import { useErrorStore } from "@/renderer/store/error";
 import { useBusyState } from "@/renderer/store/busy";
 import DialogFrame from "./DialogFrame.vue";
 import { useLanStore } from "@/renderer/store/lan";
+import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
 
 const store = useStore();
 const busyState = useBusyState();
@@ -274,8 +279,19 @@ const engines = ref(new USIEngines());
 const blackPlayerURI = ref("");
 const whitePlayerURI = ref("");
 const lanStore = useLanStore();
+const sfenFileList = ref<{ label: string; value: string }[]>([]);
 
 busyState.retain();
+
+const loadSFENFileList = async () => {
+  try {
+    const kifuFiles = await api.listServerPosition();
+    sfenFileList.value = kifuFiles.map((f) => ({ label: f, value: "server://" + f }));
+  } catch (e) {
+    console.warn("Failed to load SFEN file list:", e);
+    sfenFileList.value = [];
+  }
+};
 
 onMounted(async () => {
   try {
@@ -303,6 +319,9 @@ onMounted(async () => {
         console.warn("Failed to connect to LAN engine server:", e);
       }
     }
+
+    // Load SFEN file list
+    await loadSFENFileList();
   } catch (e) {
     useErrorStore().add(e);
     store.destroyModalDialog();
@@ -388,18 +407,6 @@ const onSwapColor = () => {
     [minutes.value, whiteMinutes.value] = [whiteMinutes.value, minutes.value];
     [byoyomi.value, whiteByoyomi.value] = [whiteByoyomi.value, byoyomi.value];
     [increment.value, whiteIncrement.value] = [whiteIncrement.value, increment.value];
-  }
-};
-
-const onSelectStartPositionListFile = async () => {
-  useBusyState().retain();
-  try {
-    const sfenPath = await api.showSelectSFENDialog(gameSettings.value.startPositionListFile);
-    if (sfenPath) {
-      gameSettings.value.startPositionListFile = sfenPath;
-    }
-  } finally {
-    useBusyState().release();
   }
 };
 </script>

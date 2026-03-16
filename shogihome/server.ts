@@ -15,6 +15,7 @@ import { getLocalIpAddresses } from "./src/background/helpers/ip";
 import {
   getKifuList,
   getBookList,
+  getPositionList,
   resolveKifuPath,
   clearKifuListCache,
   setupKifuWatcher,
@@ -449,6 +450,34 @@ app.post("/api/kifu/save", express.raw({ limit: "10mb" }), async (req, res) => {
   }
 });
 
+app.get("/api/sfen/load", async (req, res) => {
+  if (!KIFU_DIR) {
+    sendError(res, 404, "KIFU_DIR is not configured");
+    return;
+  }
+  const relPath = req.query.path as string;
+  if (!relPath) {
+    sendError(res, 400, "path is required");
+    return;
+  }
+  const fullPath = resolveKifuPath(KIFU_DIR, relPath);
+  if (!fullPath || !fullPath.endsWith(".sfen")) {
+    sendError(res, 403, "Invalid path or unsupported file type");
+    return;
+  }
+  try {
+    const content = await fs.promises.readFile(fullPath, "utf-8");
+    const lines = content
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("#"));
+    res.json({ lines });
+  } catch (e) {
+    console.error("failed to load SFEN file:", e);
+    sendError(res, 500, "failed to load SFEN file");
+  }
+});
+
 app.post("/api/book/open", express.json(), async (req, res) => {
   if (!KIFU_DIR) {
     sendError(res, 404, "KIFU_DIR is not configured");
@@ -491,6 +520,20 @@ app.get("/api/book/list", async (req, res) => {
   } catch (e) {
     console.error("failed to get book list:", e);
     sendError(res, 500, e instanceof Error ? e.message : "failed to get book list");
+  }
+});
+
+app.get("/api/sfen/list", async (req, res) => {
+  if (!KIFU_DIR) {
+    sendError(res, 404, "KIFU_DIR is not configured");
+    return;
+  }
+  try {
+    const list = await getPositionList(KIFU_DIR);
+    res.json(list);
+  } catch (e) {
+    console.error("failed to get sfen list:", e);
+    sendError(res, 500, e instanceof Error ? e.message : "failed to get sfen list");
   }
 });
 

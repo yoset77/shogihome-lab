@@ -151,9 +151,6 @@ const bridge: Bridge = {
   async convertRecordFiles(): Promise<string> {
     throw new Error("This feature is not available on command line tool");
   },
-  async showSelectSFENDialog(): Promise<string> {
-    throw new Error("This feature is not available on command line tool");
-  },
   async loadSFENFile(): Promise<string[]> {
     throw new Error("This feature is not available on command line tool");
   },
@@ -400,6 +397,9 @@ const bridge: Bridge = {
     throw new Error("This feature is not available on command line tool");
   },
   async listServerBook(): Promise<string[]> {
+    throw new Error("This feature is not available on command line tool");
+  },
+  async listServerPosition(): Promise<string[]> {
     throw new Error("This feature is not available on command line tool");
   },
   async loadServerKifu(): Promise<string> {
