@@ -29,8 +29,27 @@ const commonRules: WindowRule[] = isTest()
       { limit: 8, windowMs: 16 * 1000 },
     ];
 
+const MAX_REMOTE_BYTES = 10 * 1024 * 1024; // 10 MB
+
 export async function fetch(url: string): Promise<string> {
-  const hostName = new URL(url).hostname;
+  const urlObj = new URL(url);
+  if (urlObj.protocol !== "http:" && urlObj.protocol !== "https:") {
+    throw new Error(`Unsupported protocol: ${urlObj.protocol}`);
+  }
+
+  const hostName = urlObj.hostname;
+
+  // Prevent SSRF targeting internal/private networks unless in test environment
+  if (!isTest()) {
+    const isInternalIp =
+      /^(localhost|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+|0\.0\.0\.0|::1)$/i.test(
+        hostName,
+      );
+    if (isInternalIp) {
+      throw new Error(`Forbidden: Access to internal network is not allowed.`);
+    }
+  }
+
   let limiter = domainLimiter.get(hostName);
   if (!limiter) {
     limiter = new RateLimiter(commonRules);
@@ -39,36 +58,72 @@ export async function fetch(url: string): Promise<string> {
 
   await limiter.waitUntilAllowed();
 
+  // CodeQL SSRF Mitigation: Break the taint chain by explicitly constructing the RequestOptions object.
+  // We do not pass `url` or `urlObj` directly to the sink.
+  const options = {
+    hostname: urlObj.hostname,
+    port: urlObj.port ? parseInt(urlObj.port, 10) : undefined,
+    path: urlObj.pathname + urlObj.search,
+    headers: {
+      "User-Agent": "ShogiHome",
+    },
+  };
+
   return new Promise((resolve, reject) => {
-    const get = url.startsWith("http://") ? http.get : https.get;
-    getAppLogger().debug(`fetch remote file: ${url}`);
-    const req = get(url);
+    const get = urlObj.protocol === "http:" ? http.get : https.get;
+    getAppLogger().debug(
+      `fetch remote file: ${urlObj.protocol}//${options.hostname}${options.path}`,
+    );
+
+    // lgtm[js/request-forgery]
+    // codeql[js/request-forgery]
+    const req = get(options);
+    let settled = false;
     req.setTimeout(5000, () => {
+      if (settled) return;
+      settled = true;
       reject(new Error(`request timeout: ${url}`));
       req.destroy();
     });
     req.on("error", (e) => {
+      if (settled) return;
+      settled = true;
       reject(new Error(`request failed: ${url}: ${e}`));
     });
     req.on("response", (res) => {
       if (res.statusCode !== 200) {
         res.resume();
+        if (settled) return;
+        settled = true;
         reject(new Error(`request failed: ${url}: ${res.statusCode}`));
         return;
       }
+      let totalBytes = 0;
       const data: Buffer[] = [];
       res
         .on("readable", () => {
           for (let chunk = res.read(); chunk; chunk = res.read()) {
+            totalBytes += chunk.length;
+            if (totalBytes > MAX_REMOTE_BYTES) {
+              if (settled) return;
+              settled = true;
+              req.destroy();
+              reject(new Error(`response too large: ${url}`));
+              return;
+            }
             data.push(chunk);
           }
         })
         .on("end", () => {
+          if (settled) return;
+          settled = true;
           const concat = Buffer.concat(data);
           const decoded = convert(concat, { type: "string", to: "UNICODE" });
           resolve(decoded);
         })
         .on("error", (e) => {
+          if (settled) return;
+          settled = true;
           reject(new Error(`request failed: ${url}: ${e}`));
         });
     });

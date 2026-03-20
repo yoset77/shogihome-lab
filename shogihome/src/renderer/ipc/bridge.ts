@@ -52,7 +52,6 @@ export interface Bridge {
   loadRecordFileBackup(name: string): Promise<string>;
   loadRemoteTextFile(url: string): Promise<string>;
   convertRecordFiles(json: string): Promise<string>;
-  showSelectSFENDialog(lastPath: string): Promise<string>;
   loadSFENFile(path: string): Promise<string[]>;
   onOpenRecord(callback: (path: string) => void): void;
 
@@ -152,6 +151,7 @@ export interface Bridge {
   isServerKifuEnabled(): Promise<boolean>;
   listServerKifu(reload?: boolean): Promise<string[]>;
   listServerBook(): Promise<string[]>;
+  listServerPosition(): Promise<string[]>;
   loadServerKifu(path: string): Promise<string>;
   saveServerKifu(path: string, data: Uint8Array): Promise<void>;
 }

@@ -39,4 +39,20 @@ describe("helpsers/http", () => {
       server.close();
     }
   });
+
+  it("fetch/tooLarge", async () => {
+    const data = Buffer.alloc(11 * 1024 * 1024); // 11 MB
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, { "Content-Type": "application/octet-stream" });
+      res.write(data);
+      res.end();
+    });
+    try {
+      server.listen(0);
+      const port = (server.address() as AddressInfo).port;
+      await expect(fetch(`http://localhost:${port}/`)).rejects.toThrow("response too large");
+    } finally {
+      server.close();
+    }
+  });
 });

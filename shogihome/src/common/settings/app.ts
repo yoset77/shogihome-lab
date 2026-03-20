@@ -154,6 +154,11 @@ export enum PositionImageFontWeight {
   W700X = "700+",
 }
 
+export enum BranchListMode {
+  SIBLING = "sibling",
+  NEXT_MOVE = "nextMove",
+}
+
 export enum UIMode {
   AUTO = "auto",
   PC = "pc",
@@ -247,6 +252,7 @@ export type AppSettings = {
   // Record View
   showElapsedTimeInRecordView: boolean;
   showCommentInRecordView: boolean;
+  branchListMode: BranchListMode;
 
   // Logging
   enableAppLog: boolean;
@@ -399,6 +405,7 @@ export function defaultAppSettings(opt?: {
     searchCommentFormat: SearchCommentFormat.SHOGIHOME,
     showElapsedTimeInRecordView: true,
     showCommentInRecordView: true,
+    branchListMode: BranchListMode.SIBLING,
     enableAppLog: false,
     enableUSILog: false,
     enableCSALog: false,

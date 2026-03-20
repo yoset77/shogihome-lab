@@ -13,10 +13,29 @@
               :items="[
                 { value: InitialPositionType.STANDARD, label: t.noHandicap },
                 { value: 'current', label: t.currentPosition },
+                { value: 'list', label: t.positionList },
               ]"
               :height="36"
-              @update:value="settings.startPosition = $event as InitialPositionType | 'current'"
+              @update:value="
+                settings.startPosition = $event as InitialPositionType | 'current' | 'list'
+              "
             />
+          </div>
+          <!-- SFEN File Selection -->
+          <div v-show="settings.startPosition === 'list'" class="form-item">
+            <div class="form-item-value full-width" style="margin-left: 0">
+              <DropdownList
+                :value="settings.startPositionListFile"
+                :items="sfenFileList"
+                :tags="[]"
+                @update:value="settings.startPositionListFile = $event"
+              />
+            </div>
+          </div>
+          <!-- Shuffle Toggle -->
+          <div v-show="settings.startPosition === 'list'" class="form-item">
+            <div class="form-item-label">{{ t.shuffle }}</div>
+            <ToggleButton v-model:value="settings.startPositionListShuffle" />
           </div>
         </div>
 
@@ -55,15 +74,42 @@
             />
           </div>
         </div>
+
         <!-- Section: Settings -->
         <div class="section">
           <div class="section-header">{{ t.settings }}</div>
           <div class="section-body">
+            <!-- Max Moves -->
             <div class="form-item">
-              <ToggleButton
-                v-model:value="settings.enableAutoSave"
-                :label="t.saveRecordAutomatically"
-              />
+              <div class="form-item-label">{{ t.maxMoves }}</div>
+              <input v-model.number="settings.maxMoves" class="number" type="number" min="1" />
+            </div>
+            <!-- Game Repetition -->
+            <div class="form-item">
+              <div class="form-item-label">{{ t.gameRepetition }}</div>
+              <input v-model.number="settings.repeat" class="number" type="number" min="1" />
+            </div>
+            <!-- Jishogi Rule -->
+            <div class="form-item">
+              <div class="form-item-label">{{ t.jishogi }}</div>
+              <div class="form-item-value full-width">
+                <DropdownList
+                  :value="settings.jishogiRule"
+                  :items="jishogiRuleItems"
+                  :tags="[]"
+                  @update:value="settings.jishogiRule = $event as JishogiRule"
+                />
+              </div>
+            </div>
+            <!-- Swap Players -->
+            <div class="form-item">
+              <div class="form-item-label">{{ t.swapTurnWhenGameRepetition }}</div>
+              <ToggleButton v-model:value="settings.swapPlayers" />
+            </div>
+            <!-- Auto Save -->
+            <div class="form-item">
+              <div class="form-item-label">{{ t.saveRecordAutomatically }}</div>
+              <ToggleButton v-model:value="settings.enableAutoSave" />
             </div>
           </div>
         </div>
@@ -83,7 +129,7 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
-import { TimeLimitSettings } from "@/common/settings/game";
+import { TimeLimitSettings, JishogiRule, validateGameSettingsForWeb } from "@/common/settings/game";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
 import { IconType } from "@/renderer/assets/icons";
@@ -93,10 +139,12 @@ import { useStore } from "@/renderer/store";
 import { InitialPositionType } from "tsshogi";
 import { onBeforeUnmount, onMounted, ref, reactive, computed } from "vue";
 import { useLanStore } from "@/renderer/store/lan";
+import { useErrorStore } from "@/renderer/store/error";
 import MobilePlayerSetting from "./MobilePlayerSetting.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import api from "@/renderer/ipc/api";
 import * as uri from "@/common/uri";
+import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
 
 const store = useStore();
 const dialog = ref();
@@ -108,9 +156,24 @@ const settings = reactive({
   white: { uri: uri.ES_BASIC_ENGINE_STATIC_ROOK_V1, name: `${t.beginner} (${t.staticRook})` },
   blackTime: { timeSeconds: 600, byoyomi: 30, increment: 0 } as TimeLimitSettings,
   whiteTime: { timeSeconds: 600, byoyomi: 30, increment: 0 } as TimeLimitSettings,
-  startPosition: InitialPositionType.STANDARD as InitialPositionType | "current",
+  startPosition: InitialPositionType.STANDARD as InitialPositionType | "current" | "list",
+  startPositionListFile: "",
+  startPositionListShuffle: false,
+  maxMoves: 1000,
+  repeat: 1,
+  swapPlayers: false,
+  jishogiRule: JishogiRule.GENERAL27,
   enableAutoSave: false,
 });
+
+const sfenFileList = ref<{ label: string; value: string }[]>([]);
+
+const jishogiRuleItems = computed(() => [
+  { value: JishogiRule.NONE, label: t.none },
+  { value: JishogiRule.GENERAL24, label: t.rule24 },
+  { value: JishogiRule.GENERAL27, label: t.rule27 },
+  { value: JishogiRule.TRY, label: t.tryRule },
+]);
 
 const emit = defineEmits<{
   close: [];
@@ -118,6 +181,16 @@ const emit = defineEmits<{
 
 const onClose = () => {
   emit("close");
+};
+
+const loadSFENFileList = async () => {
+  try {
+    const kifuFiles = await api.listServerPosition();
+    sfenFileList.value = kifuFiles.map((f) => ({ label: f, value: "server://" + f }));
+  } catch (e) {
+    console.warn("Failed to load SFEN file list:", e);
+    sfenFileList.value = [];
+  }
 };
 
 onMounted(async () => {
@@ -130,15 +203,21 @@ onMounted(async () => {
     settings.white = { ...saved.white };
     settings.blackTime = { ...saved.timeLimit };
     settings.whiteTime = { ...(saved.whiteTimeLimit || saved.timeLimit) };
-    if (saved.startPosition !== "list") {
-      settings.startPosition = saved.startPosition;
-    }
+    settings.startPosition = saved.startPosition;
+    settings.startPositionListFile = saved.startPositionListFile || "";
+    settings.startPositionListShuffle = saved.startPositionListOrder === "shuffle";
+    settings.maxMoves = saved.maxMoves || 1000;
+    settings.repeat = saved.repeat || 1;
+    settings.swapPlayers = saved.swapPlayers || false;
+    settings.jishogiRule = saved.jishogiRule || JishogiRule.GENERAL27;
     settings.enableAutoSave = saved.enableAutoSave;
     initialized.value = true;
   } catch (e) {
     console.error("Failed to load game settings:", e);
     initialized.value = true; // Still show with defaults if load fails
   }
+
+  await loadSFENFileList();
 
   if (lanStore.status.value === "disconnected") {
     lanStore.fetchEngineList().catch(console.error);
@@ -170,10 +249,22 @@ const onStart = async () => {
     timeLimit: { ...settings.blackTime },
     whiteTimeLimit: { ...settings.whiteTime },
     startPosition: settings.startPosition,
+    startPositionListFile: settings.startPositionListFile,
+    startPositionListOrder: settings.startPositionListShuffle
+      ? ("shuffle" as const)
+      : ("sequential" as const),
+    maxMoves: settings.maxMoves,
+    repeat: settings.repeat,
+    swapPlayers: settings.swapPlayers,
+    jishogiRule: settings.jishogiRule,
     enableAutoSave: settings.enableAutoSave,
-    jishogiRule: store.gameSettings.jishogiRule,
-    repeat: 1,
   };
+
+  const err = validateGameSettingsForWeb(newSettings);
+  if (err) {
+    useErrorStore().add(err);
+    return;
+  }
 
   try {
     // Explicitly save settings before starting
@@ -222,7 +313,8 @@ const onStart = async () => {
   border-bottom: 1px solid var(--text-separator-color);
 }
 .content {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 10px;
 }
@@ -236,6 +328,30 @@ const onStart = async () => {
 }
 .section-body {
   padding: 0 5px;
+}
+.form-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 5px;
+  padding: 0 10px;
+}
+.form-item-label {
+  font-size: 0.85em;
+  color: var(--text-color);
+  flex: 1;
+  margin-right: 10px;
+  line-height: 1.2;
+  text-align: left;
+}
+.form-item-value.full-width {
+  flex: 1;
+  margin-left: 10px;
+  min-width: 0;
+}
+input.number {
+  text-align: right;
+  width: 80px;
 }
 .selector-container {
   padding: 5px;

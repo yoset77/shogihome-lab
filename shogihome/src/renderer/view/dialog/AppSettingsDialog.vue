@@ -563,10 +563,22 @@
           <div class="form-item-label-wide">{{ t.liveDuplicatePositionDetection }}</div>
           <ToggleButton v-model:value="update.liveDuplicatePositionDetection" />
         </div>
+        <!-- 分岐の表示 -->
+        <div class="form-item">
+          <div class="form-item-label-wide">{{ t.branchListMode }}</div>
+          <HorizontalSelector
+            v-model:value="update.branchListMode"
+            class="selector"
+            :items="[
+              { label: t.previousMoveBranches, value: BranchListMode.SIBLING },
+              { label: t.nextMoveBranches, value: BranchListMode.NEXT_MOVE },
+            ]"
+          />
+        </div>
       </div>
       <hr />
       <!-- 定跡 -->
-      <div class="section">
+      <div v-if="isNative()" class="section">
         <div class="section-title">{{ t.book }}</div>
         <!-- 読み専モード閾値 -->
         <div class="form-item">
@@ -575,7 +587,7 @@
           <div class="form-item-small-label">MB ({{ t.between(0, 4096) }})</div>
         </div>
       </div>
-      <hr />
+      <hr v-if="isNative()" />
       <!-- USI プロトコル -->
       <div class="section">
         <div class="section-title">{{ t.usiProtocol }}</div>
@@ -841,6 +853,7 @@ import {
   AppSettingsUpdate,
   NodeCountFormat,
   RecordShortcutKeys,
+  BranchListMode,
   UIMode,
 } from "@/common/settings/app";
 import ImageSelector from "@/renderer/view/dialog/ImageSelector.vue";
@@ -881,7 +894,7 @@ const update = ref({
   backgroundImageFileURL: org.backgroundImageFileURL,
   boardLayoutType:
     isMobileWebApp() && org.boardLayoutType === BoardLayoutType.STANDARD
-      ? BoardLayoutType.PORTRAIT
+      ? BoardLayoutType.COMPACT
       : org.boardLayoutType,
   pieceImage: org.pieceImage,
   pieceImageFileURL: org.pieceImageFileURL,
@@ -931,6 +944,9 @@ const update = ref({
   badMoveLevelThreshold4: org.badMoveLevelThreshold4,
   maxPVTextLength: org.maxPVTextLength,
   searchCommentFormat: org.searchCommentFormat,
+  showElapsedTimeInRecordView: org.showElapsedTimeInRecordView,
+  showCommentInRecordView: org.showCommentInRecordView,
+  branchListMode: org.branchListMode,
   enableAppLog: org.enableAppLog,
   enableUSILog: org.enableUSILog,
   enableCSALog: org.enableCSALog,

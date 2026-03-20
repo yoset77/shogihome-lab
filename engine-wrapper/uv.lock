@@ -586,7 +586,7 @@ wheels = [
 
 [[package]]
 name = "shogihome-lan-engine-wrapper"
-version = "1.9.0"
+version = "1.10.0"
 source = { virtual = "." }
 dependencies = [
     { name = "clr-loader" },

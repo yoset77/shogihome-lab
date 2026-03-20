@@ -329,10 +329,13 @@ onMounted(async () => {
 <style scoped>
 .form-group {
   width: 800px;
-  max-width: calc(100vw - 50px);
+  max-width: calc(100vw - 30px);
+  box-sizing: border-box;
 }
 .header {
   margin: 5px;
+  box-sizing: border-box;
+  width: 100%;
 }
 .filter {
   text-align: left;
@@ -362,9 +365,13 @@ button.reload {
   height: calc(100vh - 300px);
   overflow-y: auto;
   background-color: var(--text-bg-color);
+  box-sizing: border-box;
+  width: 100%;
 }
 .game-list-entry {
   padding: 5px;
+  box-sizing: border-box;
+  width: 100%;
 }
 .game-list-entry.playing {
   background-color: var(--text-bg-color-warning);
@@ -376,13 +383,16 @@ hr {
   width: calc(100% - 20px);
 }
 .game-label {
-  width: calc(100% - 100px);
+  flex: 1;
+  min-width: 0;
   text-align: left;
   overflow: hidden;
-  white-space: nowrap;
 }
 .game-header {
   font-size: 0.8em;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
 }
 .game-header > * {
   margin-right: 5px;
@@ -396,6 +406,9 @@ hr {
 }
 .game-info {
   font-size: 0.6em;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
 }
 .game-info > * {
   margin-right: 5px;
@@ -403,5 +416,33 @@ hr {
 .reference {
   text-align: left;
   font-size: 0.8em;
+  margin: 10px;
+}
+@media (max-width: 600px) {
+  .form-group {
+    max-width: 100%;
+  }
+  .header {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .filter {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .filter > * {
+    margin-right: 0;
+  }
+  .player-name-filter {
+    flex: 1;
+    min-width: 120px;
+  }
+  .player-name-filter > input {
+    width: 100%;
+  }
+  button.reload {
+    width: 100%;
+    margin-left: 0;
+  }
 }
 </style>

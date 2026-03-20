@@ -5,6 +5,7 @@ import { normalizePath } from "@/common/helpers/path";
 
 const SUPPORTED_EXTENSIONS = [".kif", ".kifu", ".ki2", ".ki2u", ".csa", ".jkf"];
 const BOOK_EXTENSIONS = [".db", ".bin"];
+const POSITION_EXTENSIONS = [".sfen"];
 const MAX_DEPTH = 10;
 const MAX_FILES = 10000;
 
@@ -91,6 +92,15 @@ export const getBookList = async (baseDir: string): Promise<string[]> => {
 };
 
 /**
+ * Recursively lists position files under the base directory.
+ * @param baseDir Absolute path to the base directory.
+ * @returns Relative paths of position files.
+ */
+export const getPositionList = async (baseDir: string): Promise<string[]> => {
+  return await getFileList(baseDir, POSITION_EXTENSIONS);
+};
+
+/**
  * Sets up a file system watcher to invalidate the cache when files change.
  * @param baseDir Absolute path to the base directory.
  * @param usePolling Whether to use polling instead of native events.
@@ -114,6 +124,7 @@ export const setupKifuWatcher = (baseDir: string, usePolling = false): FSWatcher
       if (
         SUPPORTED_EXTENSIONS.includes(ext) ||
         BOOK_EXTENSIONS.includes(ext) ||
+        POSITION_EXTENSIONS.includes(ext) ||
         event === "addDir" ||
         event === "unlinkDir"
       ) {
@@ -155,7 +166,10 @@ export const resolveKifuPath = (baseDir: string, relPath: string): string | null
 
   // Security: Basic check for extension.
   const ext = path.extname(relPath).toLowerCase();
-  const isSupportedExt = SUPPORTED_EXTENSIONS.includes(ext) || BOOK_EXTENSIONS.includes(ext);
+  const isSupportedExt =
+    SUPPORTED_EXTENSIONS.includes(ext) ||
+    BOOK_EXTENSIONS.includes(ext) ||
+    POSITION_EXTENSIONS.includes(ext);
 
   // Normalize and resolve the path.
   const fullPath = path.resolve(baseDir, relPath);

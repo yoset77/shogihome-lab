@@ -133,6 +133,11 @@ export function isBookUnsaved(session: number): boolean {
   return !book.saved;
 }
 
+export function isBookOnTheFly(session: number): boolean {
+  const book = getBook(session);
+  return book.type === "on-the-fly";
+}
+
 export function getBookFormat(session: number): BookFormat {
   const book = getBook(session);
   return book.format;
@@ -477,9 +482,8 @@ export async function importBookMoves(
   let successFileCount = 0;
   let errorFileCount = 0;
   let skippedFileCount = 0;
-  let entryCount = 0;
-  let duplicateCount = 0;
 
+  const pendingMoves = new Map<string, Map<string, number>>();
   function importMove(node: ImmutableNode, sfen: string) {
     if (!(node.move instanceof Move)) {
       return;
@@ -491,18 +495,12 @@ export async function importBookMoves(
     }
 
     const usi = node.move.usi;
-    const entry = retrieveEntry(book, sfen);
-    const bookMoves = entry?.moves || [];
-    const moves = bookMoves.map(arrayMoveToCommonBookMove);
-    const existing = moves.find((move) => move.usi === usi);
-    if (existing) {
-      duplicateCount++;
-    } else {
-      entryCount++;
+    let moves = pendingMoves.get(sfen);
+    if (!moves) {
+      moves = new Map<string, number>();
+      pendingMoves.set(sfen, moves);
     }
-    const bookMove = existing || { usi, comment: "" };
-    bookMove.count = (bookMove.count || 0) + 1;
-    updateBookMovePatch(book, sfen, bookMove);
+    moves.set(usi, (moves.get(usi) || 0) + 1);
   }
 
   book.busy = true;
@@ -605,12 +603,6 @@ export async function importBookMoves(
         let hasValidLines = false;
         let invalidLine = "";
         for (let index = 0; index < lines.length; index++) {
-          if (onProgress) {
-            const progress =
-              (successFileCount + errorFileCount + skippedFileCount + index / lines.length) /
-              paths.length;
-            onProgress(progress);
-          }
           const line = lines[index];
           const record = Record.newByUSI(line.trim());
           if (record instanceof Error) {
@@ -677,6 +669,49 @@ export async function importBookMoves(
         }
       });
       successFileCount++;
+    }
+
+    const sfens = Array.from(pendingMoves.keys());
+    const results = new Map<string, BookEntry>();
+    let nextIndex = 0;
+    const maxConcurrency = book.type === "on-the-fly" ? 16 : 1;
+    const concurrency = Math.min(sfens.length, maxConcurrency);
+    const worker = async () => {
+      while (nextIndex < sfens.length) {
+        const i = nextIndex++;
+        const sfen = sfens[i];
+        const entry = await retrieveMergedEntry(book, sfen);
+        if (entry) {
+          results.set(sfen, entry);
+        }
+      }
+    };
+    const workers = [];
+    for (let i = 0; i < concurrency; i++) {
+      workers.push(worker());
+    }
+    await Promise.all(workers);
+    const entriesMap = results;
+
+    let entryCount = 0;
+    let duplicateCount = 0;
+    for (const [sfen, movesMap] of pendingMoves.entries()) {
+      const entry = entriesMap.get(sfen);
+      const bookMoves = entry?.moves || [];
+      const moves = bookMoves.map(arrayMoveToCommonBookMove);
+
+      for (const [usi, count] of movesMap.entries()) {
+        const existing = moves.find((m) => m.usi === usi);
+        if (existing) {
+          duplicateCount += count;
+        } else {
+          entryCount++;
+          duplicateCount += count - 1;
+        }
+        const bookMove = existing || { usi, comment: "" };
+        bookMove.count = (bookMove.count || 0) + count;
+        updateBookMovePatch(book, sfen, bookMove);
+      }
     }
 
     if (book.type === "in-memory") {

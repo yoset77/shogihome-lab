@@ -15,6 +15,7 @@ import { getLocalIpAddresses } from "./src/background/helpers/ip";
 import {
   getKifuList,
   getBookList,
+  getPositionList,
   resolveKifuPath,
   clearKifuListCache,
   setupKifuWatcher,
@@ -30,8 +31,11 @@ import {
   importBookMoves,
   closeBookSession,
   initBookSession,
+  isBookOnTheFly,
 } from "./src/background/book";
 import { writeFileAtomic, writeFileAtomicSync } from "./src/background/file/atomic";
+import { fetch as fetchRemote } from "./src/background/helpers/http";
+import { getHistory, saveBackup, clearHistory, addHistory } from "./src/background/file/history";
 
 const getBasePath = () => {
   // SEA (Single Executable Application) environment check
@@ -138,6 +142,17 @@ const updatePuzzlesManifest = () => {
 updatePuzzlesManifest();
 
 const KIFU_DIR = process.env.KIFU_DIR ? path.resolve(getBasePath(), process.env.KIFU_DIR) : null;
+
+const ONTHEFLY_THRESHOLD_MB = (() => {
+  const raw = process.env.ONTHEFLY_THRESHOLD_MB;
+  if (!raw) return 256;
+  const val = parseInt(raw, 10);
+  if (isNaN(val) || val <= 0) {
+    console.error(`Invalid ONTHEFLY_THRESHOLD_MB: "${raw}". Using default (256 MB).`);
+    return 256;
+  }
+  return val;
+})();
 
 const SESSION_ID_HEADER_REGEX = /^[a-zA-Z0-9_-]{8,128}$/;
 
@@ -298,6 +313,94 @@ app.get("/api/kifu/enabled", (req, res) => {
   res.json({ enabled: !!KIFU_DIR });
 });
 
+const allowedFetchDomains = new Set(
+  (process.env.ALLOWED_FETCH_DOMAINS || "")
+    .split(",")
+    .map((d) => d.trim().toLowerCase())
+    .filter((d) => d !== ""),
+);
+
+app.get("/api/fetch-remote", async (req, res) => {
+  const targetUrl = req.query.url;
+  if (typeof targetUrl !== "string") {
+    sendError(res, 400, "url is required");
+    return;
+  }
+
+  try {
+    const urlObj = new URL(targetUrl);
+    if (urlObj.protocol !== "http:" && urlObj.protocol !== "https:") {
+      sendError(res, 400, `Unsupported protocol: ${urlObj.protocol}`);
+      return;
+    }
+    if (!allowedFetchDomains.has(urlObj.hostname.toLowerCase())) {
+      console.warn(`Blocked remote fetch for unauthorized domain: ${urlObj.hostname}`);
+      sendError(
+        res,
+        403,
+        `Forbidden: domain ${urlObj.hostname} is not allowed by ALLOWED_FETCH_DOMAINS.`,
+      );
+      return;
+    }
+
+    const text = await fetchRemote(urlObj.href);
+    res.type("text/plain").send(text);
+  } catch (e) {
+    console.error("failed to fetch remote kifu:", e);
+    sendError(res, 500, e instanceof Error ? e.message : "failed to fetch remote kifu");
+  }
+});
+
+app.get("/api/history", async (req, res) => {
+  try {
+    const history = await getHistory();
+    res.json(history);
+  } catch (e) {
+    console.error("failed to get history:", e);
+    sendError(res, 500, "failed to get history");
+  }
+});
+
+app.post("/api/history/add", express.json(), async (req, res) => {
+  try {
+    const { path } = req.body;
+    if (typeof path !== "string" || !path) {
+      sendError(res, 400, "path is required");
+      return;
+    }
+    addHistory(path);
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to add history:", e);
+    sendError(res, 500, "failed to add history");
+  }
+});
+
+app.post("/api/history/backup", express.text({ limit: "10mb" }), async (req, res) => {
+  try {
+    const kif = req.body;
+    if (typeof kif !== "string" || !kif) {
+      sendError(res, 400, "kif text body is required");
+      return;
+    }
+    await saveBackup(kif);
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to save backup:", e);
+    sendError(res, 500, "failed to save backup");
+  }
+});
+
+app.post("/api/history/clear", async (req, res) => {
+  try {
+    await clearHistory();
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to clear history:", e);
+    sendError(res, 500, "failed to clear history");
+  }
+});
+
 app.get("/api/kifu/get", async (req, res) => {
   if (!KIFU_DIR) {
     sendError(res, 404, "KIFU_DIR is not configured");
@@ -347,6 +450,34 @@ app.post("/api/kifu/save", express.raw({ limit: "10mb" }), async (req, res) => {
   }
 });
 
+app.get("/api/sfen/load", async (req, res) => {
+  if (!KIFU_DIR) {
+    sendError(res, 404, "KIFU_DIR is not configured");
+    return;
+  }
+  const relPath = req.query.path as string;
+  if (!relPath) {
+    sendError(res, 400, "path is required");
+    return;
+  }
+  const fullPath = resolveKifuPath(KIFU_DIR, relPath);
+  if (!fullPath || !fullPath.endsWith(".sfen")) {
+    sendError(res, 403, "Invalid path or unsupported file type");
+    return;
+  }
+  try {
+    const content = await fs.promises.readFile(fullPath, "utf-8");
+    const lines = content
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("#"));
+    res.json({ lines });
+  } catch (e) {
+    console.error("failed to load SFEN file:", e);
+    sendError(res, 500, "failed to load SFEN file");
+  }
+});
+
 app.post("/api/book/open", express.json(), async (req, res) => {
   if (!KIFU_DIR) {
     sendError(res, 404, "KIFU_DIR is not configured");
@@ -364,7 +495,13 @@ app.post("/api/book/open", express.json(), async (req, res) => {
   }
   try {
     const bookSession = getBookSession(req);
-    const mode = await openBook(bookSession, fullPath, req.body);
+    // Override the threshold with the server-side environment variable to protect server memory.
+    // Also, explicitly map expected properties to avoid passing unknown fields from req.body.
+    const options = {
+      forceOnTheFly: req.body?.forceOnTheFly === true,
+      onTheFlyThresholdMB: ONTHEFLY_THRESHOLD_MB,
+    };
+    const mode = await openBook(bookSession, fullPath, options);
     res.json({ mode });
   } catch (e) {
     console.error("failed to open book:", e);
@@ -383,6 +520,20 @@ app.get("/api/book/list", async (req, res) => {
   } catch (e) {
     console.error("failed to get book list:", e);
     sendError(res, 500, e instanceof Error ? e.message : "failed to get book list");
+  }
+});
+
+app.get("/api/sfen/list", async (req, res) => {
+  if (!KIFU_DIR) {
+    sendError(res, 404, "KIFU_DIR is not configured");
+    return;
+  }
+  try {
+    const list = await getPositionList(KIFU_DIR);
+    res.json(list);
+  } catch (e) {
+    console.error("failed to get sfen list:", e);
+    sendError(res, 500, e instanceof Error ? e.message : "failed to get sfen list");
   }
 });
 
@@ -444,22 +595,33 @@ app.post("/api/book/search/batch", express.json({ limit: "10mb" }), async (req, 
     sendError(res, 400, "sfens must be an array");
     return;
   }
-  if (sfens.length > 10000) {
-    sendError(res, 400, "sfens array is too large (max 10000)");
+  if (sfens.length > 100000) {
+    sendError(res, 400, "sfens array is too large (max 100000)");
     return;
   }
   try {
     const bookSession = getBookSession(req);
-    const results = await Promise.all(
-      sfens.map(async (sfen) => {
+    const results = new Array(sfens.length);
+    let nextIndex = 0;
+    const maxConcurrency = isBookOnTheFly(bookSession) ? 16 : 1;
+    const concurrency = Math.min(sfens.length, maxConcurrency);
+    const worker = async () => {
+      while (nextIndex < sfens.length) {
+        const i = nextIndex++;
+        const sfen = sfens[i];
         const moves = await searchBookMoves(bookSession, sfen);
-        return { sfen, moves };
-      }),
-    );
+        results[i] = { sfen, moves };
+      }
+    };
+    const workers = [];
+    for (let i = 0; i < concurrency; i++) {
+      workers.push(worker());
+    }
+    await Promise.all(workers);
     res.json(results);
   } catch (e) {
-    console.error("failed to batch search book moves:", e);
-    sendError(res, 500, e instanceof Error ? e.message : "failed to batch search book moves");
+    console.error("failed to search book moves batch:", e);
+    sendError(res, 500, e instanceof Error ? e.message : "failed to search book moves batch");
   }
 });
 
