@@ -89,26 +89,14 @@
           <Icon :icon="IconType.SAVE_AS" />
           <div class="label">{{ t.saveAs }}</div>
         </button>
-        <template
-          v-for="format of [
-            RecordFileFormat.KIF,
-            RecordFileFormat.KIFU,
-            RecordFileFormat.KI2,
-            RecordFileFormat.KI2U,
-            RecordFileFormat.CSA,
-            RecordFileFormat.JKF,
-          ]"
-          :key="format"
+        <button
+          v-if="!isNative() && !isMobileWebApp()"
+          :disabled="!states.saveAs"
+          @click="onSaveLocal"
         >
-          <button
-            v-if="!isNative() && !isMobileWebApp()"
-            :disabled="!states.saveAs"
-            @click="onSaveForWeb(format)"
-          >
-            <Icon :icon="IconType.SAVE" />
-            <div class="label">{{ format }}</div>
-          </button>
-        </template>
+          <Icon :icon="IconType.SAVE_AS" />
+          <div class="label">{{ t.saveAs }}</div>
+        </button>
         <button :disabled="!states.history" @click="onHistory">
           <Icon :icon="IconType.HISTORY" />
           <div class="label">{{ t.history }}</div>
@@ -205,7 +193,6 @@ import api, { isMobileWebApp, isNative } from "@/renderer/ipc/api";
 import { useAppSettings } from "@/renderer/store/settings";
 import { installHotKeyForDialog, uninstallHotKeyForDialog } from "@/renderer/devices/hotkey";
 import { openCopyright } from "@/renderer/helpers/copyright";
-import { RecordFileFormat } from "@/common/file/record";
 import MobileGameMenu from "@/renderer/view/menu/MobileGameMenu.vue";
 import { defaultResearchSettings } from "@/common/settings/research";
 import { USIEngine } from "@/common/settings/usi";
@@ -355,8 +342,15 @@ const onSaveAs = () => {
   store.saveRecord();
   emit("close");
 };
-const onSaveForWeb = (format: RecordFileFormat) => {
-  store.saveRecord({ format });
+const onSaveLocal = () => {
+  const defaultName = generateRecordFileName(store.record, {
+    template: appSettings.recordFileNameTemplate,
+    extension: appSettings.defaultRecordFileFormat,
+  });
+  const name = window.prompt(t.enterFileName, defaultName);
+  if (name) {
+    store.saveRecord({ path: name });
+  }
   emit("close");
 };
 const onHistory = () => {
