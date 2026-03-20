@@ -179,6 +179,7 @@ const moveList = computed(() => {
 .main {
   margin-top: 1px;
   overflow-y: auto;
+  overflow-x: auto;
   color: var(--text-color);
   font-size: 0.85em;
 }
