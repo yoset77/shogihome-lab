@@ -36,6 +36,10 @@ import {
 import { writeFileAtomic, writeFileAtomicSync } from "./src/background/file/atomic";
 import { fetch as fetchRemote } from "./src/background/helpers/http";
 import { getHistory, saveBackup, clearHistory, addHistory } from "./src/background/file/history";
+import { initDatabase, saveAnalysisResults } from "./src/background/database/sqlite";
+import { parseInfoCommand } from "./src/background/usi/parser";
+import { getNormalizedSfenAndHash } from "./src/background/usi/sfen";
+import { USIInfoCommand } from "./src/common/game/usi";
 
 const getBasePath = () => {
   // SEA (Single Executable Application) environment check
@@ -140,6 +144,9 @@ const updatePuzzlesManifest = () => {
 };
 
 updatePuzzlesManifest();
+
+const dataDir = path.join(getBasePath(), "data");
+initDatabase(dataDir);
 
 const KIFU_DIR = process.env.KIFU_DIR ? path.resolve(getBasePath(), process.env.KIFU_DIR) : null;
 
@@ -358,6 +365,31 @@ app.get("/api/history", async (req, res) => {
   } catch (e) {
     console.error("failed to get history:", e);
     sendError(res, 500, "failed to get history");
+  }
+});
+
+app.get("/api/analysis", async (req, res) => {
+  const sfen = req.query.sfen;
+  if (typeof sfen !== "string") {
+    sendError(res, 400, "sfen is required");
+    return;
+  }
+
+  const parsed = getNormalizedSfenAndHash(sfen);
+  if (!parsed) {
+    res.json([]);
+    return;
+  }
+
+  console.log(`Analysis DB Query: sfen=${sfen} hash=${parsed.hash}`);
+
+  try {
+    const results = getAnalysisResults(parsed.hash, parsed.sfen);
+    console.log(`Analysis DB Results: found ${results.length} records`);
+    res.json(results);
+  } catch (e) {
+    console.error("failed to get analysis results:", e);
+    sendError(res, 500, "failed to get analysis results");
   }
 });
 
@@ -791,6 +823,7 @@ async function authenticateSocket(
 
 class EngineSession {
   private currentEngineId: string | null = null;
+  private currentEngineDisplayName = "Unknown Engine";
   private engineHandle: EngineHandle | null = null;
   private connectingSocket: net.Socket | null = null;
   private engineState = EngineState.UNINITIALIZED;
@@ -803,6 +836,7 @@ class EngineSession {
   private ws: ExtendedWebSocket | null = null;
   private cleanupTimeout: NodeJS.Timeout | null = null;
   private messageBuffer: { data: unknown; createdAt: number }[] = [];
+  private lastInfos = new Map<number, USIInfoCommand>();
 
   private readonly MAX_QUEUE_SIZE = 100;
 
@@ -909,6 +943,7 @@ class EngineSession {
   private terminate() {
     this.clearCleanupTimeout();
     this.messageBuffer = [];
+    this.lastInfos.clear();
     if (this.connectingSocket) {
       this.connectingSocket.destroy();
       this.connectingSocket = null;
@@ -1084,6 +1119,7 @@ class EngineSession {
     }
     this.currentEngineSfen = null;
     this.pendingGoSfen = null;
+    this.lastInfos.clear();
     this.sendState();
     this.sendToClient({ info: "info: engine stopped" });
   }
@@ -1093,6 +1129,18 @@ class EngineSession {
     interface_.on("line", (line) => {
       if (!line.startsWith("info")) {
         console.log(`Engine output (${this.sessionId}): ${line}`);
+      }
+
+      if (line.startsWith("id name ")) {
+        this.currentEngineDisplayName = line.substring(8).trim();
+      } else if (line.startsWith("info ")) {
+        const parsed = parseInfoCommand(line.substring(5));
+        if (parsed.depth !== undefined && !parsed.lowerbound && !parsed.upperbound) {
+          const pvId = parsed.multipv || 1;
+          const currentInfo = this.lastInfos.get(pvId) || {};
+          // Merge with previous to keep nodes/time if omitted in this line
+          this.lastInfos.set(pvId, { ...currentInfo, ...parsed });
+        }
       }
 
       if (line.trim().startsWith("WRAPPER_ERROR:")) {
@@ -1105,6 +1153,30 @@ class EngineSession {
       this.sendToClient({ sfen: this.pendingGoSfen, info: line });
 
       if (line.startsWith("bestmove")) {
+        if (this.currentEngineId && this.pendingGoSfen && this.lastInfos.size > 0) {
+          const MIN_DEPTH_THRESHOLD = 10;
+          const validInfos = new Map<number, USIInfoCommand>();
+          for (const [multipv, info] of this.lastInfos.entries()) {
+            if (info.depth !== undefined && info.depth >= MIN_DEPTH_THRESHOLD) {
+              validInfos.set(multipv, info);
+            }
+          }
+
+          if (validInfos.size > 0) {
+            const parsedSfen = getNormalizedSfenAndHash(this.pendingGoSfen);
+            if (parsedSfen) {
+              saveAnalysisResults(
+                parsedSfen.hash,
+                parsedSfen.sfen,
+                this.currentEngineId,
+                this.currentEngineDisplayName,
+                validInfos,
+              );
+            }
+          }
+        }
+        this.lastInfos.clear();
+
         if (this.engineState === EngineState.STOPPING_SEARCH) {
           if (this.stopTimeout) {
             clearTimeout(this.stopTimeout);
@@ -1354,6 +1426,7 @@ class EngineSession {
           this.stopTimeout = null;
         }
         this.currentEngineSfen = null;
+        this.lastInfos.clear();
         this.engineHandle.close();
       }
       return;
