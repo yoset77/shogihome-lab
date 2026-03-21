@@ -304,6 +304,8 @@ export const vi: Texts = {
   moveComments: "Bình luận nước đi",
   searchLog: "Lịch sử tìm kiếm",
   pv: "PV",
+  analysisDB: "DB",
+  noDataInAnalysisDB: "Không có dữ liệu trong DB cho vị trí này.",
   mateShort: "M",
   displayPVShort: "Đi",
   evaluation: "Đánh giá",
@@ -599,6 +601,7 @@ export const vi: Texts = {
   inBrowserLogsOutputToConsoleAndIgnoreThisSetting:
     "*Bản trình duyệt sẽ xuất log ra trình nhắc lệnh và bỏ qua cài đặt này.",
   shouldRestartToApplyLogSettings: "*Khởi động lại ứng dụng để áp dụng các cài đặt log.",
+  autoSearchAnalysisDB: "Tự động tìm kiếm trong DB",
   canOpenLogDirectoryFromMenu:
     '*Bạn có thể mở đường dẫn log qua menu "Gỡ lỗi" - "Mở đường dẫn log".',
   hasNoOldLogCleanUpFeature: "*Ứng dụng này không có tính năng dọn dẹp. Vui lòng tự xóa log cũ.",

@@ -732,6 +732,25 @@
           />
         </div>
       </div>
+      <hr />
+      <!-- 検討DB -->
+      <div class="section">
+        <div class="section-title">{{ t.analysisDB }}</div>
+        <div class="form-item">
+          <div class="form-item-label-wide">{{ t.autoSearchAnalysisDB }}</div>
+          <ToggleButton v-model:value="update.autoSearchAnalysisDB" />
+        </div>
+        <div class="form-item">
+          <div class="form-item-label-wide">{{ t.maxPVLength }}</div>
+          <input
+            v-model.number="update.analysisDBMaxPVLength"
+            type="number"
+            min="1"
+            max="100"
+            class="small"
+          />
+        </div>
+      </div>
       <hr v-if="isNative()" />
       <!-- アプリバージョン -->
       <div v-if="isNative()" class="section">
@@ -953,6 +972,8 @@ const update = ref({
   logLevel: org.logLevel,
   enableHardwareAcceleration: org.enableHardwareAcceleration,
   showBookTableOnMobile: org.showBookTableOnMobile,
+  autoSearchAnalysisDB: org.autoSearchAnalysisDB,
+  analysisDBMaxPVLength: org.analysisDBMaxPVLength,
 });
 const versionStatus = ref({} as VersionStatus);
 

@@ -1,27 +1,37 @@
-import { Record } from "tsshogi";
+import { Record, Position } from "tsshogi";
 import { hash as aperyHash } from "@/background/book/apery_zobrist.js";
 
 /**
  * USIの position コマンド (例: "position startpos moves 7g7f ...") をパースし、
  * 最終的な局面の「手数を除外した正規化SFEN」と、その64bit Zobrist Hash（符号付き整数）を返します。
  *
- * @param usiPositionCommand USIの position コマンド文字列
+ * @param usiPositionCommand USIの position コマンド文字列、または生のSFEN文字列
  */
 export function getNormalizedSfenAndHash(usiPositionCommand: string): {
   sfen: string;
   hash: bigint; // Signed 64-bit integer
 } | null {
   try {
-    // position startpos などの "position " プレフィックスを考慮してパースする
-    // tsshogi の Record.newByUSI() は "position sfen ..." や "position startpos ..." を受け付ける
-    let command = usiPositionCommand;
-    if (!command.startsWith("position ")) {
-      command = "position " + command;
+    let record: Record | Error;
+
+    if (usiPositionCommand.startsWith("position ")) {
+      record = Record.newByUSI(usiPositionCommand);
+    } else if (usiPositionCommand.startsWith("sfen ")) {
+      record = Record.newByUSI("position " + usiPositionCommand);
+    } else if (usiPositionCommand.startsWith("startpos")) {
+      record = Record.newByUSI("position " + usiPositionCommand);
+    } else {
+      // 生のSFEN文字列とみなす
+      const position = Position.newBySFEN(usiPositionCommand);
+      if (!position) {
+        console.warn("Invalid SFEN string:", usiPositionCommand);
+        return null;
+      }
+      record = new Record(position);
     }
 
-    const record = Record.newByUSI(command);
     if (record instanceof Error) {
-      console.warn("Failed to parse USI position command:", record.message);
+      console.warn("Failed to parse position:", record.message, `(input: ${usiPositionCommand})`);
       return null;
     }
 

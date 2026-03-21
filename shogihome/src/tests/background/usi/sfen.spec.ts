@@ -23,6 +23,13 @@ describe("background/usi/sfen", () => {
     expect(result!.sfen).toBe("lnsgkgsnl/1r5b1/ppppppppp/9/9/2P6/PP1PPPPPP/1B5R1/LNSGKGSNL w -");
   });
 
+  it("should handle raw SFEN strings", () => {
+    const rawSfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+    const result = getNormalizedSfenAndHash(rawSfen);
+    expect(result).not.toBeNull();
+    expect(result!.sfen).toBe("lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b -");
+  });
+
   it("should return null for invalid commands", () => {
     const result = getNormalizedSfenAndHash("position invalid");
     expect(result).toBeNull();

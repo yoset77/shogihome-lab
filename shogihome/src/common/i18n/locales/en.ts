@@ -305,6 +305,8 @@ export const en: Texts = {
   moveComments: "Move Comments",
   searchLog: "Search Log",
   pv: "PV",
+  analysisDB: "DB",
+  noDataInAnalysisDB: "No data available in DB for this position.",
   mateShort: "M",
   displayPVShort: "Play",
   evaluation: "Evaluation",
@@ -600,6 +602,7 @@ export const en: Texts = {
   inBrowserLogsOutputToConsoleAndIgnoreThisSetting:
     "*In web browser version, it will output logs to console and ignore this setting.",
   shouldRestartToApplyLogSettings: "*You should restart this app to apply log settings.",
+  autoSearchAnalysisDB: "Auto-search Analysis DB",
   canOpenLogDirectoryFromMenu:
     '*You can open log directory from "Debug" - "Open Log Directory" menu.',
   hasNoOldLogCleanUpFeature: "*This app has no clean-up feature. Please remove old logs manually.",

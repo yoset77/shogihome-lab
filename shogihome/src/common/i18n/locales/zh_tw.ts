@@ -301,6 +301,8 @@ export const zh_tw: Texts = {
   moveComments: "棋步備註",
   searchLog: "思考",
   pv: "預測手順",
+  analysisDB: "資料庫",
+  noDataInAnalysisDB: "資料庫中沒有此局面的資料。",
   mateShort: "詰",
   displayPVShort: "再現",
   evaluation: "評價值",
@@ -596,6 +598,7 @@ export const zh_tw: Texts = {
   inBrowserLogsOutputToConsoleAndIgnoreThisSetting:
     "※在瀏覽器版本中紀錄會於 console 中顯示，並無視此處的設定。",
   shouldRestartToApplyLogSettings: "※您需要重新啟動本程式以使用變更後的紀錄設定。",
+  autoSearchAnalysisDB: "自動搜尋資料庫",
   canOpenLogDirectoryFromMenu: "※紀錄的輸出檔案可以在「偵錯」-「開啟紀錄檔案資料夾」開啟。",
   hasNoOldLogCleanUpFeature: "※現在並沒有舊紀錄的自動刪除機制。",
   shouldRestartToApplyLowLevelSettings: "※低レベルの設定を反映するにはアプリの再起動が必要です。", // TODO: Translate

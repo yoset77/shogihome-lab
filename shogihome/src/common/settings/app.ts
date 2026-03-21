@@ -101,6 +101,7 @@ export enum Tab {
   PERCENTAGE_CHART = "percentageChart",
   MONITOR = "monitor",
   INVISIBLE = "invisible", // Deprecated
+  ANALYSIS_DB = "analysisDB",
 }
 
 export enum TextDecodingRule {
@@ -284,6 +285,10 @@ export type AppSettings = {
   // Mobile
   showBookTableOnMobile: boolean;
 
+  // Analysis DB
+  autoSearchAnalysisDB: boolean;
+  analysisDBMaxPVLength: number;
+
   // Low Level
   enableHardwareAcceleration: boolean;
   uiMode: UIMode;
@@ -426,6 +431,8 @@ export function defaultAppSettings(opt?: {
     lastOtherFilePath: "",
     emptyRecordInfoVisibility: true,
     showBookTableOnMobile: false,
+    autoSearchAnalysisDB: true,
+    analysisDBMaxPVLength: 15,
     enableHardwareAcceleration: true,
     uiMode: UIMode.AUTO,
   };

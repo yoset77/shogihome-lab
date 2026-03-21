@@ -305,6 +305,12 @@ class AppSettingsStore {
   get showBookTableOnMobile(): boolean {
     return this.merged.showBookTableOnMobile;
   }
+  get autoSearchAnalysisDB(): boolean {
+    return this.merged.autoSearchAnalysisDB;
+  }
+  get analysisDBMaxPVLength(): number {
+    return this.merged.analysisDBMaxPVLength;
+  }
   get enableHardwareAcceleration(): boolean {
     return this.merged.enableHardwareAcceleration;
   }

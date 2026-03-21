@@ -304,6 +304,8 @@ export const ja: Texts = {
   moveComments: "指し手コメント",
   searchLog: "思考",
   pv: "読み筋",
+  analysisDB: "DB",
+  noDataInAnalysisDB: "この局面の検討結果はDBに登録されていません。",
   mateShort: "詰",
   displayPVShort: "再現",
   evaluation: "評価値",
@@ -599,6 +601,7 @@ export const ja: Texts = {
   inBrowserLogsOutputToConsoleAndIgnoreThisSetting:
     "※ブラウザ版ではログがコンソールに出力され、ここでの設定は無視されます。",
   shouldRestartToApplyLogSettings: "※ログ設定の変更を反映するにはアプリの再起動が必要です。",
+  autoSearchAnalysisDB: "DB自動検索",
   canOpenLogDirectoryFromMenu:
     "※ログの出力先は「デバッグ」-「ログファイルの場所を開く」で開きます。",
   hasNoOldLogCleanUpFeature: "※現在、古いログファイルの自動削除機能はありません。",

@@ -303,6 +303,8 @@ export type Texts = {
   moveComments: string;
   searchLog: string;
   pv: string;
+  analysisDB: string;
+  noDataInAnalysisDB: string;
   mateShort: string;
   displayPVShort: string;
   evaluation: string;
@@ -597,6 +599,7 @@ export type Texts = {
   tryingToConnectAndLoginToCSAServer: string;
   inBrowserLogsOutputToConsoleAndIgnoreThisSetting: string;
   shouldRestartToApplyLogSettings: string;
+  autoSearchAnalysisDB: string;
   canOpenLogDirectoryFromMenu: string;
   hasNoOldLogCleanUpFeature: string;
   shouldRestartToApplyLowLevelSettings: string;

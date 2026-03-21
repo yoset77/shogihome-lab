@@ -36,7 +36,11 @@ import {
 import { writeFileAtomic, writeFileAtomicSync } from "./src/background/file/atomic";
 import { fetch as fetchRemote } from "./src/background/helpers/http";
 import { getHistory, saveBackup, clearHistory, addHistory } from "./src/background/file/history";
-import { initDatabase, saveAnalysisResults } from "./src/background/database/sqlite";
+import {
+  initDatabase,
+  saveAnalysisResults,
+  getAnalysisResults,
+} from "./src/background/database/sqlite";
 import { parseInfoCommand } from "./src/background/usi/parser";
 import { getNormalizedSfenAndHash } from "./src/background/usi/sfen";
 import { USIInfoCommand } from "./src/common/game/usi";
@@ -161,7 +165,20 @@ const ONTHEFLY_THRESHOLD_MB = (() => {
   return val;
 })();
 
+const ANALYSIS_DB_MIN_DEPTH = (() => {
+  const raw = process.env.ANALYSIS_DB_MIN_DEPTH;
+  if (!raw) return 10;
+  const val = parseInt(raw, 10);
+  if (isNaN(val) || val < 0) {
+    console.error(`Invalid ANALYSIS_DB_MIN_DEPTH: "${raw}". Using default (10).`);
+    return 10;
+  }
+  return val;
+})();
+
 const SESSION_ID_HEADER_REGEX = /^[a-zA-Z0-9_-]{8,128}$/;
+
+const engineNameCache = new Map<string, string>();
 
 class BookSessionManager {
   private sessions = new Map<string, number>();
@@ -1131,9 +1148,7 @@ class EngineSession {
         console.log(`Engine output (${this.sessionId}): ${line}`);
       }
 
-      if (line.startsWith("id name ")) {
-        this.currentEngineDisplayName = line.substring(8).trim();
-      } else if (line.startsWith("info ")) {
+      if (line.startsWith("info ")) {
         const parsed = parseInfoCommand(line.substring(5));
         if (parsed.depth !== undefined && !parsed.lowerbound && !parsed.upperbound) {
           const pvId = parsed.multipv || 1;
@@ -1154,10 +1169,9 @@ class EngineSession {
 
       if (line.startsWith("bestmove")) {
         if (this.currentEngineId && this.pendingGoSfen && this.lastInfos.size > 0) {
-          const MIN_DEPTH_THRESHOLD = 10;
           const validInfos = new Map<number, USIInfoCommand>();
           for (const [multipv, info] of this.lastInfos.entries()) {
-            if (info.depth !== undefined && info.depth >= MIN_DEPTH_THRESHOLD) {
+            if (info.depth !== undefined && info.depth >= ANALYSIS_DB_MIN_DEPTH) {
               validInfos.set(multipv, info);
             }
           }
@@ -1254,6 +1268,7 @@ class EngineSession {
     }
     this.engineState = EngineState.STARTING;
     this.currentEngineId = engineId;
+    this.currentEngineDisplayName = engineNameCache.get(engineId) || engineId;
 
     console.log(`Connecting to remote engine at ${REMOTE_ENGINE_HOST}:${REMOTE_ENGINE_PORT}`);
     const socket = new net.Socket();
@@ -1535,6 +1550,13 @@ const getEngineList = (ws: WebSocket) => {
   socket.on("end", () => {
     try {
       const engines = JSON.parse(data.trim());
+      if (Array.isArray(engines)) {
+        engines.forEach((e: { id?: string; name?: string }) => {
+          if (e.id && e.name) {
+            engineNameCache.set(e.id, e.name);
+          }
+        });
+      }
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ engineList: engines }));
       }

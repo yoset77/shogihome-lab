@@ -62,6 +62,13 @@
           :show-nodes-column="false"
           :show-score-column="false"
         />
+        <AnalysisDB
+          v-if="showRecordViewOnBottom && !isEvaluationPuzzle"
+          v-show="bottomUIType === BottomUIType.ANALYSIS_DB"
+          :style="{ flexShrink: 0 }"
+          :size="bottomViewSize"
+          :mobile-layout="true"
+        />
         <EvaluationChart
           v-if="showRecordViewOnBottom && !isEvaluationPuzzle"
           v-show="bottomUIType === BottomUIType.CHART"
@@ -133,6 +140,13 @@
           :show-nodes-column="false"
           :show-score-column="false"
         />
+        <AnalysisDB
+          v-if="!isEvaluationPuzzle"
+          v-show="sideUIType === SideUIType.ANALYSIS_DB"
+          :style="{ flexShrink: 0 }"
+          :size="sideViewSize"
+          :mobile-layout="true"
+        />
         <EvaluationChart
           v-if="!isEvaluationPuzzle"
           v-show="sideUIType === SideUIType.CHART"
@@ -166,13 +180,16 @@ enum BottomUIType {
   COMMENT = "comment",
   INFO = "info",
   PV = "pv",
+  ANALYSIS_DB = "analysisDB",
   CHART = "chart",
   BOOK = "book",
 }
+
 enum SideUIType {
   RECORD = "record",
   INFO = "info",
   PV = "pv",
+  ANALYSIS_DB = "analysisDB",
   CHART = "chart",
   BOOK = "book",
 }
@@ -191,6 +208,7 @@ import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue
 import { t } from "@/common/i18n";
 import RecordInfo from "@/renderer/view/tab/RecordInfo.vue";
 import EngineAnalytics from "@/renderer/view/tab/EngineAnalytics.vue";
+import AnalysisDB from "@/renderer/view/tab/AnalysisDB.vue";
 import EvaluationChart from "@/renderer/view/tab/EvaluationChart.vue";
 import PuzzlePane from "@/renderer/view/tab/PuzzlePane.vue";
 import BookPane from "@/renderer/view/tab/BookPane.vue";
@@ -266,6 +284,7 @@ const sideViewSize = computed(() => {
 const bottomUIItems = computed(() => {
   const items = [
     { label: t.pv, value: BottomUIType.PV },
+    { label: t.analysisDB, value: BottomUIType.ANALYSIS_DB },
     { label: t.chart, value: BottomUIType.CHART },
   ];
   if (appSettings.showBookTableOnMobile) {
@@ -282,6 +301,7 @@ const bottomUIItems = computed(() => {
 const sideUIItems = computed(() => {
   const items = [
     { label: t.pv, value: SideUIType.PV },
+    { label: t.analysisDB, value: SideUIType.ANALYSIS_DB },
     { label: t.chart, value: SideUIType.CHART },
   ];
   if (appSettings.showBookTableOnMobile) {
