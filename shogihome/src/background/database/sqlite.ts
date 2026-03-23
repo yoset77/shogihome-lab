@@ -197,6 +197,7 @@ export function getAnalysisResults(sfenHash: bigint, sfen: string): DBAnalysisRe
         r.multipv ASC,
         r.depth DESC,
         (r.score_mate IS NOT NULL) DESC,
+        ABS(r.score_mate) ASC,
         r.score_cp DESC,
         r.updated_at DESC
     `);
@@ -206,5 +207,145 @@ export function getAnalysisResults(sfenHash: bigint, sfen: string): DBAnalysisRe
   } catch (e) {
     console.error("Failed to get analysis results from DB:", e);
     return [];
+  }
+}
+
+export interface DBEngineStats {
+  id: number;
+  engine_key: string;
+  name: string;
+  record_count: number;
+  min_depth: number;
+  max_depth: number;
+  last_updated: number;
+}
+
+export function getAnalysisDBStats(): DBEngineStats[] {
+  if (!db) return [];
+  try {
+    const stmt = db.prepare(`
+      SELECT
+        e.id,
+        e.engine_key,
+        e.name,
+        COUNT(r.position_id) as record_count,
+        MIN(r.depth) as min_depth,
+        MAX(r.depth) as max_depth,
+        MAX(r.updated_at) as last_updated
+      FROM engines e
+      LEFT JOIN analysis_results r ON e.id = r.engine_id
+      GROUP BY e.id
+      HAVING record_count > 0
+      ORDER BY last_updated DESC
+    `);
+    return stmt.all() as unknown as DBEngineStats[];
+  } catch (e) {
+    console.error("Failed to get analysis DB stats:", e);
+    throw e;
+  }
+}
+
+export function deleteAnalysisResultsByEngine(engineId: number): void {
+  if (!db) return;
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    const stmt = db.prepare("DELETE FROM analysis_results WHERE engine_id = ?");
+    stmt.run(engineId);
+    // 参照されなくなった局面データをクリーンアップ
+    db.exec(`
+      DELETE FROM positions
+      WHERE id NOT IN (SELECT DISTINCT position_id FROM analysis_results)
+    `);
+    // 参照されなくなったエンジンデータをクリーンアップ
+    db.exec(`
+      DELETE FROM engines
+      WHERE id NOT IN (SELECT DISTINCT engine_id FROM analysis_results)
+    `);
+    db.exec("COMMIT");
+  } catch (e) {
+    try {
+      db?.exec("ROLLBACK");
+    } catch {
+      /* ignore */
+    }
+    console.error("Failed to delete analysis results by engine:", e);
+    throw e;
+  }
+}
+
+export function cleanupAnalysisResults(minDepth: number): void {
+  if (!db) return;
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    const stmt = db.prepare("DELETE FROM analysis_results WHERE depth < ?");
+    stmt.run(minDepth);
+    db.exec(`
+      DELETE FROM positions
+      WHERE id NOT IN (SELECT DISTINCT position_id FROM analysis_results)
+    `);
+    db.exec(`
+      DELETE FROM engines
+      WHERE id NOT IN (SELECT DISTINCT engine_id FROM analysis_results)
+    `);
+    db.exec("COMMIT");
+  } catch (e) {
+    try {
+      db?.exec("ROLLBACK");
+    } catch {
+      /* ignore */
+    }
+    console.error("Failed to cleanup analysis results:", e);
+    throw e;
+  }
+}
+
+export function* exportAnalysisResultsByEngine(engineId: number): Generator<string> {
+  if (!db) return;
+
+  yield "#YANEURAOU-DB2016 1.00\n";
+
+  const stmt = db.prepare(`
+    SELECT
+      p.sfen,
+      r.multipv,
+      r.score_cp,
+      r.score_mate,
+      r.depth,
+      r.pv
+    FROM analysis_results r
+    JOIN positions p ON r.position_id = p.id
+    WHERE r.engine_id = ?
+    ORDER BY p.sfen ASC, r.multipv ASC
+  `);
+
+  let currentSfen: string | null = null;
+
+  for (const row of stmt.iterate(engineId) as IterableIterator<{
+    sfen: string;
+    multipv: number;
+    score_cp: number | null;
+    score_mate: number | null;
+    depth: number;
+    pv: string | null;
+  }>) {
+    if (row.sfen !== currentSfen) {
+      // 局面の出力。末尾に手数 1 を付与する
+      yield `sfen ${row.sfen} 1\n`;
+      currentSfen = row.sfen;
+    }
+
+    const usi = row.pv ? row.pv.split(" ")[0] : "none";
+    const usi2 = "none";
+    let scoreText = "none";
+    if (row.score_mate !== null) {
+      // 詰みの場合は大きな値（30000など）にマッピング
+      scoreText = (row.score_mate > 0 ? 30000 : -30000).toString();
+    } else if (row.score_cp !== null) {
+      scoreText = row.score_cp.toString();
+    }
+
+    // <usi> <usi2> <score> <depth> <counts>
+    // counts は空にする
+    yield `${usi} ${usi2} ${scoreText} ${row.depth} \n`;
   }
 }

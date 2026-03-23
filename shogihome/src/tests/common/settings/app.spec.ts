@@ -3,15 +3,24 @@ import {
   getPieceImageURLTemplate,
   defaultAppSettings,
   PieceImageType,
+  AnalysisDBSearchMode,
 } from "@/common/settings/app.js";
 
-describe("settings/csa", () => {
+describe("settings/app", () => {
   it("normalize", () => {
     const result = normalizeAppSettings(defaultAppSettings(), {
       returnCode: "\r\n",
       autoSaveDirectory: "/tmp",
     });
     expect(result).toStrictEqual(defaultAppSettings());
+  });
+
+  it("normalize/analysisDBSearchMode", () => {
+    const result = normalizeAppSettings({
+      ...defaultAppSettings(),
+      analysisDBSearchMode: undefined as unknown as AnalysisDBSearchMode,
+    });
+    expect(result.analysisDBSearchMode).toBe(AnalysisDBSearchMode.EXCEPT_GAMES);
   });
 
   it("pieceImageBaseURL", () => {

@@ -3,6 +3,10 @@ import {
   initDatabase,
   saveAnalysisResults,
   getAnalysisResults,
+  getAnalysisDBStats,
+  deleteAnalysisResultsByEngine,
+  cleanupAnalysisResults,
+  exportAnalysisResultsByEngine,
   closeDatabase,
 } from "@/background/database/sqlite.js";
 import { USIInfoCommand } from "@/common/game/usi.js";
@@ -151,5 +155,69 @@ describe("background/database/sqlite", () => {
     }).toThrow();
 
     db.close();
+  });
+
+  it("should return correct stats for engines", () => {
+    const infos = new Map<number, USIInfoCommand>();
+    infos.set(1, { depth: 10, scoreCP: 100, pv: ["7g7f"] });
+    saveAnalysisResults(1n, "sfen 1", "engine-1", "Engine 1", infos);
+
+    const stats = getAnalysisDBStats();
+    expect(stats.length).toBe(1);
+    expect(stats[0].name).toBe("Engine 1");
+    expect(stats[0].record_count).toBe(1);
+    expect(stats[0].min_depth).toBe(10);
+    expect(stats[0].max_depth).toBe(10);
+  });
+
+  it("should delete results by engine", () => {
+    const infos = new Map<number, USIInfoCommand>();
+    infos.set(1, { depth: 10, scoreCP: 100, pv: ["7g7f"] });
+    saveAnalysisResults(1n, "sfen 1", "engine-1", "Engine 1", infos);
+    saveAnalysisResults(2n, "sfen 2", "engine-2", "Engine 2", infos);
+
+    const statsBefore = getAnalysisDBStats();
+    expect(statsBefore.length).toBe(2);
+
+    const engine1Id = statsBefore.find((s) => s.engine_key === "engine-1")!.id;
+    deleteAnalysisResultsByEngine(engine1Id);
+
+    const statsAfter = getAnalysisDBStats();
+    expect(statsAfter.length).toBe(1);
+    expect(statsAfter[0].engine_key).toBe("engine-2");
+  });
+
+  it("should cleanup results by depth", () => {
+    const infos1 = new Map<number, USIInfoCommand>();
+    infos1.set(1, { depth: 10, scoreCP: 100, pv: ["7g7f"] });
+    const infos2 = new Map<number, USIInfoCommand>();
+    infos2.set(1, { depth: 20, scoreCP: 200, pv: ["7g7f"] });
+
+    saveAnalysisResults(1n, "sfen 1", "engine-1", "Engine 1", infos1);
+    saveAnalysisResults(2n, "sfen 2", "engine-1", "Engine 1", infos2);
+
+    expect(getAnalysisDBStats()[0].record_count).toBe(2);
+
+    cleanupAnalysisResults(15);
+
+    const statsAfter = getAnalysisDBStats();
+    expect(statsAfter[0].record_count).toBe(1);
+    expect(statsAfter[0].min_depth).toBe(20);
+  });
+
+  it("should export results in YaneuraOu format", () => {
+    const infos = new Map<number, USIInfoCommand>();
+    infos.set(1, { depth: 15, scoreCP: 50, pv: ["7g7f", "3c3d"] });
+    infos.set(2, { depth: 15, scoreCP: -20, pv: ["2g2f"] });
+    saveAnalysisResults(1n, "sfen-data", "engine-1", "Engine 1", infos);
+
+    const stats = getAnalysisDBStats();
+    const generator = exportAnalysisResultsByEngine(stats[0].id);
+    const lines = Array.from(generator);
+
+    expect(lines[0]).toBe("#YANEURAOU-DB2016 1.00\n");
+    expect(lines[1]).toBe("sfen sfen-data 1\n");
+    expect(lines[2]).toBe("7g7f none 50 15 \n");
+    expect(lines[3]).toBe("2g2f none -20 15 \n");
   });
 });

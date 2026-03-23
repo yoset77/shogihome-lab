@@ -38,7 +38,7 @@
         </table>
         <div v-else class="no-data full column center">
           <div v-if="!searching">
-            <div v-if="!appSettings.autoSearchAnalysisDB && !searched" class="control">
+            <div v-if="!isAutoSearchEnabled && !searched" class="control">
               <button class="large" @click="fetchResults">
                 <span>{{ t.search }}</span>
               </button>
@@ -74,7 +74,7 @@
         </div>
         <div v-else class="no-data full column center">
           <div v-if="!searching">
-            <div v-if="!appSettings.autoSearchAnalysisDB && !searched" class="control">
+            <div v-if="!isAutoSearchEnabled && !searched" class="control">
               <button class="large" @click="fetchResults">
                 <span>{{ t.search }}</span>
               </button>
@@ -95,7 +95,8 @@ import { t } from "@/common/i18n";
 import { IconType } from "@/renderer/assets/icons";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { RectSize } from "@/common/assets/geometry.js";
-import { NodeCountFormat, EvaluationViewFrom } from "@/common/settings/app";
+import { NodeCountFormat, EvaluationViewFrom, AnalysisDBSearchMode } from "@/common/settings/app";
+import { AppState } from "@/common/control/state";
 import { Move, formatMove, Color } from "tsshogi";
 
 defineProps({
@@ -139,6 +140,18 @@ const searched = ref(false);
 const searching = ref(false);
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+const isGame = computed(() => {
+  return store.appState === AppState.GAME || store.appState === AppState.CSA_GAME;
+});
+
+const isAutoSearchEnabled = computed(() => {
+  const searchMode = appSettings.analysisDBSearchMode;
+  return (
+    searchMode === AnalysisDBSearchMode.ALWAYS ||
+    (searchMode === AnalysisDBSearchMode.EXCEPT_GAMES && !isGame.value)
+  );
+});
+
 onUnmounted(() => {
   if (debounceTimer) {
     clearTimeout(debounceTimer);
@@ -173,12 +186,14 @@ const fetchResults = async () => {
 };
 
 watch(
-  () => store.record.position.sfen,
-  () => {
-    results.value = [];
-    searched.value = false;
+  [() => store.record.position.sfen, isAutoSearchEnabled],
+  ([sfen, autoSearchEnabled], [oldSfen]) => {
+    if (sfen !== oldSfen) {
+      results.value = [];
+      searched.value = false;
+    }
     if (debounceTimer) clearTimeout(debounceTimer);
-    if (appSettings.autoSearchAnalysisDB) {
+    if (autoSearchEnabled && !searched.value) {
       searching.value = true;
       debounceTimer = setTimeout(fetchResults, 300);
     } else {

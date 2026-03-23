@@ -738,7 +738,15 @@
         <div class="section-title">{{ t.analysisDB }}</div>
         <div class="form-item">
           <div class="form-item-label-wide">{{ t.autoSearchAnalysisDB }}</div>
-          <ToggleButton v-model:value="update.autoSearchAnalysisDB" />
+          <HorizontalSelector
+            v-model:value="update.analysisDBSearchMode"
+            class="selector"
+            :items="[
+              { label: t.none, value: AnalysisDBSearchMode.NONE },
+              { label: t.exceptGames, value: AnalysisDBSearchMode.EXCEPT_GAMES },
+              { label: t.always, value: AnalysisDBSearchMode.ALWAYS },
+            ]"
+          />
         </div>
         <div class="form-item">
           <div class="form-item-label-wide">{{ t.maxPVLength }}</div>
@@ -874,6 +882,7 @@ import {
   RecordShortcutKeys,
   BranchListMode,
   UIMode,
+  AnalysisDBSearchMode,
 } from "@/common/settings/app";
 import ImageSelector from "@/renderer/view/dialog/ImageSelector.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
@@ -972,7 +981,7 @@ const update = ref({
   logLevel: org.logLevel,
   enableHardwareAcceleration: org.enableHardwareAcceleration,
   showBookTableOnMobile: org.showBookTableOnMobile,
-  autoSearchAnalysisDB: org.autoSearchAnalysisDB,
+  analysisDBSearchMode: org.analysisDBSearchMode,
   analysisDBMaxPVLength: org.analysisDBMaxPVLength,
 });
 const versionStatus = ref({} as VersionStatus);

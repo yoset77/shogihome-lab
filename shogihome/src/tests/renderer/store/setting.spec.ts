@@ -1,5 +1,11 @@
 import api, { API } from "@/renderer/ipc/api.js";
-import { PieceImageType, Tab, TabPaneType, Thema } from "@/common/settings/app.js";
+import {
+  AnalysisDBSearchMode,
+  PieceImageType,
+  Tab,
+  TabPaneType,
+  Thema,
+} from "@/common/settings/app.js";
 import { createAppSettings } from "@/renderer/store/settings.js";
 import { Mocked } from "vitest";
 
@@ -7,7 +13,7 @@ vi.mock("@/renderer/ipc/api.js");
 
 const mockAPI = api as Mocked<API>;
 
-describe("store/index", () => {
+describe("store/settings", () => {
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -19,17 +25,20 @@ describe("store/index", () => {
     expect(store.pieceVolume).toBe(30);
     expect(store.clockVolume).toBe(30);
     expect(store.tab).toBe(Tab.RECORD_INFO);
+    expect(store.analysisDBSearchMode).toBe(AnalysisDBSearchMode.EXCEPT_GAMES);
     await store.updateAppSettings({
       thema: Thema.DARK,
       pieceVolume: 0,
       tabPaneType: TabPaneType.SINGLE,
       tab: Tab.COMMENT,
+      analysisDBSearchMode: AnalysisDBSearchMode.ALWAYS,
     });
     expect(store.thema).toBe(Thema.DARK);
     expect(store.pieceVolume).toBe(0);
     expect(store.clockVolume).toBe(30);
     expect(store.tab).toBe(Tab.COMMENT);
     expect(store.tabPaneType).toBe(TabPaneType.SINGLE);
+    expect(store.analysisDBSearchMode).toBe(AnalysisDBSearchMode.ALWAYS);
     await store.updateAppSettings({
       tabPaneType: TabPaneType.DOUBLE,
     });

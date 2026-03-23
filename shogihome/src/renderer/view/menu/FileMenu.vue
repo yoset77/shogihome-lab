@@ -121,6 +121,10 @@
           <Icon :icon="IconType.BATCH" />
           <div class="label">{{ t.batchConversion }}</div>
         </button>
+        <button :disabled="!states.analysisDBManager" @click="onAnalysisDBManager">
+          <Icon :icon="IconType.BATCH" />
+          <div class="label">{{ t.analysisDBManager }}</div>
+        </button>
         <button v-if="isNative()" @click="onOpenAutoSaveDirectory">
           <Icon :icon="IconType.OPEN_FOLDER" />
           <div class="label">{{ t.openAutoSaveDirectory }}</div>
@@ -373,6 +377,10 @@ const onBatchConversion = () => {
   store.showBatchConversionDialog();
   emit("close");
 };
+const onAnalysisDBManager = () => {
+  store.showAnalysisDBManagerDialog();
+  emit("close");
+};
 const onExportImage = () => {
   store.showExportBoardImageDialog();
   emit("close");
@@ -442,6 +450,7 @@ const states = computed(() => {
     share: store.appState === AppState.NORMAL,
     searchDuplicatePositions: store.appState === AppState.NORMAL,
     batchConversion: store.appState === AppState.NORMAL,
+    analysisDBManager: store.appState === AppState.NORMAL,
     exportImage: store.appState === AppState.NORMAL,
     paste: store.appState === AppState.NORMAL,
   };

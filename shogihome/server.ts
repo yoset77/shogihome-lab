@@ -6,6 +6,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import path from "path";
 import { fileURLToPath } from "url";
 import readline from "readline";
+import events from "node:events";
 import dotenv from "dotenv";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -40,6 +41,10 @@ import {
   initDatabase,
   saveAnalysisResults,
   getAnalysisResults,
+  getAnalysisDBStats,
+  deleteAnalysisResultsByEngine,
+  cleanupAnalysisResults,
+  exportAnalysisResultsByEngine,
 } from "./src/background/database/sqlite";
 import { parseInfoCommand } from "./src/background/usi/parser";
 import { getNormalizedSfenAndHash } from "./src/background/usi/sfen";
@@ -407,6 +412,91 @@ app.get("/api/analysis", async (req, res) => {
   } catch (e) {
     console.error("failed to get analysis results:", e);
     sendError(res, 500, "failed to get analysis results");
+  }
+});
+
+app.get("/api/analysis/stats", async (req, res) => {
+  try {
+    const stats = getAnalysisDBStats();
+    res.json(stats);
+  } catch (e) {
+    console.error("failed to get analysis db stats:", e);
+    sendError(res, 500, "failed to get analysis db stats");
+  }
+});
+
+app.post("/api/analysis/delete_by_engine", express.json(), async (req, res) => {
+  const engineId = req.body.engineId;
+  if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
+    sendError(res, 400, "engineId must be a positive integer");
+    return;
+  }
+  try {
+    deleteAnalysisResultsByEngine(engineId);
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to delete analysis results by engine:", e);
+    sendError(res, 500, "failed to delete analysis results by engine");
+  }
+});
+
+app.post("/api/analysis/cleanup", express.json(), async (req, res) => {
+  const minDepth = req.body.minDepth;
+  if (typeof minDepth !== "number" || !Number.isInteger(minDepth) || minDepth <= 0) {
+    sendError(res, 400, "minDepth must be a positive integer");
+    return;
+  }
+  try {
+    cleanupAnalysisResults(minDepth);
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to cleanup analysis results:", e);
+    sendError(res, 500, "failed to cleanup analysis results");
+  }
+});
+
+app.post("/api/analysis/export", express.json(), async (req, res) => {
+  const engineId = req.body.engineId;
+  const relPath = req.body.filename as string;
+  if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
+    sendError(res, 400, "engineId must be a positive integer");
+    return;
+  }
+  if (!relPath) {
+    sendError(res, 400, "filename is required");
+    return;
+  }
+  if (!KIFU_DIR) {
+    sendError(res, 404, "KIFU_DIR is not configured");
+    return;
+  }
+
+  try {
+    const fullPath = resolveKifuPath(KIFU_DIR, relPath);
+    if (!fullPath) {
+      sendError(res, 400, "invalid filename");
+      return;
+    }
+    const generator = exportAnalysisResultsByEngine(engineId);
+    const stream = fs.createWriteStream(fullPath);
+
+    await new Promise<void>((resolve, reject) => {
+      stream.on("error", reject);
+      stream.on("finish", resolve);
+      (async () => {
+        for (const chunk of generator) {
+          if (!stream.write(chunk)) {
+            await events.once(stream, "drain");
+          }
+        }
+        stream.end();
+      })().catch(reject);
+    });
+
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to export analysis results to server:", e);
+    sendError(res, 500, "failed to export analysis results to server");
   }
 });
 

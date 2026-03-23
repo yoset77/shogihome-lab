@@ -104,6 +104,12 @@ export enum Tab {
   ANALYSIS_DB = "analysisDB",
 }
 
+export enum AnalysisDBSearchMode {
+  NONE = "none",
+  EXCEPT_GAMES = "exceptGames",
+  ALWAYS = "always",
+}
+
 export enum TextDecodingRule {
   STRICT = "strict",
   AUTO_DETECT = "autoDetect",
@@ -286,7 +292,7 @@ export type AppSettings = {
   showBookTableOnMobile: boolean;
 
   // Analysis DB
-  autoSearchAnalysisDB: boolean;
+  analysisDBSearchMode: AnalysisDBSearchMode;
   analysisDBMaxPVLength: number;
 
   // Low Level
@@ -431,7 +437,7 @@ export function defaultAppSettings(opt?: {
     lastOtherFilePath: "",
     emptyRecordInfoVisibility: true,
     showBookTableOnMobile: false,
-    autoSearchAnalysisDB: true,
+    analysisDBSearchMode: AnalysisDBSearchMode.EXCEPT_GAMES,
     analysisDBMaxPVLength: 15,
     enableHardwareAcceleration: true,
     uiMode: UIMode.AUTO,
@@ -476,6 +482,9 @@ export function normalizeAppSettings(
   // 旧バージョンと行き来すると DOUBLE_V2 のまま Tab.COMMENT が選択された状態が発生しうる。
   if (result.tabPaneType === TabPaneType.DOUBLE_V2 && result.tab2 === Tab.COMMENT) {
     result.tab2 = Tab.CHART;
+  }
+  if (!settings.analysisDBSearchMode) {
+    result.analysisDBSearchMode = AnalysisDBSearchMode.EXCEPT_GAMES;
   }
   // 旧バージョンではフォントの太さは設定項目になく、明朝体とゴシック体で違っていた。
   if (!settings.positionImageFontWeight) {
