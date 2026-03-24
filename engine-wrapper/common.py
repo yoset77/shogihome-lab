@@ -1,4 +1,6 @@
+import io
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -46,7 +48,22 @@ def load_env_value(env_path, key, default):
     """指定した.envファイルから値を読み込む。数値の場合はキャストを試みる"""
     if env_path.exists():
         try:
-            config = dotenv_values(env_path)
+            # 複数の文字コードを試行して読み込む (UTF-8, Shift-JISなど)
+            content = None
+            for enc in ["utf-8-sig", "utf-8", "cp932"]:
+                try:
+                    with open(env_path, "r", encoding=enc) as f:
+                        content = f.read()
+                    break
+                except (UnicodeDecodeError, LookupError):
+                    continue
+
+            if content is None:
+                # 最終手段としてエラー置換で読み込む
+                with open(env_path, "r", encoding="utf-8", errors="replace") as f:
+                    content = f.read()
+
+            config = dotenv_values(stream=io.StringIO(content))
             if key in config:
                 val = config[key]
                 if isinstance(default, int):
@@ -58,6 +75,67 @@ def load_env_value(env_path, key, default):
         except Exception:
             pass
     return default
+
+
+def smart_merge_env(old_env_path, new_env_path, dest_env_path):
+    """
+    古い.envのユーザー設定値を、新しい.envにマージして保存する。
+    コメントや新しい変数のデフォルト値は保持する。
+    """
+    if not old_env_path.exists():
+        if new_env_path.exists() and new_env_path != dest_env_path:
+            shutil.copy2(new_env_path, dest_env_path)
+        return
+
+    # 古い.envからユーザー設定値を抽出 (load_env_valueと同様の堅牢な読み込み)
+    content = None
+    for enc in ["utf-8-sig", "utf-8", "cp932"]:
+        try:
+            with open(old_env_path, "r", encoding=enc) as f:
+                content = f.read()
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+
+    if content is None:
+        with open(old_env_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+
+    old_config = dotenv_values(stream=io.StringIO(content))
+
+    if not new_env_path.exists():
+        if old_env_path != dest_env_path:
+            # 古いものをそのままコピーする場合も文字コードを正規化して保存
+            with open(dest_env_path, "w", encoding="utf-8") as f:
+                f.write(content)
+        return
+
+    # 新しい.envをテキストとして読み込み、行単位で置換する
+    merged_lines = []
+    # new_env_path は配布物（自分が持っているもの）なので UTF-8 固定で良い
+    with open(new_env_path, "r", encoding="utf-8") as f:
+        for line in f:
+            stripped = line.strip()
+            # コメントや空行はそのまま
+            if not stripped or stripped.startswith("#"):
+                merged_lines.append(line)
+                continue
+
+            # キー=値 の形式ならパース
+            if "=" in line:
+                key, _ = line.split("=", 1)
+                key = key.strip()
+                # 古い設定値が存在すれば、それで上書き
+                if key in old_config:
+                    merged_lines.append(f"{key}={old_config[key]}\n")
+                else:
+                    merged_lines.append(line)
+            else:
+                merged_lines.append(line)
+
+    # 保存 (常に UTF-8)
+    with open(dest_env_path, "w", encoding="utf-8") as f:
+        f.writelines(merged_lines)
 
 
 def get_local_ip():

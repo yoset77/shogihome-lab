@@ -87,6 +87,98 @@ def test_load_env_value_no_file(tmp_path):
     assert load_env_value(non_existent, "PORT", 1234) == 1234
 
 
+def test_smart_merge_env(tmp_path):
+    from common import smart_merge_env
+
+    old_env = tmp_path / "old.env"
+    new_env = tmp_path / "new.env"
+    dest_env = tmp_path / "dest.env"
+
+    old_env.write_text(
+        """# Old Settings
+PORT=8080
+CUSTOM_KEY=abc
+# Overwritten soon
+LISTEN_PORT=3000
+""",
+        encoding="utf-8",
+    )
+
+    new_env.write_text(
+        """# New Default Settings
+PORT=9090
+# Port for engine wrapper
+LISTEN_PORT=4082
+
+# [NEW] Timeout
+TIMEOUT=5000
+""",
+        encoding="utf-8",
+    )
+
+    smart_merge_env(old_env, new_env, dest_env)
+
+    dest_content = dest_env.read_text(encoding="utf-8")
+    lines = dest_content.splitlines()
+
+    assert lines[0] == "# New Default Settings"
+    assert lines[1] == "PORT=8080"  # Overwritten by old
+    assert lines[2] == "# Port for engine wrapper"
+    assert lines[3] == "LISTEN_PORT=3000"  # Overwritten by old
+    assert lines[4] == ""
+    assert lines[5] == "# [NEW] Timeout"
+    assert lines[6] == "TIMEOUT=5000"  # Kept new default
+
+
+def test_smart_merge_env_missing_old(tmp_path):
+    from common import smart_merge_env
+
+    old_env = tmp_path / "missing.env"
+    new_env = tmp_path / "new.env"
+    dest_env = tmp_path / "dest.env"
+
+    new_env.write_text("PORT=9090", encoding="utf-8")
+
+    smart_merge_env(old_env, new_env, dest_env)
+    assert dest_env.read_text(encoding="utf-8") == "PORT=9090"
+
+
+def test_smart_merge_env_missing_new(tmp_path):
+    from common import smart_merge_env
+
+    old_env = tmp_path / "old.env"
+    new_env = tmp_path / "missing.env"
+    dest_env = tmp_path / "dest.env"
+
+    old_env.write_text("PORT=8080", encoding="utf-8")
+
+    smart_merge_env(old_env, new_env, dest_env)
+    assert dest_env.read_text(encoding="utf-8") == "PORT=8080"
+
+
+def test_smart_merge_env_cp932(tmp_path):
+    from common import smart_merge_env
+
+    old_env = tmp_path / "old_cp932.env"
+    new_env = tmp_path / "new_utf8.env"
+    dest_env = tmp_path / "dest.env"
+
+    # Write old env with CP932 (Shift-JIS)
+    # Use a key that will exist in the new env
+    old_env.write_text("PORT=8080\nAPP_NAME=将棋ホーム", encoding="cp932")
+
+    # New default is UTF-8
+    new_env.write_text("PORT=9090\nAPP_NAME=ShogiHome\nVERSION=2.0", encoding="utf-8")
+
+    smart_merge_env(old_env, new_env, dest_env)
+
+    # Result should be UTF-8 and correctly merged
+    dest_content = dest_env.read_text(encoding="utf-8")
+    assert "PORT=8080" in dest_content
+    assert "APP_NAME=将棋ホーム" in dest_content
+    assert "VERSION=2.0" in dest_content
+
+
 _IP = "192.168.1.10"
 _PORT = 8140
 

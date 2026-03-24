@@ -128,6 +128,13 @@
             padding: 8px;
             border-radius: 4px;
         }
+        .option-row.modified-option {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+        }
+        .option-row.modified-option .opt-key {
+            font-weight: bold;
+        }
         .option-row input.opt-key { flex: 0 0 200px; }
         .option-row .opt-val-container { flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; }
         .option-row input.opt-val, .option-row select.opt-val { width: 100%; }
@@ -567,38 +574,88 @@
         div.appendChild(keyInput);
         const valContainer = document.createElement('div');
         valContainer.className = 'opt-val-container';
+        
+        let inputEl;
+
         if (type === 'boolean') {
             const isChecked = val === true || String(val) === 'true';
             valContainer.style.background = '#fff'; valContainer.style.border = '1px solid var(--border)'; valContainer.style.padding = '5px';
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox'; checkbox.className = 'opt-val'; checkbox.checked = isChecked; checkbox.style.width = 'auto';
+            inputEl = document.createElement('input');
+            inputEl.type = 'checkbox'; inputEl.className = 'opt-val'; inputEl.checked = isChecked; inputEl.style.width = 'auto';
             const label = document.createElement('span');
             label.className = 'bool-label'; label.textContent = isChecked ? 'true' : 'false';
-            checkbox.addEventListener('change', (e) => { label.textContent = e.target.checked ? 'true' : 'false'; });
-            valContainer.appendChild(checkbox); valContainer.appendChild(label);
+            inputEl.addEventListener('change', (e) => { label.textContent = e.target.checked ? 'true' : 'false'; });
+            valContainer.appendChild(inputEl); valContainer.appendChild(label);
         } else if (type === 'spin') {
             const min = extra.min !== undefined ? extra.min : 0;
             const max = extra.max !== undefined ? extra.max : 999999999;
-            const spinInput = document.createElement('input');
-            spinInput.type = 'number'; spinInput.className = 'opt-val'; spinInput.value = val; spinInput.min = min; spinInput.max = max;
-            valContainer.appendChild(spinInput);
+            inputEl = document.createElement('input');
+            inputEl.type = 'number'; inputEl.className = 'opt-val'; inputEl.value = val; inputEl.min = min; inputEl.max = max;
+            valContainer.appendChild(inputEl);
         } else if (type === 'combo') {
-            const select = document.createElement('select');
-            select.className = 'opt-val';
+            inputEl = document.createElement('select');
+            inputEl.className = 'opt-val';
             const vars = extra.vars || [];
             vars.forEach(v => {
                 const opt = document.createElement('option');
                 opt.value = v; opt.textContent = v;
                 if (v == val) opt.selected = true;
-                select.appendChild(opt);
+                inputEl.appendChild(opt);
             });
-            valContainer.appendChild(select);
+            valContainer.appendChild(inputEl);
         } else {
-            const textInput = document.createElement('input');
-            textInput.type = 'text'; textInput.className = 'opt-val'; textInput.value = val;
-            valContainer.appendChild(textInput);
+            inputEl = document.createElement('input');
+            inputEl.type = 'text'; inputEl.className = 'opt-val'; inputEl.value = val;
+            valContainer.appendChild(inputEl);
         }
         div.appendChild(valContainer);
+        
+        // Reset Button
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'btn btn-sm btn-warning';
+        resetBtn.textContent = '↺';
+        resetBtn.title = '既定値に戻す';
+        resetBtn.style.display = 'none';
+        
+        const checkModified = () => {
+            if (extra && extra.default !== undefined) {
+                let isModified = false;
+                if (type === 'boolean') {
+                    isModified = inputEl.checked !== (String(extra.default).toLowerCase() === 'true');
+                } else if (type === 'spin') {
+                    isModified = Number(inputEl.value) !== Number(extra.default);
+                } else {
+                    isModified = String(inputEl.value) !== String(extra.default);
+                }
+                
+                if (isModified) {
+                    div.classList.add('modified-option');
+                    resetBtn.style.display = 'inline-block';
+                } else {
+                    div.classList.remove('modified-option');
+                    resetBtn.style.display = 'none';
+                }
+            }
+        };
+
+        if (inputEl) {
+            inputEl.addEventListener('input', checkModified);
+            inputEl.addEventListener('change', checkModified);
+        }
+        
+        resetBtn.onclick = () => {
+            if (extra && extra.default !== undefined) {
+                if (type === 'boolean') {
+                    inputEl.checked = (String(extra.default).toLowerCase() === 'true');
+                    inputEl.dispatchEvent(new Event('change'));
+                } else {
+                    inputEl.value = extra.default;
+                    inputEl.dispatchEvent(new Event('input'));
+                }
+            }
+        };
+        div.appendChild(resetBtn);
+
         const typeLabel = document.createElement('span');
         typeLabel.style.fontSize = '0.8rem'; typeLabel.style.background = '#eee'; typeLabel.style.padding = '2px 6px';
         typeLabel.style.borderRadius = '4px'; typeLabel.style.whiteSpace = 'nowrap'; typeLabel.style.flexShrink = '0';
@@ -610,6 +667,9 @@
         delBtn.onclick = () => div.remove();
         div.appendChild(delBtn);
         list.appendChild(div);
+        
+        // Initial check
+        checkModified();
     }
 
     function resetAllToDefault() {
