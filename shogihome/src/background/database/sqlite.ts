@@ -1,9 +1,15 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type StatementSync } from "node:sqlite";
 import path from "node:path";
 import fs from "node:fs";
 import { USIInfoCommand } from "@/common/game/usi.js";
 
 let db: DatabaseSync | null = null;
+let insertPositionStmt: StatementSync | null = null;
+let getPositionStmt: StatementSync | null = null;
+let insertEngineStmt: StatementSync | null = null;
+let updateEngineStmt: StatementSync | null = null;
+let getEngineStmt: StatementSync | null = null;
+let upsertResultStmt: StatementSync | null = null;
 
 export function initDatabase(dataDir: string) {
   try {
@@ -58,13 +64,47 @@ export function initDatabase(dataDir: string) {
         FOREIGN KEY(engine_id) REFERENCES engines(id)
       )
     `);
+
+    insertPositionStmt = db.prepare(
+      "INSERT OR IGNORE INTO positions (sfen_hash, sfen) VALUES (?, ?)",
+    );
+    getPositionStmt = db.prepare("SELECT id FROM positions WHERE sfen_hash = ? AND sfen = ?");
+    insertEngineStmt = db.prepare("INSERT OR IGNORE INTO engines (engine_key, name) VALUES (?, ?)");
+    updateEngineStmt = db.prepare("UPDATE engines SET name = ? WHERE engine_key = ? AND name != ?");
+    getEngineStmt = db.prepare("SELECT id FROM engines WHERE engine_key = ?");
+    upsertResultStmt = db.prepare(`
+      INSERT INTO analysis_results (
+        position_id, engine_id, multipv, depth, seldepth, nodes, score_cp, score_mate, pv, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(position_id, engine_id, multipv) DO UPDATE SET
+        depth = excluded.depth,
+        seldepth = excluded.seldepth,
+        nodes = excluded.nodes,
+        score_cp = excluded.score_cp,
+        score_mate = excluded.score_mate,
+        pv = excluded.pv,
+        updated_at = excluded.updated_at
+      WHERE excluded.depth > analysis_results.depth
+    `);
   } catch (e) {
     console.error("Failed to initialize analysis database:", e);
+    insertPositionStmt = null;
+    getPositionStmt = null;
+    insertEngineStmt = null;
+    updateEngineStmt = null;
+    getEngineStmt = null;
+    upsertResultStmt = null;
     db = null;
   }
 }
 
 export function closeDatabase() {
+  insertPositionStmt = null;
+  getPositionStmt = null;
+  insertEngineStmt = null;
+  updateEngineStmt = null;
+  getEngineStmt = null;
+  upsertResultStmt = null;
   if (db) {
     db.close();
     db = null;
@@ -84,59 +124,43 @@ export function saveAnalysisResults(
   const now = Date.now();
 
   try {
+    if (
+      !insertPositionStmt ||
+      !getPositionStmt ||
+      !insertEngineStmt ||
+      !updateEngineStmt ||
+      !getEngineStmt ||
+      !upsertResultStmt
+    ) {
+      throw new Error("Analysis database statements are not initialized");
+    }
+
     // トランザクション内で3テーブルの更新を一括処理
     conn.exec("BEGIN IMMEDIATE");
 
     // 1. 局面の確保 (存在しない場合は挿入)
-    const insertPosition = conn.prepare(
-      "INSERT OR IGNORE INTO positions (sfen_hash, sfen) VALUES (?, ?)",
-    );
-    insertPosition.run(sfenHash, sfen);
+    insertPositionStmt.run(sfenHash, sfen);
 
     // position_id の取得 (ハッシュと文字列の両方で完全一致を確認)
-    const getPosition = conn.prepare("SELECT id FROM positions WHERE sfen_hash = ? AND sfen = ?");
-    const positionRow = getPosition.get(sfenHash, sfen) as { id: number };
+    const positionRow = getPositionStmt.get(sfenHash, sfen) as { id: number };
     if (!positionRow) throw new Error("Failed to get position_id");
     const positionId = positionRow.id;
 
     // 2. エンジンの確保 (存在しない場合は挿入、存在する場合は表示名が古ければ更新)
-    const insertEngine = conn.prepare(
-      "INSERT OR IGNORE INTO engines (engine_key, name) VALUES (?, ?)",
-    );
-    insertEngine.run(engineKey, engineName);
+    insertEngineStmt.run(engineKey, engineName);
 
     // 表示名の更新 (変更があった場合)
-    const updateEngine = conn.prepare(
-      "UPDATE engines SET name = ? WHERE engine_key = ? AND name != ?",
-    );
-    updateEngine.run(engineName, engineKey, engineName);
+    updateEngineStmt.run(engineName, engineKey, engineName);
 
     // engine_id の取得
-    const getEngine = conn.prepare("SELECT id FROM engines WHERE engine_key = ?");
-    const engineRow = getEngine.get(engineKey) as { id: number };
+    const engineRow = getEngineStmt.get(engineKey) as { id: number };
     if (!engineRow) throw new Error("Failed to get engine_id");
     const engineId = engineRow.id;
-
-    // 3. 検討結果の保存 (深さが深い場合のみ更新)
-    const upsertResult = conn.prepare(`
-      INSERT INTO analysis_results (
-        position_id, engine_id, multipv, depth, seldepth, nodes, score_cp, score_mate, pv, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(position_id, engine_id, multipv) DO UPDATE SET
-        depth = excluded.depth,
-        seldepth = excluded.seldepth,
-        nodes = excluded.nodes,
-        score_cp = excluded.score_cp,
-        score_mate = excluded.score_mate,
-        pv = excluded.pv,
-        updated_at = excluded.updated_at
-      WHERE excluded.depth > analysis_results.depth
-    `);
 
     for (const [multipv, info] of infos.entries()) {
       if (info.depth === undefined) continue;
 
-      upsertResult.run(
+      upsertResultStmt.run(
         positionId,
         engineId,
         multipv,

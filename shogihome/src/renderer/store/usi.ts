@@ -2,6 +2,7 @@ import { USIInfoCommand } from "@/common/game/usi.js";
 import { Color, ImmutablePosition, Move, Position, formatMove } from "tsshogi";
 import { isActiveUSIPlayerSession } from "@/renderer/players/usi.js";
 import { isActiveLanPlayerSession } from "@/renderer/players/lan_player.js";
+import { formatDisplayPV } from "@/renderer/helpers/pv";
 
 export type USIInfo = {
   id: number;
@@ -19,29 +20,6 @@ export type USIInfo = {
   pv?: string[];
   text?: string;
 };
-
-function formatPV(position: ImmutablePosition, pv: string[], maxLength: number): string {
-  const p = position.clone();
-  let lastMove: Move | undefined;
-  let result = "";
-  let i = 0;
-  for (; i < pv.length && i < maxLength; i++) {
-    const move = p.createMoveByUSI(pv[i]);
-    if (!move) {
-      if (i > 0) {
-        result += " ...";
-      }
-      return result;
-    }
-    result += formatMove(p, move, { lastMove });
-    p.doMove(move, { ignoreValidation: true });
-    lastMove = move;
-  }
-  if (i < pv.length) {
-    result += " ...";
-  }
-  return result;
-}
 
 let nextInfoID = 0;
 
@@ -133,7 +111,7 @@ export class USIPlayerMonitor {
     }
     if (update.pv) {
       info.pv = update.pv;
-      info.text = formatPV(position, update.pv, maxPVTextLength);
+      info.text = formatDisplayPV(position, update.pv, maxPVTextLength).text;
     }
     if (update.multipv !== undefined) {
       info.multiPV = update.multipv;

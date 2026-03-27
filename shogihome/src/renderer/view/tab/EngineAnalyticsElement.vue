@@ -184,7 +184,7 @@
             </button>
           </div>
           <div class="mobile-pv-text">
-            {{ info.text ? truncatePV(info.text) : "---" }}
+            {{ info.text || "---" }}
           </div>
         </div>
         <div
@@ -318,17 +318,6 @@ const evaluationViewFrom = computed(() => {
 });
 const getDisplayScore = (score: number, color: Color, evaluationViewFrom: EvaluationViewFrom) => {
   return evaluationViewFrom === EvaluationViewFrom.EACH || color == Color.BLACK ? score : -score;
-};
-
-const truncatePV = (text: string | undefined) => {
-  if (!text) {
-    return "";
-  }
-  const moves = text.split(" ");
-  if (moves.length > 8) {
-    return moves.slice(0, 8).join(" ") + " ...";
-  }
-  return text;
 };
 
 const showPreview = (ite: USIInfo) => {

@@ -68,7 +68,7 @@
               </button>
             </div>
             <div class="mobile-pv-text">
-              {{ truncatePV(info.pvText) }}
+              {{ info.pvText }}
             </div>
           </div>
         </div>
@@ -97,7 +97,8 @@ import Icon from "@/renderer/view/primitive/Icon.vue";
 import { RectSize } from "@/common/assets/geometry.js";
 import { NodeCountFormat, EvaluationViewFrom, AnalysisDBSearchMode } from "@/common/settings/app";
 import { AppState } from "@/common/control/state";
-import { Move, formatMove, Color } from "tsshogi";
+import { Move, Color } from "tsshogi";
+import { formatDisplayPV } from "@/renderer/helpers/pv";
 
 defineProps({
   size: { type: RectSize, required: true },
@@ -236,26 +237,11 @@ const formattedResults = computed<FormattedInfo[]>(() => {
       scoreText = getDisplayScore(r.score_cp, position.color, evaluationViewFrom.value);
     }
 
-    let pvText = "";
-    const parsedPv: Move[] = [];
-    if (r.pv) {
-      const pos = position.clone();
-      const moves = r.pv.split(" ");
-      const moveTexts = [];
-      for (const usiMove of moves) {
-        const move = pos.createMoveByUSI(usiMove);
-        if (!move) break;
-        parsedPv.push(move);
-        if (moveTexts.length < appSettings.analysisDBMaxPVLength) {
-          moveTexts.push(pos.isValidMove(move) ? formatMove(pos, move) : "!?");
-        }
-        pos.doMove(move);
-      }
-      pvText = moveTexts.join("");
-      if (moves.length > appSettings.analysisDBMaxPVLength) {
-        pvText += " ...";
-      }
-    }
+    const { parsedPv, text: pvText } = formatDisplayPV(
+      position,
+      r.pv?.split(" "),
+      appSettings.analysisDBMaxPVLength,
+    );
 
     return {
       id: `${r.engine_name}-${r.multipv}-${index}`,
@@ -275,17 +261,6 @@ const formattedResults = computed<FormattedInfo[]>(() => {
     };
   });
 });
-
-const truncatePV = (text: string | undefined) => {
-  if (!text) {
-    return "";
-  }
-  const moves = text.split(" ");
-  if (moves.length > appSettings.analysisDBMaxPVLength) {
-    return moves.slice(0, appSettings.analysisDBMaxPVLength).join(" ") + " ...";
-  }
-  return text;
-};
 
 const showPreview = (info: FormattedInfo) => {
   if (info.pv && info.pv.length > 0) {

@@ -1,8 +1,9 @@
 import { shallowMount } from "@vue/test-utils";
 import EngineAnalyticsElement from "@/renderer/view/tab/EngineAnalyticsElement.vue";
-import { USIPlayerMonitor } from "@/renderer/store/usi";
+import { USIInfo, USIPlayerMonitor } from "@/renderer/store/usi";
 import { AppState, ResearchState } from "@/common/control/state.js";
 import { reactive } from "vue";
+import { Color } from "tsshogi";
 
 // Mock store and settings
 const mockStore = reactive({
@@ -90,5 +91,29 @@ describe("EngineAnalyticsElement", () => {
     mockStore.appState = AppState.CSA_GAME;
     await vm.$nextTick();
     expect(vm.paused).toBe(false);
+  });
+
+  it("should render the stored PV text on mobile without reformatting", () => {
+    const mobileMonitor = new USIPlayerMonitor(200001, "Mobile Engine");
+    const info: USIInfo = {
+      id: 1,
+      position: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+      color: Color.BLACK,
+      pv: ["7g7f", "3c3d", "2g2f", "8c8d", "2f2e", "8d8e", "6i7h", "4a3b", "4i5h"],
+      text: "stored pv text from monitor",
+      score: 120,
+    };
+    mobileMonitor.infoList = [info];
+
+    const wrapper = shallowMount(EngineAnalyticsElement, {
+      props: {
+        historyMode: false,
+        monitor: mobileMonitor,
+        height: 300,
+        mobileLayout: true,
+      },
+    });
+
+    expect(wrapper.find(".mobile-pv-text").text()).toBe("stored pv text from monitor");
   });
 });
