@@ -24,6 +24,7 @@ import {
   TextDecodingRule,
   Thema,
   UIMode,
+  AnalysisDBSearchMode,
   buildUpdatedAppSettings,
   defaultAppSettings,
   validateAppSettings,
@@ -304,6 +305,12 @@ class AppSettingsStore {
   }
   get showBookTableOnMobile(): boolean {
     return this.merged.showBookTableOnMobile;
+  }
+  get analysisDBSearchMode(): AnalysisDBSearchMode {
+    return this.merged.analysisDBSearchMode;
+  }
+  get analysisDBMaxPVLength(): number {
+    return this.merged.analysisDBMaxPVLength;
   }
   get enableHardwareAcceleration(): boolean {
     return this.merged.enableHardwareAcceleration;

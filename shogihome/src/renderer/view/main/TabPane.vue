@@ -37,6 +37,11 @@
           :size="contentSize"
           :history-mode="false"
         />
+        <AnalysisDB
+          v-else-if="activeTab === Tab.ANALYSIS_DB"
+          class="full tab-content"
+          :size="contentSize"
+        />
         <EvaluationChart
           v-else-if="activeTab === Tab.CHART"
           class="full tab-content"
@@ -71,6 +76,7 @@ export const headerHeight = 30;
 import { PropType, computed } from "vue";
 import RecordComment from "@/renderer/view/tab/RecordComment.vue";
 import EngineAnalytics from "@/renderer/view/tab/EngineAnalytics.vue";
+import AnalysisDB from "@/renderer/view/tab/AnalysisDB.vue";
 import EvaluationChart from "@/renderer/view/tab/EvaluationChart.vue";
 import RecordInfo from "@/renderer/view/tab/RecordInfo.vue";
 import MonitorView from "@/renderer/view/monitor/MonitorView.vue";
@@ -147,6 +153,10 @@ const tabs = {
   [Tab.PV]: {
     title: t.pv,
     icon: IconType.PV,
+  },
+  [Tab.ANALYSIS_DB]: {
+    title: t.analysisDB,
+    icon: IconType.HISTORY,
   },
   [Tab.CHART]: {
     title: t.evaluation,

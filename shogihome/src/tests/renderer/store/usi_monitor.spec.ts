@@ -125,4 +125,26 @@ describe("USIMonitor", () => {
 
     vi.useRealTimers();
   });
+
+  it("should format PV text with the shared helper", () => {
+    const monitor = new USIMonitor();
+    const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+    const position = { sfen, color: Color.BLACK } as unknown as ImmutablePosition;
+
+    (isActiveLanPlayerSession as Mock).mockReturnValue(true);
+    vi.useFakeTimers();
+
+    monitor.update(
+      200000,
+      position,
+      "Engine",
+      { multipv: 1, scoreCP: 100, pv: ["7g7f", "3c3d", "invalidmove"] },
+      2,
+    );
+    vi.advanceTimersByTime(500);
+
+    expect(monitor.sessions[0].infoList[0].text?.endsWith(" ...")).toBe(true);
+
+    vi.useRealTimers();
+  });
 });

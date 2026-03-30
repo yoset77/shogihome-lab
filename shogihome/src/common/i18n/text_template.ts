@@ -303,6 +303,17 @@ export type Texts = {
   moveComments: string;
   searchLog: string;
   pv: string;
+  analysisDB: string;
+  analysisDBManager: string;
+  analysisDBExport: string;
+  cleanup: string;
+  recordCount: string;
+  minDepth: string;
+  maxDepth: string;
+  lastUpdated: string;
+  confirmDeleteEngineData: string;
+  confirmCleanupData: string;
+  noDataInAnalysisDB: string;
   mateShort: string;
   displayPVShort: string;
   evaluation: string;
@@ -480,6 +491,7 @@ export type Texts = {
   vertical: string;
   size: string;
   none: string;
+  always: string;
   bgCover: string;
   bgContain: string;
   bgTile: string;
@@ -597,6 +609,8 @@ export type Texts = {
   tryingToConnectAndLoginToCSAServer: string;
   inBrowserLogsOutputToConsoleAndIgnoreThisSetting: string;
   shouldRestartToApplyLogSettings: string;
+  autoSearchAnalysisDB: string;
+  exceptGames: string;
   canOpenLogDirectoryFromMenu: string;
   hasNoOldLogCleanUpFeature: string;
   shouldRestartToApplyLowLevelSettings: string;

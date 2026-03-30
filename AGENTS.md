@@ -63,6 +63,6 @@
 
 ## 5. 技術スタック
 
-- **Web Server & Frontend**: Node.js v20+, Vue.js 3, TypeScript, Vite, Express, WebSocket (`ws`)
+- **Web Server & Frontend**: Node.js v24+, Vue.js 3, TypeScript, Vite, Express, WebSocket (`ws`)
 - **Engine Server**: Python 3.10+, CustomTkinter, qrcode, pystray, pywebview
 - **Protocol**: USI (Universal Shogi Interface)

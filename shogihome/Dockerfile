@@ -1,6 +1,6 @@
 # ---- Builder Stage ----
 # ビルドに必要な依存関係をインストールし、アプリケーションをビルドするステージ
-FROM node:22-slim AS builder
+FROM node:24-slim AS builder
 
 # 作業ディレクトリを設定
 WORKDIR /app
@@ -24,13 +24,14 @@ RUN npm run build && npm run server:build
 
 # ---- Production Stage ----
 # 実行に必要な最小限のファイルのみを含む本番用イメージを作成するステージ
-FROM node:22-slim AS production
+FROM node:24-slim AS production
 
 # 作業ディレクトリを設定
 WORKDIR /app
 
 # 実行ユーザーの所有権をあらかじめ設定
-RUN chown -R node:node /app
+# 永続化対象の /app/data も作成しておく
+RUN mkdir -p /app/data && chown -R node:node /app
 
 # nodeユーザーに切り替え
 USER node

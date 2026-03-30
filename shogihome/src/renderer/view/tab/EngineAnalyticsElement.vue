@@ -172,6 +172,7 @@
               <span v-if="info.scoreMate">{{ t.mateShort }}</span>
               <span v-if="info.lowerBound">++</span>
               <span v-if="info.upperBound">--</span>
+              <span class="engine-name">{{ monitor.name }}</span>
             </span>
             <button
               v-if="showPlayButton && info.pv && info.pv.length !== 0"
@@ -183,7 +184,7 @@
             </button>
           </div>
           <div class="mobile-pv-text">
-            {{ info.text ? truncatePV(info.text) : "---" }}
+            {{ info.text || "---" }}
           </div>
         </div>
         <div
@@ -317,17 +318,6 @@ const evaluationViewFrom = computed(() => {
 });
 const getDisplayScore = (score: number, color: Color, evaluationViewFrom: EvaluationViewFrom) => {
   return evaluationViewFrom === EvaluationViewFrom.EACH || color == Color.BLACK ? score : -score;
-};
-
-const truncatePV = (text: string | undefined) => {
-  if (!text) {
-    return "";
-  }
-  const moves = text.split(" ");
-  if (moves.length > 8) {
-    return moves.slice(0, 8).join(" ") + " ...";
-  }
-  return text;
 };
 
 const showPreview = (ite: USIInfo) => {
@@ -566,6 +556,9 @@ button span {
   text-align: left;
   white-space: nowrap;
   color: var(--text-color);
+}
+.mobile-pv-header .engine-name {
+  margin-left: 12px;
 }
 .mobile-pv-header .play-button {
   flex-shrink: 0;

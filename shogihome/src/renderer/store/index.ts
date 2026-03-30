@@ -214,6 +214,7 @@ class Store {
   private _lastAppState = AppState.NORMAL;
   private _customLayout: LayoutProfile | null = null;
   private _isAppSettingsDialogVisible = false;
+  private _isAnalysisDBManagerDialogVisible = false;
   private _isServerSideKifuEnabled = false;
   private _pvPreview?: PVPreview;
   private usiMonitor = new USIMonitor();
@@ -636,6 +637,10 @@ class Store {
     return this._isAppSettingsDialogVisible;
   }
 
+  get isAnalysisDBManagerDialogVisible(): boolean {
+    return this._isAnalysisDBManagerDialogVisible;
+  }
+
   get isServerSideKifuEnabled(): boolean {
     return this._isServerSideKifuEnabled;
   }
@@ -650,6 +655,14 @@ class Store {
 
   closeAppSettingsDialog(): void {
     this._isAppSettingsDialogVisible = false;
+  }
+
+  showAnalysisDBManagerDialog(): void {
+    this._isAnalysisDBManagerDialogVisible = true;
+  }
+
+  closeAnalysisDBManagerDialog(): void {
+    this._isAnalysisDBManagerDialogVisible = false;
   }
 
   get usiMonitors(): USIPlayerMonitor[] {

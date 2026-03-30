@@ -6,6 +6,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import path from "path";
 import { fileURLToPath } from "url";
 import readline from "readline";
+import events from "node:events";
 import dotenv from "dotenv";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -36,6 +37,18 @@ import {
 import { writeFileAtomic, writeFileAtomicSync } from "./src/background/file/atomic";
 import { fetch as fetchRemote } from "./src/background/helpers/http";
 import { getHistory, saveBackup, clearHistory, addHistory } from "./src/background/file/history";
+import {
+  initDatabase,
+  saveAnalysisResults,
+  getAnalysisResults,
+  getAnalysisDBStats,
+  deleteAnalysisResultsByEngine,
+  cleanupAnalysisResults,
+  exportAnalysisResultsByEngine,
+} from "./src/background/database/sqlite";
+import { parseInfoCommand } from "./src/background/usi/parser";
+import { getNormalizedSfenAndHash } from "./src/background/usi/sfen";
+import { USIInfoCommand } from "./src/common/game/usi";
 
 const getBasePath = () => {
   // SEA (Single Executable Application) environment check
@@ -141,6 +154,9 @@ const updatePuzzlesManifest = () => {
 
 updatePuzzlesManifest();
 
+const dataDir = path.join(getBasePath(), "data");
+initDatabase(dataDir);
+
 const KIFU_DIR = process.env.KIFU_DIR ? path.resolve(getBasePath(), process.env.KIFU_DIR) : null;
 
 const ONTHEFLY_THRESHOLD_MB = (() => {
@@ -154,7 +170,20 @@ const ONTHEFLY_THRESHOLD_MB = (() => {
   return val;
 })();
 
+const ANALYSIS_DB_MIN_DEPTH = (() => {
+  const raw = process.env.ANALYSIS_DB_MIN_DEPTH;
+  if (!raw) return 10;
+  const val = parseInt(raw, 10);
+  if (isNaN(val) || val < 0) {
+    console.error(`Invalid ANALYSIS_DB_MIN_DEPTH: "${raw}". Using default (10).`);
+    return 10;
+  }
+  return val;
+})();
+
 const SESSION_ID_HEADER_REGEX = /^[a-zA-Z0-9_-]{8,128}$/;
+
+const engineNameCache = new Map<string, string>();
 
 class BookSessionManager {
   private sessions = new Map<string, number>();
@@ -358,6 +387,116 @@ app.get("/api/history", async (req, res) => {
   } catch (e) {
     console.error("failed to get history:", e);
     sendError(res, 500, "failed to get history");
+  }
+});
+
+app.get("/api/analysis", async (req, res) => {
+  const sfen = req.query.sfen;
+  if (typeof sfen !== "string") {
+    sendError(res, 400, "sfen is required");
+    return;
+  }
+
+  const parsed = getNormalizedSfenAndHash(sfen);
+  if (!parsed) {
+    res.json([]);
+    return;
+  }
+
+  console.log(`Analysis DB Query: sfen=${sfen} hash=${parsed.hash}`);
+
+  try {
+    const results = getAnalysisResults(parsed.hash, parsed.sfen);
+    console.log(`Analysis DB Results: found ${results.length} records`);
+    res.json(results);
+  } catch (e) {
+    console.error("failed to get analysis results:", e);
+    sendError(res, 500, "failed to get analysis results");
+  }
+});
+
+app.get("/api/analysis/stats", async (req, res) => {
+  try {
+    const stats = getAnalysisDBStats();
+    res.json(stats);
+  } catch (e) {
+    console.error("failed to get analysis db stats:", e);
+    sendError(res, 500, "failed to get analysis db stats");
+  }
+});
+
+app.post("/api/analysis/delete_by_engine", express.json(), async (req, res) => {
+  const engineId = req.body.engineId;
+  if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
+    sendError(res, 400, "engineId must be a positive integer");
+    return;
+  }
+  try {
+    deleteAnalysisResultsByEngine(engineId);
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to delete analysis results by engine:", e);
+    sendError(res, 500, "failed to delete analysis results by engine");
+  }
+});
+
+app.post("/api/analysis/cleanup", express.json(), async (req, res) => {
+  const minDepth = req.body.minDepth;
+  if (typeof minDepth !== "number" || !Number.isInteger(minDepth) || minDepth <= 0) {
+    sendError(res, 400, "minDepth must be a positive integer");
+    return;
+  }
+  try {
+    cleanupAnalysisResults(minDepth);
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to cleanup analysis results:", e);
+    sendError(res, 500, "failed to cleanup analysis results");
+  }
+});
+
+app.post("/api/analysis/export", express.json(), async (req, res) => {
+  const engineId = req.body.engineId;
+  const relPath = req.body.filename as string;
+  if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
+    sendError(res, 400, "engineId must be a positive integer");
+    return;
+  }
+  if (!relPath) {
+    sendError(res, 400, "filename is required");
+    return;
+  }
+  if (!KIFU_DIR) {
+    sendError(res, 404, "KIFU_DIR is not configured");
+    return;
+  }
+
+  try {
+    const fullPath = resolveKifuPath(KIFU_DIR, relPath);
+    if (!fullPath) {
+      sendError(res, 400, "invalid filename");
+      return;
+    }
+    const generator = exportAnalysisResultsByEngine(engineId);
+    const stream = fs.createWriteStream(fullPath);
+
+    await new Promise<void>((resolve, reject) => {
+      stream.on("error", reject);
+      stream.on("finish", resolve);
+      (async () => {
+        for (const chunk of generator) {
+          if (!stream.write(chunk)) {
+            await events.once(stream, "drain");
+          }
+        }
+        stream.end();
+      })().catch(reject);
+    });
+
+    res.send("ok");
+  } catch (e) {
+    console.error("failed to export analysis results to server:", e);
+    sendError(res, 500, "failed to export analysis results to server");
   }
 });
 
@@ -791,6 +930,7 @@ async function authenticateSocket(
 
 class EngineSession {
   private currentEngineId: string | null = null;
+  private currentEngineDisplayName = "Unknown Engine";
   private engineHandle: EngineHandle | null = null;
   private connectingSocket: net.Socket | null = null;
   private engineState = EngineState.UNINITIALIZED;
@@ -803,6 +943,7 @@ class EngineSession {
   private ws: ExtendedWebSocket | null = null;
   private cleanupTimeout: NodeJS.Timeout | null = null;
   private messageBuffer: { data: unknown; createdAt: number }[] = [];
+  private lastInfos = new Map<number, USIInfoCommand>();
 
   private readonly MAX_QUEUE_SIZE = 100;
 
@@ -909,6 +1050,7 @@ class EngineSession {
   private terminate() {
     this.clearCleanupTimeout();
     this.messageBuffer = [];
+    this.lastInfos.clear();
     if (this.connectingSocket) {
       this.connectingSocket.destroy();
       this.connectingSocket = null;
@@ -1084,6 +1226,7 @@ class EngineSession {
     }
     this.currentEngineSfen = null;
     this.pendingGoSfen = null;
+    this.lastInfos.clear();
     this.sendState();
     this.sendToClient({ info: "info: engine stopped" });
   }
@@ -1093,6 +1236,16 @@ class EngineSession {
     interface_.on("line", (line) => {
       if (!line.startsWith("info")) {
         console.log(`Engine output (${this.sessionId}): ${line}`);
+      }
+
+      if (line.startsWith("info ")) {
+        const parsed = parseInfoCommand(line.substring(5));
+        if (parsed.depth !== undefined && !parsed.lowerbound && !parsed.upperbound) {
+          const pvId = parsed.multipv || 1;
+          const currentInfo = this.lastInfos.get(pvId) || {};
+          // Merge with previous to keep nodes/time if omitted in this line
+          this.lastInfos.set(pvId, { ...currentInfo, ...parsed });
+        }
       }
 
       if (line.trim().startsWith("WRAPPER_ERROR:")) {
@@ -1105,6 +1258,29 @@ class EngineSession {
       this.sendToClient({ sfen: this.pendingGoSfen, info: line });
 
       if (line.startsWith("bestmove")) {
+        if (this.currentEngineId && this.pendingGoSfen && this.lastInfos.size > 0) {
+          const validInfos = new Map<number, USIInfoCommand>();
+          for (const [multipv, info] of this.lastInfos.entries()) {
+            if (info.depth !== undefined && info.depth >= ANALYSIS_DB_MIN_DEPTH) {
+              validInfos.set(multipv, info);
+            }
+          }
+
+          if (validInfos.size > 0) {
+            const parsedSfen = getNormalizedSfenAndHash(this.pendingGoSfen);
+            if (parsedSfen) {
+              saveAnalysisResults(
+                parsedSfen.hash,
+                parsedSfen.sfen,
+                this.currentEngineId,
+                this.currentEngineDisplayName,
+                validInfos,
+              );
+            }
+          }
+        }
+        this.lastInfos.clear();
+
         if (this.engineState === EngineState.STOPPING_SEARCH) {
           if (this.stopTimeout) {
             clearTimeout(this.stopTimeout);
@@ -1182,6 +1358,7 @@ class EngineSession {
     }
     this.engineState = EngineState.STARTING;
     this.currentEngineId = engineId;
+    this.currentEngineDisplayName = engineNameCache.get(engineId) || engineId;
 
     console.log(`Connecting to remote engine at ${REMOTE_ENGINE_HOST}:${REMOTE_ENGINE_PORT}`);
     const socket = new net.Socket();
@@ -1354,6 +1531,7 @@ class EngineSession {
           this.stopTimeout = null;
         }
         this.currentEngineSfen = null;
+        this.lastInfos.clear();
         this.engineHandle.close();
       }
       return;
@@ -1462,6 +1640,13 @@ const getEngineList = (ws: WebSocket) => {
   socket.on("end", () => {
     try {
       const engines = JSON.parse(data.trim());
+      if (Array.isArray(engines)) {
+        engines.forEach((e: { id?: string; name?: string }) => {
+          if (e.id && e.name) {
+            engineNameCache.set(e.id, e.name);
+          }
+        });
+      }
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ engineList: engines }));
       }
