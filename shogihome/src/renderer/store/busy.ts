@@ -17,6 +17,11 @@ export class BusyState {
   }
 
   release(): void {
+    if (this.count === 0) {
+      console.warn("BusyState#release called without a matching retain.");
+      this._progress = undefined;
+      return;
+    }
     this.count -= 1;
     if (this.count === 0) {
       this._progress = undefined;

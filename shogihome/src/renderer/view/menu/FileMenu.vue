@@ -437,7 +437,9 @@ const states = computed(() => {
     puzzle: store.appState === AppState.NORMAL,
     research: store.appState === AppState.NORMAL && store.researchState === ResearchState.IDLE,
     stopResearch:
-      store.researchState === ResearchState.RUNNING || store.researchState === ResearchState.PAUSED,
+      store.researchState === ResearchState.RUNNING ||
+      store.researchState === ResearchState.PAUSED ||
+      store.researchState === ResearchState.STOPPING,
     pauseResearch: store.researchState === ResearchState.RUNNING,
     resumeResearch: store.researchState === ResearchState.PAUSED,
     positionEditing: store.appState === AppState.NORMAL,

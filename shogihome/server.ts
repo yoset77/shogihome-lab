@@ -62,11 +62,22 @@ const getBasePath = () => {
 dotenv.config({ path: path.join(getBasePath(), ".env") });
 
 export const app = express();
-app.set("trust proxy", 1);
+if (process.env.TRUST_PROXY === "true") {
+  app.set("trust proxy", 1);
+  console.log("Trust proxy is ENABLED");
+} else {
+  app.set("trust proxy", false);
+  console.log("Trust proxy is DISABLED");
+}
 const server = http.createServer(app);
 server.timeout = 900000;
 
 const PORT = parseInt(process.env.PORT || "8140", 10);
+let val = parseInt(process.env.ENGINE_STOP_TIMEOUT_MS || "10000", 10);
+if (isNaN(val) || val <= 0) {
+  val = 10000;
+}
+const ENGINE_STOP_TIMEOUT_MS = Math.min(Math.max(val, 1000), 600000); // 1s - 10m
 const DISABLE_AUTO_ALLOWED_ORIGINS = process.env.DISABLE_AUTO_ALLOWED_ORIGINS === "true";
 
 // Build ALLOWED_ORIGINS
@@ -1348,13 +1359,19 @@ class EngineSession {
         this.engineState = EngineState.STOPPING_SEARCH;
         this.postStopCommandQueue.length = 0;
         this.sendToEngine("stop");
+        if (this.stopTimeout) clearTimeout(this.stopTimeout);
         this.stopTimeout = setTimeout(() => {
           if (this.engineState === EngineState.STOPPING_SEARCH) {
-            console.warn("Engine did not respond to stop command. Resending.");
-            this.sendToEngine("stop");
-            this.stopTimeout = null;
+            console.error(
+              `Engine for session ${this.sessionId} did not respond to stop command within ${ENGINE_STOP_TIMEOUT_MS}ms. Resetting engine session.`,
+            );
+            this.sendError("Engine did not respond to stop command. Session reset.");
+            if (this.engineHandle) {
+              this.engineState = EngineState.TERMINATING;
+              this.engineHandle.close();
+            }
           }
-        }, 5000);
+        }, ENGINE_STOP_TIMEOUT_MS);
       }
     };
 
@@ -1539,7 +1556,14 @@ const getEngineList = (ws: WebSocket) => {
         });
       }
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ engineList: engines }));
+        const sanitizedEngines = Array.isArray(engines)
+          ? engines.map((e: { id: string; name: string; type?: string }) => ({
+              id: e.id,
+              name: e.name,
+              type: e.type,
+            }))
+          : [];
+        ws.send(JSON.stringify({ engineList: sanitizedEngines }));
       }
     } catch (e) {
       console.error("Failed to parse engine list from wrapper:", e);

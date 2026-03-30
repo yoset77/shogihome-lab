@@ -5,7 +5,6 @@ export interface LanEngineInfo {
   id: string;
   name: string;
   type?: "game" | "research" | "both";
-  path: string;
 }
 
 export type LanEngineStatus = "disconnected" | "connecting" | "connected";

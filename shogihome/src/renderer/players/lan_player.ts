@@ -267,20 +267,6 @@ export class LanPlayer implements Player {
       this.stopPromiseResolver = resolve;
       this.stopPromiseRejector = reject;
       this.lanEngine.sendCommand("stop");
-
-      // Fallback timeout in case engine doesn't respond or message is lost
-      setTimeout(() => {
-        if (this.stopPromiseResolver === resolve) {
-          console.error("LanPlayer: stopAndWait timed out, forcing resume.");
-          this.isThinking = false;
-          if (this.stopPromiseResolver) {
-            this.stopPromiseResolver();
-          }
-          this.stopPromiseResolver = null;
-          this.stopPromiseRejector = null;
-          this.stopPromise = null;
-        }
-      }, 5000);
     });
 
     return this.stopPromise;
@@ -292,6 +278,12 @@ export class LanPlayer implements Player {
       const data = JSON.parse(message);
       if (data.error) {
         const error = new Error(data.error);
+        if (this.stopPromiseRejector) {
+          this.stopPromiseRejector(error);
+          this.stopPromiseResolver = null;
+          this.stopPromiseRejector = null;
+          this.stopPromise = null;
+        }
         if (this.handler) {
           this.handler.onError(error);
         } else if (this.onErrorCallback) {

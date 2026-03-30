@@ -31,6 +31,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
         REMOTE_ENGINE_PORT: WRAPPER_PORT.toString(),
         ALLOWED_ORIGINS: `http://localhost:${SERVER_PORT}`,
         WRAPPER_ACCESS_TOKEN: "",
+        ENGINE_STOP_TIMEOUT_MS: "2000",
       },
       stdio: "pipe",
       shell: true,
@@ -39,10 +40,14 @@ describe("Server USI Protocol & Implicit Stop", () => {
     await new Promise<void>((resolve, reject) => {
       serverProcess.stdout?.on("data", (data) => {
         const msg = data.toString();
+        process.stdout.write(`[SERVER STDOUT] ${msg}`);
         if (msg.includes(`Server is listening on 0.0.0.0:${SERVER_PORT}`)) {
           serverReady = true;
           resolve();
         }
+      });
+      serverProcess.stderr?.on("data", (data) => {
+        process.stderr.write(`[SERVER STDERR] ${data.toString()}`);
       });
       setTimeout(() => {
         if (!serverReady) reject(new Error("Server start timeout"));
@@ -346,6 +351,130 @@ describe("Server USI Protocol & Implicit Stop", () => {
     await testFinished;
     expect(receivedAfterQuit).toHaveLength(0);
     ws.send("stop_engine");
+    ws.close();
+  });
+
+  it("should force reset session on engine stop timeout", async () => {
+    const sessionId = "test-stop-timeout";
+    const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
+      origin: `http://localhost:${SERVER_PORT}`,
+    });
+    await new Promise<void>((resolve) => ws.on("open", resolve));
+
+    let stopReceived = false;
+    mockWrapperServer.once("connection", (socket) => {
+      socket.on("data", (data) => {
+        const cmds = data.toString().split("\n");
+        for (const cmd of cmds) {
+          const c = cmd.trim();
+          if (c === "run test-engine") setTimeout(() => socket.write("usiok\n"), 10);
+          if (c === "isready") setTimeout(() => socket.write("readyok\n"), 10);
+          if (c === "stop") {
+            stopReceived = true;
+            // Ignore stop command and don't send bestmove
+          }
+        }
+      });
+    });
+
+    ws.send("start_engine test-engine");
+    await waitForEngineReady(ws);
+    ws.send("go infinite");
+
+    // Wait for thinking state to ensure engine is busy.
+    await new Promise<void>((resolve) => {
+      const listener = (data: WebSocket.RawData) => {
+        if (JSON.parse(data.toString()).state === "thinking") {
+          ws.off("message", listener);
+          resolve();
+        }
+      };
+      ws.on("message", listener);
+    });
+
+    // Wait for both the error message and the stopped state transition.
+    const resetPromise = new Promise<void>((resolve, reject) => {
+      let errorReceived = false;
+      let stateStoppedReceived = false;
+      const timeout = setTimeout(() => {
+        reject(
+          new Error(
+            `Timeout waiting for reset messages. errorReceived=${errorReceived}, stateStoppedReceived=${stateStoppedReceived}`,
+          ),
+        );
+      }, 10000);
+
+      ws.on("message", (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.error === "error: Engine did not respond to stop command. Session reset.") {
+          errorReceived = true;
+        }
+        if (msg.state === "stopped") {
+          stateStoppedReceived = true;
+        }
+        if (errorReceived && stateStoppedReceived) {
+          clearTimeout(timeout);
+          resolve();
+        }
+      });
+    });
+
+    ws.send("stop");
+
+    await resetPromise;
+    expect(stopReceived).toBe(true);
+
+    ws.send("stop_engine");
+    ws.close();
+  }, 20000);
+
+  it("should sanitize engine list discovery payload", async () => {
+    const sessionId = "discovery-test";
+    const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
+      origin: `http://localhost:${SERVER_PORT}`,
+    });
+    await new Promise<void>((resolve) => ws.on("open", resolve));
+
+    const testFinished = new Promise<void>((resolve) => {
+      mockWrapperServer.once("connection", (socket) => {
+        socket.on("data", (data) => {
+          const cmd = data.toString().trim();
+          if (cmd === "list") {
+            socket.write(
+              JSON.stringify([
+                { id: "engine1", name: "Engine 1", type: "game", path: "/secret/path/1" },
+                { id: "engine2", name: "Engine 2", type: "research", path: "/secret/path/2" },
+              ]) + "\n",
+            );
+            setTimeout(() => socket.end(), 10);
+            resolve();
+          }
+        });
+      });
+    });
+
+    ws.send("get_engine_list");
+
+    const engineListPromise = new Promise<
+      { id: string; name: string; type?: string; path?: string }[]
+    >((resolve) => {
+      ws.on("message", (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.engineList) {
+          resolve(msg.engineList);
+        }
+      });
+    });
+
+    const list = await engineListPromise;
+    await testFinished;
+
+    expect(list).toHaveLength(2);
+    expect(list[0].id).toBe("engine1");
+    expect(list[0].path).toBeUndefined(); // Path should be removed
+    expect(list[1].id).toBe("engine2");
+    expect(list[1].path).toBeUndefined(); // Path should be removed
+
     ws.close();
   });
 });

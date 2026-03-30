@@ -1225,11 +1225,11 @@ class Store {
     ) {
       return;
     }
-    useBusyState().retain();
     if (!researchSettings.usi) {
       useErrorStore().add(new Error("エンジンが設定されていません。"));
       return;
     }
+    useBusyState().retain();
     api
       .saveResearchSettings(researchSettings)
       .then(() => this.researchManager.launch(researchSettings))
@@ -1262,8 +1262,17 @@ class Store {
     ) {
       return;
     }
-    this.researchManager.close();
-    this._researchState = ResearchState.IDLE;
+    this._researchState = ResearchState.STOPPING;
+    this.researchManager
+      .close()
+      .catch((e) => {
+        useErrorStore().add(e);
+      })
+      .finally(() => {
+        if (this._researchState === ResearchState.STOPPING) {
+          this._researchState = ResearchState.IDLE;
+        }
+      });
   }
 
   pauseResearch(): void {
@@ -1323,11 +1332,11 @@ class Store {
     if (this.appState !== AppState.MATE_SEARCH_DIALOG || useBusyState().isBusy) {
       return;
     }
-    useBusyState().retain();
     if (!mateSearchSettings.usi) {
       useErrorStore().add(new Error(t.engineNotSelected));
       return;
     }
+    useBusyState().retain();
     api
       .saveMateSearchSettings(mateSearchSettings)
       .then(() => this.mateSearchManager.start(mateSearchSettings, this.recordManager.record))
