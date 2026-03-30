@@ -311,4 +311,26 @@ describe("LanPlayer", () => {
     await p2;
     expect(onStartSearch).toBeCalledWith(200000, record.position);
   });
+
+  it("stopAndWait should reject on server error", async () => {
+    const player = new LanPlayer("research_main", "test-engine", "Test Engine");
+    await launchPlayer(player);
+
+    // Override sendCommand mock to NOT send bestmove automatically
+    (LanEngine.prototype.sendCommand as Mock).mockImplementation(() => {
+      return Promise.resolve();
+    });
+
+    const usi = "position startpos";
+    const record = Record.newByUSI(usi) as Record;
+    await player.startResearch(record.position, usi);
+
+    const stopPromise = player.stop();
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Simulate server error
+    sendMsg({ error: "Engine did not respond to stop command" });
+
+    await expect(stopPromise).rejects.toThrow("Engine did not respond to stop command");
+  });
 });
