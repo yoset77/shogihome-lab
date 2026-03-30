@@ -15,6 +15,8 @@
       :position="record.position"
       :last-move="lastMove"
       :flip="flip"
+      :mobile="true"
+      :drop-shadows="false"
       :black-player-name="t.sente"
       :white-player-name="t.gote"
     />

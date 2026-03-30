@@ -19,6 +19,7 @@
       :candidates="store.candidates"
       :flip="appSettings.boardFlipping"
       :hide-clock="store.appState !== AppState.GAME && store.appState !== AppState.CSA_GAME"
+      :mobile="isMobileWebApp()"
       :allow-move="store.isMovableByUser"
       :allow-edit="store.appState === AppState.POSITION_EDITING"
       :black-player-name="blackPlayerName"
@@ -28,6 +29,7 @@
       :white-player-time="clock?.white.time"
       :white-player-byoyomi="clock?.white.byoyomi"
       :next-move-label="t.nextTurn"
+      :drop-shadows="!isMobileWebApp()"
       @resize="onResize"
       @move="onMove"
       @edit="onEdit"
@@ -61,6 +63,7 @@ import ControlPane, { ControlGroup } from "@/renderer/view/main/ControlPane.vue"
 import { AppState } from "@/common/control/state.js";
 import { humanPlayer } from "@/renderer/players/human";
 import { CSAGameState } from "@/renderer/store/csa";
+import { isMobileWebApp } from "@/renderer/ipc/api.js";
 import { useAppSettings } from "@/renderer/store/settings";
 import {
   RightSideControlType,
