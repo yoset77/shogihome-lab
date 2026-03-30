@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import api, { API } from "@/renderer/ipc/api.js";
 import { ImmutablePosition, Move, Position } from "tsshogi";
+import fs from "node:fs";
 import { createStore } from "@/renderer/store/index.js";
 import { RecordCustomData } from "@/renderer/store/record.js";
 import * as audio from "@/renderer/devices/audio.js";
@@ -141,6 +142,22 @@ const sampleBranchKIF = `
 変化：7手
 7 ２四歩(25) ( 0:00/0:00:00)
 `;
+
+const sampleEncodingKIF = `手合割：平手
+手数----指手---------消費時間--
+   1 ２六歩(27)   ( 0:00/00:00:00)
+   2 ８四歩(83)   ( 0:00/00:00:00)
+**評価値=80
+*
+*#評価値=-60
+   3 ７六歩(77)   ( 0:00/00:00:00)
+**詰み=先手勝ち
+*
+*#詰み=後手勝ち
+   4 ８五歩(84)   ( 0:00/00:00:00)
+**詰み=先手勝ち:15手
+*
+*#詰み=後手勝ち:8手`;
 
 describe("store/index", () => {
   beforeEach(() => {
@@ -988,5 +1005,53 @@ describe("store/index", () => {
     expect(useErrorStore().errors).toStrictEqual([]);
     expect(mockBookStore.openBook).toBeCalledTimes(1);
     expect(mockBookStore.openBook).toBeCalledWith("/test/sample.db");
+  });
+
+  it("saveRecord/useUTF8ForKifAndKi2/disabled", async () => {
+    await useAppSettings().updateAppSettings({ returnCode: "\n" });
+    const store = createStore();
+    mockAPI.saveRecord.mockResolvedValue();
+
+    store.pasteRecord(sampleEncodingKIF);
+
+    mockAPI.showSaveRecordDialog.mockResolvedValueOnce("/test/output.kif");
+    store.saveRecord();
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(useErrorStore().hasError).toBeFalsy();
+    expect(new Uint8Array(mockAPI.saveRecord.mock.calls[0][1])).toEqual(
+      new Uint8Array(fs.readFileSync("src/tests/testdata/encoding/sjis.kif")),
+    );
+
+    mockAPI.showSaveRecordDialog.mockResolvedValueOnce("/test/output.ki2");
+    store.saveRecord();
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(useErrorStore().hasError).toBeFalsy();
+    expect(new Uint8Array(mockAPI.saveRecord.mock.calls[1][1])).toEqual(
+      new Uint8Array(fs.readFileSync("src/tests/testdata/encoding/sjis.ki2")),
+    );
+  });
+
+  it("saveRecord/useUTF8ForKifAndKi2/enabled", async () => {
+    await useAppSettings().updateAppSettings({ returnCode: "\n", useUTF8ForKifAndKi2: true });
+    const store = createStore();
+    mockAPI.saveRecord.mockResolvedValue();
+
+    store.pasteRecord(sampleEncodingKIF);
+
+    mockAPI.showSaveRecordDialog.mockResolvedValueOnce("/test/output.kif");
+    store.saveRecord();
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(useErrorStore().hasError).toBeFalsy();
+    expect(new Uint8Array(mockAPI.saveRecord.mock.calls[0][1])).toEqual(
+      new Uint8Array(fs.readFileSync("src/tests/testdata/encoding/utf8.kif")),
+    );
+
+    mockAPI.showSaveRecordDialog.mockResolvedValueOnce("/test/output.ki2");
+    store.saveRecord();
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(useErrorStore().hasError).toBeFalsy();
+    expect(new Uint8Array(mockAPI.saveRecord.mock.calls[1][1])).toEqual(
+      new Uint8Array(fs.readFileSync("src/tests/testdata/encoding/utf8.ki2")),
+    );
   });
 });

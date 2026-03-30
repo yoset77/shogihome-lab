@@ -140,6 +140,7 @@ class DirectoryWriter {
     const exportResult = exportRecordAsBuffer(record, this.settings.destinationFormat, {
       returnCode: this.appSettings.returnCode,
       csa: { v3: this.appSettings.useCSAV3 },
+      useUTF8ForKifAndKi2: this.appSettings.useUTF8ForKifAndKi2,
     });
     await fs.writeFile(destination, exportResult.data);
     getAppLogger().debug(`batch conversion: success: ${source} -> ${destination}`);
