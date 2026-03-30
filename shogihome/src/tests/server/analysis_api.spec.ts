@@ -71,7 +71,7 @@ describe("Analysis DB API error handling", () => {
       .set("Host", `localhost:${SERVER_PORT}`);
 
     expect(response.status).toBe(500);
-    expect(response.text).toContain("failed to get analysis db stats");
+    expect(response.text).toContain("stats failure");
   });
 
   it("should return 500 when delete_by_engine fails", async () => {
@@ -85,7 +85,7 @@ describe("Analysis DB API error handling", () => {
       .send({ engineId: 1 });
 
     expect(response.status).toBe(500);
-    expect(response.text).toContain("failed to delete analysis results by engine");
+    expect(response.text).toContain("delete failure");
   });
 
   it("should return 500 when cleanup fails", async () => {
@@ -99,6 +99,6 @@ describe("Analysis DB API error handling", () => {
       .send({ minDepth: 10 });
 
     expect(response.status).toBe(500);
-    expect(response.text).toContain("failed to cleanup analysis results");
+    expect(response.text).toContain("cleanup failure");
   });
 });
