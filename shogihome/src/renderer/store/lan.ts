@@ -20,8 +20,6 @@ export function useLanStore() {
     } catch (e) {
       console.error("Failed to fetch engine list:", e);
       // Keep previous list if available, or empty
-    } finally {
-      lanDiscoveryEngine.disconnect();
     }
   };
 

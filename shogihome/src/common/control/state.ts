@@ -30,6 +30,7 @@ export enum AppState {
 export enum ResearchState {
   IDLE = "idle",
   STARTUP_DIALOG = "startupDialog",
+  STOPPING = "stopping",
   RUNNING = "running",
   PAUSED = "paused",
 }

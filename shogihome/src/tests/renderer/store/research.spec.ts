@@ -180,6 +180,13 @@ describe("store/research", () => {
     mockAPI.usiGoInfinite.mockResolvedValue();
     mockAPI.usiStop.mockResolvedValue();
     mockAPI.usiSetOption.mockResolvedValue();
+    const originalOption: USIEngineOption = {
+      name: "MultiPV",
+      order: 1,
+      type: "spin",
+      default: 1,
+      value: 1,
+    };
     const manager = new ResearchManager();
     await manager.launch({
       ...researchSettings,
@@ -188,13 +195,7 @@ describe("store/research", () => {
       usi: {
         ...(researchSettings.usi as USIEngine),
         options: {
-          MultiPV: {
-            name: "MultiPV",
-            order: 1,
-            type: "spin",
-            default: 1,
-            value: 1,
-          } as USIEngineOption,
+          MultiPV: originalOption,
         },
       },
     });
@@ -206,6 +207,36 @@ describe("store/research", () => {
       default: 1,
       value: 4,
     });
+    expect(originalOption.value).toBe(1);
     expect(manager.getMultiPV(101)).toBe(4);
+  });
+
+  it("close should prevent restart until shutdown completes", async () => {
+    vi.useFakeTimers();
+    mockAPI.usiLaunch.mockResolvedValueOnce(100);
+    mockAPI.usiGoInfinite.mockResolvedValue();
+    let resolveQuit: (() => void) | undefined;
+    mockAPI.usiQuit.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveQuit = resolve;
+        }),
+    );
+
+    const manager = new ResearchManager();
+    await manager.launch(researchSettings);
+    const record = new Record();
+    manager.updatePosition(record);
+    vi.runOnlyPendingTimers();
+    expect(mockAPI.usiGoInfinite).toBeCalledTimes(1);
+
+    const closePromise = manager.close();
+    record.append(record.position.createMoveByUSI("7g7f") as Move);
+    manager.updatePosition(record);
+    vi.runOnlyPendingTimers();
+    expect(mockAPI.usiGoInfinite).toBeCalledTimes(1);
+
+    resolveQuit?.();
+    await closePromise;
   });
 });

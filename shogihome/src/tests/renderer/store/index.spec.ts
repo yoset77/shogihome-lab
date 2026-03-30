@@ -493,6 +493,18 @@ describe("store/index", () => {
     expect(mockResearchManager.launch.mock.calls[0][0]).toStrictEqual(researchSettings);
   });
 
+  it("startResearch/withoutEngineShouldNotLeakBusyState", () => {
+    const store = createStore();
+    store.showResearchDialog();
+
+    store.startResearch({
+      ...researchSettings,
+      usi: undefined,
+    });
+
+    expect(useBusyState().isBusy).toBeFalsy();
+  });
+
   it("startAnalysis/success", async () => {
     mockAPI.saveAnalysisSettings.mockResolvedValue();
     mockAnalysisManager.prototype.start.mockResolvedValue();
@@ -530,6 +542,18 @@ describe("store/index", () => {
     expect(mockAPI.saveMateSearchSettings).toBeCalledWith(mateSearchSettings);
     expect(mockMateSearchManager.prototype.start).toBeCalledTimes(1);
     expect(mockMateSearchManager.prototype.start.mock.calls[0][0]).toBe(mateSearchSettings);
+  });
+
+  it("startMateSearch/withoutEngineShouldNotLeakBusyState", () => {
+    const store = createStore();
+    store.showMateSearchDialog();
+
+    store.startMateSearch({
+      ...mateSearchSettings,
+      usi: undefined,
+    });
+
+    expect(useBusyState().isBusy).toBeFalsy();
   });
 
   it("doMove", () => {

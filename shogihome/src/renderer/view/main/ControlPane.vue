@@ -7,7 +7,10 @@
       >
         <!-- 検討 -->
         <button
-          v-show="store.researchState !== ResearchState.RUNNING"
+          v-show="
+            store.researchState !== ResearchState.RUNNING &&
+            store.researchState !== ResearchState.STOPPING
+          "
           class="control-item"
           data-hotkey="Mod+r"
           @click="onResearch"
@@ -19,7 +22,8 @@
         <button
           v-show="
             store.researchState === ResearchState.RUNNING ||
-            store.researchState === ResearchState.PAUSED
+            store.researchState === ResearchState.PAUSED ||
+            store.researchState === ResearchState.STOPPING
           "
           class="control-item close"
           @click="onEndResearch"

@@ -8,6 +8,15 @@ import { SearchInfoSenderType } from "./record.js";
 import { useAppSettings } from "./settings.js";
 import { Lazy } from "@/renderer/helpers/lazy.js";
 
+function cloneUSIEngineOptions(options: USIEngine["options"]): USIEngine["options"] {
+  return Object.fromEntries(
+    Object.entries(options).map(([name, option]) => [
+      name,
+      option.type === "combo" ? { ...option, vars: [...option.vars] } : { ...option },
+    ]),
+  );
+}
+
 function getSenderTypeByIndex(index: number): SearchInfoSenderType | undefined {
   switch (index) {
     case 0:
@@ -36,6 +45,8 @@ export class ResearchManager {
   private settings = defaultResearchSettings();
   private engines: Engine[] = [];
   private ready: boolean = false;
+  private stopping = false;
+  private closingPromise?: Promise<void>;
   private onUpdateSearchInfo: UpdateSearchInfoCallback = () => {
     /* noop */
   };
@@ -61,6 +72,9 @@ export class ResearchManager {
   }
 
   async launch(settings: ResearchSettings) {
+    if (this.closingPromise) {
+      await this.closingPromise;
+    }
     this.settings = settings;
 
     // Validation
@@ -81,6 +95,7 @@ export class ResearchManager {
     // エンジンを設定する。
     const appSettings = useAppSettings();
     const usiEngines = [settings.usi, ...(settings.secondaries?.map((s) => s.usi) || [])];
+    this.stopping = false;
     this.engines = usiEngines.map((usi, index) => {
       const type = getSenderTypeByIndex(index);
 
@@ -117,7 +132,7 @@ export class ResearchManager {
         };
       }
 
-      const options = usi!.options;
+      const options = cloneUSIEngineOptions(usi!.options);
       if (settings.overrideMultiPV) {
         if (options[USIMultiPV]?.type === "spin") {
           options[USIMultiPV].value = settings.multiPV;
@@ -143,20 +158,27 @@ export class ResearchManager {
         await Promise.all(this.engines.map((engine) => engine.usi.setMultiPV(settings.multiPV)));
       }
       await Promise.all(this.engines.map((engine) => engine.usi.readyNewGame()));
+      if (this.stopping) {
+        await this.close();
+        return;
+      }
       this.ready = true;
     } catch (e) {
-      this.close();
+      await this.close();
       throw e;
     }
   }
 
   updatePosition(record: ImmutableRecord) {
+    if (this.stopping) {
+      return;
+    }
     // 反映を遅延させるので同期済みフラグを下ろす。
     this.synced = false;
     // 200ms 以内に複数回更新されたら最後の 1 回だけを処理する。
     this.lazyPositionUpdate.after(() => {
       // 初期化処理が終わっていない場合は何もしない。
-      if (!this.ready) {
+      if (!this.ready || this.stopping) {
         return;
       }
       // 一時停止中のエンジンを除いて探索を開始する。
@@ -184,6 +206,9 @@ export class ResearchManager {
   pause(sessionID: number): void;
   pause(): void;
   pause(sessionID?: number) {
+    if (this.stopping) {
+      return;
+    }
     if (sessionID !== undefined) {
       const engine = this.engines.find((engine) => engine.usi.sessionID === sessionID);
       if (!engine) {
@@ -208,6 +233,9 @@ export class ResearchManager {
   unpause(sessionID: number): void;
   unpause(): void;
   unpause(sessionID?: number) {
+    if (this.stopping) {
+      return;
+    }
     if (sessionID !== undefined) {
       const engine = this.engines.find((engine) => engine.usi.sessionID === sessionID);
       if (!engine) {
@@ -242,6 +270,9 @@ export class ResearchManager {
   }
 
   setMultiPV(sessionID: number, multiPV: number) {
+    if (this.stopping) {
+      return;
+    }
     const engine = this.engines.find((engine) => engine.usi.sessionID === sessionID);
     if (!engine || engine.usi.multiPV === undefined) {
       return;
@@ -283,16 +314,31 @@ export class ResearchManager {
     }
   }
 
-  close() {
+  close(): Promise<void> {
+    if (this.closingPromise) {
+      return this.closingPromise;
+    }
+    this.stopping = true;
+    this.ready = false;
+    this.synced = false;
+    this.record = undefined;
     this.lazyPositionUpdate.clear();
-    this.engines.forEach((engine) => clearTimeout(engine.timer));
-    Promise.allSettled(this.engines.map((engine) => engine.usi.close()))
-      .then(() => {
-        this.engines = [];
-        this.ready = false;
-      })
-      .catch((e) => {
-        this.onError(e);
+    const enginesToClose = this.engines;
+    this.engines = [];
+    enginesToClose.forEach((engine) => clearTimeout(engine.timer));
+    this.closingPromise = Promise.allSettled(
+      enginesToClose.map((engine) => engine.usi.close()),
+    ).then((results) => {
+      results.forEach((result) => {
+        if (result.status === "rejected") {
+          this.onError(result.reason);
+        }
       });
+      this.engines = [];
+      this.ready = false;
+      this.stopping = false;
+      this.closingPromise = undefined;
+    });
+    return this.closingPromise;
   }
 }
