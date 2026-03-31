@@ -360,6 +360,18 @@
           <div class="form-item-label-wide">{{ t.showBookTableOnMobile }}</div>
           <ToggleButton v-model:value="update.showBookTableOnMobile" />
         </div>
+        <!-- グラフの表示形式 (モバイル) -->
+        <div v-if="isMobileWebApp()" class="form-item">
+          <div class="form-item-label-wide">{{ t.evaluationChartType }}</div>
+          <HorizontalSelector
+            v-model:value="update.evaluationChartType"
+            class="selector"
+            :items="[
+              { label: t.evaluation, value: EvaluationChartType.RAW },
+              { label: t.estimatedWinRate, value: EvaluationChartType.WIN_RATE },
+            ]"
+          />
+        </div>
       </div>
       <hr />
       <!-- 音 -->
@@ -917,12 +929,16 @@ import {
 } from "@/common/links/github";
 import { useErrorStore } from "@/renderer/store/error";
 import { useBusyState } from "@/renderer/store/busy";
-import { BoardLayoutType } from "@/common/settings/layout";
+import {
+  BoardLayoutType,
+  EvaluationChartType as EvaluationChartTypeImport,
+} from "@/common/settings/layout";
 import { SearchCommentFormat } from "@/common/settings/comment";
 import DialogFrame from "./DialogFrame.vue";
 import { USIEngines, getPredefinedUSIEngineTag } from "@/common/settings/usi";
 import PlayerSelector from "./PlayerSelector.vue";
 
+const EvaluationChartType = EvaluationChartTypeImport;
 const store = useStore();
 const busyState = useBusyState();
 const org = useAppSettings();
@@ -996,6 +1012,7 @@ const update = ref({
   logLevel: org.logLevel,
   enableHardwareAcceleration: org.enableHardwareAcceleration,
   showBookTableOnMobile: org.showBookTableOnMobile,
+  evaluationChartType: org.evaluationChartType,
   analysisDBSearchMode: org.analysisDBSearchMode,
   analysisDBMaxPVLength: org.analysisDBMaxPVLength,
 });

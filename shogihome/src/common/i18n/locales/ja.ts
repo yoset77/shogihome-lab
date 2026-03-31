@@ -840,6 +840,7 @@ export const ja: Texts = {
   bookDataWasSaved: "定跡データを保存しました。",
   openBook: "定跡を開く",
   showBookTableOnMobile: "定跡タブを表示",
+  evaluationChartType: "グラフの表示形式",
   noBookFoundCheckKifuDir:
     "定跡ファイルが見つかりませんでした。KIFU_DIR が設定されているか、対象の拡張子（.db, .bin）が含まれているか確認してください。",
   hierarchy: "階層",

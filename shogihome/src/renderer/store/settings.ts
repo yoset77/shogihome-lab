@@ -34,7 +34,7 @@ import api from "@/renderer/ipc/api.js";
 import { LogLevel } from "@/common/log.js";
 import { Language } from "@/common/i18n/index.js";
 import { RecordFileFormat } from "@/common/file/record.js";
-import { BoardLayoutType } from "@/common/settings/layout.js";
+import { BoardLayoutType, EvaluationChartType } from "@/common/settings/layout.js";
 import { SearchCommentFormat } from "@/common/settings/comment.js";
 
 class AppSettingsStore {
@@ -308,6 +308,9 @@ class AppSettingsStore {
   }
   get showBookTableOnMobile(): boolean {
     return this.merged.showBookTableOnMobile;
+  }
+  get evaluationChartType(): EvaluationChartType {
+    return this.merged.evaluationChartType;
   }
   get analysisDBSearchMode(): AnalysisDBSearchMode {
     return this.merged.analysisDBSearchMode;
