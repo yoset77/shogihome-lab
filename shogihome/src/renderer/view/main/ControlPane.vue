@@ -223,7 +223,6 @@
           <span :class="{ tooltip: compact }">{{ t.appSettings }}</span>
         </button>
       </div>
-      <GameMenu v-if="isGameMenuVisible" @close="isGameMenuVisible = false" />
       <FileMenu v-if="isFileMenuVisible" @close="isFileMenuVisible = false" />
       <InitialPositionMenu
         v-if="isInitialPositionMenuVisible"
@@ -248,7 +247,6 @@ import { onBeforeUnmount, onMounted, PropType, ref } from "vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { AppState, ResearchState } from "@/common/control/state.js";
 import { IconType } from "@/renderer/assets/icons";
-import GameMenu from "@/renderer/view/menu/GameMenu.vue";
 import FileMenu from "@/renderer/view/menu/FileMenu.vue";
 import { DeclarableJishogiRules } from "@/common/settings/game";
 import InitialPositionMenu from "@/renderer/view/menu/InitialPositionMenu.vue";
@@ -278,7 +276,6 @@ defineProps({
 const store = useStore();
 const appSettings = useAppSettings();
 const root = ref();
-const isGameMenuVisible = ref(false);
 const isFileMenuVisible = ref(false);
 const isInitialPositionMenuVisible = ref(false);
 const lanStore = useLanStore();
@@ -292,7 +289,7 @@ onBeforeUnmount(() => {
 });
 
 const onGame = () => {
-  isGameMenuVisible.value = true;
+  store.showGameDialog();
 };
 
 const onShowGameResults = () => {
