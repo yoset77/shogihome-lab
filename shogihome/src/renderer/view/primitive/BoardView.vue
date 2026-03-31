@@ -6,7 +6,11 @@
         <div v-if="board.background.textureImagePath" :style="board.background.style">
           <img class="full" :src="board.background.textureImagePath" />
         </div>
-        <div class="board-background" :style="board.background.style">
+        <div
+          class="board-background"
+          :class="{ 'drop-shadows': dropShadows }"
+          :style="board.background.style"
+        >
           <BoardGrid class="full" :color="boardGridColor || board.background.gridColor" />
         </div>
         <div v-for="square in board.squares" :key="square.id" :style="square.backgroundStyle"></div>
@@ -19,8 +23,12 @@
       </div>
 
       <!-- 先手の駒台 -->
-      <div class="hand" :style="main.blackHandStyle">
-        <div class="hand-background" :style="blackHand.backgroundStyle">
+      <div class="hand" :class="flip ? 'back' : 'front'" :style="main.blackHandStyle">
+        <div
+          class="hand-background"
+          :class="{ 'drop-shadows': dropShadows }"
+          :style="blackHand.backgroundStyle"
+        >
           <img v-if="blackHand.textureImagePath" class="full" :src="blackHand.textureImagePath" />
         </div>
         <div
@@ -37,8 +45,12 @@
       </div>
 
       <!-- 後手の駒台 -->
-      <div class="hand" :style="main.whiteHandStyle">
-        <div class="hand-background" :style="whiteHand.backgroundStyle">
+      <div class="hand" :class="flip ? 'front' : 'back'" :style="main.whiteHandStyle">
+        <div
+          class="hand-background"
+          :class="{ 'drop-shadows': dropShadows }"
+          :style="whiteHand.backgroundStyle"
+        >
           <img v-if="whiteHand.textureImagePath" class="full" :src="whiteHand.textureImagePath" />
         </div>
         <div
@@ -57,13 +69,14 @@
       <img
         v-for="arrow in arrows"
         :key="arrow.id"
+        class="arrows"
         src="/arrow/arrow.svg"
         :style="arrow.style"
         style="object-fit: cover; object-position: left top"
       />
 
       <!-- 操作用レイヤー -->
-      <div class="board" :style="main.boardStyle">
+      <div ref="boardOpEl" class="board operation" :style="main.boardStyle">
         <div
           v-for="square in board.squares"
           :key="square.id"
@@ -71,6 +84,7 @@
           @click.stop.prevent="clickSquare(square.file, square.rank)"
           @dblclick.stop.prevent="clickSquareR(square.file, square.rank)"
           @contextmenu.stop.prevent="clickSquareR(square.file, square.rank)"
+          @pointerdown="onSquarePointerDown($event, square.file, square.rank)"
         ></div>
         <div
           v-if="board.promote"
@@ -89,7 +103,7 @@
           <img class="piece-image" :src="board.doNotPromote.imagePath" draggable="false" />
         </div>
       </div>
-      <div class="hand" :style="main.blackHandStyle">
+      <div ref="blackHandOpEl" class="hand operation" :style="main.blackHandStyle">
         <div
           :style="blackHand.touchAreaStyle"
           @click.stop.prevent="clickHandArea(Color.BLACK)"
@@ -99,9 +113,10 @@
           :key="pointer.id"
           :style="pointer.style"
           @click.stop.prevent="clickHand(Color.BLACK, pointer.type)"
+          @pointerdown.stop="onHandPointerDown($event, Color.BLACK, pointer.type)"
         ></div>
       </div>
-      <div class="hand" :style="main.whiteHandStyle">
+      <div ref="whiteHandOpEl" class="hand operation" :style="main.whiteHandStyle">
         <div
           :style="whiteHand.touchAreaStyle"
           @click.stop.prevent="clickHandArea(Color.WHITE)"
@@ -111,6 +126,7 @@
           :key="pointer.id"
           :style="pointer.style"
           @click.stop.prevent="clickHand(Color.WHITE, pointer.type)"
+          @pointerdown.stop="onHandPointerDown($event, Color.WHITE, pointer.type)"
         ></div>
       </div>
 
@@ -156,14 +172,33 @@
       <div v-if="main.turn" class="turn" :style="main.turn.style">{{ nextMoveLabel }}</div>
 
       <!-- コントロールパネル -->
-      <div v-if="main.control" :style="main.control.left.style">
+      <div v-if="main.control" class="control" :style="main.control.left.style">
         <slot name="left-control"></slot>
       </div>
-      <div v-if="main.control" :style="main.control.right.style">
+      <div v-if="main.control" class="control" :style="main.control.right.style">
         <slot name="right-control"></slot>
       </div>
     </div>
   </div>
+
+  <!-- ドラッグ中の駒ゴースト -->
+  <Teleport to="body">
+    <div
+      v-if="drag.active && drag.pieceImagePath"
+      :style="{
+        position: 'fixed',
+        left: drag.ghostX + 'px',
+        top: drag.ghostY + 'px',
+        width: ghostPieceSize.width + 'px',
+        height: ghostPieceSize.height + 'px',
+        transform: 'translate(-50%, -50%)',
+        'pointer-events': 'none',
+        'z-index': '9999',
+      }"
+    >
+      <img :src="drag.pieceImagePath" style="width: 100%; height: 100%" draggable="false" />
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -176,8 +211,9 @@ import {
   ImmutablePosition,
   PositionChange,
   secondsToHHMMSS,
+  reverseColor,
 } from "tsshogi";
-import { computed, reactive, watch, PropType } from "vue";
+import { computed, reactive, ref, watch, onMounted, onUnmounted, PropType } from "vue";
 import {
   BoardImageType,
   BoardLabelType,
@@ -198,10 +234,29 @@ import {
 import { BoardLayoutType } from "@/common/settings/layout";
 import { CompactLayoutBuilder } from "./board/compact";
 import BoardGrid from "./BoardGrid.vue";
+import {
+  boardParams,
+  commonParams,
+  handParams,
+  compactHandParams,
+  portraitHandParams,
+} from "./board/params";
 
 type State = {
   pointer: Square | Piece | null;
   reservedMove: Move | null;
+};
+
+type DragState = {
+  pending: boolean; // pointerdown 記録済み、動き待ち
+  active: boolean; // ゴースト表示中
+  pointerId: number | null;
+  source: Square | Piece | null;
+  pieceImagePath: string | null;
+  ghostX: number;
+  ghostY: number;
+  startX: number;
+  startY: number;
 };
 
 const props = defineProps({
@@ -287,6 +342,11 @@ const props = defineProps({
     required: false,
     default: false,
   },
+  mobile: {
+    type: Boolean,
+    required: false,
+    default: false,
+  },
   allowEdit: {
     type: Boolean,
     required: false,
@@ -330,6 +390,11 @@ const props = defineProps({
     required: false,
     default: "手番",
   },
+  dropShadows: {
+    type: Boolean,
+    required: false,
+    default: true,
+  },
 });
 
 const emit = defineEmits<{
@@ -348,14 +413,267 @@ const resetState = () => {
   state.reservedMove = null;
 };
 
+const drag = reactive<DragState>({
+  pending: false,
+  active: false,
+  pointerId: null,
+  source: null,
+  pieceImagePath: null,
+  ghostX: 0,
+  ghostY: 0,
+  startX: 0,
+  startY: 0,
+});
+
+const resetDrag = () => {
+  drag.pending = false;
+  drag.active = false;
+  drag.pointerId = null;
+  drag.source = null;
+  drag.pieceImagePath = null;
+  document.body.style.cursor = "";
+};
+
+// ドラッグ完了後に click イベントを無効化するフラグ（非リアクティブ）
+let dragCompletedFlag = false;
+
+const boardOpEl = ref<HTMLElement | null>(null);
+const blackHandOpEl = ref<HTMLElement | null>(null);
+const whiteHandOpEl = ref<HTMLElement | null>(null);
+
 watch(
   [() => props.position, () => props.position.sfen, () => props.allowEdit, () => props.allowMove],
   () => {
     resetState();
+    resetDrag();
   },
 );
 
+// ドラッグ中のゴースト駒サイズ
+const ghostPieceSize = computed(() => ({
+  width: commonParams.piece.width * main.value.ratio,
+  height: commonParams.piece.height * main.value.ratio,
+}));
+
+// 駒の画像URLを取得
+const getPieceImagePath = (piece: Piece): string => {
+  const displayColor = config.value.flip ? reverseColor(piece.color) : piece.color;
+  const pieceType =
+    piece.type === PieceType.KING && piece.color === Color.BLACK ? "king2" : piece.type;
+  return config.value.pieceImages[displayColor][pieceType as PieceType | "king2"];
+};
+
+// ドラッグ開始候補を記録（盤上の駒）
+const beginDragFromSquare = (
+  clientX: number,
+  clientY: number,
+  file: number,
+  rank: number,
+  pointerId: number,
+) => {
+  if (!props.allowMove && !props.allowEdit) return;
+  if (state.reservedMove) return;
+  const square = new Square(file, rank);
+  const piece = props.position.board.at(square);
+  if (!piece) return;
+  if (!props.allowEdit && piece.color !== props.position.color) return;
+  drag.pending = true;
+  drag.pointerId = pointerId;
+  drag.source = square;
+  drag.pieceImagePath = getPieceImagePath(piece);
+  drag.startX = clientX;
+  drag.startY = clientY;
+  drag.ghostX = clientX;
+  drag.ghostY = clientY;
+};
+
+// ドラッグ開始候補を記録（持ち駒）
+const beginDragFromHand = (
+  clientX: number,
+  clientY: number,
+  color: Color,
+  type: PieceType,
+  pointerId: number,
+) => {
+  if (!props.allowMove && !props.allowEdit) return;
+  if (state.reservedMove) return;
+  if (props.position.hand(color).count(type) === 0) return;
+  if (!props.allowEdit && color !== props.position.color) return;
+  drag.pending = true;
+  drag.pointerId = pointerId;
+  drag.source = new Piece(color, type);
+  drag.pieceImagePath = getPieceImagePath(new Piece(color, type));
+  drag.startX = clientX;
+  drag.startY = clientY;
+  drag.ghostX = clientX;
+  drag.ghostY = clientY;
+};
+
+// ドラッグを有効化してゴーストを表示
+const activateDrag = () => {
+  drag.active = true;
+  document.body.style.cursor = "grabbing";
+  // ソースをポインタに設定することでハイライト・候補表示を流用
+  if (drag.source) {
+    state.pointer = drag.source;
+  }
+};
+
+const DRAG_THRESHOLD_SQ = 25; // 5px の2乗
+
+// カーソル座標から盤上のマスを逆算
+// .board.operation div は絶対配置の子のみのため getBoundingClientRect() の width/height が 0 になる。
+// そのため rect.right / rect.bottom ではなく boardParams の実寸で範囲チェックする。
+const getSquareFromClientPoint = (clientX: number, clientY: number): Square | null => {
+  if (!boardOpEl.value) return null;
+  const rect = boardOpEl.value.getBoundingClientRect();
+  const ratio = main.value.ratio;
+  const localX = clientX - rect.left;
+  const localY = clientY - rect.top;
+  if (
+    localX < 0 ||
+    localX > boardParams.width * ratio ||
+    localY < 0 ||
+    localY > boardParams.height * ratio
+  ) {
+    return null;
+  }
+  const squareW = boardParams.squareWidth * ratio;
+  const squareH = boardParams.squareHeight * ratio;
+  const leftPad = boardParams.leftSquarePadding * ratio;
+  const topPad = boardParams.topSquarePadding * ratio;
+  const xi = Math.floor((localX - leftPad) / squareW);
+  const yi = Math.floor((localY - topPad) / squareH);
+  if (xi < 0 || xi > 8 || yi < 0 || yi > 8) return null;
+  const file = config.value.flip ? xi + 1 : 9 - xi;
+  const rank = config.value.flip ? 9 - yi : yi + 1;
+  return new Square(file, rank);
+};
+
+// カーソル座標から駒台の手番色を特定
+// .hand.operation div も同様に width/height が 0 になるためレイアウト種別に応じた実寸を使う。
+const getHandColorFromClientPoint = (clientX: number, clientY: number): Color | null => {
+  const ratio = main.value.ratio;
+  let handW: number, handH: number;
+  switch (props.layoutType) {
+    case BoardLayoutType.COMPACT:
+      handW = compactHandParams.width * ratio;
+      handH = compactHandParams.height * ratio;
+      break;
+    case BoardLayoutType.PORTRAIT:
+      handW = portraitHandParams.width * ratio;
+      handH = portraitHandParams.height * ratio;
+      break;
+    default:
+      handW = handParams.width * ratio;
+      handH = handParams.height * ratio;
+  }
+  const inHand = (el: HTMLElement | null) => {
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    const lx = clientX - r.left;
+    const ly = clientY - r.top;
+    return lx >= 0 && lx <= handW && ly >= 0 && ly <= handH;
+  };
+  if (inHand(blackHandOpEl.value)) return Color.BLACK;
+  if (inHand(whiteHandOpEl.value)) return Color.WHITE;
+  return null;
+};
+
+// ドロップを処理
+const completeDrop = (clientX: number, clientY: number) => {
+  if (!drag.active) return;
+  const source = drag.source;
+  const square = getSquareFromClientPoint(clientX, clientY);
+  if (square && source) {
+    // ドロップ先に駒がある場合に clickSquare() を呼ぶとキャンセルと同時にその駒を選択してしまうため有効な移動かどうかを先に判定する。
+    const moveFrom = source instanceof Square ? source : (source as Piece).type;
+    const move = props.allowMove ? props.position.createMove(moveFrom, square) : null;
+    const validMove =
+      move !== null &&
+      (props.position.isValidMove(move) || props.position.isValidMove(move.withPromote()));
+    const validEdit = props.allowEdit && props.position.isValidEditing(source, square);
+    if (validMove || validEdit) {
+      clickSquare(square.file, square.rank);
+    } else {
+      resetState();
+    }
+  } else {
+    const color = getHandColorFromClientPoint(clientX, clientY);
+    if (color !== null) {
+      clickHandArea(color);
+    } else {
+      resetState();
+    }
+  }
+  dragCompletedFlag = true;
+};
+
+// グローバルポインタイベントハンドラ
+const onGlobalPointerMove = (e: PointerEvent) => {
+  if (e.pointerId !== drag.pointerId) return;
+  if (!drag.pending && !drag.active) return;
+  drag.ghostX = e.clientX;
+  drag.ghostY = e.clientY;
+  if (!drag.active) {
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (dx * dx + dy * dy > DRAG_THRESHOLD_SQ) {
+      activateDrag();
+    }
+  }
+};
+
+const onGlobalPointerUp = (e: PointerEvent) => {
+  if (e.pointerId !== drag.pointerId) return;
+  if (drag.active) {
+    completeDrop(e.clientX, e.clientY);
+  }
+  resetDrag();
+};
+
+const onGlobalPointerCancel = (e: PointerEvent) => {
+  if (e.pointerId !== drag.pointerId) return;
+  if (drag.active) {
+    resetState();
+  }
+  resetDrag();
+};
+
+// 盤上マス：pointerdown
+const onSquarePointerDown = (e: PointerEvent, file: number, rank: number) => {
+  if (e.button !== 0) return; // 左ボタン・タッチのみ
+  if (drag.pending || drag.active) return;
+  dragCompletedFlag = false;
+  beginDragFromSquare(e.clientX, e.clientY, file, rank, e.pointerId);
+};
+
+// 持ち駒：pointerdown
+const onHandPointerDown = (e: PointerEvent, color: Color, type: PieceType) => {
+  if (e.button !== 0) return; // 左ボタン・タッチのみ
+  if (drag.pending || drag.active) return;
+  dragCompletedFlag = false;
+  beginDragFromHand(e.clientX, e.clientY, color, type, e.pointerId);
+};
+
+onMounted(() => {
+  document.addEventListener("pointermove", onGlobalPointerMove);
+  document.addEventListener("pointerup", onGlobalPointerUp);
+  document.addEventListener("pointercancel", onGlobalPointerCancel);
+});
+
+onUnmounted(() => {
+  document.removeEventListener("pointermove", onGlobalPointerMove);
+  document.removeEventListener("pointerup", onGlobalPointerUp);
+  document.removeEventListener("pointercancel", onGlobalPointerCancel);
+  document.body.style.cursor = "";
+});
+
 const clickFrame = () => {
+  if (dragCompletedFlag) {
+    dragCompletedFlag = false;
+    return;
+  }
   resetState();
 };
 
@@ -421,6 +739,10 @@ const updatePointer = (newPointer: Square | Piece, empty: boolean, color: Color 
 };
 
 const clickSquare = (file: number, rank: number) => {
+  if (dragCompletedFlag) {
+    dragCompletedFlag = false;
+    return;
+  }
   const square = new Square(file, rank);
   const piece = props.position.board.at(square);
   const empty = !piece;
@@ -428,17 +750,29 @@ const clickSquare = (file: number, rank: number) => {
 };
 
 const clickHandArea = (color: Color) => {
+  if (dragCompletedFlag) {
+    dragCompletedFlag = false;
+    return;
+  }
   // 局面編集の場合はどの持ち駒でもない領域をクリックしても移動先として認識する。
   // empty = true なので移動先としてのみ利用され選択は残らない。
   updatePointer(new Piece(color, PieceType.PAWN), true, color);
 };
 
 const clickHand = (color: Color, type: PieceType) => {
+  if (dragCompletedFlag) {
+    dragCompletedFlag = false;
+    return;
+  }
   const empty = props.position.hand(color).count(type) === 0;
   updatePointer(new Piece(color, type), empty, color);
 };
 
 const clickSquareR = (file: number, rank: number) => {
+  // Ignore touch double-taps so promotion selection is not canceled on mobile.
+  if (props.mobile && !props.allowEdit) {
+    return;
+  }
   resetState();
   const square = new Square(file, rank);
   if (props.allowEdit && props.position.board.at(square)) {
@@ -506,11 +840,13 @@ const boardLayoutBuilder = computed(() => {
 });
 
 const board = computed(() => {
+  const dragSourceSquare = drag.active && drag.source instanceof Square ? drag.source : undefined;
   return boardLayoutBuilder.value.build(
     props.position.board,
     props.lastMove,
     state.pointer,
     state.reservedMove,
+    dragSourceSquare,
   );
 });
 
@@ -526,18 +862,28 @@ const handLayoutBuilder = computed(() => {
 });
 
 const blackHand = computed(() => {
+  const dragSourceType =
+    drag.active && drag.source instanceof Piece && drag.source.color === Color.BLACK
+      ? drag.source.type
+      : undefined;
   return handLayoutBuilder.value.build(
     props.position.hand(Color.BLACK),
     Color.BLACK,
     state.pointer,
+    dragSourceType,
   );
 });
 
 const whiteHand = computed(() => {
+  const dragSourceType =
+    drag.active && drag.source instanceof Piece && drag.source.color === Color.WHITE
+      ? drag.source.type
+      : undefined;
   return handLayoutBuilder.value.build(
     props.position.hand(Color.WHITE),
     Color.WHITE,
     state.pointer,
+    dragSourceType,
   );
 });
 
@@ -635,14 +981,26 @@ const whitePlayerTimeSeverity = computed(() => {
 .board > * {
   position: absolute;
 }
-.board-background {
+.board-background.drop-shadows {
   box-shadow: 3px 3px 6px var(--shadow-color);
 }
 .hand > * {
   position: absolute;
 }
-.hand-background {
+.hand-background.drop-shadows {
   box-shadow: 3px 3px 6px var(--shadow-color);
+}
+.hand.back {
+  z-index: 10;
+}
+.board {
+  z-index: 11;
+}
+.hand.front {
+  z-index: 12;
+}
+.arrows {
+  z-index: 20;
 }
 .player-name {
   background-color: var(--text-bg-color);
@@ -690,6 +1048,18 @@ const whitePlayerTimeSeverity = computed(() => {
   display: flex;
   justify-content: center;
   align-items: center;
+}
+.board.operation,
+.hand.operation {
+  touch-action: none;
+}
+.board.operation,
+.hand.operation,
+.player-name,
+.clock,
+.turn,
+.control {
+  z-index: 30;
 }
 .piece-image {
   max-width: 100%;

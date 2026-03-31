@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import WebSocket from "ws";
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
+import readline from "readline";
 
 const SERVER_PORT = 8090 + Math.floor(Math.random() * 1000); // Avoid conflict
 const SERVER_URL = `ws://localhost:${SERVER_PORT}`;
@@ -28,13 +29,17 @@ describe("Server Session Reconnection", () => {
 
     // Wait for server to be ready
     await new Promise<void>((resolve, reject) => {
-      serverProcess.stdout?.on("data", (data) => {
-        const msg = data.toString();
-        // console.log("[Server]:", msg); // Uncomment for debugging
-        if (msg.includes(`Server is listening on 0.0.0.0:${SERVER_PORT}`)) {
+      const rl = readline.createInterface({ input: serverProcess.stdout! });
+      rl.on("line", (line) => {
+        // console.log("[Server]:", line); // Uncomment for debugging
+        if (line.includes(`Server is listening on 0.0.0.0:${SERVER_PORT}`)) {
           serverReady = true;
           resolve();
         }
+      });
+
+      serverProcess.on("error", (err) => {
+        reject(err);
       });
 
       serverProcess.stderr?.on("data", (data) => {
@@ -43,9 +48,9 @@ describe("Server Session Reconnection", () => {
 
       setTimeout(() => {
         if (!serverReady) reject(new Error("Server start timeout"));
-      }, 30000);
+      }, 60000);
     });
-  }, 30000);
+  }, 60000);
 
   afterAll(() => {
     if (serverProcess) {
