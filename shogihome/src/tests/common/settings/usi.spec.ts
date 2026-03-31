@@ -347,6 +347,7 @@ describe("settings/usi", () => {
       },
       labels: {},
       enableEarlyPonder: false,
+      extraBook: { enabled: false, filePath: "" },
     };
     const out = duplicateEngine(src);
     expect(out.uri).toMatch(/^es:\/\/usi-engine\/.*$/);
@@ -354,6 +355,7 @@ describe("settings/usi", () => {
     expect(out.defaultName).toBe("Test Engine");
     expect(out.author).toBe("Author");
     expect(out.path).toBe("/foo/bar/baz");
+    expect(out.extraBook).toStrictEqual({ enabled: false, filePath: "" });
     expect(out.options).toStrictEqual({
       foo: {
         name: "foo",
@@ -388,6 +390,7 @@ describe("settings/usi", () => {
       },
       labels: {},
       enableEarlyPonder: false,
+      extraBook: { enabled: false, filePath: "" },
     };
     const rhs: USIEngine = {
       uri: "uri-b",
@@ -411,6 +414,7 @@ describe("settings/usi", () => {
         mate: false,
       },
       enableEarlyPonder: false,
+      extraBook: { enabled: true, filePath: "path/to/book" },
     };
     mergeUSIEngine(lhs, rhs);
     expect(lhs).toStrictEqual({
@@ -436,6 +440,7 @@ describe("settings/usi", () => {
       },
       tags: ["対局"],
       enableEarlyPonder: false,
+      extraBook: { enabled: true, filePath: "path/to/book" },
     });
   });
 

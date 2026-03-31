@@ -6,43 +6,22 @@ import {
   getUSIEngineStochasticPonder,
   MultiPV,
   USIEngine,
+  USIEngineLaunchOptions,
   USIMultiPV,
 } from "@/common/settings/usi.js";
 import { Color, ImmutablePosition, Move, Position } from "tsshogi";
 import { Player, SearchInfo, SearchHandler, MateHandler } from "./player.js";
 import { GameResult } from "@/common/game/result.js";
 import { TimeStates } from "@/common/game/time.js";
+import { searchBookMovesForPlayer } from "./book_search.js";
+import { triggerOnStartSearch, dispatchUSIInfoUpdate } from "./usi_events.js";
 
-type onStartSearchHandler = (sessionID: number, position: ImmutablePosition) => void;
-
-type onUpdateUSIInfoHandler = (
-  sessionID: number,
-  position: ImmutablePosition,
-  name: string,
-  info: USIInfoCommand,
-  ponderMove?: Move,
-) => void;
-
-let onStartSearch: onStartSearchHandler = () => {};
-let onUpdateUSIInfo: onUpdateUSIInfoHandler = () => {};
-
-export function setOnStartSearchHandler(handler: onStartSearchHandler) {
-  onStartSearch = handler;
-}
-
-export function setOnUpdateUSIInfoHandler(handler: onUpdateUSIInfoHandler) {
-  onUpdateUSIInfo = handler;
-}
-
-export function dispatchUSIInfoUpdate(
-  sessionID: number,
-  position: ImmutablePosition,
-  name: string,
-  info: USIInfoCommand,
-  ponderMove?: Move,
-) {
-  onUpdateUSIInfo(sessionID, position, name, info, ponderMove);
-}
+export {
+  setOnStartSearchHandler,
+  triggerOnStartSearch,
+  setOnUpdateUSIInfoHandler,
+  dispatchUSIInfoUpdate,
+} from "./usi_events.js";
 
 export class USIPlayer implements Player {
   private _sessionID = 0;
@@ -55,12 +34,17 @@ export class USIPlayer implements Player {
   private info?: SearchInfo;
   private usiInfoTimeout?: number;
   private customMultiPV?: number;
+  private bookSessionID?: string;
+  private launchOptions?: USIEngineLaunchOptions;
 
   constructor(
     private engine: USIEngine,
-    private timeoutSeconds: number,
+    launchOptions?: number | USIEngineLaunchOptions,
     private onSearchInfo?: (info: SearchInfo) => void,
-  ) {}
+  ) {
+    this.launchOptions =
+      typeof launchOptions === "number" ? { timeoutSeconds: launchOptions } : launchOptions;
+  }
 
   get name(): string {
     return this.engine.name;
@@ -71,8 +55,19 @@ export class USIPlayer implements Player {
   }
 
   async launch(): Promise<void> {
-    this._sessionID = await api.usiLaunch(this.engine, this.timeoutSeconds);
-    usiPlayers[this.sessionID] = this;
+    try {
+      if (this.engine.extraBook?.enabled && this.engine.extraBook.filePath) {
+        this.bookSessionID = await api.openBookAsNewSession(this.engine.extraBook.filePath, {});
+      }
+      this._sessionID = await api.usiLaunch(this.engine, this.launchOptions?.timeoutSeconds || 10);
+
+      usiPlayers[this.sessionID] = this;
+    } catch (e) {
+      if (this.bookSessionID) {
+        await api.closeBookSession(this.bookSessionID);
+      }
+      throw e;
+    }
   }
 
   isEngine(): boolean {
@@ -93,12 +88,15 @@ export class USIPlayer implements Player {
     this.searchHandler = handler;
     this.usi = usi;
     this.position = position.clone();
+    if (await this.searchBook()) {
+      return;
+    }
     if (this.ponderMove && this.ponder === this.usi) {
       api.usiPonderHit(this.sessionID, timeStates);
     } else {
       this.info = undefined;
       await api.usiGo(this.sessionID, this.usi, timeStates);
-      onStartSearch(this.sessionID, this.position);
+      triggerOnStartSearch(this.sessionID, this.position);
     }
     this.ponderMove = undefined;
     this.ponder = undefined;
@@ -139,7 +137,7 @@ export class USIPlayer implements Player {
     this.info = undefined;
     this.ponderMove = ponderMove;
     await api.usiGoPonder(this.sessionID, this.ponder, timeStates);
-    onStartSearch(this.sessionID, this.position);
+    triggerOnStartSearch(this.sessionID, this.position);
   }
 
   async startMateSearch(
@@ -154,7 +152,7 @@ export class USIPlayer implements Player {
     this.position = position.clone();
     this.mateHandler = handler;
     await api.usiGoMate(this.sessionID, this.usi, maxSeconds);
-    onStartSearch(this.sessionID, this.position);
+    triggerOnStartSearch(this.sessionID, this.position);
   }
 
   async startResearch(position: ImmutablePosition, usi: string): Promise<void> {
@@ -162,8 +160,11 @@ export class USIPlayer implements Player {
     this.usi = usi;
     this.info = undefined;
     this.position = position.clone();
+    if (await this.searchBook()) {
+      return;
+    }
     await api.usiGoInfinite(this.sessionID, usi);
-    onStartSearch(this.sessionID, this.position);
+    triggerOnStartSearch(this.sessionID, this.position);
   }
 
   async stop(): Promise<void> {
@@ -178,6 +179,35 @@ export class USIPlayer implements Player {
     this.clearHandlers();
     await api.usiQuit(this.sessionID);
     delete usiPlayers[this.sessionID];
+    if (this.bookSessionID) {
+      await api.closeBookSession(this.bookSessionID);
+    }
+  }
+
+  private async searchBook(): Promise<boolean> {
+    if (!this.bookSessionID || !this.position) {
+      return false;
+    }
+    // Ponder 中の場合は停止（定跡ヒットの可能性があるため）
+    if (this.ponderMove) {
+      await api.usiStop(this.sessionID);
+      this.ponderMove = undefined;
+      this.ponder = undefined;
+    }
+    return searchBookMovesForPlayer(
+      this.sessionID,
+      this.position,
+      this.bookSessionID,
+      this.name,
+      this.usi,
+      (move) => {
+        const searchHandler = this.searchHandler;
+        this.clearHandlers();
+        if (searchHandler) {
+          searchHandler.onMove(move);
+        }
+      },
+    );
   }
 
   private clearHandlers(): void {
@@ -226,7 +256,7 @@ export class USIPlayer implements Player {
     if (usi !== this.usi || !this.position) {
       return;
     }
-    onUpdateUSIInfo(this.sessionID, this.position, this.name, { pv: usiMoves });
+    dispatchUSIInfoUpdate(this.sessionID, this.position, this.name, { pv: usiMoves });
     const mateHandler = this.mateHandler;
     this.clearHandlers();
     if (!mateHandler) {
@@ -277,7 +307,7 @@ export class USIPlayer implements Player {
     if (usi !== this.usi || !this.position) {
       return;
     }
-    onUpdateUSIInfo(this.sessionID, this.position, this.name, infoCommand, this.ponderMove);
+    dispatchUSIInfoUpdate(this.sessionID, this.position, this.name, infoCommand, this.ponderMove);
     if (infoCommand.multipv && infoCommand.multipv !== 1) {
       return;
     }

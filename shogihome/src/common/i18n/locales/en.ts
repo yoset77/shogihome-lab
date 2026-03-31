@@ -409,6 +409,7 @@ export const en: Texts = {
   openDirectory: "Open Directory",
   replaceEnginePath: "Replace Engine Path",
   displayName: "Display Name",
+  frontendBook: "Book (GUI Extension)",
   invoke: "Invoke",
   resetToEngineDefaultValues: "Reset to default values",
   defaultValue: "Default Value",

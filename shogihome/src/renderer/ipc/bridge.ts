@@ -58,15 +58,16 @@ export interface Bridge {
   // Book
   showOpenBookDialog(): Promise<string>;
   showSaveBookDialog(defaultPath: string): Promise<string>;
-  openBook(path: string, json: string): Promise<BookLoadingMode>;
-  saveBook(path: string): Promise<void>;
-  clearBook(): Promise<void>;
-  searchBookMoves(sfen: string): Promise<string>;
-  searchBookMovesBatch(sfens: string[]): Promise<string>;
-  updateBookMove(sfen: string, move: string): Promise<void>;
-  removeBookMove(sfen: string, usi: string): Promise<void>;
-  updateBookMoveOrder(sfen: string, usi: string, order: number): Promise<void>;
-  importBookMoves(json: string): Promise<string>;
+  openBook(path: string, json: string, sessionId?: string): Promise<BookLoadingMode>;
+  saveBook(path: string, sessionId?: string): Promise<void>;
+  closeBookSession(sessionId: string): Promise<void>;
+  clearBook(sessionId?: string): Promise<void>;
+  searchBookMoves(sfen: string, sessionId?: string): Promise<string>;
+  searchBookMovesBatch(sfens: string[], sessionId?: string): Promise<string>;
+  updateBookMove(sfen: string, move: string, sessionId?: string): Promise<void>;
+  removeBookMove(sfen: string, usi: string, sessionId?: string): Promise<void>;
+  updateBookMoveOrder(sfen: string, usi: string, order: number, sessionId?: string): Promise<void>;
+  importBookMoves(json: string, sessionId?: string): Promise<string>;
 
   // USI
   showSelectUSIEngineDialog(): Promise<string>;

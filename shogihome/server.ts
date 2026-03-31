@@ -215,6 +215,15 @@ class BookSessionManager {
     return this.sessions.get(sessionId)!;
   }
 
+  close(sessionId: string): void {
+    const id = this.sessions.get(sessionId);
+    if (id !== undefined) {
+      closeBookSession(id);
+      this.sessions.delete(sessionId);
+      this.lastAccess.delete(sessionId);
+    }
+  }
+
   cleanup() {
     const now = Date.now();
     for (const [sessionId, lastTime] of this.lastAccess.entries()) {
@@ -633,6 +642,14 @@ app.post("/api/book/save", async (req, res) => {
   }
   const bookSession = getBookSession(req);
   await saveBook(bookSession, fullPath);
+  res.send("ok");
+});
+
+app.post("/api/book/close", async (req, res) => {
+  const sessionId = req.header("X-Book-Session-Id");
+  if (sessionId && SESSION_ID_HEADER_REGEX.test(sessionId)) {
+    bookSessionManager.close(sessionId);
+  }
   res.send("ok");
 });
 

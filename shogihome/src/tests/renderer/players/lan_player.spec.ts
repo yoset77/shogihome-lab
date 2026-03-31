@@ -1,15 +1,13 @@
-import {
-  LanPlayer,
-  isActiveLanPlayerSession,
-  setOnStartSearchHandlerForLan,
-} from "@/renderer/players/lan_player";
+import { LanPlayer, isActiveLanPlayerSession } from "@/renderer/players/lan_player";
 import { LanEngine } from "@/renderer/network/lan_engine";
-import { dispatchUSIInfoUpdate } from "@/renderer/players/usi.js";
 import { Record } from "tsshogi";
 import { Mock } from "vitest";
+import api from "@/renderer/ipc/api";
+import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "@/renderer/players/usi_events";
 
 vi.mock("@/renderer/network/lan_engine");
-vi.mock("@/renderer/players/usi.js");
+vi.mock("@/renderer/ipc/api");
+vi.mock("@/renderer/players/usi_events");
 
 describe("LanPlayer", () => {
   let messageHandler: (message: string) => void;
@@ -19,6 +17,10 @@ describe("LanPlayer", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     messageListeners = [];
+
+    // Mock API
+    (api.searchBookMoves as Mock).mockResolvedValue([]);
+    (api.openBookAsNewSession as Mock).mockResolvedValue("test-book-session");
 
     // Functional mock for connect
     (LanEngine.prototype.connect as Mock).mockImplementation(function (
@@ -142,12 +144,15 @@ describe("LanPlayer", () => {
     const record2 = Record.newByUSI(usi2) as Record;
 
     // Start search on position 1
-    await player.startResearch(record1.position, usi1);
+    const p1 = player.startResearch(record1.position, usi1);
+    await vi.runAllTimersAsync();
+    await p1;
 
     // Position changes to 2
     const p2 = player.startResearch(record2.position, usi2);
     // Simulate bestmove for position 1 to resolve stopAndWait
     sendMsg({ info: "bestmove 7g7f" });
+    await vi.runAllTimersAsync();
     await p2;
 
     // Stale message from position 1 arrives
@@ -193,7 +198,9 @@ describe("LanPlayer", () => {
     const record2 = Record.newByUSI(usi2) as Record;
 
     // Start search on position 1
-    await player.startResearch(record1.position, usi1);
+    const p1 = player.startResearch(record1.position, usi1);
+    await vi.runAllTimersAsync();
+    await p1;
 
     // Info for position 1 arrives and is throttled
     messageHandler(
@@ -211,6 +218,7 @@ describe("LanPlayer", () => {
       sfen: usi1, // Server still tags it with old SFEN
       info: "bestmove 7g7f",
     });
+    await vi.runAllTimersAsync();
     await p2;
 
     // Advance time to trigger throttle
@@ -229,7 +237,9 @@ describe("LanPlayer", () => {
 
     const usi = "position startpos";
     const record = Record.newByUSI(usi) as Record;
-    await player.startResearch(record.position, usi);
+    const p1 = player.startResearch(record.position, usi);
+    await vi.runAllTimersAsync();
+    await p1;
 
     // PV2
     messageHandler(
@@ -275,9 +285,6 @@ describe("LanPlayer", () => {
   });
 
   it("should trigger onStartSearch when starting search or research", async () => {
-    const onStartSearch = vi.fn();
-    setOnStartSearchHandlerForLan(onStartSearch);
-
     const player = new LanPlayer("research_main", "test-engine", "Test Engine");
     await launchPlayer(player);
 
@@ -286,11 +293,11 @@ describe("LanPlayer", () => {
 
     // Test startResearch
     const p1 = player.startResearch(record.position, usi);
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.runAllTimersAsync();
     await p1;
-    expect(onStartSearch).toBeCalledWith(200000, record.position);
+    expect(triggerOnStartSearch).toBeCalledWith(200000, record.position);
 
-    onStartSearch.mockClear();
+    (triggerOnStartSearch as Mock).mockClear();
 
     // Test startSearch
     const p2 = player.startSearch(
@@ -307,9 +314,9 @@ describe("LanPlayer", () => {
         onError: vi.fn(),
       },
     );
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.runAllTimersAsync();
     await p2;
-    expect(onStartSearch).toBeCalledWith(200000, record.position);
+    expect(triggerOnStartSearch).toBeCalledWith(200000, record.position);
   });
 
   it("stopAndWait should reject on server error", async () => {
@@ -323,7 +330,9 @@ describe("LanPlayer", () => {
 
     const usi = "position startpos";
     const record = Record.newByUSI(usi) as Record;
-    await player.startResearch(record.position, usi);
+    const p1 = player.startResearch(record.position, usi);
+    await vi.runAllTimersAsync();
+    await p1;
 
     const stopPromise = player.stop();
     await vi.advanceTimersByTimeAsync(100);

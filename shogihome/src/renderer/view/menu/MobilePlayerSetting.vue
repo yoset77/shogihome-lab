@@ -43,6 +43,26 @@
       </div>
     </div>
 
+    <!-- Extra Book Row (Engine only) -->
+    <template v-if="isEngine">
+      <div class="list-item">
+        <div class="item-label">{{ t.frontendBook }}</div>
+        <div class="item-value">
+          <ToggleButton v-model:value="extraBook.enabled" :disabled="disabled" />
+        </div>
+        <div class="item-icon-placeholder"></div>
+      </div>
+      <div v-if="extraBook.enabled" class="list-item-full">
+        <DropdownList
+          :value="extraBook.filePath"
+          :items="bookFileList"
+          :tags="[]"
+          :disabled="disabled"
+          @update:value="(val: string) => (extraBook.filePath = val)"
+        />
+      </div>
+    </template>
+
     <MobileTimeSettingDialog
       v-if="showTimeDialog"
       :initial-settings="timeLimit"
@@ -58,14 +78,21 @@ import * as uri from "@/common/uri";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { IconType } from "@/renderer/assets/icons";
 import { useLanStore } from "@/renderer/store/lan";
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { TimeLimitSettings } from "@/common/settings/game";
 import MobileTimeSettingDialog from "./MobileTimeSettingDialog.vue";
+import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
+import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
+import { USIEngineExtraBookConfig } from "@/common/settings/usi";
 
 defineProps({
   disabled: {
     type: Boolean,
     default: false,
+  },
+  bookFileList: {
+    type: Array as () => { label: string; value: string }[],
+    required: true,
   },
 });
 
@@ -74,8 +101,11 @@ const lanStore = useLanStore();
 const playerUri = defineModel<string>("playerUri", { required: true });
 const playerName = defineModel<string>("playerName", { required: true });
 const timeLimit = defineModel<TimeLimitSettings>("timeLimit", { required: true });
+const extraBook = defineModel<USIEngineExtraBookConfig>("extraBook", { required: true });
 
 const showTimeDialog = ref(false);
+
+const isEngine = computed(() => playerUri.value !== uri.ES_HUMAN);
 
 const onPlayerChange = (event: Event) => {
   const select = event.target as HTMLSelectElement;
@@ -107,12 +137,17 @@ const getTimeDescription = () => {
 }
 .list-item {
   display: grid;
-  grid-template-columns: 90px 1fr 30px;
+  grid-template-columns: 110px 1fr 30px;
   align-items: center;
   padding: 10px 0;
   border-bottom: 1px solid var(--text-separator-color);
 }
-.list-item:last-child {
+.list-item-full {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--text-separator-color);
+}
+.list-item:last-child,
+.list-item-full:last-child {
   border-bottom: none;
 }
 .list-item.clickable:active {
@@ -125,13 +160,6 @@ const getTimeDescription = () => {
   opacity: 0.8;
   text-align: left;
 }
-.item-value-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  overflow: hidden;
-  padding-right: 10px;
-}
 .item-value {
   flex: 1;
   text-align: right;
@@ -139,7 +167,6 @@ const getTimeDescription = () => {
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  overflow: hidden;
 }
 .time-text {
   font-size: 1em;

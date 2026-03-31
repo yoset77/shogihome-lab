@@ -404,6 +404,7 @@ export type Texts = {
   openDirectory: string;
   replaceEnginePath: string;
   displayName: string;
+  frontendBook: string;
   invoke: string;
   resetToEngineDefaultValues: string;
   defaultValue: string;

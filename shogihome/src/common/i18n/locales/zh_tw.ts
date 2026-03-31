@@ -403,8 +403,10 @@ export const zh_tw: Texts = {
   enginePath: "場所",
   openDirectory: "開啟資料夾",
   replaceEnginePath: "重新選擇引擎",
-  displayName: "表示名稱",
+  displayName: "顯示名稱",
+  frontendBook: "定跡 (GUI擴充)",
   invoke: "執行",
+
   resetToEngineDefaultValues: "回復至引擎預設設定",
   defaultValue: "預設値",
   freeTextUnsafe: "自由輸入（不建議）",

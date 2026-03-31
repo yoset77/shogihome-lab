@@ -96,6 +96,18 @@ export function getUSIEngineStochasticPonder(engine: USIEngine): boolean {
   return value === "true";
 }
 
+export type USIEngineExtraBookConfig = {
+  enabled: boolean;
+  filePath: string;
+};
+
+export function emptyUSIEngineExtraBookConfig(): USIEngineExtraBookConfig {
+  return {
+    enabled: false,
+    filePath: "",
+  };
+}
+
 export type USIEngineOptions = { [name: string]: USIEngineOption };
 
 export enum USIEngineLabel {
@@ -131,6 +143,7 @@ export type USIEngine = {
   labels?: USIEngineLabels; // deprecated: use tags instead
   tags?: string[];
   enableEarlyPonder: boolean;
+  extraBook?: USIEngineExtraBookConfig;
 };
 
 export function emptyUSIEngine(): USIEngine {
@@ -152,6 +165,10 @@ export function emptyUSIEngine(): USIEngine {
       getPredefinedUSIEngineTag("mate"),
     ],
     enableEarlyPonder: false,
+    extraBook: {
+      enabled: false,
+      filePath: "",
+    },
   };
 }
 
@@ -218,6 +235,7 @@ export function mergeUSIEngine(engine: USIEngine, local: USIEngine): void {
   engine.labels = local.labels;
   engine.tags = local.tags || labelsToTags(local.labels || {});
   engine.enableEarlyPonder = local.enableEarlyPonder;
+  engine.extraBook = local.extraBook;
 }
 
 export function validateUSIEngine(engine: USIEngine): Error | undefined {
@@ -525,6 +543,7 @@ export type USIEngineForCLI = {
   path: string;
   options: { [name: string]: USIEngineOptionForCLI };
   enableEarlyPonder: boolean;
+  extraBook?: USIEngineExtraBookConfig;
 };
 
 export function exportUSIEnginesForCLI(engine: USIEngine): USIEngineForCLI {
@@ -554,6 +573,7 @@ export function exportUSIEnginesForCLI(engine: USIEngine): USIEngineForCLI {
     path: engine.path,
     options: options,
     enableEarlyPonder: engine.enableEarlyPonder,
+    extraBook: engine.extraBook,
   };
 }
 
@@ -590,6 +610,12 @@ export function importUSIEnginesForCLI(engine: USIEngineForCLI, uri?: string): U
     path: engine.path,
     options,
     enableEarlyPonder: engine.enableEarlyPonder,
+    extraBook: engine.extraBook,
     labels: {},
   };
 }
+
+export type USIEngineLaunchOptions = {
+  timeoutSeconds?: number;
+  discardUSIInfo?: boolean;
+};
