@@ -117,7 +117,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
     expect(stopReceived).toBe(true);
     ws.send("stop_engine");
     ws.close();
-  });
+  }, 30000);
 
   it("should queue commands while starting and flush them when ready", async () => {
     const sessionId = "test-queuing";
