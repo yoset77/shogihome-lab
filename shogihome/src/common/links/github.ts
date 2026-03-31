@@ -23,7 +23,7 @@ export const howToUseWikiPageURL = `${wikiPageBaseURL}${howToUseTitle}`;
 export const fileNameTemplateWikiPageURL = `${wikiPageBaseURL}${fileNameTemplateTitle}`;
 export const maxPVLengthSettingWikiPageURL = `${wikiPageBaseURL}${maxPVLengthTitle}`;
 export const disableHWASettingWikiPageURL = `${wikiPageBaseURL}${disableHWASettingTitle}`;
-export const licenseURL = `https://${ghDomain}/yoset77/shogihome-lan/blob/main/LICENSE`;
+export const licenseURL = `https://${ghDomain}/yoset77/shogihome-lab/blob/main/LICENSE`;
 export const wcscGameListsURL = `https://${ghioDomain}/${ghRepository}/wcsc/game-lists.json`;
 export const floodgateResourcesURL = `https://${ghioDomain}/${ghRepository}/floodgate/resources.json`;
 

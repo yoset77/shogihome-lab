@@ -1,7 +1,7 @@
 [project]
-name = "shogihome-lan-engine-wrapper"
-version = "1.10.0"
-description = "USI Engine wrapper for ShogiHome LAN (Python version)"
+name = "shogihome-lab-engine-wrapper"
+version = "1.11.0"
+description = "USI Engine wrapper for ShogiHome Lab (Python version)"
 requires-python = ">=3.10"
 dependencies = [
     "clr-loader>=0.2.10",

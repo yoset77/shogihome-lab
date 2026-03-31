@@ -28,7 +28,7 @@ from common import (
 )
 
 # --- Configuration ---
-APP_NAME = "ShogiHome LAN"
+APP_NAME = "ShogiHome Lab"
 
 # Determine execution mode (Source or Bundled)
 IS_BUNDLED = is_bundled()
@@ -603,7 +603,7 @@ class LauncherApp(ctk.CTk):
 
             response = messagebox.askyesno("Data Migration", msg, parent=root)
             if response:
-                old_dir_str = filedialog.askdirectory(title="Select old ShogiHome LAN directory", parent=root)
+                old_dir_str = filedialog.askdirectory(title="Select old ShogiHome Lab/LAN directory", parent=root)
                 if old_dir_str:
                     old_dir = Path(old_dir_str)
 
@@ -685,7 +685,7 @@ def setup_tray(app):
         MenuItem("Exit", lambda: app.quit_app()),
     )
 
-    app.tray_icon = pystray.Icon("ShogiHome LAN", image, "ShogiHome LAN", menu)
+    app.tray_icon = pystray.Icon("ShogiHome Lab", image, "ShogiHome Lab", menu)
     app.tray_icon.run()
 
 

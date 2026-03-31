@@ -1,7 +1,7 @@
 {
-  "name": "shogihome-lan-engine-wrapper",
+  "name": "shogihome-lab-engine-wrapper",
   "version": "1.5.0",
-  "description": "USI Engine wrapper for ShogiHome LAN",
+  "description": "USI Engine wrapper for ShogiHome Lab",
   "main": "engine-wrapper.mjs",
   "type": "module",
   "scripts": {

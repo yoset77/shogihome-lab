@@ -1,21 +1,21 @@
 {
-  "name": "shogihome-lan",
-  "version": "1.10.0",
+  "name": "shogihome-lab",
+  "version": "1.11.0",
   "description": "Shogi Frontend Application",
   "author": "Kubo, Ryosuke",
   "license": "MIT",
   "private": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yoset77/shogihome-lan.git"
+    "url": "git+https://github.com/yoset77/shogihome-lab.git"
   },
   "keywords": [
     "shogi"
   ],
   "bugs": {
-    "url": "https://github.com/yoset77/shogihome-lan/issues"
+    "url": "https://github.com/yoset77/shogihome-lab/issues"
   },
-  "homepage": "https://github.com/yoset77/shogihome-lan#readme",
+  "homepage": "https://github.com/yoset77/shogihome-lab#readme",
   "type": "module",
   "scripts": {
     "audit:scripts": "tsx scripts/audit-scripts.ts",

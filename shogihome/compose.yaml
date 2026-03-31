@@ -1,7 +1,7 @@
 services:
   server:
-    container_name: shogihome-lan
-    image: shogihome-lan:latest
+    container_name: shogihome-lab
+    image: shogihome-lab:latest
     build: .
     restart: unless-stopped
     ports:
