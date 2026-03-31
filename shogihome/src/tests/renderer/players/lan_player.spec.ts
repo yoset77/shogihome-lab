@@ -22,6 +22,7 @@ describe("LanPlayer", () => {
     // Mock API
     (api.searchBookMoves as Mock).mockResolvedValue([]);
     (api.openBookAsNewSession as Mock).mockResolvedValue("test-book-session");
+    (api.closeBook as Mock).mockResolvedValue(undefined);
 
     // Functional mock for connect
     (LanEngine.prototype.connect as Mock).mockImplementation(function (
@@ -342,6 +343,35 @@ describe("LanPlayer", () => {
     sendMsg({ error: "Engine did not respond to stop command" });
 
     await expect(stopPromise).rejects.toThrow("Engine did not respond to stop command");
+  });
+
+  it("should cleanup resources when launch fails", async () => {
+    (api.openBookAsNewSession as Mock).mockResolvedValue("failed-book-session");
+    // Mock connect to fail
+    (LanEngine.prototype.connect as Mock).mockRejectedValue(new Error("Connection failed"));
+
+    const player = new LanPlayer(
+      "research_main",
+      "test-engine",
+      "Test Engine",
+      undefined,
+      undefined,
+      {
+        enabled: true,
+        filePath: "test.db",
+        selectionMode: BookSelectionMode.FIRST,
+      },
+    );
+
+    await expect(player.launch()).rejects.toThrow("Connection failed");
+
+    // Should stop the engine and disconnect
+    expect(LanEngine.prototype.stopEngine).toBeCalled();
+    expect(LanEngine.prototype.disconnect).toBeCalled();
+    // Should close the book session
+    expect(api.closeBook).toBeCalledWith("failed-book-session");
+    // Should not be in lanPlayers
+    expect(isActiveLanPlayerSession(200000)).toBe(false);
   });
 
   it("should select book moves based on selectionMode (RANDOM)", async () => {

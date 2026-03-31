@@ -43,8 +43,8 @@
       </div>
     </div>
 
-    <!-- Extra Book Row (Engine only) -->
-    <template v-if="isEngine">
+    <!-- Extra Book Row (LAN Engine only) -->
+    <template v-if="isLanEngine">
       <div class="list-item">
         <div class="item-label">{{ t.frontendBook }}</div>
         <div class="item-value">
@@ -115,7 +115,7 @@ const extraBook = defineModel<USIEngineExtraBookConfig>("extraBook", { required:
 
 const showTimeDialog = ref(false);
 
-const isEngine = computed(() => playerUri.value !== uri.ES_HUMAN);
+const isLanEngine = computed(() => playerUri.value.startsWith("lan-engine"));
 
 const bookSelectionModeItems = computed(() => [
   { value: BookSelectionMode.FIRST, label: t.firstMove },

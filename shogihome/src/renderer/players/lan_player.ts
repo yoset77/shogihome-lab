@@ -7,7 +7,6 @@ import { parseUSIPV, USIInfoCommand } from "@/common/game/usi";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "./usi_events";
 import { t } from "@/common/i18n";
 import api from "@/renderer/ipc/api";
-import { LogLevel } from "@/common/log";
 import { USIEngineExtraBookConfig, BookSelectionMode } from "@/common/settings/usi";
 import { searchBookMovesForPlayer } from "./book_search";
 
@@ -90,55 +89,58 @@ export class LanPlayer implements Player {
   }
 
   async launch(): Promise<void> {
-    lanPlayers[this._sessionID] = this;
     try {
       if (this.extraBook?.enabled && this.extraBook.filePath) {
         this.bookSessionID = await api.openBookAsNewSession(this.extraBook.filePath, {});
       }
-    } catch (e) {
-      api.log(LogLevel.ERROR, `Failed to open book: ${e}`);
-    }
 
-    await this.lanEngine.connect((message: string) => {
-      this.onMessage(message);
-    });
+      await this.lanEngine.connect((message: string) => {
+        this.onMessage(message);
+      });
 
-    return new Promise((resolve, reject) => {
-      const readyListener = (message: string) => {
-        try {
-          const data = JSON.parse(message);
-          if (
-            data.info === "info: engine is ready" ||
-            data.state === "ready" ||
-            data.state === "thinking"
-          ) {
-            clearTimeout(timeout);
-            this.lanEngine.removeMessageListener(readyListener);
-            resolve();
-          } else if (data.error) {
-            clearTimeout(timeout);
-            this.lanEngine.removeMessageListener(readyListener);
-            reject(new Error(data.error));
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          this.lanEngine.removeMessageListener(readyListener);
+          reject(new Error("Timeout: Failed to receive ready message from engine"));
+        }, 10000);
+
+        const readyListener = (message: string) => {
+          try {
+            const data = JSON.parse(message);
+            if (
+              data.info === "info: engine is ready" ||
+              data.state === "ready" ||
+              data.state === "thinking"
+            ) {
+              clearTimeout(timeout);
+              this.lanEngine.removeMessageListener(readyListener);
+              resolve();
+            } else if (data.error) {
+              clearTimeout(timeout);
+              this.lanEngine.removeMessageListener(readyListener);
+              reject(new Error(data.error));
+            }
+          } catch (e) {
+            // ignore
           }
-        } catch (e) {
-          // ignore
-        }
-        return false;
-      };
+          return false;
+        };
 
-      this.lanEngine.addMessageListener(readyListener);
-      this.lanEngine.startEngine(this.engineId);
-      if (this._multiPV !== 1) {
-        this.lanEngine.setOption("MultiPV", this._multiPV);
+        this.lanEngine.addMessageListener(readyListener);
+        this.lanEngine.startEngine(this.engineId);
+      });
+
+      lanPlayers[this._sessionID] = this;
+    } catch (e) {
+      this.lanEngine.stopEngine();
+      this.lanEngine.disconnect();
+      if (this.bookSessionID) {
+        api.closeBook(this.bookSessionID);
+        this.bookSessionID = undefined;
       }
-
-      // Start timeout after sending startEngine
-      const timeout = window.setTimeout(() => {
-        this.lanEngine.removeMessageListener(readyListener);
-        this.lanEngine.disconnect();
-        reject(new Error("Timeout waiting for engine to become ready"));
-      }, 15000);
-    });
+      delete lanPlayers[this._sessionID];
+      throw e;
+    }
   }
 
   async readyNewGame(): Promise<void> {
@@ -253,7 +255,7 @@ export class LanPlayer implements Player {
       this.lanEngine.disconnect();
       delete lanPlayers[this._sessionID];
       if (this.bookSessionID) {
-        api.closeBookSession(this.bookSessionID);
+        api.closeBook(this.bookSessionID);
       }
     }
   }

@@ -65,7 +65,7 @@ export class USIPlayer implements Player {
       usiPlayers[this.sessionID] = this;
     } catch (e) {
       if (this.bookSessionID) {
-        await api.closeBookSession(this.bookSessionID);
+        await api.closeBook(this.bookSessionID);
       }
       throw e;
     }
@@ -181,7 +181,7 @@ export class USIPlayer implements Player {
     await api.usiQuit(this.sessionID);
     delete usiPlayers[this.sessionID];
     if (this.bookSessionID) {
-      await api.closeBookSession(this.bookSessionID);
+      await api.closeBook(this.bookSessionID);
     }
   }
 

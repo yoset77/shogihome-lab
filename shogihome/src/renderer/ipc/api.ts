@@ -74,7 +74,7 @@ export interface API {
   openBook(path: string, options: BookLoadingOptions): Promise<BookLoadingMode>;
   openBookAsNewSession(path: string, options: BookLoadingOptions): Promise<string>;
   saveBook(path: string, sessionId?: string): Promise<void>;
-  closeBookSession(sessionId: string): Promise<void>;
+  closeBook(sessionId: string): Promise<void>;
   clearBook(sessionId?: string): Promise<void>;
   searchBookMoves(sfen: string, sessionId?: string): Promise<BookMove[]>;
   searchBookMovesBatch(
@@ -236,7 +236,10 @@ const api: API = {
     return bridge.openBook(path, JSON.stringify(options));
   },
   async openBookAsNewSession(path: string, options: BookLoadingOptions): Promise<string> {
-    const sessionId = `ext-book-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const randomArray = new Uint32Array(1);
+    window.crypto.getRandomValues(randomArray);
+    const randomToken = randomArray[0].toString(36);
+    const sessionId = `ext-book-${Date.now()}-${randomToken}`;
     await bridge.openBook(path, JSON.stringify(options), sessionId);
     return sessionId;
   },
@@ -247,7 +250,7 @@ const api: API = {
     const relPath = path.substring(9);
     return bridge.saveBook(relPath, sessionId);
   },
-  async closeBookSession(sessionId: string): Promise<void> {
+  async closeBook(sessionId: string): Promise<void> {
     return bridge.closeBookSession(sessionId);
   },
   async clearBook(sessionId?: string): Promise<void> {

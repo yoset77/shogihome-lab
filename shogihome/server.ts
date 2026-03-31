@@ -586,10 +586,13 @@ app.post("/api/book/open", express.json(), async (req, res) => {
     sendError(res, 404, "KIFU_DIR is not configured");
     return;
   }
-  const relPath = req.query.path;
+  let relPath = req.query.path;
   if (typeof relPath !== "string") {
     sendError(res, 400, "path is required");
     return;
+  }
+  if (relPath.startsWith("server://")) {
+    relPath = relPath.substring(9);
   }
   const fullPath = resolveKifuPath(KIFU_DIR, relPath);
   if (!fullPath) {
