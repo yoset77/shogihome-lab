@@ -58,11 +58,6 @@
           :thema="appSettings.thema"
           :coefficient-in-sigmoid="appSettings.coefficientInSigmoid"
         />
-        <MonitorView
-          v-else-if="activeTab === Tab.MONITOR"
-          class="full tab-content"
-          :size="contentSize"
-        />
       </div>
     </div>
   </div>
@@ -79,7 +74,6 @@ import EngineAnalytics from "@/renderer/view/tab/EngineAnalytics.vue";
 import AnalysisDB from "@/renderer/view/tab/AnalysisDB.vue";
 import EvaluationChart from "@/renderer/view/tab/EvaluationChart.vue";
 import RecordInfo from "@/renderer/view/tab/RecordInfo.vue";
-import MonitorView from "@/renderer/view/monitor/MonitorView.vue";
 import PuzzlePane from "@/renderer/view/tab/PuzzlePane.vue";
 import { RectSize } from "@/common/assets/geometry.js";
 import Icon from "@/renderer/view/primitive/Icon.vue";

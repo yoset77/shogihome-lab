@@ -74,7 +74,7 @@
           v-show="bottomUIType === BottomUIType.CHART"
           :style="{ flexShrink: 0 }"
           :size="bottomViewSize"
-          :type="EvaluationChartType.RAW"
+          :type="appSettings.evaluationChartType"
           :thema="appSettings.thema"
           :coefficient-in-sigmoid="appSettings.coefficientInSigmoid"
         />

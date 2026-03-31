@@ -787,6 +787,7 @@ export type Texts = {
   bookDataWasSaved: string;
   openBook: string;
   showBookTableOnMobile: string;
+  evaluationChartType: string;
   noBookFoundCheckKifuDir: string;
   hierarchy: string;
   list: string;

@@ -837,6 +837,7 @@ export const vi: Texts = {
   bookDataWasSaved: "Đã lưu dữ liệu định thức.",
   openBook: "Mở định thức",
   showBookTableOnMobile: "Hiện thẻ định thức",
+  evaluationChartType: "Loại biểu đồ đánh giá",
   noBookFoundCheckKifuDir:
     "Không tìm thấy tệp định thức. Vui lòng kiểm tra cấu hình KIFU_DIR và đảm bảo có các định dạng hỗ trợ (.db, .bin).",
   hierarchy: "Hệ thống cấp bậc",

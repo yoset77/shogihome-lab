@@ -2,7 +2,7 @@ import { Language, t } from "@/common/i18n/index.js";
 import { LogLevel, LogType } from "@/common/log.js";
 import { RecordFileFormat } from "@/common/file/record.js";
 import { defaultRecordFileNameTemplate } from "@/common/file/path.js";
-import { BoardLayoutType } from "./layout.js";
+import { BoardLayoutType, EvaluationChartType } from "./layout.js";
 import { SearchCommentFormat } from "./comment.js";
 
 export enum Thema {
@@ -291,6 +291,7 @@ export type AppSettings = {
 
   // Mobile
   showBookTableOnMobile: boolean;
+  evaluationChartType: EvaluationChartType;
 
   // Analysis DB
   analysisDBSearchMode: AnalysisDBSearchMode;
@@ -439,6 +440,7 @@ export function defaultAppSettings(opt?: {
     lastOtherFilePath: "",
     emptyRecordInfoVisibility: true,
     showBookTableOnMobile: false,
+    evaluationChartType: EvaluationChartType.RAW,
     analysisDBSearchMode: AnalysisDBSearchMode.EXCEPT_GAMES,
     analysisDBMaxPVLength: 15,
     enableHardwareAcceleration: true,
