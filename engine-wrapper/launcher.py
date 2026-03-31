@@ -1,10 +1,13 @@
 import io
 import os
+import shutil
 import subprocess
 import sys
 import threading
 import time
 import webbrowser
+from pathlib import Path
+from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 import pystray
@@ -21,6 +24,7 @@ from common import (
     is_port_open,
     kill_proc_tree,
     load_env_value,
+    smart_merge_env,
 )
 
 # --- Configuration ---
@@ -60,6 +64,9 @@ ctk.set_default_color_theme("blue")
 class LauncherApp(ctk.CTk):
     def __init__(self):
         super().__init__()
+
+        # Data Migration Check
+        self._check_and_run_migration()
 
         # State variables
         self.server_process = None
@@ -331,98 +338,98 @@ class LauncherApp(ctk.CTk):
                     pass
 
         try:
-            server_log = open(log_dir / "server.log", "w", encoding="utf-8")
-            wrapper_log = open(log_dir / "wrapper.log", "w", encoding="utf-8")
+            with (
+                open(log_dir / "server.log", "w", encoding="utf-8") as server_log,
+                open(log_dir / "wrapper.log", "w", encoding="utf-8") as wrapper_log,
+            ):
+                server_log.write(f"--- {time.ctime()} Starting Server ---\n")
+                wrapper_log.write(f"--- {time.ctime()} Starting Wrapper ---\n")
+
+                startup_info = None
+                if os.name == "nt":
+                    startup_info = subprocess.STARTUPINFO()
+                    startup_info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+                # Start Wrapper
+                try:
+                    if IS_BUNDLED:
+                        wrapper_cmd = [str(PYTHON_EXE), str(WRAPPER_PY)]
+                        # Ensure CWD is where engines.json/.env reside (engine-wrapper root)
+                        cwd = WRAPPER_DIR
+                    else:
+                        wrapper_cmd = ["uv", "run", "engine_wrapper.py"]
+                        cwd = WRAPPER_DIR
+
+                    wrapper_log.write(f"Executing Wrapper: {wrapper_cmd}\nCWD: {cwd}\n")
+                    wrapper_log.flush()
+
+                    self.wrapper_process = subprocess.Popen(
+                        wrapper_cmd,
+                        cwd=str(cwd),
+                        stdout=wrapper_log,
+                        stderr=wrapper_log,
+                        startupinfo=startup_info,
+                    )
+                except Exception as e:
+                    wrapper_log.write(f"Failed to start wrapper: {e}\n")
+                    wrapper_log.flush()
+
+                # Start Server
+                try:
+                    if IS_BUNDLED:
+                        server_cmd = [str(SERVER_EXE)]
+                        cwd = SERVER_EXE.parent
+                    else:
+                        server_cmd = ["npm", "run", "server:start"]
+                        cwd = SERVER_DIR
+
+                    use_shell = not IS_BUNDLED
+
+                    server_log.write(f"Executing Server: {server_cmd}\nCWD: {cwd}\n")
+                    server_log.flush()
+
+                    self.server_process = subprocess.Popen(
+                        server_cmd,
+                        cwd=str(cwd),
+                        stdout=server_log,
+                        stderr=server_log,
+                        shell=use_shell,
+                        startupinfo=startup_info,
+                    )
+                except Exception as e:
+                    server_log.write(f"Failed to start server: {e}\n")
+                    server_log.flush()
+
+                # Wait for both ports to open (up to 10 seconds)
+                start_wait = time.time()
+                success = False
+                while time.time() - start_wait < 10:
+                    # Check if ports are open
+                    # Server might be bound to a specific IP. If 0.0.0.0, we check 127.0.0.1.
+                    server_host = self.bind_address if self.bind_address != "0.0.0.0" else "127.0.0.1"
+                    ports_ok = is_port_open(self.server_port, host=server_host) and is_port_open(self.wrapper_port, host="127.0.0.1")
+
+                    # Check if our processes are still alive
+                    server_alive = self.server_process and self.server_process.poll() is None
+                    wrapper_alive = self.wrapper_process and self.wrapper_process.poll() is None
+
+                    if ports_ok and server_alive and wrapper_alive:
+                        success = True
+                        break
+
+                    # Early exit if any process has already crashed
+                    if not server_alive or not wrapper_alive:
+                        break
+
+                    time.sleep(0.5)
+
+                # Flush final logs before exiting the with block (closing handles)
+                server_log.flush()
+                wrapper_log.flush()
+
         except Exception:
             self.after(0, lambda: self.status_indicator.configure(text="● Log Error", text_color="#f44336"))
             return
-
-        server_log.write(f"--- {time.ctime()} Starting Server ---\n")
-        wrapper_log.write(f"--- {time.ctime()} Starting Wrapper ---\n")
-
-        startup_info = None
-        if os.name == "nt":
-            startup_info = subprocess.STARTUPINFO()
-            startup_info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-
-        # Start Wrapper
-        try:
-            if IS_BUNDLED:
-                wrapper_cmd = [str(PYTHON_EXE), str(WRAPPER_PY)]
-                # Ensure CWD is where engines.json/.env reside (engine-wrapper root)
-                cwd = WRAPPER_DIR
-            else:
-                wrapper_cmd = ["uv", "run", "engine_wrapper.py"]
-                cwd = WRAPPER_DIR
-
-            wrapper_log.write(f"Executing Wrapper: {wrapper_cmd}\nCWD: {cwd}\n")
-            wrapper_log.flush()
-
-            self.wrapper_process = subprocess.Popen(
-                wrapper_cmd,
-                cwd=str(cwd),
-                stdout=wrapper_log,
-                stderr=wrapper_log,
-                startupinfo=startup_info,
-            )
-        except Exception as e:
-            wrapper_log.write(f"Failed to start wrapper: {e}\n")
-            wrapper_log.flush()
-
-        # Start Server
-        try:
-            if IS_BUNDLED:
-                server_cmd = [str(SERVER_EXE)]
-                cwd = SERVER_EXE.parent
-            else:
-                server_cmd = ["npm", "run", "server:start"]
-                cwd = SERVER_DIR
-
-            use_shell = not IS_BUNDLED
-
-            server_log.write(f"Executing Server: {server_cmd}\nCWD: {cwd}\n")
-            server_log.flush()
-
-            self.server_process = subprocess.Popen(
-                server_cmd,
-                cwd=str(cwd),
-                stdout=server_log,
-                stderr=server_log,
-                shell=use_shell,
-                startupinfo=startup_info,
-            )
-        except Exception as e:
-            server_log.write(f"Failed to start server: {e}\n")
-            server_log.flush()
-
-        # Wait for both ports to open (up to 10 seconds)
-        start_wait = time.time()
-        success = False
-        while time.time() - start_wait < 10:
-            # Check if ports are open
-            # Server might be bound to a specific IP. If 0.0.0.0, we check 127.0.0.1.
-            server_host = self.bind_address if self.bind_address != "0.0.0.0" else "127.0.0.1"
-            ports_ok = is_port_open(self.server_port, host=server_host) and is_port_open(self.wrapper_port, host="127.0.0.1")
-
-            # Check if our processes are still alive
-            server_alive = self.server_process and self.server_process.poll() is None
-            wrapper_alive = self.wrapper_process and self.wrapper_process.poll() is None
-
-            if ports_ok and server_alive and wrapper_alive:
-                success = True
-                break
-
-            # Early exit if any process has already crashed
-            if not server_alive or not wrapper_alive:
-                break
-
-            time.sleep(0.5)
-
-        # Flush and close the parent's handles
-        server_log.flush()
-        wrapper_log.flush()
-        server_log.close()
-        wrapper_log.close()
 
         if success:
             self.update_status(True)
@@ -579,6 +586,87 @@ class LauncherApp(ctk.CTk):
     def _kill_proc_tree(self, proc):
         # Force kill using common utility
         kill_proc_tree(proc.pid)
+
+    def _check_and_run_migration(self):
+
+        data_dir = SHOGIHOME_DIR / "data"
+        engines_json_dest = WRAPPER_DIR / "engines.json"
+
+        # Check if this is a fresh extraction
+        if not data_dir.exists():
+            msg = "旧バージョンのデータを引き継ぎますか？\n(Do you want to migrate data from the old version?)"
+            # Temporary hidden root for messagebox/filedialog
+            import tkinter as tk
+
+            root = tk.Tk()
+            root.withdraw()
+
+            response = messagebox.askyesno("Data Migration", msg, parent=root)
+            if response:
+                old_dir_str = filedialog.askdirectory(title="Select old ShogiHome LAN directory", parent=root)
+                if old_dir_str:
+                    old_dir = Path(old_dir_str)
+
+                    # ZIP 展開時の 2 重フォルダ対策：shogihome がない場合、1 階層下を検索
+                    if not (old_dir / "shogihome").exists():
+                        for sub in old_dir.iterdir():
+                            if sub.is_dir() and (sub / "shogihome").exists():
+                                old_dir = sub
+                                break
+
+                    old_data_dir = old_dir / "shogihome" / "data"
+                    old_engines_json = old_dir / "engine-wrapper" / "engines.json"
+                    old_shogihome_env = old_dir / "shogihome" / ".env"
+                    old_wrapper_env = old_dir / "engine-wrapper" / ".env"
+
+                    # 存在チェックと詳細なバリデーション
+                    missing = []
+                    if not old_data_dir.exists():
+                        missing.append("- shogihome/data (棋譜データ等)")
+                    if not old_engines_json.exists():
+                        missing.append("- engine-wrapper/engines.json (エンジン設定)")
+                    if not old_shogihome_env.exists() and not old_wrapper_env.exists():
+                        missing.append("- .env (ネットワーク設定等)")
+
+                    if len(missing) == 3:
+                        messagebox.showerror(
+                            "Error",
+                            "選択されたフォルダに引継ぎ可能なデータが見つかりませんでした。",
+                            parent=root,
+                        )
+                        root.destroy()
+                        return
+
+                    if missing:
+                        warn_msg = "以下のデータが見つかりません。続行しますか？\n\n" + "\n".join(missing)
+                        if not messagebox.askyesno("Warning", warn_msg, parent=root):
+                            root.destroy()
+                            return
+
+                    try:
+                        # 1. Copy data directory
+                        if old_data_dir.exists():
+                            shutil.copytree(old_data_dir, data_dir)
+
+                        # 2. Copy engines.json
+                        if old_engines_json.exists():
+                            shutil.copy2(old_engines_json, engines_json_dest)
+
+                        # 3. Smart Merge .env files (Robust encodings)
+                        if old_shogihome_env.exists():
+                            smart_merge_env(old_shogihome_env, SERVER_ENV_PATH, SERVER_ENV_PATH)
+                        if old_wrapper_env.exists():
+                            smart_merge_env(old_wrapper_env, WRAPPER_ENV_PATH, WRAPPER_ENV_PATH)
+
+                        messagebox.showinfo(
+                            "Success",
+                            "データの引き継ぎが完了しました。\n旧ージョンのフォルダは、不要であれば削除してください。",
+                            parent=root,
+                        )
+                    except Exception as e:
+                        messagebox.showerror("Error", f"Failed to migrate data:\n{e}", parent=root)
+
+                root.destroy()
 
 
 # --- Tray Icon ---

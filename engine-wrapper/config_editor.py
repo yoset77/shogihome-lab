@@ -27,11 +27,6 @@ ENGINES_JSON_PATH = BASE_DIR / "engines.json"
 # 2. Search for config_editor.html
 HTML_PATH = BASE_DIR / "config_editor.html"
 
-if sys.stdout is None:
-    sys.stdout = open(os.devnull, "w")
-if sys.stderr is None:
-    sys.stderr = open(os.devnull, "w")
-
 
 def parse_usi_option_line(line):
     """
@@ -39,34 +34,67 @@ def parse_usi_option_line(line):
     format: option name <Name> type <Type> [default <Default>] [min <Min>] [max <Max>] [var <Var>]...
     """
     try:
+        # Use shlex.split only as a base; it handles quotes if present.
+        # But we need to handle raw spaces for unquoted names/values.
         parts = shlex.split(line)
         if not parts or parts[0] != "option":
             return None, None
 
-        it = iter(parts[1:])
-        name = None
         option_data = {}
         combo_vars = []
 
-        for part in it:
-            if part == "name":
-                name = next(it)
-            elif part == "type":
-                option_data["type"] = next(it)
-            elif part == "default":
-                default_val = next(it)
-                if default_val == "<empty>":
-                    default_val = ""
-                option_data["default"] = default_val
-            elif part == "min":
-                option_data["min"] = int(next(it))
-            elif part == "max":
-                option_data["max"] = int(next(it))
-            elif part == "var":
-                combo_vars.append(next(it))
+        # Keywords that mark the start of a new field
+        keywords = {"name", "type", "default", "min", "max", "var"}
 
-        if not name or "type" not in option_data:
+        i = 1
+        n = len(parts)
+        current_field = None
+
+        name_parts = []
+        type_val = None
+        default_parts = []
+
+        while i < n:
+            part = parts[i]
+            if part in keywords:
+                current_field = part
+                i += 1
+                continue
+
+            if current_field == "name":
+                name_parts.append(part)
+            elif current_field == "type":
+                type_val = part
+            elif current_field == "default":
+                default_parts.append(part)
+            elif current_field == "min":
+                option_data["min"] = int(part)
+            elif current_field == "max":
+                option_data["max"] = int(part)
+            elif current_field == "var":
+                # var can appear multiple times, each one starts a new combo value
+                # Collect until next keyword
+                var_parts = [part]
+                i += 1
+                while i < n and parts[i] not in keywords:
+                    var_parts.append(parts[i])
+                    i += 1
+                combo_vars.append(" ".join(var_parts))
+                continue  # Skip the i += 1 at the end
+
+            i += 1
+
+        name = " ".join(name_parts)
+        option_data["type"] = type_val
+
+        if not name or not type_val:
             return None, None
+
+        # Handle default value string joining
+        default_val = " ".join(default_parts)
+        if default_val == "<empty>":
+            default_val = ""
+        option_data["default"] = default_val
 
         # Type specific handling
         opt_type = option_data["type"]
@@ -84,7 +112,7 @@ def parse_usi_option_line(line):
 
         return name, option_data
 
-    except (ValueError, StopIteration, IndexError):
+    except (ValueError, IndexError):
         return None, None
 
 
@@ -96,7 +124,7 @@ class Api:
     def load(self):
         try:
             if ENGINES_JSON_PATH.exists():
-                with open(ENGINES_JSON_PATH, "r", encoding="utf-8") as f:
+                with open(ENGINES_JSON_PATH, "r", encoding="utf-8", errors="replace") as f:
                     engines_data = json.load(f)
             else:
                 engines_data = []
@@ -125,6 +153,8 @@ class Api:
 
                 if not entry["id"].strip():
                     raise ValueError(f"Engine ID in entry {i} cannot be empty")
+                if not entry["path"].strip():
+                    raise ValueError(f"Field 'path' in entry {i} cannot be empty")
 
                 # Optional fields validation
                 if "type" in entry:
@@ -281,6 +311,11 @@ class Api:
 
 
 def run_app():
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w")
+
     api = Api()
     # Create window
     webview.create_window(

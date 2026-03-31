@@ -5,12 +5,9 @@
   "main": "engine-wrapper.mjs",
   "type": "module",
   "scripts": {
-    "start": "node engine-wrapper.mjs",
+    "start": "node --env-file=.env engine-wrapper.mjs",
     "py:license": "uv run python scripts/generate_licenses.py"
   },
   "author": "",
-  "license": "MIT",
-  "dependencies": {
-    "dotenv": "^17.2.3"
-  }
+  "license": "MIT"
 }

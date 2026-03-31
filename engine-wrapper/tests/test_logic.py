@@ -66,6 +66,23 @@ def test_parse_usi_option_line_button():
     assert opt["type"] == "button"
 
 
+def test_parse_usi_option_line_multiword_name():
+    line = "option name Best Book Move type button"
+    name, opt = parse_usi_option_line(line)
+    assert name == "Best Book Move"
+    assert opt["type"] == "button"
+
+
+def test_parse_usi_option_line_multiword_combo_var():
+    line = "option name Opening type combo default Normal var Move Count Based var Time Based"
+    name, opt = parse_usi_option_line(line)
+    assert name == "Opening"
+    assert opt["type"] == "combo"
+    assert opt["default"] == "Normal"
+    assert "Move Count Based" in opt["vars"]
+    assert "Time Based" in opt["vars"]
+
+
 def test_parse_usi_option_line_invalid():
     assert parse_usi_option_line("invalid line") == (None, None)
     assert parse_usi_option_line("option name OnlyName") == (None, None)
