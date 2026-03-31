@@ -405,6 +405,10 @@ export const zh_tw: Texts = {
   replaceEnginePath: "重新選擇引擎",
   displayName: "顯示名稱",
   frontendBook: "定跡 (GUI擴充)",
+  firstMove: "首選著手",
+  randomMove: "隨機 (依頻率加權)",
+  bestScoreMove: "最高分著手",
+  selectionMode: "選擇模式",
   invoke: "執行",
 
   resetToEngineDefaultValues: "回復至引擎預設設定",

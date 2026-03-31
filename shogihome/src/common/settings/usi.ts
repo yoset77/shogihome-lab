@@ -96,15 +96,23 @@ export function getUSIEngineStochasticPonder(engine: USIEngine): boolean {
   return value === "true";
 }
 
+export enum BookSelectionMode {
+  FIRST = "first",
+  RANDOM = "random",
+  BEST_SCORE = "bestScore",
+}
+
 export type USIEngineExtraBookConfig = {
   enabled: boolean;
   filePath: string;
+  selectionMode?: BookSelectionMode;
 };
 
 export function emptyUSIEngineExtraBookConfig(): USIEngineExtraBookConfig {
   return {
     enabled: false,
     filePath: "",
+    selectionMode: BookSelectionMode.FIRST,
   };
 }
 
@@ -168,6 +176,7 @@ export function emptyUSIEngine(): USIEngine {
     extraBook: {
       enabled: false,
       filePath: "",
+      selectionMode: BookSelectionMode.FIRST,
     },
   };
 }

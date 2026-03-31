@@ -8,7 +8,7 @@ import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "./usi_events";
 import { t } from "@/common/i18n";
 import api from "@/renderer/ipc/api";
 import { LogLevel } from "@/common/log";
-import { USIEngineExtraBookConfig } from "@/common/settings/usi";
+import { USIEngineExtraBookConfig, BookSelectionMode } from "@/common/settings/usi";
 import { searchBookMovesForPlayer } from "./book_search";
 
 import { generateSessionId } from "@/renderer/helpers/unique";
@@ -282,6 +282,7 @@ export class LanPlayer implements Player {
       this.position,
       this.bookSessionID,
       this.name,
+      this.extraBook?.selectionMode || BookSelectionMode.FIRST,
       this.currentSfen,
       (move) => {
         const handler = this.handler;

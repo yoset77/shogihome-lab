@@ -8,6 +8,7 @@ import {
   USIEngine,
   USIEngineLaunchOptions,
   USIMultiPV,
+  BookSelectionMode,
 } from "@/common/settings/usi.js";
 import { Color, ImmutablePosition, Move, Position } from "tsshogi";
 import { Player, SearchInfo, SearchHandler, MateHandler } from "./player.js";
@@ -199,6 +200,7 @@ export class USIPlayer implements Player {
       this.position,
       this.bookSessionID,
       this.name,
+      this.engine.extraBook?.selectionMode || BookSelectionMode.FIRST,
       this.usi,
       (move) => {
         const searchHandler = this.searchHandler;

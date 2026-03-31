@@ -30,6 +30,16 @@
                 @update:value="(val: string) => (blackExtraBook.filePath = val)"
               />
             </div>
+            <div v-if="blackExtraBook.enabled" class="form-item additional">
+              <div class="form-item-label">{{ t.selectionMode }}</div>
+              <HorizontalSelector
+                :value="blackExtraBook.selectionMode || BookSelectionMode.FIRST"
+                :items="bookSelectionModeItems"
+                @update:value="
+                  (val: string) => (blackExtraBook.selectionMode = val as BookSelectionMode)
+                "
+              />
+            </div>
           </div>
         </div>
         <div class="half-column">
@@ -58,6 +68,16 @@
                 :items="bookFileList"
                 :tags="[]"
                 @update:value="(val: string) => (whiteExtraBook.filePath = val)"
+              />
+            </div>
+            <div v-if="whiteExtraBook.enabled" class="form-item additional">
+              <div class="form-item-label">{{ t.selectionMode }}</div>
+              <HorizontalSelector
+                :value="whiteExtraBook.selectionMode || BookSelectionMode.FIRST"
+                :items="bookSelectionModeItems"
+                @update:value="
+                  (val: string) => (whiteExtraBook.selectionMode = val as BookSelectionMode)
+                "
               />
             </div>
           </div>
@@ -275,6 +295,7 @@ import {
   USIEngineExtraBookConfig,
   emptyUSIEngine,
   emptyUSIEngineExtraBookConfig,
+  BookSelectionMode,
 } from "@/common/settings/usi";
 import { ref, onMounted, computed } from "vue";
 import api, { isNative } from "@/renderer/ipc/api";
@@ -298,6 +319,7 @@ import { useBusyState } from "@/renderer/store/busy";
 import DialogFrame from "./DialogFrame.vue";
 import { useLanStore } from "@/renderer/store/lan";
 import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
+import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
 
 const store = useStore();
 const busyState = useBusyState();
@@ -318,6 +340,13 @@ const whitePlayerURI = ref("");
 const blackExtraBook = ref<USIEngineExtraBookConfig>(emptyUSIEngineExtraBookConfig());
 const whiteExtraBook = ref<USIEngineExtraBookConfig>(emptyUSIEngineExtraBookConfig());
 const lanStore = useLanStore();
+
+const bookSelectionModeItems = computed(() => [
+  { value: BookSelectionMode.FIRST, label: t.firstMove },
+  { value: BookSelectionMode.RANDOM, label: t.randomMove },
+  { value: BookSelectionMode.BEST_SCORE, label: t.bestScoreMove },
+]);
+
 const isBlackEngine = computed(
   () => uri.isUSIEngine(blackPlayerURI.value) || blackPlayerURI.value.startsWith("lan-engine"),
 );

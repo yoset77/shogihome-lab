@@ -4,6 +4,7 @@ import { Record } from "tsshogi";
 import { Mock } from "vitest";
 import api from "@/renderer/ipc/api";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "@/renderer/players/usi_events";
+import { BookSelectionMode } from "@/common/settings/usi";
 
 vi.mock("@/renderer/network/lan_engine");
 vi.mock("@/renderer/ipc/api");
@@ -341,5 +342,95 @@ describe("LanPlayer", () => {
     sendMsg({ error: "Engine did not respond to stop command" });
 
     await expect(stopPromise).rejects.toThrow("Engine did not respond to stop command");
+  });
+
+  it("should select book moves based on selectionMode (RANDOM)", async () => {
+    (api.searchBookMoves as Mock).mockResolvedValue([
+      { usi: "7g7f", count: 10, score: 100, comment: "" },
+      { usi: "2g2f", count: 90, score: 50, comment: "" },
+    ]);
+
+    const onMove = vi.fn();
+    const player = new LanPlayer(
+      "research_main",
+      "test-engine",
+      "Test Engine",
+      undefined,
+      undefined,
+      {
+        enabled: true,
+        filePath: "test.db",
+        selectionMode: BookSelectionMode.RANDOM,
+      },
+    );
+    await launchPlayer(player);
+
+    const usi = "position startpos";
+    const record = Record.newByUSI(usi) as Record;
+
+    // Simulate multiple searches to check randomness (statistically)
+    let move7g7f = 0;
+    let move2g2f = 0;
+    for (let i = 0; i < 100; i++) {
+      onMove.mockClear();
+      await player.startSearch(
+        record.position,
+        usi,
+        {
+          black: { timeMs: 1000, byoyomi: 0, increment: 0 },
+          white: { timeMs: 1000, byoyomi: 0, increment: 0 },
+        },
+        { onMove, onResign: vi.fn(), onWin: vi.fn(), onError: vi.fn() },
+      );
+      await vi.runAllTimersAsync();
+      const move = onMove.mock.calls[0][0].usi;
+      if (move === "7g7f") move7g7f++;
+      if (move === "2g2f") move2g2f++;
+    }
+
+    // With 10% vs 90%, we expect both to appear at least once in 100 trials
+    expect(move7g7f).toBeGreaterThan(0);
+    expect(move2g2f).toBeGreaterThan(0);
+    expect(move2g2f).toBeGreaterThan(move7g7f);
+  });
+
+  it("should select book moves based on selectionMode (BEST_SCORE)", async () => {
+    (api.searchBookMoves as Mock).mockResolvedValue([
+      { usi: "7g7f", count: 100, score: 50, comment: "" },
+      { usi: "2g2f", count: 10, score: 100, comment: "" },
+    ]);
+
+    const onMove = vi.fn();
+    const player = new LanPlayer(
+      "research_main",
+      "test-engine",
+      "Test Engine",
+      undefined,
+      undefined,
+      {
+        enabled: true,
+        filePath: "test.db",
+        selectionMode: BookSelectionMode.BEST_SCORE,
+      },
+    );
+    await launchPlayer(player);
+
+    const usi = "position startpos";
+    const record = Record.newByUSI(usi) as Record;
+
+    await player.startSearch(
+      record.position,
+      usi,
+      {
+        black: { timeMs: 1000, byoyomi: 0, increment: 0 },
+        white: { timeMs: 1000, byoyomi: 0, increment: 0 },
+      },
+      { onMove, onResign: vi.fn(), onWin: vi.fn(), onError: vi.fn() },
+    );
+    await vi.runAllTimersAsync();
+
+    // Should select 2g2f because it has the best score (100)
+    expect(onMove).toBeCalledTimes(1);
+    expect(onMove.mock.calls[0][0].usi).toBe("2g2f");
   });
 });

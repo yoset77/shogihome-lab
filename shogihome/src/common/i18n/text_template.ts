@@ -405,6 +405,10 @@ export type Texts = {
   replaceEnginePath: string;
   displayName: string;
   frontendBook: string;
+  firstMove: string;
+  randomMove: string;
+  bestScoreMove: string;
+  selectionMode: string;
   invoke: string;
   resetToEngineDefaultValues: string;
   defaultValue: string;

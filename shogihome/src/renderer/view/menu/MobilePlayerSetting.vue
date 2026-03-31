@@ -61,6 +61,15 @@
           @update:value="(val: string) => (extraBook.filePath = val)"
         />
       </div>
+      <div v-if="extraBook.enabled" class="list-item-full book-selection-mode">
+        <div class="item-label-small">{{ t.selectionMode }}</div>
+        <HorizontalSelector
+          :value="extraBook.selectionMode || BookSelectionMode.FIRST"
+          :items="bookSelectionModeItems"
+          :disabled="disabled"
+          @update:value="(val: string) => (extraBook.selectionMode = val as BookSelectionMode)"
+        />
+      </div>
     </template>
 
     <MobileTimeSettingDialog
@@ -83,7 +92,8 @@ import { TimeLimitSettings } from "@/common/settings/game";
 import MobileTimeSettingDialog from "./MobileTimeSettingDialog.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
-import { USIEngineExtraBookConfig } from "@/common/settings/usi";
+import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
+import { USIEngineExtraBookConfig, BookSelectionMode } from "@/common/settings/usi";
 
 defineProps({
   disabled: {
@@ -106,6 +116,12 @@ const extraBook = defineModel<USIEngineExtraBookConfig>("extraBook", { required:
 const showTimeDialog = ref(false);
 
 const isEngine = computed(() => playerUri.value !== uri.ES_HUMAN);
+
+const bookSelectionModeItems = computed(() => [
+  { value: BookSelectionMode.FIRST, label: t.firstMove },
+  { value: BookSelectionMode.RANDOM, label: t.randomMove },
+  { value: BookSelectionMode.BEST_SCORE, label: t.bestScoreMove },
+]);
 
 const onPlayerChange = (event: Event) => {
   const select = event.target as HTMLSelectElement;
@@ -139,11 +155,11 @@ const getTimeDescription = () => {
   display: grid;
   grid-template-columns: 110px 1fr 30px;
   align-items: center;
-  padding: 10px 0;
+  padding: 12px 0;
   border-bottom: 1px solid var(--text-separator-color);
 }
 .list-item-full {
-  padding: 10px 0;
+  padding: 12px 0;
   border-bottom: 1px solid var(--text-separator-color);
 }
 .list-item:last-child,
@@ -159,6 +175,13 @@ const getTimeDescription = () => {
   color: var(--text-color);
   opacity: 0.8;
   text-align: left;
+}
+.item-label-small {
+  font-size: 0.8em;
+  color: var(--text-color);
+  opacity: 0.6;
+  text-align: left;
+  margin-bottom: 4px;
 }
 .item-value {
   flex: 1;
@@ -204,5 +227,10 @@ const getTimeDescription = () => {
   font-size: 1.2em;
   color: var(--text-color);
   opacity: 0.6;
+}
+.book-selection-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 </style>
