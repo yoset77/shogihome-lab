@@ -1,6 +1,6 @@
 export type Texts = {
   shogiHome: string;
-  shogiHomeLAN: string;
+  shogiHomeLab: string;
   clear: string;
   open: string;
   openNewInstance: string;

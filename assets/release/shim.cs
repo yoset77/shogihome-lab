@@ -39,7 +39,7 @@ namespace ShogiHomeLauncher
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to start ShogiHome LAN:\n" + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Failed to start ShogiHome Lab:\n" + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }

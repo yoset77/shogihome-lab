@@ -13,7 +13,7 @@
                   ? `\u25B6 ${t.csaServer}`
                   : `\u25B6 ${t.usiEngine}`,
             },
-            { value: CommandType.RECEIVE, label: `\u25C0 ${t.shogiHomeLAN}` },
+            { value: CommandType.RECEIVE, label: `\u25C0 ${t.shogiHomeLab}` },
           ]"
         />
         <input

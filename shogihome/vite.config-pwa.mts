@@ -13,8 +13,8 @@ export default defineConfig({
         enabled: true,
       },
       manifest: {
-        name: "ShogiHome LAN",
-        short_name: "ShogiHome LAN",
+        name: "ShogiHome Lab",
+        short_name: "ShogiHome Lab",
         description: "将棋の対局や棋譜の編集ができるアプリ",
         background_color: "#2f4f4f",
         theme_color: "#5f8f5f",

@@ -1,4 +1,4 @@
-# Architecture & Implementation Details for ShogiHome LAN Engine
+# Architecture & Implementation Details for ShogiHome Lab
 
 このファイルは、本プロジェクトのシステム構造、ディレクトリ構成、および各機能の詳細な実装仕様を記述したドキュメントです。
 
@@ -36,7 +36,7 @@ graph LR
 | `public/puzzles/` | 次の一手問題データ（JSON）。 |
 | `scripts/build-puzzles.ts` | ビルド時にパズルデータを集計し、マニフェストファイルを生成するスクリプト。 |
 | `docs/webapp/` | ビルド成果物 (Git管理対象外)。ライセンスファイルもここに含まれます。 |
-| `.env` | 環境設定 (Git管理対象外)。ポート番号等を設定。原本として `.env.example` を参照。 |
+| `.env` | 環境設定 (Git管理対象外)。ポート番号等を設定. 原本として `.env.example` を参照。 |
 
 ### B. Engine Server (`engine-wrapper/`)
 
@@ -45,11 +45,12 @@ graph LR
 | `engine_wrapper.py` | **エンジンラッパー**。エンジンをTCPサーバーとして公開するツール。エンジンオプションの注入も担当。 |
 | `config_editor.py` | **設定エディタ (Backend/GUI)**。`pywebview` を使用して `config_editor.html` をデスクトップアプリとして表示し、 `engines.json` を編集するツール。 |
 | `config_editor.html` | **設定エディタ (Frontend)**。単独でファイル編集ツールとしても、`config_editor.py` のUIとしても動作するハイブリッド設計。 |
+| `launcher.py` | **GUIランチャー**。Webサーバーとエンジンラッパーをバックグラウンドで起動・終了する。
 | `scripts/generate_licenses.py` | Python依存ライブラリのライセンスを生成。 |
 | `engines.json` | エンジン設定ファイル (Git管理対象外)。ID、表示名、実行パスのリストを定義。原本として `engines.json.default` (空) または `engines.json.example` (設定例) を参照。 |
 | `engines.json.default` | リリース用テンプレート (空のリスト `[]`)。 |
 | `engines.json.example` | 開発者向け設定例。 |
-| `.env` | 環境設定 (Git管理対象外)。ポート番号等を設定。原本として `.env.example` を参照。 |
+| `.env` | 環境設定 (Git管理対象外)。ポート番号等を設定. 原本として `.env.example` を参照。 |
 
 ### C. Release Assets (`assets/release/`)
 
@@ -83,8 +84,7 @@ graph LR
 - **自動復旧とバッファリング**: クライアントは WebSocket 切断時に指数バックオフを用いて自動的に再接続を試みます。また、切断中に送信しようとしたコマンドはクライアント側の `commandQueue` に保持され、再接続時に自動的に再送されます。バックグラウンドから復帰した際 (`visibilitychange`) には待機時間を待たずに即座に再接続を試みることで、UXを向上させています。サーバー側は切断中のエンジン出力（`info` や `bestmove`）をバッファリング（`info` は最新10件のみ保持）し、再接続時にリプレイすることで状態を完全復元します。これにより、思考中の回線断でもエラーにならずに継続可能です。
 - **意図的な終了**: クライアントから `stop_engine` コマンドが送出された後の切断は「意図的な終了」とみなされ、サーバーは即座にエンジンプロセスを終了しリソースを解放します。
 
-### 統合ランチャー (ShogiHome LAN Launcher)
-一般ユーザーの利便性向上のため、CustomTkinter 製の GUI ランチャー (`engine-wrapper/launcher.py`) を導入しました。
+### 統合ランチャー (ShogiHome Lab Launcher)
 - **プロセス一括管理**: Webサーバーとエンジンラッパーをバックグラウンドで一括起動・終了。
 - **タスクトレイ常駐**: ウィンドウを閉じてもトレイに常駐し、右クリックメニューから操作（Dashboard表示、設定、再起動、終了）が可能。
 - **QRコード表示**: LAN内アクセス用の URL を自動生成し、スマホ等から即座にアクセスできるよう QR コードを表示。

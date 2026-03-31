@@ -1,4 +1,4 @@
-# AI Agent Context & Guidelines for ShogiHome LAN Engine
+# AI Agent Context & Guidelines for ShogiHome Lab
 
 このファイルは、AIエージェントが本プロジェクトで自律的に開発・修正を行うための「絶対的な情報源」です。
 **システムの詳細な構造やディレクトリ構成については、[ARCHITECTURE.md](ARCHITECTURE.md) を参照してください。**

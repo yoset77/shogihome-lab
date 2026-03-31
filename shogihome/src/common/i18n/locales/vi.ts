@@ -2,7 +2,7 @@ import { Texts } from "@/common/i18n/text_template.js";
 
 export const vi: Texts = {
   shogiHome: "ShogiHome",
-  shogiHomeLAN: "ShogiHome LAN",
+  shogiHomeLab: "ShogiHome Lab",
   clear: "Ván mới",
   open: "Mở",
   openNewInstance: "Mở một cửa sổ ShogiHome mới",

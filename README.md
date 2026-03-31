@@ -1,7 +1,7 @@
-# ShogiHome LAN Engine
+# ShogiHome Lab
 
-[![Built with Gemini](https://img.shields.io/badge/Built%20with-Gemini-4E86F8?style=flat-square&logo=google-gemini&logoColor=white)](https://deepmind.google/technologies/gemini/)
-[![CI](https://github.com/yoset77/shogihome-lan/actions/workflows/test.yml/badge.svg)](https://github.com/yoset77/shogihome-lan/actions/workflows/test.yml)
+[![AI-Driven Development](https://img.shields.io/badge/AI%20Driven-Development-9b59b6.svg)](https://github.com/yoset77/shogihome-lab/blob/main/AGENTS.md)
+[![CI](https://github.com/yoset77/shogihome-lab/actions/workflows/test.yml/badge.svg)](https://github.com/yoset77/shogihome-lab/actions/workflows/test.yml)
 
 [ShogiHome](https://github.com/sunfish-shogi/shogihome) をフォークし、サーバーサイドでUSIエンジンを実行する機能を追加した改造版です。  
 PC上のUSI将棋エンジンをLAN内のスマートフォンやタブレットからWebブラウザ経由で利用し、ShogiHomeの快適なUIで局面の検討や対局を行うことができます。
@@ -15,12 +15,12 @@ PC上のUSI将棋エンジンをLAN内のスマートフォンやタブレット
 <table>
   <tr>
     <td align="center">
-      <img src="./images/shogihome-lan_research.webp" width="250">
+      <img src="./images/shogihome-lab_research.webp" width="250">
     <br>
      <em>検討画面</em>
     </td>
     <td align="center">
-      <img src="./images/shogihome-lan_pv-preview.webp" width="250">
+      <img src="./images/shogihome-lab_pv-preview.webp" width="250">
     <br>
      <em>PVプレビュー画面</em>
     </td>
@@ -29,7 +29,7 @@ PC上のUSI将棋エンジンをLAN内のスマートフォンやタブレット
 
 ## 主な機能
 
-- **LANエンジン対局・検討:** PC上の強力なUSIエンジンを、スマホやタブレットのブラウザから利用できます。
+- **エンジン対局・検討:** PC上の強力なUSIエンジンを、スマホやタブレットのブラウザから利用できます。
 - **思考結果データベース:** 検討・対局時の評価値や読み筋をサーバー側（SQLite）に自動蓄積します。思考結果は、別の棋譜やデバイスでその局面を表示した際にも即座に参照できます。
 - **セッション継続機能:** ネットワークの一時的な切断が発生しても、サーバー側でエンジンプロセスを一定時間（デフォルト60秒）維持し、再接続時に状態を復元します。
 - **ハートビート監視:** クライアント・サーバー間で定期的な PING/PONG を行い、切断を検知した場合は自動で再接続を試みます。
@@ -52,9 +52,9 @@ PC上のUSI将棋エンジンをLAN内のスマートフォンやタブレット
 
 ### A. 配布パッケージ（exe）を利用する場合
 
-[Releases](https://github.com/yoset77/shogihome-lan/releases) からWindows用のビルド済みファイルをダウンロードできます。
+[Releases](https://github.com/yoset77/shogihome-lab/releases) からWindows用のビルド済みファイルをダウンロードできます。
 
-1. ダウンロードしたファイルを展開し、ルートディレクトリの **`ShogiHomeLAN.exe`**（ランチャー）を実行すると、Webサーバーとエンジンラッパーがバックグラウンドで起動します。
+1. ダウンロードしたファイルを展開し、ルートディレクトリの **`ShogiHomeLab.exe`**（ランチャー）を実行すると、Webサーバーとエンジンラッパーがバックグラウンドで起動します。
 2. ランチャーの「Engine Settings」をクリックして、エンジンの登録を行ってください。
 3. 表示されているQRコードをスマホで読み取るか、ブラウザで `http://localhost:8140` にアクセスしてください。
 
@@ -69,8 +69,8 @@ PC上のUSI将棋エンジンをLAN内のスマートフォンやタブレット
 #### 1. インストール
 
 ```shell
-git clone https://github.com/yoset77/shogihome-lan.git
-cd shogihome-lan
+git clone https://github.com/yoset77/shogihome-lab.git
+cd shogihome-lab
 ```
 
 #### 2. Webサーバー (shogihome) のセットアップ
@@ -111,6 +111,8 @@ npm run server:start
 ```shell
 cd engine-wrapper
 uv run engine_wrapper.py
+# または
+npm run start
 ```
 
 ### C. Docker を利用する場合 (Webサーバーのみ)
@@ -148,7 +150,7 @@ graph LR
 
 ### セキュリティ機能
 
-本アプリケーションは、LAN内での利用を前提として、以下のセキュリティ対策を実装しています。
+本アプリケーションは、以下のセキュリティ対策を実装しています。
 
 - **USIコマンドバリデーション:** サーバー側でコマンドを検証し、コマンドインジェクションを防ぎます。
 - **オリジン制限:** WebSocket接続時にオリジンを検証し、許可されたオリジン以外からの接続を拒否します。
@@ -179,33 +181,22 @@ graph LR
 
 ## Acknowledgements
 
-ShogiHome LAN Engine は、[Kubo Ryosuke (sunfish-shogi)](https://github.com/sunfish-shogi) 氏によって開発された [ShogiHome](https://github.com/sunfish-shogi/shogihome) をベースにしたハードフォークです。  
+ShogiHome Lab は、[Kubo Ryosuke (sunfish-shogi)](https://github.com/sunfish-shogi) 氏によって開発された [ShogiHome](https://github.com/sunfish-shogi/shogihome) をベースにしたハードフォークです。  
 オリジナルの作者に深く感謝いたします。
 
 ---
 
 ## Licences
 
-### ShogiHome LAN Engine
+### ShogiHome Lab
 
 [MIT License](LICENSE)
 
 ### Icon Images
 
-[/shogihome/public/icon](https://github.com/yoset77/shogihome-lan/tree/main/shogihome/public/icon) 配下のアイコン画像は [Material Icons](https://google.github.io/material-design-icons/) を使用しています。
+[/shogihome/public/icon](https://github.com/yoset77/shogihome-lab/tree/main/shogihome/public/icon) 配下のアイコン画像は [Material Icons](https://google.github.io/material-design-icons/) を使用しています。
 これには [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt) が適用されます。
 
 ### Dependencies
 
 本ソフトウェアは多数のオープンソースソフトウェアを使用しています。詳細はアプリ内の「Third Party Libraries」画面でご確認ください。
-
----
-
-## AI-Powered Development
-
-This project is primarily developed and maintained using the **Gemini CLI**.
-
-The development workflow leverages autonomous AI agents to implement features, refactor code, and fix bugs based on the guidelines defined in [AGENTS.md](AGENTS.md). 
-
-- **Agent**: Gemini CLI
-- **Context Management**: Guided by `AGENTS.md` in the root directory.

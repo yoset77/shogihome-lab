@@ -2,7 +2,7 @@ import { Texts } from "@/common/i18n/text_template.js";
 
 export const zh_tw: Texts = {
   shogiHome: "ShogiHome",
-  shogiHomeLAN: "ShogiHome LAN",
+  shogiHomeLab: "ShogiHome Lab",
   clear: "清除",
   open: "開啟",
   openNewInstance: "開啟新的 ShogiHome 視窗",

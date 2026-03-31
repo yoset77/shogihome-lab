@@ -2,7 +2,7 @@ import { Texts } from "@/common/i18n/text_template.js";
 
 export const ja: Texts = {
   shogiHome: "ShogiHome",
-  shogiHomeLAN: "ShogiHome LAN",
+  shogiHomeLab: "ShogiHome Lab",
   clear: "初期化",
   open: "開く",
   openNewInstance: "新しい ShogiHome ウィンドウを開く",

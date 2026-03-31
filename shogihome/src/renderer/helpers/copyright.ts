@@ -9,7 +9,7 @@ export function openCopyright() {
     attachments: [
       {
         type: "link",
-        text: t.shogiHomeLAN,
+        text: t.shogiHomeLab,
         url: licenseURL,
       },
       {

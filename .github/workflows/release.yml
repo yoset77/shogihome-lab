@@ -67,18 +67,18 @@ jobs:
               $csc = (where.exe csc.exe | Select-Object -First 1)
           }
           if (-not $csc) { throw "csc.exe not found. Cannot build Shim." }
-          & $csc /target:winexe /out:ShogiHomeLAN.exe /r:System.Windows.Forms.dll "assets\release\shim.cs"
+          & $csc /target:winexe /out:ShogiHomeLab.exe /r:System.Windows.Forms.dll "assets\release\shim.cs"
 
       # --- Packaging ---
       - name: Create Release Package
         shell: pwsh
         run: |
           $tagName = "${{ github.ref_name }}"
-          $pkgName = "shogihome-lan-$tagName"
+          $pkgName = "shogihome-lab-$tagName"
           New-Item -ItemType Directory -Path $pkgName -Force
 
           # 0. Shim & Root
-          Copy-Item "ShogiHomeLAN.exe" -Destination "$pkgName/"
+          Copy-Item "ShogiHomeLab.exe" -Destination "$pkgName/"
           Copy-Item "shogihome/build/icon.png" -Destination "$pkgName/icon.png"
           Copy-Item "assets/release/README.txt" -Destination "$pkgName/"
 
@@ -113,13 +113,13 @@ jobs:
       - name: Attest Build Provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: shogihome-lan-*.zip
+          subject-path: shogihome-lab-*.zip
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: shogihome-lan-*.zip
+          files: shogihome-lab-*.zip
           draft: true
           prerelease: false
           generate_release_notes: true

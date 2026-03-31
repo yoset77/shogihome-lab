@@ -17,7 +17,7 @@ setupIPC();
 
 const store = useStore();
 
-document.title = `ShogiHome LAN Prompt - ${store.target} [${store.sessionID}] ${store.name}`;
+document.title = `ShogiHome Lab Prompt - ${store.target} [${store.sessionID}] ${store.name}`;
 
 Promise.allSettled([
   store.setup(),

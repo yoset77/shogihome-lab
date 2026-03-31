@@ -13,7 +13,7 @@ import { searchBookMovesForPlayer } from "./book_search";
 import { generateSessionId } from "@/renderer/helpers/unique";
 
 function getSessionId(sessionKey: string): string {
-  const localStorageKey = `shogihome-lan-session-id-${sessionKey}`;
+  const localStorageKey = `shogihome-lab-session-id-${sessionKey}`;
   let id = localStorage.getItem(localStorageKey);
   if (!id) {
     id = generateSessionId();
