@@ -14,6 +14,7 @@ export const testUSIEngine: USIEngine = {
   },
   tags: ["対局"],
   enableEarlyPonder: false,
+  extraBook: { enabled: false, filePath: "" },
 };
 
 export const testUSIEngineWithPonder: USIEngine = {
@@ -36,4 +37,5 @@ export const testUSIEngineWithPonder: USIEngine = {
     mate: false,
   },
   enableEarlyPonder: false,
+  extraBook: { enabled: false, filePath: "" },
 };

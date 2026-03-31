@@ -16,6 +16,31 @@
             :display-multi-pv-state="true"
             @update-engines="onUpdatePlayerSettings"
           />
+          <!-- 先手定跡 (GUI拡張) -->
+          <div v-if="isBlackEngine" class="form-item extra-book">
+            <div class="row center">
+              <div class="form-item-label">{{ t.frontendBook }}</div>
+              <ToggleButton v-model:value="blackExtraBook.enabled" />
+            </div>
+            <div v-if="blackExtraBook.enabled" class="form-item additional">
+              <DropdownList
+                :value="blackExtraBook.filePath"
+                :items="bookFileList"
+                :tags="[]"
+                @update:value="(val: string) => (blackExtraBook.filePath = val)"
+              />
+            </div>
+            <div v-if="blackExtraBook.enabled" class="form-item additional">
+              <div class="form-item-label">{{ t.selectionMode }}</div>
+              <HorizontalSelector
+                :value="blackExtraBook.selectionMode || BookSelectionMode.FIRST"
+                :items="bookSelectionModeItems"
+                @update:value="
+                  (val: string) => (blackExtraBook.selectionMode = val as BookSelectionMode)
+                "
+              />
+            </div>
+          </div>
         </div>
         <div class="half-column">
           <div class="top-label">{{ t.goteOrUwate }}</div>
@@ -31,6 +56,31 @@
             :display-multi-pv-state="true"
             @update-engines="onUpdatePlayerSettings"
           />
+          <!-- 後手定跡 (GUI拡張) -->
+          <div v-if="isWhiteEngine" class="form-item extra-book">
+            <div class="row center">
+              <div class="form-item-label">{{ t.frontendBook }}</div>
+              <ToggleButton v-model:value="whiteExtraBook.enabled" />
+            </div>
+            <div v-if="whiteExtraBook.enabled" class="form-item additional">
+              <DropdownList
+                :value="whiteExtraBook.filePath"
+                :items="bookFileList"
+                :tags="[]"
+                @update:value="(val: string) => (whiteExtraBook.filePath = val)"
+              />
+            </div>
+            <div v-if="whiteExtraBook.enabled" class="form-item additional">
+              <div class="form-item-label">{{ t.selectionMode }}</div>
+              <HorizontalSelector
+                :value="whiteExtraBook.selectionMode || BookSelectionMode.FIRST"
+                :items="bookSelectionModeItems"
+                @update:value="
+                  (val: string) => (whiteExtraBook.selectionMode = val as BookSelectionMode)
+                "
+              />
+            </div>
+          </div>
         </div>
       </div>
       <div class="row regular-interval">
@@ -238,8 +288,16 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
-import { USIEngine, USIEngines, getPredefinedUSIEngineTag } from "@/common/settings/usi";
-import { ref, onMounted } from "vue";
+import {
+  USIEngine,
+  USIEngines,
+  getPredefinedUSIEngineTag,
+  USIEngineExtraBookConfig,
+  emptyUSIEngine,
+  emptyUSIEngineExtraBookConfig,
+  BookSelectionMode,
+} from "@/common/settings/usi";
+import { ref, onMounted, computed } from "vue";
 import api, { isNative } from "@/renderer/ipc/api";
 import { useStore } from "@/renderer/store";
 import {
@@ -261,6 +319,7 @@ import { useBusyState } from "@/renderer/store/busy";
 import DialogFrame from "./DialogFrame.vue";
 import { useLanStore } from "@/renderer/store/lan";
 import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
+import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
 
 const store = useStore();
 const busyState = useBusyState();
@@ -278,10 +337,24 @@ const gameSettings = ref(defaultGameSettings());
 const engines = ref(new USIEngines());
 const blackPlayerURI = ref("");
 const whitePlayerURI = ref("");
+const blackExtraBook = ref<USIEngineExtraBookConfig>(emptyUSIEngineExtraBookConfig());
+const whiteExtraBook = ref<USIEngineExtraBookConfig>(emptyUSIEngineExtraBookConfig());
 const lanStore = useLanStore();
-const sfenFileList = ref<{ label: string; value: string }[]>([]);
 
-busyState.retain();
+const bookSelectionModeItems = computed(() => [
+  { value: BookSelectionMode.FIRST, label: t.firstMove },
+  { value: BookSelectionMode.RANDOM, label: t.randomMove },
+  { value: BookSelectionMode.BEST_SCORE, label: t.bestScoreMove },
+]);
+
+const isBlackEngine = computed(
+  () => uri.isUSIEngine(blackPlayerURI.value) || blackPlayerURI.value.startsWith("lan-engine"),
+);
+const isWhiteEngine = computed(
+  () => uri.isUSIEngine(whitePlayerURI.value) || whitePlayerURI.value.startsWith("lan-engine"),
+);
+const sfenFileList = ref<{ label: string; value: string }[]>([]);
+const bookFileList = ref<{ label: string; value: string }[]>([]);
 
 const loadSFENFileList = async () => {
   try {
@@ -293,12 +366,28 @@ const loadSFENFileList = async () => {
   }
 };
 
-onMounted(async () => {
+const loadBookFileList = async () => {
   try {
+    const bookFiles = await api.listServerBook();
+    bookFileList.value = bookFiles.map((f) => ({ label: f, value: "server://" + f }));
+  } catch (e) {
+    console.warn("Failed to load book file list:", e);
+    bookFileList.value = [];
+  }
+};
+
+onMounted(async () => {
+  busyState.retain();
+  try {
+    await Promise.all([loadSFENFileList(), loadBookFileList()]);
     gameSettings.value = await api.loadGameSettings();
     engines.value = await api.loadUSIEngines();
     blackPlayerURI.value = gameSettings.value.black.uri;
     whitePlayerURI.value = gameSettings.value.white.uri;
+    blackExtraBook.value =
+      gameSettings.value.black.usi?.extraBook || emptyUSIEngineExtraBookConfig();
+    whiteExtraBook.value =
+      gameSettings.value.white.usi?.extraBook || emptyUSIEngineExtraBookConfig();
     hours.value = Math.floor(gameSettings.value.timeLimit.timeSeconds / 3600);
     minutes.value = Math.floor(gameSettings.value.timeLimit.timeSeconds / 60) % 60;
     byoyomi.value = gameSettings.value.timeLimit.byoyomi;
@@ -319,9 +408,6 @@ onMounted(async () => {
         console.warn("Failed to connect to LAN engine server:", e);
       }
     }
-
-    // Load SFEN file list
-    await loadSFENFileList();
   } catch (e) {
     useErrorStore().add(e);
     store.destroyModalDialog();
@@ -330,7 +416,10 @@ onMounted(async () => {
   }
 });
 
-const buildPlayerSettings = (playerURI: string): PlayerSettings => {
+const buildPlayerSettings = (
+  playerURI: string,
+  extraBook: USIEngineExtraBookConfig,
+): PlayerSettings => {
   if (playerURI === "lan-engine" || playerURI.startsWith("lan-engine:")) {
     let name = "LAN Engine";
     if (playerURI.startsWith("lan-engine:")) {
@@ -345,6 +434,10 @@ const buildPlayerSettings = (playerURI: string): PlayerSettings => {
     return {
       name: name,
       uri: playerURI,
+      usi: {
+        ...emptyUSIEngine(),
+        extraBook,
+      },
     };
   }
   if (uri.isUSIEngine(playerURI) && engines.value.hasEngine(playerURI)) {
@@ -352,7 +445,10 @@ const buildPlayerSettings = (playerURI: string): PlayerSettings => {
     return {
       name: engine.name,
       uri: playerURI,
-      usi: engine,
+      usi: {
+        ...engine,
+        extraBook,
+      },
     };
   }
   return {
@@ -364,8 +460,8 @@ const buildPlayerSettings = (playerURI: string): PlayerSettings => {
 const onStart = () => {
   const newSettings: GameSettings = {
     ...gameSettings.value,
-    black: buildPlayerSettings(blackPlayerURI.value),
-    white: buildPlayerSettings(whitePlayerURI.value),
+    black: buildPlayerSettings(blackPlayerURI.value, blackExtraBook.value),
+    white: buildPlayerSettings(whitePlayerURI.value, whiteExtraBook.value),
     timeLimit: {
       timeSeconds: (hours.value * 60 + minutes.value) * 60,
       byoyomi: byoyomi.value,
@@ -434,5 +530,18 @@ input.time {
 input.number {
   text-align: right;
   width: 80px;
+}
+.extra-book {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--control-border-color);
+}
+.extra-book .form-item-label {
+  width: auto;
+  margin-right: 10px;
+  white-space: nowrap;
+}
+.extra-book .additional {
+  margin-top: 5px;
 }
 </style>

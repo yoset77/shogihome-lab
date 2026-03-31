@@ -72,14 +72,19 @@ export interface API {
   showOpenBookDialog(): Promise<string>;
   showSaveBookDialog(defaultPath: string): Promise<string>;
   openBook(path: string, options: BookLoadingOptions): Promise<BookLoadingMode>;
-  saveBook(path: string): Promise<void>;
-  clearBook(): Promise<void>;
-  searchBookMoves(sfen: string): Promise<BookMove[]>;
-  searchBookMovesBatch(sfens: string[]): Promise<{ sfen: string; moves: BookMove[] }[]>;
-  updateBookMove(sfen: string, move: BookMove): Promise<void>;
-  removeBookMove(sfen: string, usi: string): Promise<void>;
-  updateBookMoveOrder(sfen: string, usi: string, order: number): Promise<void>;
-  importBookMoves(settings: BookImportSettings): Promise<BookImportSummary>;
+  openBookAsNewSession(path: string, options: BookLoadingOptions): Promise<string>;
+  saveBook(path: string, sessionId?: string): Promise<void>;
+  closeBook(sessionId: string): Promise<void>;
+  clearBook(sessionId?: string): Promise<void>;
+  searchBookMoves(sfen: string, sessionId?: string): Promise<BookMove[]>;
+  searchBookMovesBatch(
+    sfens: string[],
+    sessionId?: string,
+  ): Promise<{ sfen: string; moves: BookMove[] }[]>;
+  updateBookMove(sfen: string, move: BookMove, sessionId?: string): Promise<void>;
+  removeBookMove(sfen: string, usi: string, sessionId?: string): Promise<void>;
+  updateBookMoveOrder(sfen: string, usi: string, order: number, sessionId?: string): Promise<void>;
+  importBookMoves(settings: BookImportSettings, sessionId?: string): Promise<BookImportSummary>;
 
   // USI
   showSelectUSIEngineDialog(): Promise<string>;
@@ -230,17 +235,55 @@ const api: API = {
   openBook(path: string, options: BookLoadingOptions): Promise<BookLoadingMode> {
     return bridge.openBook(path, JSON.stringify(options));
   },
-  async searchBookMoves(sfen: string): Promise<BookMove[]> {
-    return JSON.parse(await bridge.searchBookMoves(sfen));
+  async openBookAsNewSession(path: string, options: BookLoadingOptions): Promise<string> {
+    const randomArray = new Uint32Array(1);
+    window.crypto.getRandomValues(randomArray);
+    const randomToken = randomArray[0].toString(36);
+    const sessionId = `ext-book-${Date.now()}-${randomToken}`;
+    await bridge.openBook(path, JSON.stringify(options), sessionId);
+    return sessionId;
   },
-  async searchBookMovesBatch(sfens: string[]): Promise<{ sfen: string; moves: BookMove[] }[]> {
-    return JSON.parse(await bridge.searchBookMovesBatch(sfens));
+  async saveBook(path: string, sessionId?: string): Promise<void> {
+    if (!path.startsWith("server://")) {
+      throw new Error("Only server-side books are supported");
+    }
+    const relPath = path.substring(9);
+    return bridge.saveBook(relPath, sessionId);
   },
-  updateBookMove(sfen: string, move: BookMove): Promise<void> {
-    return bridge.updateBookMove(sfen, JSON.stringify(move));
+  async closeBook(sessionId: string): Promise<void> {
+    return bridge.closeBookSession(sessionId);
   },
-  async importBookMoves(settings: BookImportSettings): Promise<BookImportSummary> {
-    return JSON.parse(await bridge.importBookMoves(JSON.stringify(settings)));
+  async clearBook(sessionId?: string): Promise<void> {
+    return bridge.clearBook(sessionId);
+  },
+  async searchBookMoves(sfen: string, sessionId?: string): Promise<BookMove[]> {
+    return JSON.parse(await bridge.searchBookMoves(sfen, sessionId));
+  },
+  async searchBookMovesBatch(
+    sfens: string[],
+    sessionId?: string,
+  ): Promise<{ sfen: string; moves: BookMove[] }[]> {
+    return JSON.parse(await bridge.searchBookMovesBatch(sfens, sessionId));
+  },
+  updateBookMove(sfen: string, move: BookMove, sessionId?: string): Promise<void> {
+    return bridge.updateBookMove(sfen, JSON.stringify(move), sessionId);
+  },
+  async removeBookMove(sfen: string, usi: string, sessionId?: string): Promise<void> {
+    return bridge.removeBookMove(sfen, usi, sessionId);
+  },
+  async updateBookMoveOrder(
+    sfen: string,
+    usi: string,
+    order: number,
+    sessionId?: string,
+  ): Promise<void> {
+    return bridge.updateBookMoveOrder(sfen, usi, order, sessionId);
+  },
+  async importBookMoves(
+    settings: BookImportSettings,
+    sessionId?: string,
+  ): Promise<BookImportSummary> {
+    return JSON.parse(await bridge.importBookMoves(JSON.stringify(settings), sessionId));
   },
 
   // USI

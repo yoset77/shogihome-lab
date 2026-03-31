@@ -1,15 +1,14 @@
-import {
-  LanPlayer,
-  isActiveLanPlayerSession,
-  setOnStartSearchHandlerForLan,
-} from "@/renderer/players/lan_player";
+import { LanPlayer, isActiveLanPlayerSession } from "@/renderer/players/lan_player";
 import { LanEngine } from "@/renderer/network/lan_engine";
-import { dispatchUSIInfoUpdate } from "@/renderer/players/usi.js";
 import { Record } from "tsshogi";
 import { Mock } from "vitest";
+import api from "@/renderer/ipc/api";
+import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "@/renderer/players/usi_events";
+import { BookSelectionMode } from "@/common/settings/usi";
 
 vi.mock("@/renderer/network/lan_engine");
-vi.mock("@/renderer/players/usi.js");
+vi.mock("@/renderer/ipc/api");
+vi.mock("@/renderer/players/usi_events");
 
 describe("LanPlayer", () => {
   let messageHandler: (message: string) => void;
@@ -19,6 +18,11 @@ describe("LanPlayer", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     messageListeners = [];
+
+    // Mock API
+    (api.searchBookMoves as Mock).mockResolvedValue([]);
+    (api.openBookAsNewSession as Mock).mockResolvedValue("test-book-session");
+    (api.closeBook as Mock).mockResolvedValue(undefined);
 
     // Functional mock for connect
     (LanEngine.prototype.connect as Mock).mockImplementation(function (
@@ -142,12 +146,15 @@ describe("LanPlayer", () => {
     const record2 = Record.newByUSI(usi2) as Record;
 
     // Start search on position 1
-    await player.startResearch(record1.position, usi1);
+    const p1 = player.startResearch(record1.position, usi1);
+    await vi.runAllTimersAsync();
+    await p1;
 
     // Position changes to 2
     const p2 = player.startResearch(record2.position, usi2);
     // Simulate bestmove for position 1 to resolve stopAndWait
     sendMsg({ info: "bestmove 7g7f" });
+    await vi.runAllTimersAsync();
     await p2;
 
     // Stale message from position 1 arrives
@@ -193,7 +200,9 @@ describe("LanPlayer", () => {
     const record2 = Record.newByUSI(usi2) as Record;
 
     // Start search on position 1
-    await player.startResearch(record1.position, usi1);
+    const p1 = player.startResearch(record1.position, usi1);
+    await vi.runAllTimersAsync();
+    await p1;
 
     // Info for position 1 arrives and is throttled
     messageHandler(
@@ -211,6 +220,7 @@ describe("LanPlayer", () => {
       sfen: usi1, // Server still tags it with old SFEN
       info: "bestmove 7g7f",
     });
+    await vi.runAllTimersAsync();
     await p2;
 
     // Advance time to trigger throttle
@@ -229,7 +239,9 @@ describe("LanPlayer", () => {
 
     const usi = "position startpos";
     const record = Record.newByUSI(usi) as Record;
-    await player.startResearch(record.position, usi);
+    const p1 = player.startResearch(record.position, usi);
+    await vi.runAllTimersAsync();
+    await p1;
 
     // PV2
     messageHandler(
@@ -275,9 +287,6 @@ describe("LanPlayer", () => {
   });
 
   it("should trigger onStartSearch when starting search or research", async () => {
-    const onStartSearch = vi.fn();
-    setOnStartSearchHandlerForLan(onStartSearch);
-
     const player = new LanPlayer("research_main", "test-engine", "Test Engine");
     await launchPlayer(player);
 
@@ -286,11 +295,11 @@ describe("LanPlayer", () => {
 
     // Test startResearch
     const p1 = player.startResearch(record.position, usi);
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.runAllTimersAsync();
     await p1;
-    expect(onStartSearch).toBeCalledWith(200000, record.position);
+    expect(triggerOnStartSearch).toBeCalledWith(200000, record.position);
 
-    onStartSearch.mockClear();
+    (triggerOnStartSearch as Mock).mockClear();
 
     // Test startSearch
     const p2 = player.startSearch(
@@ -307,9 +316,9 @@ describe("LanPlayer", () => {
         onError: vi.fn(),
       },
     );
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.runAllTimersAsync();
     await p2;
-    expect(onStartSearch).toBeCalledWith(200000, record.position);
+    expect(triggerOnStartSearch).toBeCalledWith(200000, record.position);
   });
 
   it("stopAndWait should reject on server error", async () => {
@@ -323,7 +332,9 @@ describe("LanPlayer", () => {
 
     const usi = "position startpos";
     const record = Record.newByUSI(usi) as Record;
-    await player.startResearch(record.position, usi);
+    const p1 = player.startResearch(record.position, usi);
+    await vi.runAllTimersAsync();
+    await p1;
 
     const stopPromise = player.stop();
     await vi.advanceTimersByTimeAsync(100);
@@ -332,5 +343,124 @@ describe("LanPlayer", () => {
     sendMsg({ error: "Engine did not respond to stop command" });
 
     await expect(stopPromise).rejects.toThrow("Engine did not respond to stop command");
+  });
+
+  it("should cleanup resources when launch fails", async () => {
+    (api.openBookAsNewSession as Mock).mockResolvedValue("failed-book-session");
+    // Mock connect to fail
+    (LanEngine.prototype.connect as Mock).mockRejectedValue(new Error("Connection failed"));
+
+    const player = new LanPlayer(
+      "research_main",
+      "test-engine",
+      "Test Engine",
+      undefined,
+      undefined,
+      {
+        enabled: true,
+        filePath: "test.db",
+        selectionMode: BookSelectionMode.FIRST,
+      },
+    );
+
+    await expect(player.launch()).rejects.toThrow("Connection failed");
+
+    // Should stop the engine and disconnect
+    expect(LanEngine.prototype.stopEngine).toBeCalled();
+    expect(LanEngine.prototype.disconnect).toBeCalled();
+    // Should close the book session
+    expect(api.closeBook).toBeCalledWith("failed-book-session");
+    // Should not be in lanPlayers
+    expect(isActiveLanPlayerSession(200000)).toBe(false);
+  });
+
+  it("should select book moves based on selectionMode (RANDOM)", async () => {
+    (api.searchBookMoves as Mock).mockResolvedValue([
+      { usi: "7g7f", count: 10, score: 100, comment: "" },
+      { usi: "2g2f", count: 90, score: 50, comment: "" },
+    ]);
+
+    const onMove = vi.fn();
+    const player = new LanPlayer(
+      "research_main",
+      "test-engine",
+      "Test Engine",
+      undefined,
+      undefined,
+      {
+        enabled: true,
+        filePath: "test.db",
+        selectionMode: BookSelectionMode.RANDOM,
+      },
+    );
+    await launchPlayer(player);
+
+    const usi = "position startpos";
+    const record = Record.newByUSI(usi) as Record;
+
+    // Simulate multiple searches to check randomness (statistically)
+    let move7g7f = 0;
+    let move2g2f = 0;
+    for (let i = 0; i < 100; i++) {
+      onMove.mockClear();
+      await player.startSearch(
+        record.position,
+        usi,
+        {
+          black: { timeMs: 1000, byoyomi: 0, increment: 0 },
+          white: { timeMs: 1000, byoyomi: 0, increment: 0 },
+        },
+        { onMove, onResign: vi.fn(), onWin: vi.fn(), onError: vi.fn() },
+      );
+      await vi.runAllTimersAsync();
+      const move = onMove.mock.calls[0][0].usi;
+      if (move === "7g7f") move7g7f++;
+      if (move === "2g2f") move2g2f++;
+    }
+
+    // With 10% vs 90%, we expect both to appear at least once in 100 trials
+    expect(move7g7f).toBeGreaterThan(0);
+    expect(move2g2f).toBeGreaterThan(0);
+    expect(move2g2f).toBeGreaterThan(move7g7f);
+  });
+
+  it("should select book moves based on selectionMode (BEST_SCORE)", async () => {
+    (api.searchBookMoves as Mock).mockResolvedValue([
+      { usi: "7g7f", count: 100, score: 50, comment: "" },
+      { usi: "2g2f", count: 10, score: 100, comment: "" },
+    ]);
+
+    const onMove = vi.fn();
+    const player = new LanPlayer(
+      "research_main",
+      "test-engine",
+      "Test Engine",
+      undefined,
+      undefined,
+      {
+        enabled: true,
+        filePath: "test.db",
+        selectionMode: BookSelectionMode.BEST_SCORE,
+      },
+    );
+    await launchPlayer(player);
+
+    const usi = "position startpos";
+    const record = Record.newByUSI(usi) as Record;
+
+    await player.startSearch(
+      record.position,
+      usi,
+      {
+        black: { timeMs: 1000, byoyomi: 0, increment: 0 },
+        white: { timeMs: 1000, byoyomi: 0, increment: 0 },
+      },
+      { onMove, onResign: vi.fn(), onWin: vi.fn(), onError: vi.fn() },
+    );
+    await vi.runAllTimersAsync();
+
+    // Should select 2g2f because it has the best score (100)
+    expect(onMove).toBeCalledTimes(1);
+    expect(onMove.mock.calls[0][0].usi).toBe("2g2f");
   });
 });

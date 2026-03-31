@@ -41,12 +41,13 @@ async function fetchWithTimeout(
   url: string,
   init?: RequestInit,
   timeoutMs = 10000,
+  sessionId?: string,
 ): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(new Error("Request timeout")), timeoutMs);
 
   const headers = new Headers(init?.headers);
-  headers.set("X-Book-Session-Id", webBookSessionId);
+  headers.set("X-Book-Session-Id", sessionId || webBookSessionId);
 
   try {
     const response = await fetch(url, {
@@ -386,7 +387,7 @@ export const webAPI: Bridge = {
     }
     return "server://" + path;
   },
-  async openBook(path: string, options: string): Promise<BookLoadingMode> {
+  async openBook(path: string, options: string, sessionId?: string): Promise<BookLoadingMode> {
     if (!path.startsWith("server://")) {
       throw new Error("Only server-side books are supported");
     }
@@ -399,6 +400,7 @@ export const webAPI: Bridge = {
         body: options,
       },
       60000,
+      sessionId,
     );
     if (!response.ok) {
       throw new Error(await response.text());
@@ -406,7 +408,7 @@ export const webAPI: Bridge = {
     const json = await response.json();
     return json.mode;
   },
-  async saveBook(path: string): Promise<void> {
+  async saveBook(path: string, sessionId?: string): Promise<void> {
     if (!path.startsWith("server://")) {
       throw new Error("Only server-side books are supported");
     }
@@ -417,26 +419,48 @@ export const webAPI: Bridge = {
         method: "POST",
       },
       600000,
+      sessionId,
     );
     if (!response.ok) {
       throw new Error(await response.text());
     }
   },
-  async clearBook(): Promise<void> {
-    const response = await fetchWithTimeout("/api/book/clear", { method: "POST" });
+  async closeBookSession(sessionId: string): Promise<void> {
+    const response = await fetchWithTimeout(
+      "/api/book/close",
+      { method: "POST" },
+      10000,
+      sessionId,
+    );
     if (!response.ok) {
       throw new Error(await response.text());
     }
   },
-  async searchBookMoves(sfen: string): Promise<string> {
-    const response = await fetchWithTimeout(`/api/book/search?sfen=${encodeURIComponent(sfen)}`);
+  async clearBook(sessionId?: string): Promise<void> {
+    const response = await fetchWithTimeout(
+      "/api/book/clear",
+      { method: "POST" },
+      10000,
+      sessionId,
+    );
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+  },
+  async searchBookMoves(sfen: string, sessionId?: string): Promise<string> {
+    const response = await fetchWithTimeout(
+      `/api/book/search?sfen=${encodeURIComponent(sfen)}`,
+      undefined,
+      10000,
+      sessionId,
+    );
     if (!response.ok) {
       throw new Error(await response.text());
     }
     const json = await response.json();
     return JSON.stringify(json);
   },
-  async searchBookMovesBatch(sfens: string[]): Promise<string> {
+  async searchBookMovesBatch(sfens: string[], sessionId?: string): Promise<string> {
     const response = await fetchWithTimeout(
       "/api/book/search/batch",
       {
@@ -445,6 +469,7 @@ export const webAPI: Bridge = {
         body: JSON.stringify({ sfens }),
       },
       60000,
+      sessionId,
     );
     if (!response.ok) {
       throw new Error(await response.text());
@@ -452,35 +477,49 @@ export const webAPI: Bridge = {
     const json = await response.json();
     return JSON.stringify(json);
   },
-  async updateBookMove(sfen: string, move: string): Promise<void> {
-    const response = await fetchWithTimeout(`/api/book/update?sfen=${encodeURIComponent(sfen)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: move,
-    });
+  async updateBookMove(sfen: string, move: string, sessionId?: string): Promise<void> {
+    const response = await fetchWithTimeout(
+      `/api/book/update?sfen=${encodeURIComponent(sfen)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: move,
+      },
+      10000,
+      sessionId,
+    );
     if (!response.ok) {
       throw new Error(await response.text());
     }
   },
-  async removeBookMove(sfen: string, usi: string): Promise<void> {
+  async removeBookMove(sfen: string, usi: string, sessionId?: string): Promise<void> {
     const response = await fetchWithTimeout(
       `/api/book/remove?sfen=${encodeURIComponent(sfen)}&usi=${encodeURIComponent(usi)}`,
       { method: "POST" },
+      10000,
+      sessionId,
     );
     if (!response.ok) {
       throw new Error(await response.text());
     }
   },
-  async updateBookMoveOrder(sfen: string, usi: string, order: number): Promise<void> {
+  async updateBookMoveOrder(
+    sfen: string,
+    usi: string,
+    order: number,
+    sessionId?: string,
+  ): Promise<void> {
     const response = await fetchWithTimeout(
       `/api/book/order?sfen=${encodeURIComponent(sfen)}&usi=${encodeURIComponent(usi)}&order=${order}`,
       { method: "POST" },
+      10000,
+      sessionId,
     );
     if (!response.ok) {
       throw new Error(await response.text());
     }
   },
-  async importBookMoves(json: string): Promise<string> {
+  async importBookMoves(json: string, sessionId?: string): Promise<string> {
     const response = await fetchWithTimeout(
       "/api/book/import",
       {
@@ -489,6 +528,7 @@ export const webAPI: Bridge = {
         body: json,
       },
       600000,
+      sessionId,
     );
     if (!response.ok) {
       throw new Error(await response.text());

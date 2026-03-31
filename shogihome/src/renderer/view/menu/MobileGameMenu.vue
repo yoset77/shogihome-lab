@@ -49,6 +49,8 @@
               v-model:player-uri="settings.black.uri"
               v-model:player-name="settings.black.name"
               v-model:time-limit="settings.blackTime"
+              v-model:extra-book="blackExtraBook"
+              :book-file-list="bookFileList"
             />
           </div>
         </div>
@@ -71,6 +73,8 @@
               v-model:player-uri="settings.white.uri"
               v-model:player-name="settings.white.name"
               v-model:time-limit="settings.whiteTime"
+              v-model:extra-book="whiteExtraBook"
+              :book-file-list="bookFileList"
             />
           </div>
         </div>
@@ -145,6 +149,8 @@ import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import api from "@/renderer/ipc/api";
 import * as uri from "@/common/uri";
 import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
+import { USIEngineExtraBookConfig, emptyUSIEngine } from "@/common/settings/usi";
+import { PlayerSettings } from "@/common/settings/player";
 
 const store = useStore();
 const dialog = ref();
@@ -152,8 +158,12 @@ const lanStore = useLanStore();
 const initialized = ref(false);
 
 const settings = reactive({
-  black: { uri: uri.ES_HUMAN, name: t.human },
-  white: { uri: uri.ES_BASIC_ENGINE_STATIC_ROOK_V1, name: `${t.beginner} (${t.staticRook})` },
+  black: { uri: uri.ES_HUMAN, name: t.human, usi: undefined } as PlayerSettings,
+  white: {
+    uri: uri.ES_BASIC_ENGINE_STATIC_ROOK_V1,
+    name: `${t.beginner} (${t.staticRook})`,
+    usi: undefined,
+  } as PlayerSettings,
   blackTime: { timeSeconds: 600, byoyomi: 30, increment: 0 } as TimeLimitSettings,
   whiteTime: { timeSeconds: 600, byoyomi: 30, increment: 0 } as TimeLimitSettings,
   startPosition: InitialPositionType.STANDARD as InitialPositionType | "current" | "list",
@@ -166,7 +176,10 @@ const settings = reactive({
   enableAutoSave: false,
 });
 
+const blackExtraBook = ref<USIEngineExtraBookConfig>({ enabled: false, filePath: "" });
+const whiteExtraBook = ref<USIEngineExtraBookConfig>({ enabled: false, filePath: "" });
 const sfenFileList = ref<{ label: string; value: string }[]>([]);
+const bookFileList = ref<{ label: string; value: string }[]>([]);
 
 const jishogiRuleItems = computed(() => [
   { value: JishogiRule.NONE, label: t.none },
@@ -193,6 +206,16 @@ const loadSFENFileList = async () => {
   }
 };
 
+const loadBookFileList = async () => {
+  try {
+    const bookFiles = await api.listServerBook();
+    bookFileList.value = bookFiles.map((f) => ({ label: f, value: "server://" + f }));
+  } catch (e) {
+    console.warn("Failed to load book file list:", e);
+    bookFileList.value = [];
+  }
+};
+
 onMounted(async () => {
   showModalDialog(dialog.value, onClose);
   installHotKeyForDialog(dialog.value);
@@ -211,13 +234,21 @@ onMounted(async () => {
     settings.swapPlayers = saved.swapPlayers || false;
     settings.jishogiRule = saved.jishogiRule || JishogiRule.GENERAL27;
     settings.enableAutoSave = saved.enableAutoSave;
+
+    if (saved.black.usi?.extraBook) {
+      blackExtraBook.value = { ...saved.black.usi.extraBook };
+    }
+    if (saved.white.usi?.extraBook) {
+      whiteExtraBook.value = { ...saved.white.usi.extraBook };
+    }
+
     initialized.value = true;
   } catch (e) {
     console.error("Failed to load game settings:", e);
-    initialized.value = true; // Still show with defaults if load fails
+    initialized.value = true;
   }
 
-  await loadSFENFileList();
+  await Promise.all([loadSFENFileList(), loadBookFileList()]);
 
   if (lanStore.status.value === "disconnected") {
     lanStore.fetchEngineList().catch(console.error);
@@ -231,10 +262,13 @@ onBeforeUnmount(() => {
 const onSwapColor = () => {
   const tmpBlack = { ...settings.black };
   const tmpBlackTime = { ...settings.blackTime };
+  const tmpBlackExtraBook = { ...blackExtraBook.value };
   settings.black = { ...settings.white };
   settings.blackTime = { ...settings.whiteTime };
+  blackExtraBook.value = { ...whiteExtraBook.value };
   settings.white = tmpBlack;
   settings.whiteTime = tmpBlackTime;
+  whiteExtraBook.value = tmpBlackExtraBook;
 };
 
 const isValid = computed(() => {
@@ -242,10 +276,25 @@ const isValid = computed(() => {
 });
 
 const onStart = async () => {
+  const black = { ...settings.black };
+  if (black.uri.startsWith("lan-engine")) {
+    black.usi = {
+      ...(black.usi || emptyUSIEngine()),
+      extraBook: { ...blackExtraBook.value },
+    };
+  }
+  const white = { ...settings.white };
+  if (white.uri.startsWith("lan-engine")) {
+    white.usi = {
+      ...(white.usi || emptyUSIEngine()),
+      extraBook: { ...whiteExtraBook.value },
+    };
+  }
+
   const newSettings = {
     ...store.gameSettings,
-    black: { ...settings.black },
-    white: { ...settings.white },
+    black,
+    white,
     timeLimit: { ...settings.blackTime },
     whiteTimeLimit: { ...settings.whiteTime },
     startPosition: settings.startPosition,
@@ -267,13 +316,11 @@ const onStart = async () => {
   }
 
   try {
-    // Explicitly save settings before starting
     await api.saveGameSettings(newSettings);
     store.startGame(newSettings);
     emit("close");
   } catch (e) {
     console.error("Failed to save game settings:", e);
-    // Even if saving fails, we try to start the game
     store.startGame(newSettings);
     emit("close");
   }

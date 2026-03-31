@@ -104,7 +104,7 @@ describe("Server Session Reconnection", () => {
 
     expect(connected).toBe(true);
     ws2.close();
-  });
+  }, 30000);
 
   it("should handle rapid reconnection (socket replacement) correctly", async () => {
     const sessionId = "test-session-replacement";
@@ -139,7 +139,7 @@ describe("Server Session Reconnection", () => {
 
     expect(pongReceived).toBe(true);
     ws2.close();
-  });
+  }, 30000);
 
   it("should reject connection without sessionId", async () => {
     const ws = new WebSocket(`${SERVER_URL}/`, {

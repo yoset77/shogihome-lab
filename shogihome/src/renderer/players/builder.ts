@@ -31,7 +31,14 @@ export function defaultPlayerBuilder(engineTimeoutSeconds?: number): PlayerBuild
           engineId = playerSettings.uri.split(":")[1];
           engineName = playerSettings.name || engineId;
         }
-        const player = new LanPlayer(sessionKey || "default", engineId, engineName, onSearchInfo);
+        const player = new LanPlayer(
+          sessionKey || "default",
+          engineId,
+          engineName,
+          onSearchInfo,
+          undefined,
+          playerSettings.usi?.extraBook,
+        );
         await player.launch();
         return player;
       }

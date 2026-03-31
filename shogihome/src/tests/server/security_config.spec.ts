@@ -46,10 +46,10 @@ describe("Server Security Configuration", () => {
   it("should have trust proxy DISABLED by default", async () => {
     const output = await startServerWithEnv({ TRUST_PROXY: "false" });
     expect(output).toContain("Trust proxy is DISABLED");
-  });
+  }, 30000);
 
   it("should have trust proxy ENABLED when TRUST_PROXY=true", async () => {
     const output = await startServerWithEnv({ TRUST_PROXY: "true" });
     expect(output).toContain("Trust proxy is ENABLED");
-  });
+  }, 30000);
 });

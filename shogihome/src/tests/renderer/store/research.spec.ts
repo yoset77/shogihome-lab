@@ -14,6 +14,10 @@ vi.mock("@/renderer/ipc/api.js");
 const mockAPI = api as Mocked<API>;
 
 describe("store/research", () => {
+  beforeEach(() => {
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+  });
+
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
@@ -31,6 +35,8 @@ describe("store/research", () => {
     const record = new Record();
     manager.updatePosition(record);
     vi.runOnlyPendingTimers(); // 遅延実行
+    await Promise.resolve(); // 1 回目の非同期(定跡検索)を待つ
+    await Promise.resolve(); // 2 回目の非同期(エンジン呼び出し)を待つ
     expect(mockAPI.usiGoInfinite).toBeCalledTimes(1);
     expect(mockAPI.usiGoInfinite).toBeCalledWith(100, "position startpos");
 
@@ -41,6 +47,8 @@ describe("store/research", () => {
     record.append(record.position.createMoveByUSI("7g7f") as Move);
     manager.updatePosition(record);
     vi.runOnlyPendingTimers(); // 遅延実行
+    await Promise.resolve();
+    await Promise.resolve();
     expect(mockAPI.usiGoInfinite).toBeCalledTimes(2);
     expect(mockAPI.usiGoInfinite).toBeCalledWith(100, "position startpos moves 7g7f");
   });
@@ -55,6 +63,8 @@ describe("store/research", () => {
     const record = new Record();
     manager.updatePosition(record);
     vi.runOnlyPendingTimers(); // 遅延実行
+    await Promise.resolve();
+    await Promise.resolve();
     expect(mockAPI.usiStop).toBeCalledTimes(0);
 
     // 時間制限があるので stop コマンドが送信される。
@@ -73,10 +83,14 @@ describe("store/research", () => {
     const record = new Record();
     manager.updatePosition(record);
     vi.runOnlyPendingTimers(); // 遅延実行
+    await Promise.resolve();
+    await Promise.resolve();
     expect(mockAPI.usiGoInfinite).toBeCalledTimes(3);
     record.append(record.position.createMoveByUSI("7g7f") as Move);
     manager.updatePosition(record);
     vi.runOnlyPendingTimers(); // 遅延実行
+    await Promise.resolve();
+    await Promise.resolve();
     expect(mockAPI.usiGoInfinite).toBeCalledTimes(6);
   });
 
@@ -91,6 +105,8 @@ describe("store/research", () => {
     const record = new Record();
     manager.updatePosition(record);
     vi.runOnlyPendingTimers();
+    await Promise.resolve();
+    await Promise.resolve();
     expect(mockAPI.usiGoInfinite).toBeCalledTimes(3);
     // all sessions are unpaused
     expect(manager.isPaused(101)).toBeFalsy();
@@ -105,12 +121,16 @@ describe("store/research", () => {
     record.append(record.position.createMoveByUSI("7g7f") as Move);
     manager.updatePosition(record);
     vi.runOnlyPendingTimers();
+    await Promise.resolve();
+    await Promise.resolve();
     expect(mockAPI.usiGoInfinite).toBeCalledTimes(5);
     // unpause 102
     manager.unpause(102);
     expect(manager.isPaused(101)).toBeFalsy();
     expect(manager.isPaused(102)).toBeFalsy();
     expect(manager.isPaused(103)).toBeFalsy();
+    await Promise.resolve();
+    await Promise.resolve();
     expect(mockAPI.usiGoInfinite).toBeCalledTimes(6);
   });
 
@@ -139,6 +159,8 @@ describe("store/research", () => {
     const record = new Record();
     manager.updatePosition(record);
     vi.runOnlyPendingTimers();
+    await Promise.resolve();
+    await Promise.resolve();
     expect(mockAPI.usiGoInfinite).toBeCalledTimes(1);
     expect(mockAPI.usiStop).not.toBeCalled();
     expect(manager.getMultiPV(101)).toBe(4);
@@ -146,6 +168,8 @@ describe("store/research", () => {
     vi.useRealTimers();
     manager.setMultiPV(101, 2);
     await new Promise((resolve) => setTimeout(resolve));
+    await Promise.resolve();
+    await Promise.resolve();
     expect(mockAPI.usiGoInfinite).toBeCalledTimes(2);
     expect(mockAPI.usiStop).toBeCalledTimes(1);
     expect(manager.getMultiPV(101)).toBe(2);
@@ -162,6 +186,8 @@ describe("store/research", () => {
     const record = new Record();
     manager.updatePosition(record);
     vi.runOnlyPendingTimers();
+    await Promise.resolve();
+    await Promise.resolve();
     expect(mockAPI.usiGoInfinite).toBeCalledTimes(1);
     expect(mockAPI.usiStop).not.toBeCalled();
     expect(manager.getMultiPV(101)).toBeUndefined();
@@ -169,6 +195,8 @@ describe("store/research", () => {
     vi.useRealTimers();
     manager.setMultiPV(101, 2); // should be ignored
     await new Promise((resolve) => setTimeout(resolve));
+    await Promise.resolve();
+    await Promise.resolve();
     expect(mockAPI.usiGoInfinite).toBeCalledTimes(1);
     expect(mockAPI.usiStop).toBeCalledTimes(0);
     expect(manager.getMultiPV(101)).toBeUndefined();
@@ -207,6 +235,10 @@ describe("store/research", () => {
       default: 1,
       value: 4,
     });
+    expect(mockAPI.usiLaunch.mock.calls[0][0].extraBook).toStrictEqual({
+      enabled: false,
+      filePath: "",
+    });
     expect(originalOption.value).toBe(1);
     expect(manager.getMultiPV(101)).toBe(4);
   });
@@ -228,12 +260,16 @@ describe("store/research", () => {
     const record = new Record();
     manager.updatePosition(record);
     vi.runOnlyPendingTimers();
+    await Promise.resolve();
+    await Promise.resolve();
     expect(mockAPI.usiGoInfinite).toBeCalledTimes(1);
 
     const closePromise = manager.close();
     record.append(record.position.createMoveByUSI("7g7f") as Move);
     manager.updatePosition(record);
     vi.runOnlyPendingTimers();
+    await Promise.resolve();
+    await Promise.resolve();
     expect(mockAPI.usiGoInfinite).toBeCalledTimes(1);
 
     resolveQuit?.();
