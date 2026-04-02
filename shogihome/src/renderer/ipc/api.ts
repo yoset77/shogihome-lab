@@ -247,8 +247,7 @@ const api: API = {
     if (!path.startsWith("server://")) {
       throw new Error("Only server-side books are supported");
     }
-    const relPath = path.substring(9);
-    return bridge.saveBook(relPath, sessionId);
+    return bridge.saveBook(path, sessionId);
   },
   async closeBook(sessionId: string): Promise<void> {
     return bridge.closeBookSession(sessionId);
