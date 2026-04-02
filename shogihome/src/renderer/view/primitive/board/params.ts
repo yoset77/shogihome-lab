@@ -254,7 +254,7 @@ export const portraitViewParams = {
     },
     white: {
       x: 0,
-      y: 54,
+      y: 52,
     },
     width: 214,
     height: 50,
@@ -280,7 +280,7 @@ export const portraitViewParams = {
     },
     white: {
       x: 0,
-      y: 50,
+      y: 52,
     },
     width: 214,
     height: 52,

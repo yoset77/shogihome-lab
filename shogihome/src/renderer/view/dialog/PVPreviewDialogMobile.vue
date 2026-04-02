@@ -1,25 +1,27 @@
 <template>
   <DialogFrame @cancel="onClose">
-    <BoardView
-      class="board-view"
-      :layout-type="BoardLayoutType.PORTRAIT"
-      :board-image-type="appSettings.boardImage"
-      :custom-board-image-url="appSettings.boardImageFileURL"
-      :board-grid-color="appSettings.boardGridColor || undefined"
-      :piece-stand-image-type="appSettings.pieceStandImage"
-      :custom-piece-stand-image-url="appSettings.pieceStandImageFileURL"
-      :piece-image-url-template="getPieceImageURLTemplate(appSettings)"
-      :king-piece-type="appSettings.kingPieceType"
-      :board-label-type="appSettings.boardLabelType"
-      :max-size="maxSize"
-      :position="record.position"
-      :last-move="lastMove"
-      :flip="flip"
-      :mobile="true"
-      :drop-shadows="false"
-      :black-player-name="t.sente"
-      :white-player-name="t.gote"
-    />
+    <div class="board-container">
+      <BoardView
+        class="board-view"
+        :layout-type="BoardLayoutType.PORTRAIT"
+        :board-image-type="appSettings.boardImage"
+        :custom-board-image-url="appSettings.boardImageFileURL"
+        :board-grid-color="appSettings.boardGridColor || undefined"
+        :piece-stand-image-type="appSettings.pieceStandImage"
+        :custom-piece-stand-image-url="appSettings.pieceStandImageFileURL"
+        :piece-image-url-template="getPieceImageURLTemplate(appSettings)"
+        :king-piece-type="appSettings.kingPieceType"
+        :board-label-type="appSettings.boardLabelType"
+        :max-size="maxSize"
+        :position="record.position"
+        :last-move="lastMove"
+        :flip="flip"
+        :mobile="true"
+        :drop-shadows="false"
+        :black-player-name="t.sente"
+        :white-player-name="t.gote"
+      />
+    </div>
     <div class="controls">
       <button class="control-item" :data-hotkey="shortcutKeys.Begin" @click="goBegin">
         <Icon :icon="IconType.FIRST" />
@@ -161,8 +163,8 @@ const record = reactive(new Record());
 const flip = ref(appSettings.boardFlipping);
 
 const updateSize = () => {
-  maxSize.width = window.innerWidth * 0.95 - 34;
-  maxSize.height = window.innerHeight * 0.95 - 280;
+  maxSize.width = Math.min(window.innerWidth * 0.95 - 34, 600);
+  maxSize.height = window.innerHeight * 0.95 - 220;
 };
 
 const updateRecord = () => {
@@ -316,9 +318,20 @@ const insertToComment = () => {
 </script>
 
 <style scoped>
+.board-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
 .board-view {
   margin-left: auto;
   margin-right: auto;
+}
+:deep(> .frame) {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 .controls {
   display: flex;
@@ -340,8 +353,9 @@ const insertToComment = () => {
   width: auto;
 }
 .informations {
-  height: 150px;
+  flex-grow: 1;
   width: 100%;
+  min-height: 100px;
   overflow-y: scroll;
   margin-left: auto;
   margin-right: auto;
