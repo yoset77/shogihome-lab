@@ -3,6 +3,7 @@ import { spawn, ChildProcess } from "child_process";
 import path from "path";
 import http from "http";
 import fs from "fs";
+import { killTree } from "./helpers/process";
 import {
   RecordFileHistory,
   RecordFileHistoryEntry,
@@ -39,6 +40,7 @@ describe("API: /api/history (Backup & History)", () => {
       },
       stdio: "pipe",
       shell: true,
+      detached: process.platform !== "win32",
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -55,7 +57,9 @@ describe("API: /api/history (Backup & History)", () => {
   }, 35000);
 
   afterAll(() => {
-    if (serverProcess) serverProcess.kill();
+    if (serverProcess) {
+      killTree(serverProcess);
+    }
     if (fs.existsSync(TEST_DATA_DIR)) {
       fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
     }

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import request from "supertest";
 
 vi.hoisted(() => {
-  process.env.KIFU_DIR = "./records";
+  process.env.KIFU_DIR = "./data";
 });
 
 // eslint-disable-next-line no-restricted-imports

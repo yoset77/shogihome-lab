@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import WebSocket from "ws";
 import net from "net";
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
+import { killTree } from "./helpers/process";
 
 const SERVER_PORT = 8100 + Math.floor(Math.random() * 1000);
 const WRAPPER_PORT = 9990 + Math.floor(Math.random() * 1000);
@@ -12,9 +13,16 @@ describe("Server USI Protocol & Implicit Stop", () => {
   let serverProcess: ChildProcess;
   let serverReady = false;
   let mockWrapperServer: net.Server;
+  let ws: WebSocket | null = null;
+  const activeSockets = new Set<net.Socket>();
 
   beforeAll(async () => {
     mockWrapperServer = net.createServer();
+    mockWrapperServer.on("connection", (socket) => {
+      activeSockets.add(socket);
+      socket.on("close", () => activeSockets.delete(socket));
+    });
+
     await new Promise<void>((resolve) => {
       mockWrapperServer.listen(WRAPPER_PORT, () => {
         console.log(`Mock Wrapper listening on ${WRAPPER_PORT}`);
@@ -35,6 +43,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
       },
       stdio: "pipe",
       shell: true,
+      detached: process.platform !== "win32",
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -55,15 +64,21 @@ describe("Server USI Protocol & Implicit Stop", () => {
     });
   });
 
+  afterEach(() => {
+    if (ws) {
+      ws.close();
+      ws = null;
+    }
+  });
+
   afterAll(() => {
     if (serverProcess) {
-      if (process.platform === "win32") {
-        spawn("taskkill", ["/pid", serverProcess.pid!.toString(), "/f", "/t"]);
-      } else {
-        serverProcess.kill();
-      }
+      killTree(serverProcess);
     }
     if (mockWrapperServer) {
+      for (const socket of activeSockets) {
+        socket.destroy();
+      }
       mockWrapperServer.close();
     }
   });
@@ -72,20 +87,20 @@ describe("Server USI Protocol & Implicit Stop", () => {
     return new Promise((resolve) => {
       const listener = (data: WebSocket.RawData) => {
         if (JSON.parse(data.toString()).info === "info: engine is ready") {
-          ws.off("message", listener);
+          ws!.off("message", listener);
           resolve();
         }
       };
-      ws.on("message", listener);
+      ws!.on("message", listener);
     });
   }
 
   it("should perform implicit stop when receiving 'position' while thinking", async () => {
     const sessionId = "test-implicit-stop";
-    const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
+    ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
       origin: `http://localhost:${SERVER_PORT}`,
     });
-    await new Promise<void>((resolve) => ws.on("open", resolve));
+    await new Promise<void>((resolve) => ws!.on("open", resolve));
 
     let stopReceived = false;
     const testFinished = new Promise<void>((resolve) => {
@@ -116,15 +131,14 @@ describe("Server USI Protocol & Implicit Stop", () => {
     await testFinished;
     expect(stopReceived).toBe(true);
     ws.send("stop_engine");
-    ws.close();
   }, 30000);
 
   it("should queue commands while starting and flush them when ready", async () => {
     const sessionId = "test-queuing";
-    const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
+    ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
       origin: `http://localhost:${SERVER_PORT}`,
     });
-    await new Promise<void>((resolve) => ws.on("open", resolve));
+    await new Promise<void>((resolve) => ws!.on("open", resolve));
 
     const receivedCommands: string[] = [];
     const testFinished = new Promise<void>((resolve) => {
@@ -150,15 +164,14 @@ describe("Server USI Protocol & Implicit Stop", () => {
     await testFinished;
     expect(receivedCommands).toContain("setoption name MultiPV value 5");
     ws.send("stop_engine");
-    ws.close();
   });
 
   it("should handle normal go/bestmove flow correctly", async () => {
     const sessionId = "test-normal-flow";
-    const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
+    ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
       origin: `http://localhost:${SERVER_PORT}`,
     });
-    await new Promise<void>((resolve) => ws.on("open", resolve));
+    await new Promise<void>((resolve) => ws!.on("open", resolve));
 
     const testFinished = new Promise<void>((resolve) => {
       mockWrapperServer.once("connection", (socket) => {
@@ -188,24 +201,98 @@ describe("Server USI Protocol & Implicit Stop", () => {
       const listener = (data: WebSocket.RawData) => {
         const msg = JSON.parse(data.toString());
         if (msg.info && msg.info.startsWith("bestmove")) {
-          ws.off("message", listener);
+          ws!.off("message", listener);
           resolve();
         }
       };
-      ws.on("message", listener);
+      ws!.on("message", listener);
     });
 
     await testFinished;
     ws.send("stop_engine");
-    ws.close();
+  });
+
+  it("should ignore late bestmove state transitions while terminating", async () => {
+    const sessionId = "test-late-bestmove-terminating";
+    ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
+      origin: `http://localhost:${SERVER_PORT}`,
+    });
+    await new Promise<void>((resolve) => ws!.on("open", resolve));
+
+    const receivedStates: string[] = [];
+    let stopRequested = false;
+    const stoppedAfterTerminate = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        ws!.off("message", listener);
+        reject(
+          new Error(
+            `Timed out waiting for stopped after stop_engine. States: ${receivedStates.join(", ")}`,
+          ),
+        );
+      }, 2000);
+
+      const listener = (data: WebSocket.RawData) => {
+        const msg = JSON.parse(data.toString());
+        if (!stopRequested || !msg.state) {
+          return;
+        }
+        receivedStates.push(msg.state);
+        if (msg.state === "stopped") {
+          clearTimeout(timeout);
+          ws!.off("message", listener);
+          resolve();
+        }
+      };
+
+      ws!.on("message", listener);
+    });
+
+    const wrapperFinished = new Promise<void>((resolve) => {
+      mockWrapperServer.once("connection", (socket) => {
+        socket.on("data", (data) => {
+          const cmds = data.toString().split("\n");
+          for (const raw of cmds) {
+            const cmd = raw.trim();
+            if (!cmd) continue;
+            if (cmd === "run test-engine") setTimeout(() => socket.write("usiok\n"), 10);
+            if (cmd === "isready") setTimeout(() => socket.write("readyok\n"), 10);
+            if (cmd.startsWith("go")) {
+              setTimeout(() => {
+                stopRequested = true;
+                ws!.send("stop_engine");
+              }, 10);
+            }
+          }
+        });
+
+        socket.on("end", () => {
+          socket.write("bestmove 7g7f\n");
+          setTimeout(() => {
+            socket.end();
+            resolve();
+          }, 10);
+        });
+      });
+    });
+
+    ws.send("start_engine test-engine");
+    await waitForEngineReady(ws);
+    ws.send("position startpos");
+    ws.send("go infinite");
+
+    await wrapperFinished;
+    await stoppedAfterTerminate;
+
+    expect(receivedStates).not.toContain("ready");
+    expect(receivedStates).toContain("stopped");
   });
 
   it("should replay multiple important commands correctly after bestmove", async () => {
     const sessionId = "test-replay-complex";
-    const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
+    ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
       origin: `http://localhost:${SERVER_PORT}`,
     });
-    await new Promise<void>((resolve) => ws.on("open", resolve));
+    await new Promise<void>((resolve) => ws!.on("open", resolve));
 
     const receivedAfterStop: string[] = [];
     let bestmoveSent = false;
@@ -239,11 +326,11 @@ describe("Server USI Protocol & Implicit Stop", () => {
     await new Promise<void>((resolve) => {
       const listener = (data: WebSocket.RawData) => {
         if (JSON.parse(data.toString()).state === "thinking") {
-          ws.off("message", listener);
+          ws!.off("message", listener);
           resolve();
         }
       };
-      ws.on("message", listener);
+      ws!.on("message", listener);
     });
 
     ws.send("position startpos moves 7g7f"); // Implicit stop
@@ -261,15 +348,14 @@ describe("Server USI Protocol & Implicit Stop", () => {
     expect(receivedAfterStop[2]).toBe("position startpos moves 7g7f 3g3f");
     expect(receivedAfterStop[3]).toBe("go btime 1000 wtime 1000");
     ws.send("stop_engine");
-    ws.close();
   });
 
   it("should respect MAX_QUEUE_SIZE and drop old commands", async () => {
     const sessionId = "test-queue-limit";
-    const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
+    ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
       origin: `http://localhost:${SERVER_PORT}`,
     });
-    await new Promise<void>((resolve) => ws.on("open", resolve));
+    await new Promise<void>((resolve) => ws!.on("open", resolve));
 
     for (let i = 0; i < 150; i++) {
       ws.send(`gameover win`); // Use gameover as it's not filtered
@@ -304,15 +390,14 @@ describe("Server USI Protocol & Implicit Stop", () => {
     expect(receivedCommands.length).toBe(100);
     expect(receivedCommands.every((c) => c === "gameover win")).toBe(true);
     ws.send("stop_engine");
-    ws.close();
   });
 
   it("should ignore commands after quit is received", async () => {
     const sessionId = "test-quit-idempotency";
-    const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
+    ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
       origin: `http://localhost:${SERVER_PORT}`,
     });
-    await new Promise<void>((resolve) => ws.on("open", resolve));
+    await new Promise<void>((resolve) => ws!.on("open", resolve));
 
     const receivedAfterQuit: string[] = [];
     let quitProcessed = false;
@@ -326,9 +411,9 @@ describe("Server USI Protocol & Implicit Stop", () => {
             if (cmd === "isready") setTimeout(() => socket.write("readyok\n"), 10);
             if (cmd === "quit") {
               quitProcessed = true;
-              ws.send("setoption name MultiPV value 10");
-              ws.send("position startpos");
-              ws.send("go infinite");
+              ws!.send("setoption name MultiPV value 10");
+              ws!.send("position startpos");
+              ws!.send("go infinite");
               setTimeout(resolve, 200);
             } else if (
               quitProcessed &&
@@ -351,15 +436,14 @@ describe("Server USI Protocol & Implicit Stop", () => {
     await testFinished;
     expect(receivedAfterQuit).toHaveLength(0);
     ws.send("stop_engine");
-    ws.close();
   });
 
   it("should force reset session on engine stop timeout", async () => {
     const sessionId = "test-stop-timeout";
-    const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
+    ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
       origin: `http://localhost:${SERVER_PORT}`,
     });
-    await new Promise<void>((resolve) => ws.on("open", resolve));
+    await new Promise<void>((resolve) => ws!.on("open", resolve));
 
     let stopReceived = false;
     mockWrapperServer.once("connection", (socket) => {
@@ -385,11 +469,11 @@ describe("Server USI Protocol & Implicit Stop", () => {
     await new Promise<void>((resolve) => {
       const listener = (data: WebSocket.RawData) => {
         if (JSON.parse(data.toString()).state === "thinking") {
-          ws.off("message", listener);
+          ws!.off("message", listener);
           resolve();
         }
       };
-      ws.on("message", listener);
+      ws!.on("message", listener);
     });
 
     // Wait for both the error message and the stopped state transition.
@@ -404,7 +488,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
         );
       }, 10000);
 
-      ws.on("message", (data) => {
+      ws!.on("message", (data) => {
         const msg = JSON.parse(data.toString());
         if (msg.error === "error: Engine did not respond to stop command. Session reset.") {
           errorReceived = true;
@@ -425,15 +509,14 @@ describe("Server USI Protocol & Implicit Stop", () => {
     expect(stopReceived).toBe(true);
 
     ws.send("stop_engine");
-    ws.close();
   }, 20000);
 
   it("should sanitize engine list discovery payload", async () => {
     const sessionId = "discovery-test";
-    const ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
+    ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
       origin: `http://localhost:${SERVER_PORT}`,
     });
-    await new Promise<void>((resolve) => ws.on("open", resolve));
+    await new Promise<void>((resolve) => ws!.on("open", resolve));
 
     const testFinished = new Promise<void>((resolve) => {
       mockWrapperServer.once("connection", (socket) => {
@@ -458,7 +541,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
     const engineListPromise = new Promise<
       { id: string; name: string; type?: string; path?: string }[]
     >((resolve) => {
-      ws.on("message", (data) => {
+      ws!.on("message", (data) => {
         const msg = JSON.parse(data.toString());
         if (msg.engineList) {
           resolve(msg.engineList);
@@ -474,7 +557,5 @@ describe("Server USI Protocol & Implicit Stop", () => {
     expect(list[0].path).toBeUndefined(); // Path should be removed
     expect(list[1].id).toBe("engine2");
     expect(list[1].path).toBeUndefined(); // Path should be removed
-
-    ws.close();
   });
 });

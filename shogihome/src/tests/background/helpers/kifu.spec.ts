@@ -6,14 +6,17 @@ import os from "os";
 
 describe("background/helpers/kifu", () => {
   let tempDir: string;
+  let outsideDir: string;
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "shogihome-test-"));
+    outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "shogihome-outside-"));
     clearKifuListCache();
   });
 
   afterEach(() => {
     fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
   });
 
   it("getKifuList recursive and filtered", async () => {
@@ -131,6 +134,18 @@ describe("background/helpers/kifu", () => {
     const invalidParts = Array.from({ length: 11 }, (_, i) => `${i}`);
     const invalidPath = path.join(...invalidParts, "file.kifu");
     expect(resolveKifuPath(tempDir, invalidPath)).toBeNull();
+  });
+
+  it("resolveKifuPath rejects symlinked directories that escape the base directory", () => {
+    const escapeLink = path.join(tempDir, "escape");
+    if (process.platform === "win32") {
+      fs.symlinkSync(outsideDir, escapeLink, "junction");
+    } else {
+      fs.symlinkSync(outsideDir, escapeLink, "dir");
+    }
+
+    expect(resolveKifuPath(tempDir, path.join("escape", "secret.kif"))).toBeNull();
+    expect(resolveKifuPath(tempDir, path.join("escape", "new-book.db"))).toBeNull();
   });
 
   it("caching logic", async () => {

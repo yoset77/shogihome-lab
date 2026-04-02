@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
 import http from "http";
+import { killTree } from "./helpers/process";
 
 const SERVER_PORT = 8092 + Math.floor(Math.random() * 1000); // Avoid conflict
 const SERVER_URL = `http://localhost:${SERVER_PORT}`;
@@ -23,6 +24,7 @@ describe("API: /api/fetch-remote", () => {
       },
       stdio: "pipe",
       shell: true,
+      detached: process.platform !== "win32",
     });
 
     // Wait for server to be ready
@@ -47,7 +49,7 @@ describe("API: /api/fetch-remote", () => {
 
   afterAll(() => {
     if (serverProcess) {
-      serverProcess.kill();
+      killTree(serverProcess);
     }
   });
 

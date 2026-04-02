@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { spawn } from "child_process";
 import path from "path";
+import { killTree } from "./helpers/process";
 
 const SERVER_PATH = path.resolve(__dirname, "../../../server.ts");
 
@@ -17,18 +18,29 @@ describe("Server Security Configuration", () => {
         },
         stdio: "pipe",
         shell: true,
+        detached: process.platform !== "win32",
       });
 
       let output = "";
+      let resolved = false;
+
+      const timer = setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        killTree(serverProcess);
+        reject(new Error("Server start timeout. Output so far: " + output));
+      }, 15000);
+
       serverProcess.stdout?.on("data", (data) => {
         const msg = data.toString();
         output += msg;
         if (msg.includes("Server is listening on")) {
-          serverProcess.kill();
-          if (process.platform === "win32") {
-            spawn("taskkill", ["/pid", serverProcess.pid!.toString(), "/f", "/t"]);
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timer);
+            killTree(serverProcess);
+            resolve(output);
           }
-          resolve(output);
         }
       });
 
@@ -36,10 +48,21 @@ describe("Server Security Configuration", () => {
         output += data.toString();
       });
 
-      setTimeout(() => {
-        serverProcess.kill();
-        reject(new Error("Server start timeout. Output so far: " + output));
-      }, 15000);
+      serverProcess.on("error", (err) => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timer);
+          reject(err);
+        }
+      });
+
+      serverProcess.on("exit", (code) => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timer);
+          reject(new Error(`Server exited unexpectedly with code ${code}. Output: ${output}`));
+        }
+      });
     });
   }
 

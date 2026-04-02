@@ -12,6 +12,9 @@ import { searchBookMovesForPlayer } from "./book_search";
 
 import { generateSessionId } from "@/renderer/helpers/unique";
 
+const STOP_WAIT_TIMEOUT_MS = 15000;
+const READY_REPLAY_TIMEOUT_MS = 5000;
+
 function getSessionId(sessionKey: string): string {
   const localStorageKey = `shogihome-lab-session-id-${sessionKey}`;
   let id = localStorage.getItem(localStorageKey);
@@ -42,10 +45,13 @@ export class LanPlayer implements Player {
   private stopPromiseResolver: (() => void) | null = null;
   private stopPromiseRejector: ((err: Error) => void) | null = null;
   private stopPromise: Promise<void> | null = null;
+  private stopPromiseTimeoutId: number | null = null;
+  private readyReplayTimeoutId: number | null = null;
   private _multiPV: number = 1;
   private onErrorCallback?: (e: Error) => void;
   private lanEngine: LanEngine;
   private bookSessionID?: string;
+  private unsubscribeStatus?: () => void;
 
   constructor(
     sessionKey: string,
@@ -74,6 +80,11 @@ export class LanPlayer implements Player {
     }
 
     this.lanEngine = new LanEngine(getSessionId(sessionKey));
+    this.unsubscribeStatus = this.lanEngine.subscribeStatus((status) => {
+      if (status === "disconnected") {
+        this.handleTransportDisconnect();
+      }
+    });
   }
 
   get name(): string {
@@ -134,6 +145,8 @@ export class LanPlayer implements Player {
     } catch (e) {
       this.lanEngine.stopEngine();
       this.lanEngine.disconnect();
+      this.unsubscribeStatus?.();
+      this.unsubscribeStatus = undefined;
       if (this.bookSessionID) {
         api.closeBook(this.bookSessionID);
         this.bookSessionID = undefined;
@@ -253,6 +266,8 @@ export class LanPlayer implements Player {
     } finally {
       this.lanEngine.stopEngine();
       this.lanEngine.disconnect();
+      this.unsubscribeStatus?.();
+      this.unsubscribeStatus = undefined;
       delete lanPlayers[this._sessionID];
       if (this.bookSessionID) {
         api.closeBook(this.bookSessionID);
@@ -304,6 +319,9 @@ export class LanPlayer implements Player {
     this.stopPromise = new Promise((resolve, reject) => {
       this.stopPromiseResolver = resolve;
       this.stopPromiseRejector = reject;
+      this.stopPromiseTimeoutId = window.setTimeout(() => {
+        this.rejectStopPromise(new Error("Timed out waiting for stop acknowledgement"));
+      }, STOP_WAIT_TIMEOUT_MS);
       this.lanEngine.sendCommand("stop");
     });
 
@@ -315,13 +333,9 @@ export class LanPlayer implements Player {
     try {
       const data = JSON.parse(message);
       if (data.error) {
+        this.clearReadyReplayTimeout();
         const error = new Error(data.error);
-        if (this.stopPromiseRejector) {
-          this.stopPromiseRejector(error);
-          this.stopPromiseResolver = null;
-          this.stopPromiseRejector = null;
-          this.stopPromise = null;
-        }
+        this.rejectStopPromise(error);
         if (this.handler) {
           this.handler.onError(error);
         } else if (this.onErrorCallback) {
@@ -335,15 +349,11 @@ export class LanPlayer implements Player {
       if (data.info) {
         const infoStr = data.info as string;
         if (infoStr.startsWith("bestmove")) {
+          this.clearReadyReplayTimeout();
           if (this.stopPromiseResolver || data.sfen === this.currentSfen) {
             this.isThinking = false;
           }
-          if (this.stopPromiseResolver) {
-            this.stopPromiseResolver();
-            this.stopPromiseResolver = null;
-            this.stopPromiseRejector = null;
-            this.stopPromise = null;
-          }
+          this.resolveStopPromise();
 
           if (data.sfen === this.currentSfen) {
             this.flushInfo();
@@ -381,6 +391,7 @@ export class LanPlayer implements Player {
         }
       } else if (data.state) {
         if (data.state === "thinking") {
+          this.clearReadyReplayTimeout();
           this.isThinking = true;
         }
         if (
@@ -398,10 +409,11 @@ export class LanPlayer implements Player {
           // If 'bestmove' never comes, we will timeout eventually or user will stop manually.
 
           if (data.state === "ready") {
-            // Do nothing. Wait for buffered messages.
+            this.scheduleReadyReplayTimeout();
             return;
           }
 
+          this.clearReadyReplayTimeout();
           this.lanEngine.disconnect();
 
           const error = new Error(
@@ -415,12 +427,7 @@ export class LanPlayer implements Player {
             this.onErrorCallback(error);
           }
           this.isThinking = false;
-          if (this.stopPromiseRejector) {
-            this.stopPromiseRejector(new Error("Engine stopped"));
-            this.stopPromiseResolver = null;
-            this.stopPromiseRejector = null;
-            this.stopPromise = null;
-          }
+          this.rejectStopPromise(new Error("Engine stopped"));
         }
       }
     } catch (e) {
@@ -522,6 +529,65 @@ export class LanPlayer implements Player {
       this.infoTimeout = undefined;
     }
     this.info = undefined;
+  }
+
+  private handleTransportDisconnect() {
+    this.clearReadyReplayTimeout();
+    if (this.stopPromiseRejector) {
+      this.isThinking = false;
+      this.rejectStopPromise(new Error("Engine connection was lost while stopping"));
+    }
+  }
+
+  private clearStopPromiseTimeout() {
+    if (this.stopPromiseTimeoutId !== null) {
+      clearTimeout(this.stopPromiseTimeoutId);
+      this.stopPromiseTimeoutId = null;
+    }
+  }
+
+  private clearReadyReplayTimeout() {
+    if (this.readyReplayTimeoutId !== null) {
+      clearTimeout(this.readyReplayTimeoutId);
+      this.readyReplayTimeoutId = null;
+    }
+  }
+
+  private resolveStopPromise() {
+    const resolver = this.stopPromiseResolver;
+    this.stopPromiseResolver = null;
+    this.stopPromiseRejector = null;
+    this.stopPromise = null;
+    this.clearStopPromiseTimeout();
+    resolver?.();
+  }
+
+  private rejectStopPromise(error: Error) {
+    const rejector = this.stopPromiseRejector;
+    this.stopPromiseResolver = null;
+    this.stopPromiseRejector = null;
+    this.stopPromise = null;
+    this.clearStopPromiseTimeout();
+    rejector?.(error);
+  }
+
+  private scheduleReadyReplayTimeout() {
+    this.clearReadyReplayTimeout();
+    this.readyReplayTimeoutId = window.setTimeout(() => {
+      this.readyReplayTimeoutId = null;
+      if (!this.isThinking) {
+        return;
+      }
+
+      const error = new Error(t.engineProcessWasClosedUnexpectedly);
+      this.isThinking = false;
+      this.rejectStopPromise(error);
+      if (this.handler) {
+        this.handler.onError(error);
+      } else if (this.onErrorCallback) {
+        this.onErrorCallback(error);
+      }
+    }, READY_REPLAY_TIMEOUT_MS);
   }
 
   private flushInfo() {
