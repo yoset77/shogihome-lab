@@ -245,7 +245,8 @@ class BookSessionManager {
 }
 
 const bookSessionManager = new BookSessionManager();
-setInterval(() => bookSessionManager.cleanup(), 1000 * 60 * 10);
+const bookCleanupInterval = setInterval(() => bookSessionManager.cleanup(), 1000 * 60 * 10);
+bookCleanupInterval.unref();
 
 function getBookSession(req: express.Request): number {
   const sessionId = req.header("X-Book-Session-Id");
@@ -253,10 +254,6 @@ function getBookSession(req: express.Request): number {
     throw new Error("Invalid or missing X-Book-Session-Id header");
   }
   return bookSessionManager.get(sessionId);
-}
-if (KIFU_DIR) {
-  console.log(`Server-side kifu directory: ${KIFU_DIR}`);
-  setupKifuWatcher(KIFU_DIR, process.env.KIFU_DIR_USE_POLLING === "true");
 }
 
 // Verify Host header to prevent DNS Rebinding attacks
@@ -1203,6 +1200,10 @@ class EngineSession {
         }
         this.lastInfos.clear();
 
+        if (this.engineState === EngineState.TERMINATING) {
+          return;
+        }
+
         if (this.engineState === EngineState.STOPPING_SEARCH) {
           if (this.stopTimeout) {
             clearTimeout(this.stopTimeout);
@@ -1296,12 +1297,21 @@ class EngineSession {
 
     socket.on("connect", async () => {
       clearTimeout(connectionTimeout);
-      this.connectingSocket = null;
+      if (this.isExplicitlyTerminated || this.engineState === EngineState.TERMINATING) {
+        socket.destroy();
+        return;
+      }
       console.log(`Connected to remote engine. Specifying engine ID: ${engineId}`);
 
       const accessToken = process.env.WRAPPER_ACCESS_TOKEN;
 
       const setup = (rl?: readline.Interface) => {
+        if (this.isExplicitlyTerminated || this.engineState === EngineState.TERMINATING) {
+          socket.destroy();
+          return;
+        }
+
+        this.connectingSocket = null;
         socket.write(`run ${engineId}\n`);
 
         this.engineState = EngineState.WAITING_USIOK;
@@ -1327,6 +1337,9 @@ class EngineSession {
           const rl = await authenticateSocket(socket, accessToken);
           setup(rl);
         } catch (err: unknown) {
+          if (this.isExplicitlyTerminated) {
+            return;
+          }
           const message = err instanceof Error ? err.message : String(err);
           console.error(`Authentication failed: ${message}`);
           this.sendError(message);
@@ -1345,6 +1358,9 @@ class EngineSession {
     socket.on("error", (err) => {
       clearTimeout(connectionTimeout);
       if (this.connectingSocket === socket) this.connectingSocket = null;
+      if (this.isExplicitlyTerminated || this.engineState === EngineState.TERMINATING) {
+        return;
+      }
       if (this.engineState === EngineState.STARTING) {
         console.error("Failed to connect to remote engine:", err);
         this.sendError(`failed to connect to remote engine (${err.message})`);
@@ -1448,19 +1464,36 @@ class EngineSession {
     }
 
     if (command === "stop_engine") {
+      const hasActiveEngineSession =
+        this.connectingSocket ||
+        this.engineHandle ||
+        (this.engineState !== EngineState.UNINITIALIZED &&
+          this.engineState !== EngineState.STOPPED);
       this.isExplicitlyTerminated = true;
+      if (!hasActiveEngineSession) {
+        return;
+      }
+      this.engineState = EngineState.TERMINATING;
+      this.currentEngineId = null;
+      this.commandQueue.length = 0;
+      this.postStopCommandQueue.length = 0;
+      if (this.stopTimeout) {
+        clearTimeout(this.stopTimeout);
+        this.stopTimeout = null;
+      }
+      this.currentEngineSfen = null;
+      this.pendingGoSfen = null;
+      this.lastInfos.clear();
+      if (this.connectingSocket) {
+        this.connectingSocket.destroy();
+        this.connectingSocket = null;
+        this.onEngineClose();
+        return;
+      }
       if (this.engineHandle) {
-        this.engineState = EngineState.TERMINATING;
-        this.currentEngineId = null;
-        this.commandQueue.length = 0;
-        this.postStopCommandQueue.length = 0;
-        if (this.stopTimeout) {
-          clearTimeout(this.stopTimeout);
-          this.stopTimeout = null;
-        }
-        this.currentEngineSfen = null;
-        this.lastInfos.clear();
         this.engineHandle.close();
+      } else {
+        this.onEngineClose();
       }
       return;
     }
@@ -1609,6 +1642,7 @@ const interval = setInterval(function ping() {
     ws.ping();
   });
 }, 20000);
+interval.unref();
 
 wss.on("close", function close() {
   clearInterval(interval);
@@ -1648,7 +1682,34 @@ wss.on("connection", (ws: ExtendedWebSocket, req) => {
 
 const BIND_ADDRESS = process.env.BIND_ADDRESS || "127.0.0.1";
 
-server.listen(PORT, BIND_ADDRESS, () => {
-  console.log(`Server is listening on ${BIND_ADDRESS}:${PORT}`);
-  console.log(`Access ShogiHome at http://localhost:${PORT}`);
-});
+const isExecutedDirectly = (() => {
+  const entryPath = process.argv[1];
+  if (!entryPath) {
+    return false;
+  }
+  // テストランナー（vitest等）経由の場合は false
+  if (entryPath.includes("vitest")) {
+    return false;
+  }
+  // ファイル名がサーバー実行用のものであれば true とする
+  const basename = path.basename(entryPath);
+  return [
+    "server.ts",
+    "server.js",
+    "server.cjs",
+    "server.mjs",
+    "shogihome-server.exe",
+    "shogihome-server",
+  ].includes(basename);
+})();
+
+if (isExecutedDirectly) {
+  if (KIFU_DIR) {
+    console.log(`Server-side kifu directory: ${KIFU_DIR}`);
+    setupKifuWatcher(KIFU_DIR, process.env.KIFU_DIR_USE_POLLING === "true");
+  }
+  server.listen(PORT, BIND_ADDRESS, () => {
+    console.log(`Server is listening on ${BIND_ADDRESS}:${PORT}`);
+    console.log(`Access ShogiHome at http://localhost:${PORT}`);
+  });
+}

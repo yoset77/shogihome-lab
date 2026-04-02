@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 
 const SERVER_PORT = vi.hoisted(() => {
@@ -7,31 +7,14 @@ const SERVER_PORT = vi.hoisted(() => {
 
 vi.hoisted(() => {
   process.env.PORT = SERVER_PORT.toString();
-  process.env.KIFU_DIR = "./records";
+  process.env.KIFU_DIR = "./data";
 });
-
-const mockServer = vi.hoisted(() => ({
-  listen: (port: number, callback?: () => void) => {
-    if (typeof callback === "function") callback();
-    return mockServer;
-  },
-  close: (callback?: () => void) => {
-    if (typeof callback === "function") callback();
-  },
-  on: () => mockServer,
-}));
-
-vi.mock("http", () => ({
-  default: {
-    createServer: vi.fn(() => mockServer),
-  },
-}));
 
 const sqliteMock = vi.hoisted(() => ({
   initDatabase: vi.fn(),
   saveAnalysisResults: vi.fn(),
-  getAnalysisResults: vi.fn(() => []),
-  getAnalysisDBStats: vi.fn(() => []),
+  getAnalysisResults: vi.fn(() => [] as unknown[]),
+  getAnalysisDBStats: vi.fn(() => [] as unknown[]),
   deleteAnalysisResultsByEngine: vi.fn(),
   cleanupAnalysisResults: vi.fn(),
   exportAnalysisResultsByEngine: vi.fn(function* () {
@@ -45,14 +28,6 @@ vi.mock("@/background/database/sqlite.js", () => sqliteMock);
 import { app } from "../../../server.js";
 
 describe("Analysis DB API error handling", () => {
-  beforeAll(() => {
-    mockServer.listen(SERVER_PORT);
-  });
-
-  afterAll(() => {
-    mockServer.close();
-  });
-
   beforeEach(() => {
     vi.clearAllMocks();
     sqliteMock.getAnalysisResults.mockReturnValue([]);
@@ -100,5 +75,47 @@ describe("Analysis DB API error handling", () => {
 
     expect(response.status).toBe(500);
     expect(response.text).toContain("cleanup failure");
+  });
+
+  it("should return 200 and data when stats retrieval succeeds", async () => {
+    sqliteMock.getAnalysisDBStats.mockReturnValue([{ engineName: "test", count: 10 }]);
+
+    const response = await request(app)
+      .get("/api/analysis/stats")
+      .set("Host", `localhost:${SERVER_PORT}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual([{ engineName: "test", count: 10 }]);
+  });
+
+  it("should return 200 when delete_by_engine succeeds", async () => {
+    const response = await request(app)
+      .post("/api/analysis/delete_by_engine")
+      .set("Host", `localhost:${SERVER_PORT}`)
+      .send({ engineId: 1 });
+
+    expect(response.status).toBe(200);
+    expect(sqliteMock.deleteAnalysisResultsByEngine).toHaveBeenCalledWith(1);
+  });
+
+  it("should return 200 when cleanup succeeds", async () => {
+    const response = await request(app)
+      .post("/api/analysis/cleanup")
+      .set("Host", `localhost:${SERVER_PORT}`)
+      .send({ minDepth: 10 });
+
+    expect(response.status).toBe(200);
+    expect(sqliteMock.cleanupAnalysisResults).toHaveBeenCalledWith(10);
+  });
+
+  it("should export analysis results to a file", async () => {
+    const response = await request(app)
+      .post("/api/analysis/export")
+      .set("Host", `localhost:${SERVER_PORT}`)
+      .send({ engineId: 1, filename: "test-export.db" });
+
+    expect(response.status).toBe(200);
+    expect(response.text).toBe("ok");
+    expect(sqliteMock.exportAnalysisResultsByEngine).toHaveBeenCalledWith(1);
   });
 });

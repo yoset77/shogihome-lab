@@ -50,6 +50,11 @@ module.exports = [
     module: moduleForCJS,
     resolve: resolveForCJS,
     optimization,
+    ignoreWarnings: [
+      { module: /node_modules[\\/\\\\]express[\\/\\\\]lib[\\/\\\\]view\.js/ },
+      { module: /node_modules[\\/\\\\]log4js[\\/\\\\]lib[\\/\\\\]appenders[\\/\\\\]index\.js/ },
+      { module: /node_modules[\\/\\\\]ws[\\/\\\\]lib[\\/\\\\](buffer-util|validation)\.js/ },
+    ],
   },
   {
     name: "command:usi-csa-bridge",

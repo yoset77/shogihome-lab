@@ -3,6 +3,7 @@ import WebSocket from "ws";
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
 import readline from "readline";
+import { killTree } from "./helpers/process";
 
 const SERVER_PORT = 8090 + Math.floor(Math.random() * 1000); // Avoid conflict
 const SERVER_URL = `ws://localhost:${SERVER_PORT}`;
@@ -25,6 +26,7 @@ describe("Server Session Reconnection", () => {
       }, // Dummy engine port
       stdio: "pipe",
       shell: true,
+      detached: process.platform !== "win32",
     });
 
     // Wait for server to be ready
@@ -54,12 +56,7 @@ describe("Server Session Reconnection", () => {
 
   afterAll(() => {
     if (serverProcess) {
-      // kill the process tree
-      if (process.platform === "win32") {
-        spawn("taskkill", ["/pid", serverProcess.pid!.toString(), "/f", "/t"]);
-      } else {
-        serverProcess.kill();
-      }
+      killTree(serverProcess);
     }
   });
 

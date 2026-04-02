@@ -11,6 +11,23 @@ const MAX_FILES = 10000;
 
 let cachedKifuList: string[] | null = null;
 
+const isWithinBaseDirectory = (baseDir: string, targetPath: string): boolean => {
+  const relative = path.relative(baseDir, targetPath);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+};
+
+const findNearestExistingPath = (targetPath: string): string | null => {
+  let currentPath = targetPath;
+  while (!fs.existsSync(currentPath)) {
+    const parentPath = path.dirname(currentPath);
+    if (parentPath === currentPath) {
+      return null;
+    }
+    currentPath = parentPath;
+  }
+  return currentPath;
+};
+
 /**
  * Clears the in-memory kifu list cache.
  */
@@ -189,6 +206,20 @@ export const resolveKifuPath = (baseDir: string, relPath: string): string | null
   // We allow non-existent paths only if they have a supported extension (for file creation).
   // For paths without a supported extension, we only allow them if they are existing directories.
   if (!isSupportedExt && !(fs.existsSync(fullPath) && fs.lstatSync(fullPath).isDirectory())) {
+    return null;
+  }
+
+  try {
+    const realBaseDir = fs.realpathSync(normalizedBaseDir);
+    const existingPath = findNearestExistingPath(fullPath);
+    if (!existingPath) {
+      return null;
+    }
+    const realExistingPath = fs.realpathSync(existingPath);
+    if (!isWithinBaseDirectory(realBaseDir, realExistingPath)) {
+      return null;
+    }
+  } catch {
     return null;
   }
 
