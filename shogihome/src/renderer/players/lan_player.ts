@@ -7,7 +7,7 @@ import { parseUSIPV, USIInfoCommand } from "@/common/game/usi";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "./usi_events";
 import { t } from "@/common/i18n";
 import api from "@/renderer/ipc/api";
-import { USIEngineExtraBookConfig, BookSelectionMode } from "@/common/settings/usi";
+import { USIEngineExtraBookConfig } from "@/common/settings/usi";
 import { searchBookMovesForPlayer } from "./book_search";
 
 import { generateSessionId } from "@/renderer/helpers/unique";
@@ -290,6 +290,20 @@ export class LanPlayer implements Player {
     if (!this.bookSessionID || !this.position) {
       return false;
     }
+    const extraBook = this.extraBook;
+    if (!extraBook) {
+      return false;
+    }
+    // Check maxMoves: skip book if current ply exceeds the limit
+    const maxMoves = extraBook.maxMoves ?? 0;
+    if (maxMoves > 0) {
+      const movesIndex = this.currentSfen.indexOf(" moves ");
+      const ply =
+        movesIndex >= 0 ? this.currentSfen.substring(movesIndex + 7).split(" ").length : 0;
+      if (ply >= maxMoves) {
+        return false;
+      }
+    }
     // 思考中の場合は停止
     if (this.isThinking) {
       await this.stopAndWait();
@@ -299,7 +313,12 @@ export class LanPlayer implements Player {
       this.position,
       this.bookSessionID,
       this.name,
-      this.extraBook?.selectionMode || BookSelectionMode.FIRST,
+      {
+        considerBookMoveCount: extraBook.considerBookMoveCount,
+        minEval: extraBook.minEval,
+        maxEvalDiff: extraBook.maxEvalDiff,
+        ignoreRate: extraBook.ignoreRate,
+      },
       this.currentSfen,
       (move) => {
         const handler = this.handler;

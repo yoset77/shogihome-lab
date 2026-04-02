@@ -39,8 +39,8 @@
       <div class="item-label">{{ t.timeLimit }}</div>
       <div class="item-value highlight">
         <span class="time-text">{{ getTimeDescription() }}</span>
-        <Icon :icon="IconType.SETTINGS" class="edit-icon" />
       </div>
+      <button class="action-btn" :disabled="disabled">{{ t.settings }}</button>
     </div>
 
     <!-- Extra Book Row (LAN Engine only) -->
@@ -52,7 +52,7 @@
         </div>
         <div class="item-icon-placeholder"></div>
       </div>
-      <div v-if="extraBook.enabled" class="list-item-full">
+      <div v-if="extraBook.enabled" class="list-item-full book-file-row">
         <DropdownList
           :value="extraBook.filePath"
           :items="bookFileList"
@@ -60,15 +60,13 @@
           :disabled="disabled"
           @update:value="(val: string) => (extraBook.filePath = val)"
         />
-      </div>
-      <div v-if="extraBook.enabled" class="list-item-full book-selection-mode">
-        <div class="item-label-small">{{ t.selectionMode }}</div>
-        <HorizontalSelector
-          :value="extraBook.selectionMode || BookSelectionMode.FIRST"
-          :items="bookSelectionModeItems"
+        <button
+          class="book-settings-btn"
           :disabled="disabled"
-          @update:value="(val: string) => (extraBook.selectionMode = val as BookSelectionMode)"
-        />
+          @click="showBookSettingsDialog = true"
+        >
+          {{ t.settings }}
+        </button>
       </div>
     </template>
 
@@ -78,22 +76,26 @@
       @ok="onTimeOk"
       @cancel="showTimeDialog = false"
     />
+    <ExtraBookSettingsDialog
+      v-if="showBookSettingsDialog"
+      :config="extraBook"
+      @ok="onBookSettingsOk"
+      @cancel="showBookSettingsDialog = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import * as uri from "@/common/uri";
-import Icon from "@/renderer/view/primitive/Icon.vue";
-import { IconType } from "@/renderer/assets/icons";
 import { useLanStore } from "@/renderer/store/lan";
 import { ref, computed } from "vue";
 import { TimeLimitSettings } from "@/common/settings/game";
 import MobileTimeSettingDialog from "./MobileTimeSettingDialog.vue";
+import ExtraBookSettingsDialog from "@/renderer/view/dialog/ExtraBookSettingsDialog.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
-import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
-import { USIEngineExtraBookConfig, BookSelectionMode } from "@/common/settings/usi";
+import { USIEngineExtraBookConfig } from "@/common/settings/usi";
 
 defineProps({
   disabled: {
@@ -114,14 +116,9 @@ const timeLimit = defineModel<TimeLimitSettings>("timeLimit", { required: true }
 const extraBook = defineModel<USIEngineExtraBookConfig>("extraBook", { required: true });
 
 const showTimeDialog = ref(false);
+const showBookSettingsDialog = ref(false);
 
 const isLanEngine = computed(() => playerUri.value.startsWith("lan-engine"));
-
-const bookSelectionModeItems = computed(() => [
-  { value: BookSelectionMode.FIRST, label: t.firstMove },
-  { value: BookSelectionMode.RANDOM, label: t.randomMove },
-  { value: BookSelectionMode.BEST_SCORE, label: t.bestScoreMove },
-]);
 
 const onPlayerChange = (event: Event) => {
   const select = event.target as HTMLSelectElement;
@@ -132,6 +129,11 @@ const onPlayerChange = (event: Event) => {
 const onTimeOk = (newSettings: TimeLimitSettings) => {
   timeLimit.value = { ...newSettings };
   showTimeDialog.value = false;
+};
+
+const onBookSettingsOk = (config: USIEngineExtraBookConfig) => {
+  extraBook.value = config;
+  showBookSettingsDialog.value = false;
 };
 
 const getTimeDescription = () => {
@@ -153,7 +155,7 @@ const getTimeDescription = () => {
 }
 .list-item {
   display: grid;
-  grid-template-columns: 110px 1fr 30px;
+  grid-template-columns: 110px 1fr auto;
   align-items: center;
   padding: 12px 0;
   border-bottom: 1px solid var(--text-separator-color);
@@ -175,13 +177,6 @@ const getTimeDescription = () => {
   color: var(--text-color);
   opacity: 0.8;
   text-align: left;
-}
-.item-label-small {
-  font-size: 0.8em;
-  color: var(--text-color);
-  opacity: 0.6;
-  text-align: left;
-  margin-bottom: 4px;
 }
 .item-value {
   flex: 1;
@@ -223,14 +218,48 @@ const getTimeDescription = () => {
 .item-icon-placeholder {
   width: 30px;
 }
-.edit-icon {
-  font-size: 1.2em;
-  color: var(--text-color);
-  opacity: 0.6;
+.action-btn {
+  padding: 4px 12px;
+  font-size: 0.85em;
+  background-color: var(--control-bg-color);
+  color: var(--control-button-color);
+  border: 1px solid var(--control-border-color);
+  cursor: pointer;
+  white-space: nowrap;
 }
-.book-selection-mode {
+.action-btn:active:not(:disabled) {
+  background-color: var(--selector-bg-color);
+  opacity: 0.7;
+}
+.action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.book-file-row {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 0;
+}
+.book-file-row > :first-child {
+  flex: 1;
+}
+.book-settings-btn {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  font-size: 0.85em;
+  background-color: var(--control-bg-color);
+  color: var(--control-button-color);
+  border: 1px solid var(--control-border-color);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.book-settings-btn:active:not(:disabled) {
+  background-color: var(--selector-bg-color);
+  opacity: 0.7;
+}
+.book-settings-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 </style>

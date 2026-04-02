@@ -4,7 +4,6 @@ import { Record } from "tsshogi";
 import { Mock } from "vitest";
 import api from "@/renderer/ipc/api";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "@/renderer/players/usi_events";
-import { BookSelectionMode } from "@/common/settings/usi";
 
 vi.mock("@/renderer/network/lan_engine");
 vi.mock("@/renderer/ipc/api");
@@ -359,7 +358,7 @@ describe("LanPlayer", () => {
       {
         enabled: true,
         filePath: "test.db",
-        selectionMode: BookSelectionMode.FIRST,
+        considerBookMoveCount: true,
       },
     );
 
@@ -374,7 +373,7 @@ describe("LanPlayer", () => {
     expect(isActiveLanPlayerSession(200000)).toBe(false);
   });
 
-  it("should select book moves based on selectionMode (RANDOM)", async () => {
+  it("should select book moves based on considerBookMoveCount (true)", async () => {
     (api.searchBookMoves as Mock).mockResolvedValue([
       { usi: "7g7f", count: 10, score: 100, comment: "" },
       { usi: "2g2f", count: 90, score: 50, comment: "" },
@@ -390,7 +389,7 @@ describe("LanPlayer", () => {
       {
         enabled: true,
         filePath: "test.db",
-        selectionMode: BookSelectionMode.RANDOM,
+        considerBookMoveCount: true,
       },
     );
     await launchPlayer(player);
@@ -424,7 +423,7 @@ describe("LanPlayer", () => {
     expect(move2g2f).toBeGreaterThan(move7g7f);
   });
 
-  it("should select book moves based on selectionMode (BEST_SCORE)", async () => {
+  it("should select book moves based on considerBookMoveCount (false)", async () => {
     (api.searchBookMoves as Mock).mockResolvedValue([
       { usi: "7g7f", count: 100, score: 50, comment: "" },
       { usi: "2g2f", count: 10, score: 100, comment: "" },
@@ -440,7 +439,7 @@ describe("LanPlayer", () => {
       {
         enabled: true,
         filePath: "test.db",
-        selectionMode: BookSelectionMode.BEST_SCORE,
+        considerBookMoveCount: false,
       },
     );
     await launchPlayer(player);
@@ -459,8 +458,8 @@ describe("LanPlayer", () => {
     );
     await vi.runAllTimersAsync();
 
-    // Should select 2g2f because it has the best score (100)
+    // With considerBookMoveCount: false, it's uniform random among 7g7f and 2g2f
     expect(onMove).toBeCalledTimes(1);
-    expect(onMove.mock.calls[0][0].usi).toBe("2g2f");
+    expect(["7g7f", "2g2f"]).toContain(onMove.mock.calls[0][0].usi);
   });
 });

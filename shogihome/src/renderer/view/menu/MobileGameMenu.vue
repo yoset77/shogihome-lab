@@ -149,7 +149,11 @@ import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import api from "@/renderer/ipc/api";
 import * as uri from "@/common/uri";
 import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
-import { USIEngineExtraBookConfig, emptyUSIEngine } from "@/common/settings/usi";
+import {
+  USIEngineExtraBookConfig,
+  emptyUSIEngine,
+  emptyUSIEngineExtraBookConfig,
+} from "@/common/settings/usi";
 import { PlayerSettings } from "@/common/settings/player";
 
 const store = useStore();
@@ -176,8 +180,8 @@ const settings = reactive({
   enableAutoSave: false,
 });
 
-const blackExtraBook = ref<USIEngineExtraBookConfig>({ enabled: false, filePath: "" });
-const whiteExtraBook = ref<USIEngineExtraBookConfig>({ enabled: false, filePath: "" });
+const blackExtraBook = ref<USIEngineExtraBookConfig>(emptyUSIEngineExtraBookConfig());
+const whiteExtraBook = ref<USIEngineExtraBookConfig>(emptyUSIEngineExtraBookConfig());
 const sfenFileList = ref<{ label: string; value: string }[]>([]);
 const bookFileList = ref<{ label: string; value: string }[]>([]);
 
