@@ -47,6 +47,7 @@ graph LR
 | `config_editor.html` | **設定エディタ (Frontend)**。単独でファイル編集ツールとしても、`config_editor.py` のUIとしても動作するハイブリッド設計。 |
 | `launcher.py` | **GUIランチャー**。Webサーバーとエンジンラッパーをバックグラウンドで起動・終了する。
 | `scripts/generate_licenses.py` | Python依存ライブラリのライセンスを生成。 |
+| `engine-wrapper.mjs` | エンジンラッパー（Node.js版）。依存関係ゼロで動作する軽量な実装。 |
 | `engines.json` | エンジン設定ファイル (Git管理対象外)。ID、表示名、実行パスのリストを定義。原本として `engines.json.default` (空) または `engines.json.example` (設定例) を参照。 |
 | `engines.json.default` | リリース用テンプレート (空のリスト `[]`)。 |
 | `engines.json.example` | 開発者向け設定例。 |
