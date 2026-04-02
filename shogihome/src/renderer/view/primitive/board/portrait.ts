@@ -80,14 +80,20 @@ export class PortraitLayoutBuilder {
     const buildClockLayout = (color: Color): PlayerName => {
       const displayColor = this.config.flip ? reverseColor(color) : color;
       const params = portraitViewParams.clock[displayColor];
+      const style: { [key: string]: string } = {
+        left: params.x * ratio + "px",
+        top: params.y * ratio + "px",
+        width: portraitViewParams.clock.width * ratio + "px",
+        height: portraitViewParams.clock.height * ratio + "px",
+        "font-size": portraitViewParams.clock.fontSize * ratio + "px",
+      };
+      if (displayColor === Color.BLACK) {
+        style["border-bottom"] = "none";
+      } else {
+        style["border-top"] = "none";
+      }
       return {
-        style: {
-          left: params.x * ratio + "px",
-          top: params.y * ratio + "px",
-          width: portraitViewParams.clock.width * ratio + "px",
-          height: portraitViewParams.clock.height * ratio + "px",
-          "font-size": portraitViewParams.clock.fontSize * ratio + "px",
-        },
+        style,
       };
     };
 
