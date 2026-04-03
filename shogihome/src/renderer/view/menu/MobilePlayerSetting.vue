@@ -4,32 +4,14 @@
     <div class="list-item">
       <div class="item-label">{{ t.player }}</div>
       <div class="item-value">
-        <select
-          v-model="playerUri"
-          class="standard-select"
+        <DropdownList
+          class="player-select"
+          :value="playerUri"
+          :items="playerItems"
+          :tags="[]"
           :disabled="disabled"
-          @change="onPlayerChange"
-        >
-          <option :value="uri.ES_HUMAN">{{ t.human }}</option>
-          <template v-if="lanStore.engineList.value.length > 0">
-            <option
-              v-for="info in lanStore.engineList.value.filter(
-                (e) => !e.type || e.type === 'game' || e.type === 'both',
-              )"
-              :key="info.id"
-              :value="`lan-engine:${info.id}`"
-            >
-              {{ info.name }}
-            </option>
-          </template>
-          <option v-else value="lan-engine">LAN Engine</option>
-          <option :value="uri.ES_BASIC_ENGINE_STATIC_ROOK_V1">
-            {{ t.beginner }} ({{ t.staticRook }})
-          </option>
-          <option :value="uri.ES_BASIC_ENGINE_RANGING_ROOK_V1">
-            {{ t.beginner }} ({{ t.rangingRook }})
-          </option>
-        </select>
+          @update:value="onPlayerChange"
+        />
       </div>
       <div class="item-icon-placeholder"></div>
     </div>
@@ -120,10 +102,34 @@ const showBookSettingsDialog = ref(false);
 
 const isLanEngine = computed(() => playerUri.value.startsWith("lan-engine"));
 
-const onPlayerChange = (event: Event) => {
-  const select = event.target as HTMLSelectElement;
-  const option = select.options[select.selectedIndex];
-  playerName.value = option.text;
+const playerItems = computed(() => {
+  const items = [{ value: uri.ES_HUMAN, label: t.human }];
+  if (lanStore.engineList.value.length > 0) {
+    lanStore.engineList.value
+      .filter((e) => !e.type || e.type === "game" || e.type === "both")
+      .forEach((info) => {
+        items.push({ value: `lan-engine:${info.id}`, label: info.name });
+      });
+  } else {
+    items.push({ value: "lan-engine", label: "LAN Engine" });
+  }
+  items.push({
+    value: uri.ES_BASIC_ENGINE_STATIC_ROOK_V1,
+    label: `${t.beginner} (${t.staticRook})`,
+  });
+  items.push({
+    value: uri.ES_BASIC_ENGINE_RANGING_ROOK_V1,
+    label: `${t.beginner} (${t.rangingRook})`,
+  });
+  return items;
+});
+
+const onPlayerChange = (val: string) => {
+  playerUri.value = val;
+  const item = playerItems.value.find((i) => i.value === val);
+  if (item) {
+    playerName.value = item.label;
+  }
 };
 
 const onTimeOk = (newSettings: TimeLimitSettings) => {
@@ -194,26 +200,8 @@ const getTimeDescription = () => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.standard-select {
+.player-select {
   width: 100%;
-  height: 32px;
-  background-color: transparent;
-  color: var(--text-color);
-  border: none;
-  font-size: 1em;
-  font-weight: bold;
-  padding: 0;
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='gray'%3e%3cpath d='M7 10l5 5 5-5z'/%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right center;
-  background-size: 20px;
-  text-align: right;
-}
-.standard-select option {
-  text-align: left;
-  background-color: var(--main-bg-color);
-  color: var(--main-color);
 }
 .item-icon-placeholder {
   width: 30px;
