@@ -9,11 +9,14 @@ export interface LanEngineInfo {
 
 export type LanEngineStatus = "disconnected" | "connecting" | "connected";
 
+const ENGINE_LIST_CACHE_TTL_MS = 30_000;
+
 export class LanEngine {
   private ws: WebSocket | null = null;
   private onMessageHandler: MessageHandler | null = null;
   private messageListeners: MessageListener[] = [];
   private engineListCache: LanEngineInfo[] | null = null;
+  private engineListCacheTimestamp: number | null = null;
   private reconnectAttempts = 0;
   private reconnectTimeout: number | null = null;
   private isExplicitlyClosed = true;
@@ -22,12 +25,24 @@ export class LanEngine {
   private commandQueue: string[] = [];
   private pingIntervalId: number | null = null;
   private pongTimeoutId: number | null = null;
+  private pendingEngineListPromise: Promise<LanEngineInfo[]> | null = null;
+  private listenersRegistered = false;
+  private activeRequestCount = 0;
 
-  constructor(private sessionId: string) {
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", this.onVisibilityChange);
-      window.addEventListener("beforeunload", this.onBeforeUnload);
-    }
+  constructor(private sessionId: string) {}
+
+  private ensureListenersRegistered() {
+    if (this.listenersRegistered || typeof document === "undefined") return;
+    this.listenersRegistered = true;
+    document.addEventListener("visibilitychange", this.onVisibilityChange);
+    window.addEventListener("beforeunload", this.onBeforeUnload);
+  }
+
+  private removeListeners() {
+    if (!this.listenersRegistered || typeof document === "undefined") return;
+    this.listenersRegistered = false;
+    document.removeEventListener("visibilitychange", this.onVisibilityChange);
+    window.removeEventListener("beforeunload", this.onBeforeUnload);
   }
 
   private onVisibilityChange = () => {
@@ -35,7 +50,6 @@ export class LanEngine {
       console.log(`Foreground detected. Refreshing session ${this.sessionId}...`);
       this.clearReconnect();
       if (this.ws) {
-        // Close the potentially zombie connection without triggering normal onclose logic.
         this.ws.onclose = null;
         this.ws.close();
         this.ws = null;
@@ -69,6 +83,7 @@ export class LanEngine {
   }
 
   connect(onMessage?: MessageHandler): Promise<void> {
+    this.ensureListenersRegistered();
     this.isExplicitlyClosed = false;
     return new Promise((resolve) => {
       if (
@@ -213,16 +228,14 @@ export class LanEngine {
 
   disconnect() {
     this.isExplicitlyClosed = true;
-    if (typeof document !== "undefined") {
-      document.removeEventListener("visibilitychange", this.onVisibilityChange);
-      window.removeEventListener("beforeunload", this.onBeforeUnload);
-    }
+    this.removeListeners();
     this.clearReconnect();
     this.stopHeartbeat();
     this.commandQueue = [];
     if (this.ws) {
       this.ws.close();
     }
+    this.messageListeners = [];
     this.setStatus("disconnected");
   }
 
@@ -276,36 +289,70 @@ export class LanEngine {
     this.messageListeners = this.messageListeners.filter((l) => l !== listener);
   }
 
-  async getEngineList(force = false): Promise<LanEngineInfo[]> {
-    if (this.engineListCache && !force) {
-      return this.engineListCache;
-    }
+  get isIdle(): boolean {
+    return this.activeRequestCount === 0;
+  }
 
+  async getEngineList(force = false): Promise<LanEngineInfo[]> {
+    this.activeRequestCount++;
+    try {
+      if (!force && this.engineListCache && this.engineListCacheTimestamp !== null) {
+        const age = Date.now() - this.engineListCacheTimestamp;
+        if (age < ENGINE_LIST_CACHE_TTL_MS) {
+          return this.engineListCache;
+        }
+      }
+
+      if (this.pendingEngineListPromise) {
+        return this.pendingEngineListPromise;
+      }
+
+      const promise = this.fetchEngineList();
+      this.pendingEngineListPromise = promise;
+      try {
+        return await promise;
+      } finally {
+        this.pendingEngineListPromise = null;
+      }
+    } finally {
+      this.activeRequestCount--;
+    }
+  }
+
+  private async fetchEngineList(): Promise<LanEngineInfo[]> {
     if (!this.isConnected()) {
-      // Auto connect if not connected, using a dummy handler for now
-      await this.connect(() => {});
+      try {
+        await this.connect(() => {});
+      } catch (e) {
+        throw new Error(
+          `Failed to connect while fetching engine list: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
     }
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
+        this.removeMessageListener(listener);
         reject(new Error("Timeout waiting for engine list"));
       }, 5000);
 
-      this.messageListeners.push((data: string) => {
+      const listener = (data: string) => {
         try {
           const json = JSON.parse(data);
           if (json.engineList) {
             clearTimeout(timeout);
             this.engineListCache = json.engineList;
+            this.engineListCacheTimestamp = Date.now();
             resolve(json.engineList);
-            return true; // Remove listener
+            return true;
           }
         } catch (e) {
           // ignore
         }
-        return false; // Keep listener
-      });
+        return false;
+      };
 
+      this.addMessageListener(listener);
       this.sendCommand("get_engine_list");
     });
   }
