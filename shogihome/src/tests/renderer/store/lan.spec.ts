@@ -6,6 +6,7 @@ const lanDiscoveryEngineMock = vi.hoisted(() => ({
   getEngineList: vi.fn(),
   disconnect: vi.fn(),
   subscribeStatus: vi.fn(),
+  isIdle: true,
 }));
 
 vi.mock("@/renderer/network/lan_engine", () => ({
@@ -20,7 +21,7 @@ describe("store/lan", () => {
     });
   });
 
-  it("should not disconnect the shared discovery engine after fetch", async () => {
+  it("should disconnect the shared discovery engine after fetch", async () => {
     vi.resetModules();
     lanDiscoveryEngineMock.isConnected.mockReturnValue(false);
     lanDiscoveryEngineMock.connect.mockResolvedValue(undefined);
@@ -30,8 +31,7 @@ describe("store/lan", () => {
     const store = useLanStore();
     await store.fetchEngineList();
 
-    expect(lanDiscoveryEngineMock.connect).toBeCalledTimes(1);
-    expect(lanDiscoveryEngineMock.getEngineList).toBeCalledWith(true);
-    expect(lanDiscoveryEngineMock.disconnect).not.toBeCalled();
+    expect(lanDiscoveryEngineMock.getEngineList).toBeCalledWith(false);
+    expect(lanDiscoveryEngineMock.disconnect).toBeCalledTimes(1);
   });
 });

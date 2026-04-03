@@ -12,14 +12,15 @@ lanDiscoveryEngine.subscribeStatus((newStatus) => {
 export function useLanStore() {
   const fetchEngineList = async () => {
     try {
-      if (!lanDiscoveryEngine.isConnected()) {
-        await lanDiscoveryEngine.connect();
-      }
-      engineList.value = await lanDiscoveryEngine.getEngineList(true);
+      engineList.value = await lanDiscoveryEngine.getEngineList(false);
       error.value = null;
     } catch (e) {
       console.error("Failed to fetch engine list:", e);
       // Keep previous list if available, or empty
+    } finally {
+      if (lanDiscoveryEngine.isIdle) {
+        lanDiscoveryEngine.disconnect();
+      }
     }
   };
 
