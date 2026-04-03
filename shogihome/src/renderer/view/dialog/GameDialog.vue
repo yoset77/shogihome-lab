@@ -16,29 +16,21 @@
             :display-multi-pv-state="true"
             @update-engines="onUpdatePlayerSettings"
           />
-          <!-- 先手定跡 (GUI拡張) -->
           <div v-if="isBlackEngine" class="form-item extra-book">
             <div class="row center">
               <div class="form-item-label">{{ t.frontendBook }}</div>
               <ToggleButton v-model:value="blackExtraBook.enabled" />
             </div>
-            <div v-if="blackExtraBook.enabled" class="form-item additional">
+            <div v-if="blackExtraBook.enabled" class="form-item additional book-file-row">
               <DropdownList
                 :value="blackExtraBook.filePath"
                 :items="bookFileList"
                 :tags="[]"
                 @update:value="(val: string) => (blackExtraBook.filePath = val)"
               />
-            </div>
-            <div v-if="blackExtraBook.enabled" class="form-item additional">
-              <div class="form-item-label">{{ t.selectionMode }}</div>
-              <HorizontalSelector
-                :value="blackExtraBook.selectionMode || BookSelectionMode.FIRST"
-                :items="bookSelectionModeItems"
-                @update:value="
-                  (val: string) => (blackExtraBook.selectionMode = val as BookSelectionMode)
-                "
-              />
+              <button class="book-settings-btn" @click="openBlackBookSettings">
+                {{ t.settings }}
+              </button>
             </div>
           </div>
         </div>
@@ -56,29 +48,21 @@
             :display-multi-pv-state="true"
             @update-engines="onUpdatePlayerSettings"
           />
-          <!-- 後手定跡 (GUI拡張) -->
           <div v-if="isWhiteEngine" class="form-item extra-book">
             <div class="row center">
               <div class="form-item-label">{{ t.frontendBook }}</div>
               <ToggleButton v-model:value="whiteExtraBook.enabled" />
             </div>
-            <div v-if="whiteExtraBook.enabled" class="form-item additional">
+            <div v-if="whiteExtraBook.enabled" class="form-item additional book-file-row">
               <DropdownList
                 :value="whiteExtraBook.filePath"
                 :items="bookFileList"
                 :tags="[]"
                 @update:value="(val: string) => (whiteExtraBook.filePath = val)"
               />
-            </div>
-            <div v-if="whiteExtraBook.enabled" class="form-item additional">
-              <div class="form-item-label">{{ t.selectionMode }}</div>
-              <HorizontalSelector
-                :value="whiteExtraBook.selectionMode || BookSelectionMode.FIRST"
-                :items="bookSelectionModeItems"
-                @update:value="
-                  (val: string) => (whiteExtraBook.selectionMode = val as BookSelectionMode)
-                "
-              />
+              <button class="book-settings-btn" @click="openWhiteBookSettings">
+                {{ t.settings }}
+              </button>
             </div>
           </div>
         </div>
@@ -283,6 +267,18 @@
         {{ t.cancel }}
       </button>
     </div>
+    <ExtraBookSettingsDialog
+      v-if="showBlackBookSettings"
+      :config="blackExtraBook"
+      @ok="onBlackBookSettingsOk"
+      @cancel="showBlackBookSettings = false"
+    />
+    <ExtraBookSettingsDialog
+      v-if="showWhiteBookSettings"
+      :config="whiteExtraBook"
+      @ok="onWhiteBookSettingsOk"
+      @cancel="showWhiteBookSettings = false"
+    />
   </DialogFrame>
 </template>
 
@@ -295,7 +291,6 @@ import {
   USIEngineExtraBookConfig,
   emptyUSIEngine,
   emptyUSIEngineExtraBookConfig,
-  BookSelectionMode,
 } from "@/common/settings/usi";
 import { ref, onMounted, computed } from "vue";
 import api, { isNative } from "@/renderer/ipc/api";
@@ -319,7 +314,7 @@ import { useBusyState } from "@/renderer/store/busy";
 import DialogFrame from "./DialogFrame.vue";
 import { useLanStore } from "@/renderer/store/lan";
 import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
-import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
+import ExtraBookSettingsDialog from "./ExtraBookSettingsDialog.vue";
 
 const store = useStore();
 const busyState = useBusyState();
@@ -339,13 +334,9 @@ const blackPlayerURI = ref("");
 const whitePlayerURI = ref("");
 const blackExtraBook = ref<USIEngineExtraBookConfig>(emptyUSIEngineExtraBookConfig());
 const whiteExtraBook = ref<USIEngineExtraBookConfig>(emptyUSIEngineExtraBookConfig());
+const showBlackBookSettings = ref(false);
+const showWhiteBookSettings = ref(false);
 const lanStore = useLanStore();
-
-const bookSelectionModeItems = computed(() => [
-  { value: BookSelectionMode.FIRST, label: t.firstMove },
-  { value: BookSelectionMode.RANDOM, label: t.randomMove },
-  { value: BookSelectionMode.BEST_SCORE, label: t.bestScoreMove },
-]);
 
 const isBlackEngine = computed(
   () => uri.isUSIEngine(blackPlayerURI.value) || blackPlayerURI.value.startsWith("lan-engine"),
@@ -400,7 +391,6 @@ onMounted(async () => {
     setDifferentTime.value = !!gameSettings.value.whiteTimeLimit;
     startPositionListShuffle.value = gameSettings.value.startPositionListOrder === "shuffle";
 
-    // Fetch LAN engines
     if (lanStore.status.value === "disconnected") {
       try {
         await lanStore.fetchEngineList();
@@ -426,7 +416,7 @@ const buildPlayerSettings = (
       const id = playerURI.split(":")[1];
       const info = lanStore.engineList.value.find((e) => e.id === id);
       if (info) {
-        name = info.name; // Use name from engines.json
+        name = info.name;
       } else {
         name = `LAN Engine (${id})`;
       }
@@ -498,12 +488,31 @@ const onUpdatePlayerSettings = (val: USIEngines) => {
 
 const onSwapColor = () => {
   [blackPlayerURI.value, whitePlayerURI.value] = [whitePlayerURI.value, blackPlayerURI.value];
+  [blackExtraBook.value, whiteExtraBook.value] = [whiteExtraBook.value, blackExtraBook.value];
   if (setDifferentTime.value) {
     [hours.value, whiteHours.value] = [whiteHours.value, hours.value];
     [minutes.value, whiteMinutes.value] = [whiteMinutes.value, minutes.value];
     [byoyomi.value, whiteByoyomi.value] = [whiteByoyomi.value, byoyomi.value];
     [increment.value, whiteIncrement.value] = [whiteIncrement.value, increment.value];
   }
+};
+
+const openBlackBookSettings = () => {
+  showBlackBookSettings.value = true;
+};
+
+const openWhiteBookSettings = () => {
+  showWhiteBookSettings.value = true;
+};
+
+const onBlackBookSettingsOk = (config: USIEngineExtraBookConfig) => {
+  blackExtraBook.value = config;
+  showBlackBookSettings.value = false;
+};
+
+const onWhiteBookSettingsOk = (config: USIEngineExtraBookConfig) => {
+  whiteExtraBook.value = config;
+  showWhiteBookSettings.value = false;
 };
 </script>
 
@@ -543,5 +552,26 @@ input.number {
 }
 .extra-book .additional {
   margin-top: 5px;
+}
+.book-file-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.book-file-row > :first-child {
+  flex: 1;
+}
+.book-settings-btn {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  font-size: 0.85em;
+  background-color: var(--control-bg-color);
+  color: var(--control-button-color);
+  border: 1px solid var(--control-border-color);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.book-settings-btn:hover {
+  background-color: var(--selector-bg-color);
 }
 </style>

@@ -4,32 +4,14 @@
     <div class="list-item">
       <div class="item-label">{{ t.player }}</div>
       <div class="item-value">
-        <select
-          v-model="playerUri"
-          class="standard-select"
+        <DropdownList
+          class="player-select"
+          :value="playerUri"
+          :items="playerItems"
+          :tags="[]"
           :disabled="disabled"
-          @change="onPlayerChange"
-        >
-          <option :value="uri.ES_HUMAN">{{ t.human }}</option>
-          <template v-if="lanStore.engineList.value.length > 0">
-            <option
-              v-for="info in lanStore.engineList.value.filter(
-                (e) => !e.type || e.type === 'game' || e.type === 'both',
-              )"
-              :key="info.id"
-              :value="`lan-engine:${info.id}`"
-            >
-              {{ info.name }}
-            </option>
-          </template>
-          <option v-else value="lan-engine">LAN Engine</option>
-          <option :value="uri.ES_BASIC_ENGINE_STATIC_ROOK_V1">
-            {{ t.beginner }} ({{ t.staticRook }})
-          </option>
-          <option :value="uri.ES_BASIC_ENGINE_RANGING_ROOK_V1">
-            {{ t.beginner }} ({{ t.rangingRook }})
-          </option>
-        </select>
+          @update:value="onPlayerChange"
+        />
       </div>
       <div class="item-icon-placeholder"></div>
     </div>
@@ -39,8 +21,8 @@
       <div class="item-label">{{ t.timeLimit }}</div>
       <div class="item-value highlight">
         <span class="time-text">{{ getTimeDescription() }}</span>
-        <Icon :icon="IconType.SETTINGS" class="edit-icon" />
       </div>
+      <button class="action-btn" :disabled="disabled">{{ t.settings }}</button>
     </div>
 
     <!-- Extra Book Row (LAN Engine only) -->
@@ -52,7 +34,7 @@
         </div>
         <div class="item-icon-placeholder"></div>
       </div>
-      <div v-if="extraBook.enabled" class="list-item-full">
+      <div v-if="extraBook.enabled" class="list-item-full book-file-row">
         <DropdownList
           :value="extraBook.filePath"
           :items="bookFileList"
@@ -60,15 +42,13 @@
           :disabled="disabled"
           @update:value="(val: string) => (extraBook.filePath = val)"
         />
-      </div>
-      <div v-if="extraBook.enabled" class="list-item-full book-selection-mode">
-        <div class="item-label-small">{{ t.selectionMode }}</div>
-        <HorizontalSelector
-          :value="extraBook.selectionMode || BookSelectionMode.FIRST"
-          :items="bookSelectionModeItems"
+        <button
+          class="book-settings-btn"
           :disabled="disabled"
-          @update:value="(val: string) => (extraBook.selectionMode = val as BookSelectionMode)"
-        />
+          @click="showBookSettingsDialog = true"
+        >
+          {{ t.settings }}
+        </button>
       </div>
     </template>
 
@@ -78,22 +58,26 @@
       @ok="onTimeOk"
       @cancel="showTimeDialog = false"
     />
+    <ExtraBookSettingsDialog
+      v-if="showBookSettingsDialog"
+      :config="extraBook"
+      @ok="onBookSettingsOk"
+      @cancel="showBookSettingsDialog = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import * as uri from "@/common/uri";
-import Icon from "@/renderer/view/primitive/Icon.vue";
-import { IconType } from "@/renderer/assets/icons";
 import { useLanStore } from "@/renderer/store/lan";
 import { ref, computed } from "vue";
 import { TimeLimitSettings } from "@/common/settings/game";
 import MobileTimeSettingDialog from "./MobileTimeSettingDialog.vue";
+import ExtraBookSettingsDialog from "@/renderer/view/dialog/ExtraBookSettingsDialog.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
-import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
-import { USIEngineExtraBookConfig, BookSelectionMode } from "@/common/settings/usi";
+import { USIEngineExtraBookConfig } from "@/common/settings/usi";
 
 defineProps({
   disabled: {
@@ -114,24 +98,48 @@ const timeLimit = defineModel<TimeLimitSettings>("timeLimit", { required: true }
 const extraBook = defineModel<USIEngineExtraBookConfig>("extraBook", { required: true });
 
 const showTimeDialog = ref(false);
+const showBookSettingsDialog = ref(false);
 
 const isLanEngine = computed(() => playerUri.value.startsWith("lan-engine"));
 
-const bookSelectionModeItems = computed(() => [
-  { value: BookSelectionMode.FIRST, label: t.firstMove },
-  { value: BookSelectionMode.RANDOM, label: t.randomMove },
-  { value: BookSelectionMode.BEST_SCORE, label: t.bestScoreMove },
-]);
+const playerItems = computed(() => {
+  const items = [{ value: uri.ES_HUMAN, label: t.human }];
+  if (lanStore.engineList.value.length > 0) {
+    lanStore.engineList.value
+      .filter((e) => !e.type || e.type === "game" || e.type === "both")
+      .forEach((info) => {
+        items.push({ value: `lan-engine:${info.id}`, label: info.name });
+      });
+  } else {
+    items.push({ value: "lan-engine", label: "LAN Engine" });
+  }
+  items.push({
+    value: uri.ES_BASIC_ENGINE_STATIC_ROOK_V1,
+    label: `${t.beginner} (${t.staticRook})`,
+  });
+  items.push({
+    value: uri.ES_BASIC_ENGINE_RANGING_ROOK_V1,
+    label: `${t.beginner} (${t.rangingRook})`,
+  });
+  return items;
+});
 
-const onPlayerChange = (event: Event) => {
-  const select = event.target as HTMLSelectElement;
-  const option = select.options[select.selectedIndex];
-  playerName.value = option.text;
+const onPlayerChange = (val: string) => {
+  playerUri.value = val;
+  const item = playerItems.value.find((i) => i.value === val);
+  if (item) {
+    playerName.value = item.label;
+  }
 };
 
 const onTimeOk = (newSettings: TimeLimitSettings) => {
   timeLimit.value = { ...newSettings };
   showTimeDialog.value = false;
+};
+
+const onBookSettingsOk = (config: USIEngineExtraBookConfig) => {
+  extraBook.value = config;
+  showBookSettingsDialog.value = false;
 };
 
 const getTimeDescription = () => {
@@ -153,7 +161,7 @@ const getTimeDescription = () => {
 }
 .list-item {
   display: grid;
-  grid-template-columns: 110px 1fr 30px;
+  grid-template-columns: 110px 1fr auto;
   align-items: center;
   padding: 12px 0;
   border-bottom: 1px solid var(--text-separator-color);
@@ -176,13 +184,6 @@ const getTimeDescription = () => {
   opacity: 0.8;
   text-align: left;
 }
-.item-label-small {
-  font-size: 0.8em;
-  color: var(--text-color);
-  opacity: 0.6;
-  text-align: left;
-  margin-bottom: 4px;
-}
 .item-value {
   flex: 1;
   text-align: right;
@@ -199,38 +200,54 @@ const getTimeDescription = () => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.standard-select {
+.player-select {
   width: 100%;
-  height: 32px;
-  background-color: transparent;
-  color: var(--text-color);
-  border: none;
-  font-size: 1em;
-  font-weight: bold;
-  padding: 0;
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='gray'%3e%3cpath d='M7 10l5 5 5-5z'/%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right center;
-  background-size: 20px;
-  text-align: right;
-}
-.standard-select option {
-  text-align: left;
-  background-color: var(--main-bg-color);
-  color: var(--main-color);
 }
 .item-icon-placeholder {
   width: 30px;
 }
-.edit-icon {
-  font-size: 1.2em;
-  color: var(--text-color);
-  opacity: 0.6;
+.action-btn {
+  padding: 4px 12px;
+  font-size: 0.85em;
+  background-color: var(--control-bg-color);
+  color: var(--control-button-color);
+  border: 1px solid var(--control-border-color);
+  cursor: pointer;
+  white-space: nowrap;
 }
-.book-selection-mode {
+.action-btn:active:not(:disabled) {
+  background-color: var(--selector-bg-color);
+  opacity: 0.7;
+}
+.action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.book-file-row {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 0;
+}
+.book-file-row > :first-child {
+  flex: 1;
+}
+.book-settings-btn {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  font-size: 0.85em;
+  background-color: var(--control-bg-color);
+  color: var(--control-button-color);
+  border: 1px solid var(--control-border-color);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.book-settings-btn:active:not(:disabled) {
+  background-color: var(--selector-bg-color);
+  opacity: 0.7;
+}
+.book-settings-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 </style>

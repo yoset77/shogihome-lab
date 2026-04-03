@@ -238,6 +238,7 @@ describe("store/research", () => {
     expect(mockAPI.usiLaunch.mock.calls[0][0].extraBook).toStrictEqual({
       enabled: false,
       filePath: "",
+      considerBookMoveCount: true,
     });
     expect(originalOption.value).toBe(1);
     expect(manager.getMultiPV(101)).toBe(4);

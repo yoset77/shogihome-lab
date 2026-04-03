@@ -8,7 +8,6 @@ import {
   USIEngine,
   USIEngineLaunchOptions,
   USIMultiPV,
-  BookSelectionMode,
 } from "@/common/settings/usi.js";
 import { Color, ImmutablePosition, Move, Position } from "tsshogi";
 import { Player, SearchInfo, SearchHandler, MateHandler } from "./player.js";
@@ -189,6 +188,19 @@ export class USIPlayer implements Player {
     if (!this.bookSessionID || !this.position) {
       return false;
     }
+    const extraBook = this.engine.extraBook;
+    if (!extraBook) {
+      return false;
+    }
+    // Check maxMoves: skip book if current ply exceeds the limit
+    const maxMoves = extraBook.maxMoves ?? 0;
+    if (maxMoves > 0 && this.usi) {
+      const movesIndex = this.usi.indexOf(" moves ");
+      const ply = movesIndex >= 0 ? this.usi.substring(movesIndex + 7).split(" ").length : 0;
+      if (ply >= maxMoves) {
+        return false;
+      }
+    }
     // Ponder 中の場合は停止（定跡ヒットの可能性があるため）
     if (this.ponderMove) {
       await api.usiStop(this.sessionID);
@@ -200,7 +212,12 @@ export class USIPlayer implements Player {
       this.position,
       this.bookSessionID,
       this.name,
-      this.engine.extraBook?.selectionMode || BookSelectionMode.FIRST,
+      {
+        considerBookMoveCount: extraBook.considerBookMoveCount,
+        minEval: extraBook.minEval,
+        maxEvalDiff: extraBook.maxEvalDiff,
+        ignoreRate: extraBook.ignoreRate,
+      },
       this.usi,
       (move) => {
         const searchHandler = this.searchHandler;
