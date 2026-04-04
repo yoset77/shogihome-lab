@@ -1,5 +1,6 @@
 import { SearchInfo } from "@/renderer/players/player.js";
 import { USIPlayer } from "@/renderer/players/usi.js";
+import { LanPlayer } from "@/renderer/players/lan_player.js";
 import { AnalysisSettings, defaultAnalysisSettings } from "@/common/settings/analysis.js";
 import { AppSettings } from "@/common/settings/app.js";
 import { USIEngine } from "@/common/settings/usi.js";
@@ -13,7 +14,7 @@ type FinishCallback = () => void;
 type ErrorCallback = (e: unknown) => void;
 
 export class AnalysisManager {
-  private researcher?: USIPlayer;
+  private researcher?: USIPlayer | LanPlayer;
   private settings = defaultAnalysisSettings();
   private lastSearchInfo?: SearchInfo;
   private searchInfo?: SearchInfo;
@@ -93,14 +94,22 @@ export class AnalysisManager {
       );
     }
     const appSettings = useAppSettings();
-    const researcher = new USIPlayer(
-      engine,
-      appSettings.engineTimeoutSeconds,
-      this.updateSearchInfo.bind(this),
-    );
-    await researcher.launch();
-    await researcher.readyNewGame();
-    this.researcher = researcher;
+    if (engine.uri.startsWith("lan-engine")) {
+      this.researcher = new LanPlayer(
+        "research_analysis",
+        engine.uri,
+        engine.name,
+        this.updateSearchInfo.bind(this),
+      );
+    } else {
+      this.researcher = new USIPlayer(
+        engine,
+        appSettings.engineTimeoutSeconds,
+        this.updateSearchInfo.bind(this),
+      );
+    }
+    await this.researcher.launch();
+    await this.researcher.readyNewGame();
   }
 
   private async closeEngine(): Promise<void> {

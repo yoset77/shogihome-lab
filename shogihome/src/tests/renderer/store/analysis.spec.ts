@@ -2,12 +2,15 @@ import { AnalysisManager } from "@/renderer/store/analysis.js";
 import { RecordManager } from "@/renderer/store/record.js";
 import { analysisSettings as baseAnalysisSettings } from "@/tests/mock/analysis.js";
 import { USIPlayer } from "@/renderer/players/usi.js";
+import { LanPlayer } from "@/renderer/players/lan_player.js";
 import { MockedClass } from "vitest";
 import { CommentBehavior } from "@/common/settings/comment.js";
 
 vi.mock("@/renderer/players/usi.js");
+vi.mock("@/renderer/players/lan_player.js");
 
 const mockUSIPlayer = USIPlayer as MockedClass<typeof USIPlayer>;
+const mockLanPlayer = LanPlayer as MockedClass<typeof LanPlayer>;
 
 describe("store/analysis", () => {
   beforeEach(() => {
@@ -458,5 +461,37 @@ describe("store/analysis", () => {
         }
       });
     }
+  });
+
+  it("remote-engine", async () => {
+    mockLanPlayer.prototype.launch.mockResolvedValue();
+    mockLanPlayer.prototype.readyNewGame.mockResolvedValue();
+    mockLanPlayer.prototype.startResearch.mockResolvedValue();
+    mockLanPlayer.prototype.stop.mockResolvedValue();
+    mockLanPlayer.prototype.close.mockResolvedValue();
+    const recordManager = new RecordManager();
+    recordManager.importRecord(
+      "position sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1 moves 7g7f 3c3d resign",
+    );
+    const onFinish = vi.fn();
+    const onError = vi.fn();
+    const manager = new AnalysisManager(recordManager).on("finish", onFinish).on("error", onError);
+    await manager.start({
+      ...baseAnalysisSettings,
+      usi: {
+        uri: "lan-engine:test",
+        name: "Remote Engine",
+        defaultName: "Remote Engine",
+        author: "",
+        path: "",
+        options: {},
+        enableEarlyPonder: false,
+      },
+    });
+    expect(mockLanPlayer).toBeCalledTimes(1);
+    expect(mockLanPlayer.prototype.launch).toBeCalled();
+    vi.runOnlyPendingTimers();
+    expect(mockLanPlayer.prototype.startResearch).toBeCalledTimes(1);
+    manager.close();
   });
 });

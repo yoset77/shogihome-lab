@@ -660,7 +660,7 @@ class LauncherApp(ctk.CTk):
 
                         messagebox.showinfo(
                             "Success",
-                            "データの引き継ぎが完了しました。\n旧ージョンのフォルダは、不要であれば削除してください。",
+                            "データの引き継ぎが完了しました。\n旧バージョンのフォルダは、不要であれば削除してください。",
                             parent=root,
                         )
                     except Exception as e:

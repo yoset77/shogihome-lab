@@ -36,7 +36,7 @@ export class LanPlayer implements Player {
   private position?: ImmutablePosition;
   private onSearchInfo?: (info: SearchInfo) => void;
   private info?: SearchInfo;
-  private infoTimeout?: number;
+  private usiInfoTimeout?: number;
   private _sessionID: number;
   private engineId: string;
   private engineName: string;
@@ -70,6 +70,8 @@ export class LanPlayer implements Player {
     // USIPlayer uses IDs from 1. We use a high offset.
     if (sessionKey === "research_main") {
       this._sessionID = 200000;
+    } else if (sessionKey === "research_analysis") {
+      this._sessionID = 200100;
     } else if (sessionKey.startsWith("research_sub_")) {
       const index = parseInt(sessionKey.substring("research_sub_".length));
       this._sessionID = 200000 + index;
@@ -138,7 +140,10 @@ export class LanPlayer implements Player {
         };
 
         this.lanEngine.addMessageListener(readyListener);
-        this.lanEngine.startEngine(this.engineId);
+        const engineId = this.engineId.startsWith("lan-engine:")
+          ? this.engineId.substring("lan-engine:".length)
+          : this.engineId;
+        this.lanEngine.startEngine(engineId);
       });
 
       lanPlayers[this._sessionID] = this;
@@ -208,12 +213,10 @@ export class LanPlayer implements Player {
   }
 
   async startResearch(position: ImmutablePosition, usi: string): Promise<void> {
-    const isNewSfen = this.currentSfen !== usi;
-    this.position = position;
+    this.handler = undefined;
+    this.position = position.clone();
     this.currentSfen = usi;
-    if (isNewSfen) {
-      this.clearPendingInfo();
-    }
+    this.clearPendingInfo();
     if (await this.searchBook()) {
       return;
     }
@@ -487,15 +490,20 @@ export class LanPlayer implements Player {
     if (!this.position || !this.onSearchInfo) return;
 
     // Check if the received USI command matches the current command.
-    // We must strictly check if the SFEN is provided and matches.
     if (sfen !== this.currentSfen) {
       return;
     }
 
-    // Validate if the PV is applicable to the current position.
+    // Validate if the PV/currmove is applicable to the current position.
     // This prevents processing "chimera packets" where the server attributes a new SFEN to an old engine output.
-    if (infoCommand.pv && infoCommand.pv.length > 0) {
-      const move = this.position.createMoveByUSI(infoCommand.pv[0]);
+    const pvToValidate =
+      infoCommand.pv && infoCommand.pv.length >= 1
+        ? infoCommand.pv
+        : infoCommand.currmove
+          ? [infoCommand.currmove]
+          : undefined;
+    if (pvToValidate && pvToValidate.length > 0) {
+      const move = this.position.createMoveByUSI(pvToValidate[0]);
       if (!move) {
         return;
       }
@@ -508,7 +516,7 @@ export class LanPlayer implements Player {
     }
 
     const sign = this.position.color === Color.BLACK ? 1 : -1;
-    const pv = infoCommand.pv;
+    const pv = pvToValidate;
 
     // Only update if we have meaningful data
     if (
@@ -521,11 +529,11 @@ export class LanPlayer implements Player {
       return;
     }
 
-    // Use currentSfen as the USI position command
-    const usi = this.currentSfen;
+    const parsedPv = pv ? parseUSIPV(this.position, pv) : undefined;
+    const resolvedPv = parsedPv && parsedPv.length > 0 ? parsedPv : undefined;
 
     this.info = {
-      usi: usi || this.info?.usi || "",
+      usi: this.currentSfen,
       depth: infoCommand.depth ?? this.info?.depth,
       nodes: infoCommand.nodes ?? this.info?.nodes,
       score:
@@ -534,21 +542,21 @@ export class LanPlayer implements Player {
       mate:
         (infoCommand.scoreMate !== undefined ? infoCommand.scoreMate * sign : undefined) ??
         this.info?.mate,
-      pv: (pv && parseUSIPV(this.position, pv)) ?? this.info?.pv,
+      pv: resolvedPv ?? this.info?.pv,
     };
 
-    if (this.infoTimeout) {
+    if (this.usiInfoTimeout) {
       return;
     }
-    this.infoTimeout = window.setTimeout(() => {
+    this.usiInfoTimeout = window.setTimeout(() => {
       this.flushInfo();
     }, 500);
   }
 
   private clearPendingInfo() {
-    if (this.infoTimeout) {
-      clearTimeout(this.infoTimeout);
-      this.infoTimeout = undefined;
+    if (this.usiInfoTimeout) {
+      clearTimeout(this.usiInfoTimeout);
+      this.usiInfoTimeout = undefined;
     }
     this.info = undefined;
   }
@@ -613,9 +621,9 @@ export class LanPlayer implements Player {
   }
 
   private flushInfo() {
-    if (this.infoTimeout) {
-      clearTimeout(this.infoTimeout);
-      this.infoTimeout = undefined;
+    if (this.usiInfoTimeout) {
+      clearTimeout(this.usiInfoTimeout);
+      this.usiInfoTimeout = undefined;
     }
     if (this.info && this.info.usi === this.currentSfen) {
       this.onSearchInfo?.(this.info);
