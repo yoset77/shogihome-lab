@@ -1,6 +1,6 @@
 import { LanPlayer, isActiveLanPlayerSession } from "@/renderer/players/lan_player";
 import { LanEngine } from "@/renderer/network/lan_engine";
-import { Record } from "tsshogi";
+import { Record, Position } from "tsshogi";
 import { Mock } from "vitest";
 import api from "@/renderer/ipc/api";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "@/renderer/players/usi_events";
@@ -260,6 +260,22 @@ describe("LanPlayer", () => {
 
     // Check if isThinking is true
     expect((player as unknown as { isThinking: boolean }).isThinking).toBe(true);
+  });
+
+  it("should send go infinite when starting research", async () => {
+    const player = new LanPlayer("research_analysis_test", "test-engine", "Test Engine");
+    const pos = new Position();
+
+    await launchPlayer(player);
+    await player.startResearch(pos, "position startpos");
+
+    expect(LanEngine.prototype.sendCommand).toHaveBeenCalledWith("position startpos");
+    expect(LanEngine.prototype.sendCommand).toHaveBeenCalledWith("go infinite");
+    expect((player as unknown as { isThinking: boolean }).isThinking).toBe(true);
+
+    const closePromise = player.close();
+    await vi.advanceTimersByTimeAsync(100);
+    await closePromise;
   });
 
   it("should use deterministic sessionID", () => {
