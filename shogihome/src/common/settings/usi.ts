@@ -101,9 +101,11 @@ export type USIEngineExtraBookConfig = {
   filePath: string;
   considerBookMoveCount: boolean;
   maxMoves?: number;
-  minEval?: number;
+  minEvalBlack?: number;
+  minEvalWhite?: number;
   maxEvalDiff?: number;
   ignoreRate?: number;
+  bookDepthLimit?: number;
 };
 
 export function emptyUSIEngineExtraBookConfig(): USIEngineExtraBookConfig {
@@ -112,9 +114,11 @@ export function emptyUSIEngineExtraBookConfig(): USIEngineExtraBookConfig {
     filePath: "",
     considerBookMoveCount: true,
     maxMoves: 0,
-    minEval: undefined,
+    minEvalBlack: undefined,
+    minEvalWhite: undefined,
     maxEvalDiff: undefined,
     ignoreRate: 0,
+    bookDepthLimit: 0,
   };
 }
 
@@ -180,9 +184,11 @@ export function emptyUSIEngine(): USIEngine {
       filePath: "",
       considerBookMoveCount: true,
       maxMoves: 0,
-      minEval: undefined,
+      minEvalBlack: undefined,
+      minEvalWhite: undefined,
       maxEvalDiff: undefined,
       ignoreRate: 0,
+      bookDepthLimit: 0,
     },
   };
 }

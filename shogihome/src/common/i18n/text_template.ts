@@ -407,9 +407,11 @@ export type Texts = {
   frontendBook: string;
   considerBookMoveCount: string;
   bookMaxMoves: string;
-  bookMinEval: string;
+  bookMinEvalBlack: string;
+  bookMinEvalWhite: string;
   bookMaxEvalDiff: string;
   bookIgnoreRate: string;
+  bookDepthLimit: string;
   unlimited: string;
   noLimit: string;
   invoke: string;

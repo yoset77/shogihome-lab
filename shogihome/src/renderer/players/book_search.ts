@@ -1,4 +1,4 @@
-import { ImmutablePosition, Move } from "tsshogi";
+import { Color, ImmutablePosition, Move } from "tsshogi";
 import api from "@/renderer/ipc/api";
 import { LogLevel } from "@/common/log";
 import { USIInfoCommand } from "@/common/game/usi";
@@ -7,9 +7,12 @@ import { BookMove } from "@/common/book";
 
 export interface BookSearchOptions {
   considerBookMoveCount: boolean;
-  minEval?: number;
+  turn: Color;
+  minEvalBlack?: number;
+  minEvalWhite?: number;
   maxEvalDiff?: number;
   ignoreRate?: number;
+  bookDepthLimit?: number;
 }
 
 /**
@@ -45,12 +48,17 @@ export async function searchBookMovesForPlayer(
       return false;
     }
 
-    // Apply minEval filter
+    // Apply bookDepthLimit filter
     let filteredMoves = bookMoves;
-    if (typeof options.minEval === "number") {
-      filteredMoves = filteredMoves.filter(
-        (m) => m.score === undefined || m.score >= options.minEval!,
-      );
+    const depthLimit = options.bookDepthLimit ?? 0;
+    if (depthLimit > 0) {
+      filteredMoves = filteredMoves.filter((m) => m.depth === undefined || m.depth >= depthLimit);
+    }
+
+    // Apply minEval filter
+    const minEval = options.turn === Color.BLACK ? options.minEvalBlack : options.minEvalWhite;
+    if (typeof minEval === "number") {
+      filteredMoves = filteredMoves.filter((m) => m.score === undefined || m.score >= minEval);
     }
 
     // Apply maxEvalDiff filter
