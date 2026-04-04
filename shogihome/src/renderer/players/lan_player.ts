@@ -3,7 +3,7 @@ import { ImmutablePosition, Color } from "tsshogi";
 import { TimeStates } from "@/common/game/time";
 import { LanEngine } from "@/renderer/network/lan_engine";
 import { GameResult } from "@/common/game/result";
-import { parseUSIPV, USIInfoCommand } from "@/common/game/usi";
+import { parseUSIPV, USIInfoCommand, SCORE_MATE_INFINITE } from "@/common/game/usi";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "./usi_events";
 import { t } from "@/common/i18n";
 import api from "@/renderer/ipc/api";
@@ -461,26 +461,76 @@ export class LanPlayer implements Player {
   }
 
   private parseInfoCommand(infoStr: string): USIInfoCommand {
-    const parts = infoStr.split(" ");
     const result: USIInfoCommand = {};
-    for (let i = 1; i < parts.length; i++) {
-      const key = parts[i];
-      if (key === "depth" && i + 1 < parts.length) result.depth = parseInt(parts[++i]);
-      else if (key === "seldepth" && i + 1 < parts.length) result.seldepth = parseInt(parts[++i]);
-      else if (key === "nodes" && i + 1 < parts.length) result.nodes = parseInt(parts[++i]);
-      else if (key === "time" && i + 1 < parts.length) result.timeMs = parseInt(parts[++i]);
-      else if (key === "score" && i + 2 < parts.length) {
-        const type = parts[++i];
-        const value = parseInt(parts[++i]);
-        if (type === "cp") result.scoreCP = value;
-        else if (type === "mate") result.scoreMate = value;
-      } else if (key === "multipv" && i + 1 < parts.length) result.multipv = parseInt(parts[++i]);
-      else if (key === "nps" && i + 1 < parts.length) result.nps = parseInt(parts[++i]);
-      else if (key === "hashfull" && i + 1 < parts.length)
-        result.hashfullPerMill = parseInt(parts[++i]);
-      else if (key === "pv") {
-        result.pv = parts.slice(i + 1);
-        break; // pv is usually the last part
+    const s = infoStr.split(" ");
+    for (let i = 1; i < s.length; i += 1) {
+      switch (s[i]) {
+        case "depth":
+          result.depth = Number(s[i + 1]);
+          i += 1;
+          break;
+        case "seldepth":
+          result.seldepth = Number(s[i + 1]);
+          i += 1;
+          break;
+        case "time":
+          result.timeMs = Number(s[i + 1]);
+          i += 1;
+          break;
+        case "nodes":
+          result.nodes = Number(s[i + 1]);
+          i += 1;
+          break;
+        case "pv":
+          result.pv = s.slice(i + 1);
+          i = s.length;
+          break;
+        case "multipv":
+          result.multipv = Number(s[i + 1]);
+          i += 1;
+          break;
+        case "score":
+          switch (s[i + 1]) {
+            case "cp":
+              result.scoreCP = Number(s[i + 2]);
+              i += 2;
+              break;
+            case "mate": {
+              const arg = s[i + 2];
+              if (arg === "+" || arg === "+0" || arg === "0") {
+                result.scoreMate = SCORE_MATE_INFINITE;
+              } else if (arg === "-" || arg === "-0") {
+                result.scoreMate = -SCORE_MATE_INFINITE;
+              } else {
+                result.scoreMate = Number(arg);
+              }
+              i += 2;
+              break;
+            }
+          }
+          break;
+        case "lowerbound":
+          result.lowerbound = true;
+          break;
+        case "upperbound":
+          result.upperbound = true;
+          break;
+        case "currmove":
+          result.currmove = s[i + 1];
+          i += 1;
+          break;
+        case "hashfull":
+          result.hashfullPerMill = Number(s[i + 1]);
+          i += 1;
+          break;
+        case "nps":
+          result.nps = Number(s[i + 1]);
+          i += 1;
+          break;
+        case "string":
+          result.string = s.slice(i + 1).join(" ");
+          i = s.length;
+          break;
       }
     }
     return result;
@@ -542,6 +592,8 @@ export class LanPlayer implements Player {
       mate:
         (infoCommand.scoreMate !== undefined ? infoCommand.scoreMate * sign : undefined) ??
         this.info?.mate,
+      lowerBound: infoCommand.lowerbound ?? this.info?.lowerBound,
+      upperBound: infoCommand.upperbound ?? this.info?.upperBound,
       pv: resolvedPv ?? this.info?.pv,
     };
 
