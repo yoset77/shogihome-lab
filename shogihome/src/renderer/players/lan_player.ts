@@ -315,9 +315,12 @@ export class LanPlayer implements Player {
       this.name,
       {
         considerBookMoveCount: extraBook.considerBookMoveCount,
-        minEval: extraBook.minEval,
+        turn: this.position.color,
+        minEvalBlack: extraBook.minEvalBlack,
+        minEvalWhite: extraBook.minEvalWhite,
         maxEvalDiff: extraBook.maxEvalDiff,
         ignoreRate: extraBook.ignoreRate,
+        bookDepthLimit: extraBook.bookDepthLimit,
       },
       this.currentSfen,
       (move) => {

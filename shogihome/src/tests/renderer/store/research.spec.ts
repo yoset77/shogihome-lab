@@ -239,6 +239,7 @@ describe("store/research", () => {
       enabled: false,
       filePath: "",
       considerBookMoveCount: true,
+      bookDepthLimit: 0,
     });
     expect(originalOption.value).toBe(1);
     expect(manager.getMultiPV(101)).toBe(4);

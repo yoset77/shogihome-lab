@@ -27,10 +27,22 @@
           </div>
         </div>
         <div class="form-item">
-          <div class="form-item-label">{{ t.bookMinEval }}</div>
+          <div class="form-item-label">{{ t.bookMinEvalBlack }}</div>
           <div class="form-item-value">
             <input
-              v-model.number="localConfig.minEval"
+              v-model.number="localConfig.minEvalBlack"
+              class="number"
+              type="number"
+              step="1"
+              :placeholder="t.noLimit"
+            />
+          </div>
+        </div>
+        <div class="form-item">
+          <div class="form-item-label">{{ t.bookMinEvalWhite }}</div>
+          <div class="form-item-value">
+            <input
+              v-model.number="localConfig.minEvalWhite"
               class="number"
               type="number"
               step="1"
@@ -48,6 +60,19 @@
               min="0"
               step="1"
               :placeholder="t.noLimit"
+            />
+          </div>
+        </div>
+        <div class="form-item">
+          <div class="form-item-label">{{ t.bookDepthLimit }}</div>
+          <div class="form-item-value">
+            <input
+              v-model.number="localConfig.bookDepthLimit"
+              class="number"
+              type="number"
+              min="0"
+              step="1"
+              :placeholder="t.unlimited"
             />
           </div>
         </div>
@@ -99,15 +124,21 @@ const localConfig = ref<USIEngineExtraBookConfig>({
   considerBookMoveCount: props.config.considerBookMoveCount ?? true,
   ignoreRate: props.config.ignoreRate ?? 0,
   maxMoves: props.config.maxMoves ?? 0,
+  bookDepthLimit: props.config.bookDepthLimit ?? 0,
+  minEvalBlack: props.config.minEvalBlack,
+  minEvalWhite: props.config.minEvalWhite,
+  maxEvalDiff: props.config.maxEvalDiff,
 });
 
 const onOk = () => {
   const config = { ...localConfig.value };
 
-  if ((config.minEval as unknown) === "") config.minEval = undefined;
+  if ((config.minEvalBlack as unknown) === "") config.minEvalBlack = undefined;
+  if ((config.minEvalWhite as unknown) === "") config.minEvalWhite = undefined;
   if ((config.maxEvalDiff as unknown) === "") config.maxEvalDiff = undefined;
   if ((config.maxMoves as unknown) === "") config.maxMoves = 0;
   if ((config.ignoreRate as unknown) === "") config.ignoreRate = 0;
+  if ((config.bookDepthLimit as unknown) === "") config.bookDepthLimit = 0;
 
   emit("ok", config);
 };
