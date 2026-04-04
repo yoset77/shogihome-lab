@@ -3,7 +3,7 @@ import { ImmutablePosition, Color } from "tsshogi";
 import { TimeStates } from "@/common/game/time";
 import { LanEngine } from "@/renderer/network/lan_engine";
 import { GameResult } from "@/common/game/result";
-import { parseUSIPV, USIInfoCommand, SCORE_MATE_INFINITE } from "@/common/game/usi";
+import { parseUSIPV, USIInfoCommand, parseInfoCommand } from "@/common/game/usi";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "./usi_events";
 import { t } from "@/common/i18n";
 import api from "@/renderer/ipc/api";
@@ -411,7 +411,7 @@ export class LanPlayer implements Player {
           }
         } else if (infoStr.startsWith("info") && this.position) {
           // Parse info string for research
-          const infoCommand = this.parseInfoCommand(infoStr);
+          const infoCommand = parseInfoCommand(infoStr);
           this.updateInfo(infoCommand, data.sfen);
         }
       } else if (data.state) {
@@ -458,82 +458,6 @@ export class LanPlayer implements Player {
     } catch (e) {
       // Ignore non-JSON messages or parse errors
     }
-  }
-
-  private parseInfoCommand(infoStr: string): USIInfoCommand {
-    const result: USIInfoCommand = {};
-    const s = infoStr.split(" ");
-    for (let i = 1; i < s.length; i += 1) {
-      switch (s[i]) {
-        case "depth":
-          result.depth = Number(s[i + 1]);
-          i += 1;
-          break;
-        case "seldepth":
-          result.seldepth = Number(s[i + 1]);
-          i += 1;
-          break;
-        case "time":
-          result.timeMs = Number(s[i + 1]);
-          i += 1;
-          break;
-        case "nodes":
-          result.nodes = Number(s[i + 1]);
-          i += 1;
-          break;
-        case "pv":
-          result.pv = s.slice(i + 1);
-          i = s.length;
-          break;
-        case "multipv":
-          result.multipv = Number(s[i + 1]);
-          i += 1;
-          break;
-        case "score":
-          switch (s[i + 1]) {
-            case "cp":
-              result.scoreCP = Number(s[i + 2]);
-              i += 2;
-              break;
-            case "mate": {
-              const arg = s[i + 2];
-              if (arg === "+" || arg === "+0" || arg === "0") {
-                result.scoreMate = SCORE_MATE_INFINITE;
-              } else if (arg === "-" || arg === "-0") {
-                result.scoreMate = -SCORE_MATE_INFINITE;
-              } else {
-                result.scoreMate = Number(arg);
-              }
-              i += 2;
-              break;
-            }
-          }
-          break;
-        case "lowerbound":
-          result.lowerbound = true;
-          break;
-        case "upperbound":
-          result.upperbound = true;
-          break;
-        case "currmove":
-          result.currmove = s[i + 1];
-          i += 1;
-          break;
-        case "hashfull":
-          result.hashfullPerMill = Number(s[i + 1]);
-          i += 1;
-          break;
-        case "nps":
-          result.nps = Number(s[i + 1]);
-          i += 1;
-          break;
-        case "string":
-          result.string = s.slice(i + 1).join(" ");
-          i = s.length;
-          break;
-      }
-    }
-    return result;
   }
 
   private updateInfo(infoCommand: USIInfoCommand, sfen?: string) {
