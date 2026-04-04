@@ -349,6 +349,125 @@ describe("store/game", () => {
     );
   });
 
+  it("GameManager/delayAndIncrement", () => {
+    const mockBlackPlayer = createMockPlayer({
+      "position startpos": {
+        usi: "7g7f",
+        info: { score: 82, pv: ["3c3d", "2g2f", "8c8d"], delay: 1000 },
+      },
+      "position startpos moves 7g7f 3c3d": {
+        usi: "resign",
+      },
+    });
+    const mockWhitePlayer = createMockPlayer({
+      "position startpos moves 7g7f": {
+        usi: "3c3d",
+        info: { score: 64, pv: ["2g2f", "8c8d"] }, // No delay here to keep it simple
+      },
+    });
+    const mockPlayerBuilder = createMockPlayerBuilder({
+      [playerURI01]: mockBlackPlayer,
+      [playerURI02]: mockWhitePlayer,
+    });
+    const mockHandlers = createMockHandlers();
+    const recordManager = new RecordManager();
+
+    return invoke(
+      recordManager,
+      mockHandlers,
+      {
+        ...gameSettings10m30s,
+        timeLimit: {
+          timeSeconds: 600,
+          byoyomi: 0,
+          increment: 5,
+        },
+      },
+      mockPlayerBuilder,
+      (gameResults, specialMoveType) => {
+        expect(gameResults).toStrictEqual({
+          player1: { name: "USI Engine 01", win: 0, winBlack: 0, winWhite: 0 },
+          player2: { name: "USI Engine 02", win: 1, winBlack: 0, winWhite: 1 },
+          draw: 0,
+          invalid: 0,
+          total: 1,
+        });
+        expect(specialMoveType).toBe(SpecialMoveType.RESIGN);
+
+        // Turn 1 Black: 7g7f
+        // Elapsed: 0ms
+        // Delay: 1000ms
+        // Correct applies -1000ms delay. _elapsedMs becomes 0, timeMs stays 600000ms.
+        // Stop adds 5000ms increment.
+        // Expected elapsedMs for this move in record: 0ms.
+        expect(recordManager.record.moves[1].elapsedMs).toBe(0);
+
+        // Turn 2 White: 3c3d
+        // Expected elapsedMs for this move in record: 0ms (no delay configured, fake timers).
+        expect(recordManager.record.moves[2].elapsedMs).toBe(0);
+      },
+    );
+  });
+
+  it("GameManager/delayAndIncrement/TimeMsVerification", () => {
+    const mockBlackPlayer = createMockPlayer({
+      "position startpos": {
+        usi: "7g7f",
+        info: { score: 82, pv: ["3c3d", "2g2f", "8c8d"], delay: 1000 },
+      },
+      "position startpos moves 7g7f 3c3d": {
+        usi: "resign",
+      },
+    });
+    const mockWhitePlayer = createMockPlayer({
+      "position startpos moves 7g7f": {
+        usi: "3c3d",
+      },
+    });
+    const mockPlayerBuilder = createMockPlayerBuilder({
+      [playerURI01]: mockBlackPlayer,
+      [playerURI02]: mockWhitePlayer,
+    });
+    const mockHandlers = createMockHandlers();
+    const recordManager = new RecordManager();
+
+    return invoke(
+      recordManager,
+      mockHandlers,
+      {
+        ...gameSettings10m30s,
+        timeLimit: {
+          timeSeconds: 600,
+          byoyomi: 0,
+          increment: 5,
+        },
+      },
+      mockPlayerBuilder,
+      (gameResults, specialMoveType) => {
+        expect(gameResults).toStrictEqual({
+          player1: { name: "USI Engine 01", win: 0, winBlack: 0, winWhite: 0 },
+          player2: { name: "USI Engine 02", win: 1, winBlack: 0, winWhite: 1 },
+          draw: 0,
+          invalid: 0,
+          total: 1,
+        });
+        expect(specialMoveType).toBe(SpecialMoveType.RESIGN);
+
+        // Assert that mockBlackPlayer.startSearch was called a second time
+        expect(mockBlackPlayer.startSearch).toBeCalledTimes(2);
+
+        // First call is for position startpos
+        // Second call is for position startpos moves 7g7f 3c3d
+        // Get the timeStates passed to the second call
+        const timeStatesCall2 = mockBlackPlayer.startSearch.mock.calls[1][2];
+
+        // The time should be 600000 (initial) + 5000 (increment) = 605000
+        // because 1000ms delay cancels out 1000ms elapsed time (simulated fake timers: 0 elapsed time, so it's clamped to 0)
+        expect(timeStatesCall2.black.timeMs).toBe(605000);
+      },
+    );
+  });
+
   it("GameManager/handicap-bishop", () => {
     const mockBlackPlayer = createMockPlayer({
       "position sfen lnsgkgsnl/1r7/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1 moves 8b2b": {
