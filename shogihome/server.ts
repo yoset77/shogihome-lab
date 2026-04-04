@@ -46,9 +46,8 @@ import {
   cleanupAnalysisResults,
   exportAnalysisResultsByEngine,
 } from "./src/background/database/sqlite";
-import { parseInfoCommand } from "./src/background/usi/parser";
+import { parseInfoCommand, USIInfoCommand } from "./src/common/game/usi";
 import { getNormalizedSfenAndHash } from "./src/background/usi/sfen";
-import { USIInfoCommand } from "./src/common/game/usi";
 
 const getBasePath = () => {
   // SEA (Single Executable Application) environment check

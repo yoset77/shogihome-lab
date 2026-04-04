@@ -3,7 +3,7 @@ import { ImmutablePosition, Color } from "tsshogi";
 import { TimeStates } from "@/common/game/time";
 import { LanEngine } from "@/renderer/network/lan_engine";
 import { GameResult } from "@/common/game/result";
-import { parseUSIPV, USIInfoCommand } from "@/common/game/usi";
+import { parseUSIPV, USIInfoCommand, parseInfoCommand } from "@/common/game/usi";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "./usi_events";
 import { t } from "@/common/i18n";
 import api from "@/renderer/ipc/api";
@@ -411,7 +411,7 @@ export class LanPlayer implements Player {
           }
         } else if (infoStr.startsWith("info") && this.position) {
           // Parse info string for research
-          const infoCommand = this.parseInfoCommand(infoStr);
+          const infoCommand = parseInfoCommand(infoStr);
           this.updateInfo(infoCommand, data.sfen);
         }
       } else if (data.state) {
@@ -458,32 +458,6 @@ export class LanPlayer implements Player {
     } catch (e) {
       // Ignore non-JSON messages or parse errors
     }
-  }
-
-  private parseInfoCommand(infoStr: string): USIInfoCommand {
-    const parts = infoStr.split(" ");
-    const result: USIInfoCommand = {};
-    for (let i = 1; i < parts.length; i++) {
-      const key = parts[i];
-      if (key === "depth" && i + 1 < parts.length) result.depth = parseInt(parts[++i]);
-      else if (key === "seldepth" && i + 1 < parts.length) result.seldepth = parseInt(parts[++i]);
-      else if (key === "nodes" && i + 1 < parts.length) result.nodes = parseInt(parts[++i]);
-      else if (key === "time" && i + 1 < parts.length) result.timeMs = parseInt(parts[++i]);
-      else if (key === "score" && i + 2 < parts.length) {
-        const type = parts[++i];
-        const value = parseInt(parts[++i]);
-        if (type === "cp") result.scoreCP = value;
-        else if (type === "mate") result.scoreMate = value;
-      } else if (key === "multipv" && i + 1 < parts.length) result.multipv = parseInt(parts[++i]);
-      else if (key === "nps" && i + 1 < parts.length) result.nps = parseInt(parts[++i]);
-      else if (key === "hashfull" && i + 1 < parts.length)
-        result.hashfullPerMill = parseInt(parts[++i]);
-      else if (key === "pv") {
-        result.pv = parts.slice(i + 1);
-        break; // pv is usually the last part
-      }
-    }
-    return result;
   }
 
   private updateInfo(infoCommand: USIInfoCommand, sfen?: string) {
@@ -542,6 +516,8 @@ export class LanPlayer implements Player {
       mate:
         (infoCommand.scoreMate !== undefined ? infoCommand.scoreMate * sign : undefined) ??
         this.info?.mate,
+      lowerBound: infoCommand.lowerbound ?? this.info?.lowerBound,
+      upperBound: infoCommand.upperbound ?? this.info?.upperBound,
       pv: resolvedPv ?? this.info?.pv,
     };
 

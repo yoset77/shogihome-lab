@@ -1,6 +1,6 @@
 import { LanPlayer, isActiveLanPlayerSession } from "@/renderer/players/lan_player";
 import { LanEngine } from "@/renderer/network/lan_engine";
-import { Record, Position } from "tsshogi";
+import { Record, Position, ImmutablePosition } from "tsshogi";
 import { Mock } from "vitest";
 import api from "@/renderer/ipc/api";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "@/renderer/players/usi_events";
@@ -477,5 +477,81 @@ describe("LanPlayer", () => {
     // With considerBookMoveCount: false, it's uniform random among 7g7f and 2g2f
     expect(onMove).toBeCalledTimes(1);
     expect(["7g7f", "2g2f"]).toContain(onMove.mock.calls[0][0].usi);
+  });
+
+  it("parseInfoCommand should handle mate score and currmove", async () => {
+    interface LanPlayerInternals {
+      currentSfen: string;
+      position: ImmutablePosition;
+      isThinking: boolean;
+      onMessage(message: string): void;
+    }
+
+    const onSearchInfo = vi.fn();
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine", onSearchInfo);
+    const usi = "position startpos";
+    const record = Record.newByUSI(usi) as Record;
+    const internals = player as unknown as LanPlayerInternals;
+    internals.currentSfen = usi;
+    internals.position = record.position;
+    internals.isThinking = true;
+
+    // Mate +
+    internals.onMessage(
+      JSON.stringify({
+        sfen: usi,
+        info: "info depth 10 score mate + pv 7g7f",
+      }),
+    );
+    vi.advanceTimersByTime(500);
+    expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ mate: 10000 }));
+
+    onSearchInfo.mockClear();
+
+    // Mate -
+    internals.onMessage(
+      JSON.stringify({
+        sfen: usi,
+        info: "info depth 10 score mate - pv 7g7f",
+      }),
+    );
+    vi.advanceTimersByTime(500);
+    expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ mate: -10000 }));
+
+    onSearchInfo.mockClear();
+
+    // lowerbound
+    internals.onMessage(
+      JSON.stringify({
+        sfen: usi,
+        info: "info depth 10 score cp 100 lowerbound pv 7g7f",
+      }),
+    );
+    vi.advanceTimersByTime(500);
+    expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ score: 100, lowerBound: true }));
+
+    onSearchInfo.mockClear();
+
+    // upperbound
+    internals.onMessage(
+      JSON.stringify({
+        sfen: usi,
+        info: "info depth 10 score cp 100 upperbound pv 7g7f",
+      }),
+    );
+    vi.advanceTimersByTime(500);
+    expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ score: 100, upperBound: true }));
+
+    onSearchInfo.mockClear();
+
+    // currmove
+    internals.onMessage(
+      JSON.stringify({
+        sfen: usi,
+        info: "info depth 10 currmove 7g7f",
+      }),
+    );
+    vi.advanceTimersByTime(500);
+    expect(onSearchInfo).toBeCalled();
   });
 });
