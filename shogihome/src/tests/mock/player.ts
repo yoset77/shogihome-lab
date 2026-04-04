@@ -10,6 +10,7 @@ export type MoveWithOption = {
     score?: number; // 先手から見た評価値
     mate?: number; // 先手勝ちの場合に正の値、後手勝ちの場合に負の値
     pv?: string[];
+    delay?: number; // ネットワーク遅延等
   };
 };
 
@@ -44,6 +45,7 @@ export function createMockPlayer(moves: { [usi: string]: MoveWithOption }) {
           score: m.info?.score,
           mate: m.info?.mate,
           pv: m.info?.pv && parseUSIPV(p, [m.usi].concat(...m.info.pv)).slice(1),
+          delay: m.info?.delay,
         },
       );
       return Promise.resolve();

@@ -233,4 +233,35 @@ describe("store/clock", () => {
     expect(clock.timeMs).toBe(55 * 1e3);
     expect(clock.byoyomi).toBe(60);
   });
+
+  it("correct with increment", () => {
+    const settings = {
+      timeMs: 300 * 1e3,
+      byoyomi: 0,
+      increment: 5,
+      onBeepShort: vi.fn(),
+      onBeepUnlimited: vi.fn(),
+      onStopBeep: vi.fn(),
+      onTimeout: vi.fn(),
+    };
+    const clock = new Clock();
+    clock.setup(settings);
+    clock.start();
+
+    // 5:00
+    expect(clock.timeMs).toBe(300 * 1e3);
+    expect(clock.byoyomi).toBe(0);
+
+    vi.advanceTimersByTime(2000);
+    // 4:58
+    expect(clock.timeMs).toBe(298 * 1e3);
+
+    // correct: -1000ms delay -> 4:59
+    clock.correct(-1000);
+    expect(clock.timeMs).toBe(299 * 1e3);
+
+    // stop -> add 5s increment -> 5:04
+    clock.stop();
+    expect(clock.timeMs).toBe(304 * 1e3);
+  });
 });

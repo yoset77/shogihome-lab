@@ -501,12 +501,12 @@ export class GameManager {
       this.end(SpecialMoveType.FOUL_LOSE);
       return;
     }
-    // 手番側の時計をストップする。
-    this.getActiveClock().stop();
     // 遅延を補正する。
     if (info?.delay) {
       this.getActiveClock().correct(-info.delay);
     }
+    // 手番側の時計をストップする。
+    this.getActiveClock().stop();
     // 指し手を追加して局面を進める。
     this.recordManager.appendMove({
       move,
