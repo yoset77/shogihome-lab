@@ -286,7 +286,11 @@ const paused = computed(() => {
     }
     return store.isPausedResearchEngine(props.monitor.sessionID);
   }
-  return store.appState !== AppState.GAME && store.appState !== AppState.CSA_GAME;
+  return (
+    store.appState !== AppState.GAME &&
+    store.appState !== AppState.CSA_GAME &&
+    store.appState !== AppState.ANALYSIS
+  );
 });
 
 const formatNodeCount = computed(() => {
