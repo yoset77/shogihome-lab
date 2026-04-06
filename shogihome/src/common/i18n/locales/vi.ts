@@ -834,6 +834,7 @@ export const vi: Texts = {
   changeMultiPVFromPVTab: "Thay đổi MultiPV từ tab PV",
   multiPVMustBe1To10: "MultiPV phải nằm trong khoảng từ 1 đến 10.",
   serverKifu: "Kỳ phổ trên máy chủ",
+  noKifuFound: "Không tìm thấy kỳ phổ.",
   noKifuFoundCheckKifuDir: "Không tìm thấy kỳ phổ. Vui lòng kiểm tra cấu hình KIFU_DIR.",
   enterFileName: "Vui lòng nhập tên tệp",
   loadFromServer: "Mở từ máy chủ",
@@ -848,4 +849,13 @@ export const vi: Texts = {
   hierarchy: "Hệ thống cấp bậc",
   list: "Danh sách",
   folderView: "Xem thư mục",
+  kifuSearch: "Tìm kiếm kỳ phổ",
+  searchByPosition: "Tìm theo cục diện",
+  keyword: "Từ khóa",
+  nKifuFound(n: number) {
+    return `Đã tìm thấy ${n} kỳ phổ.`;
+  },
+  indexingKifuProgress(total: number, indexed: number) {
+    return `Đang tạo chỉ mục kỳ phổ (${indexed}/${total})...`;
+  },
 };

@@ -1054,4 +1054,55 @@ describe("store/index", () => {
       new Uint8Array(fs.readFileSync("src/tests/testdata/encoding/utf8.ki2")),
     );
   });
+
+  describe("pasteRecord", () => {
+    it("should call onPaste handler when registered", () => {
+      const store = createStore();
+      const onPaste = vi.fn();
+      store.setOnPasteHandler(onPaste);
+      store.pasteRecord("test-data");
+      expect(onPaste).toHaveBeenCalledWith("test-data");
+      expect(store.record.moves).toHaveLength(1); // Main record should not be updated
+    });
+
+    it("should buffer data as pending when not in NORMAL state and no handler exists", () => {
+      const store = createStore();
+      store.showServerKifuDialog();
+      expect(store.appState).toBe(AppState.SERVER_KIFU_DIALOG);
+
+      store.pasteRecord("pending-data");
+      expect(store.dequeuePendingPasteData()).toBe("pending-data");
+      expect(store.dequeuePendingPasteData()).toBeUndefined();
+    });
+
+    it("should update main record when in NORMAL state and no handler exists", () => {
+      const store = createStore();
+      expect(store.appState).toBe(AppState.NORMAL);
+      store.pasteRecord("position startpos moves 7g7f");
+      expect(store.record.moves).toHaveLength(2);
+    });
+  });
+
+  describe("showPasteDialog nested support", () => {
+    it("should save current state and restore it after closing", async () => {
+      const store = createStore();
+      await useAppSettings().updateAppSettings({ showPasteDialog: true });
+
+      // Open ServerKifuDialog first
+      store.showServerKifuDialog();
+      expect(store.appState).toBe(AppState.SERVER_KIFU_DIALOG);
+
+      // Open PasteDialog from ServerKifuDialog
+      store.showPasteDialog();
+      expect(store.appState).toBe(AppState.PASTE_DIALOG);
+
+      // Close PasteDialog
+      store.closeModalDialog();
+      expect(store.appState).toBe(AppState.SERVER_KIFU_DIALOG);
+
+      // Close ServerKifuDialog
+      store.closeModalDialog();
+      expect(store.appState).toBe(AppState.NORMAL);
+    });
+  });
 });

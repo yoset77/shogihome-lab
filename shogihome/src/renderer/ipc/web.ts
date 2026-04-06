@@ -18,6 +18,7 @@ import { SessionStates } from "@/common/advanced/monitor.js";
 import { emptyLayoutProfileList } from "@/common/settings/layout.js";
 import * as uri from "@/common/uri.js";
 import { normalizePath } from "@/common/helpers/path.js";
+import { KifuSearchResult } from "@/common/file/record.js";
 import { convert } from "encoding-japanese";
 
 enum STORAGE_KEY {
@@ -747,6 +748,36 @@ export const webAPI: Bridge = {
   },
   async listServerKifu(reload?: boolean): Promise<string[]> {
     const response = await fetchWithTimeout(`/api/kifu/list${reload ? "?reload=true" : ""}`);
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  },
+  async searchServerKifu(params: {
+    sfen?: string;
+    keyword?: string;
+    startDate?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<KifuSearchResult[]> {
+    const query = new URLSearchParams();
+    if (params.sfen) query.append("sfen", params.sfen);
+    if (params.keyword) query.append("keyword", params.keyword);
+    if (params.startDate) query.append("startDate", params.startDate);
+    if (params.limit) query.append("limit", params.limit.toString());
+    if (params.offset) query.append("offset", params.offset.toString());
+    const response = await fetchWithTimeout(`/api/kifu/search?${query.toString()}`);
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  },
+  async getServerKifuIndexStatus(): Promise<{
+    total: number;
+    indexed: number;
+    isIndexing: boolean;
+  }> {
+    const response = await fetchWithTimeout("/api/kifu/index/status");
     if (!response.ok) {
       throw new Error(await response.text());
     }

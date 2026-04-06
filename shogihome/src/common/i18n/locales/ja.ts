@@ -836,6 +836,7 @@ export const ja: Texts = {
   changeMultiPVFromPVTab: "読み筋タブからMultiPVを変更",
   multiPVMustBe1To10: "MultiPVは1から10の間で設定してください。",
   serverKifu: "サーバー棋譜",
+  noKifuFound: "棋譜が見つかりませんでした。",
   noKifuFoundCheckKifuDir:
     "棋譜が見つかりませんでした。KIFU_DIR が設定されているか確認してください。",
   enterFileName: "ファイル名を入力してください",
@@ -851,4 +852,13 @@ export const ja: Texts = {
   hierarchy: "階層",
   list: "一覧",
   folderView: "フォルダ表示",
+  kifuSearch: "棋譜検索",
+  searchByPosition: "局面で検索",
+  keyword: "キーワード",
+  nKifuFound(n: number) {
+    return `${n} 件見つかりました。`;
+  },
+  indexingKifuProgress(total: number, indexed: number) {
+    return `棋譜インデックス作成中 (${indexed}/${total})...`;
+  },
 };

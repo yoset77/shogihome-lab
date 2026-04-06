@@ -3,7 +3,7 @@ import path from "path";
 import { watch, FSWatcher } from "chokidar";
 import { normalizePath } from "@/common/helpers/path";
 
-const SUPPORTED_EXTENSIONS = [".kif", ".kifu", ".ki2", ".ki2u", ".csa", ".jkf"];
+export const SUPPORTED_EXTENSIONS = [".kif", ".kifu", ".ki2", ".ki2u", ".csa", ".jkf"];
 const BOOK_EXTENSIONS = [".db", ".bin"];
 const POSITION_EXTENSIONS = [".sfen"];
 const MAX_DEPTH = 10;
@@ -72,7 +72,7 @@ const getFileList = async (baseDir: string, extensions: string[]): Promise<strin
       } else if (entry.isFile()) {
         const ext = path.extname(entry.name).toLowerCase();
         if (extensions.includes(ext)) {
-          result.push(path.relative(baseDir, res));
+          result.push(normalizePath(path.relative(baseDir, res)));
         }
       }
     }
@@ -123,7 +123,11 @@ export const getPositionList = async (baseDir: string): Promise<string[]> => {
  * @param usePolling Whether to use polling instead of native events.
  * @returns The watcher instance or null if failed to start.
  */
-export const setupKifuWatcher = (baseDir: string, usePolling = false): FSWatcher | null => {
+export const setupKifuWatcher = (
+  baseDir: string,
+  usePolling = false,
+  onEvent?: (event: "add" | "change" | "unlink", relPath: string) => void,
+): FSWatcher | null => {
   if (!fs.existsSync(baseDir)) {
     return null;
   }
@@ -134,18 +138,26 @@ export const setupKifuWatcher = (baseDir: string, usePolling = false): FSWatcher
       ignoreInitial: true,
       usePolling,
       interval: 1000,
+      awaitWriteFinish: {
+        stabilityThreshold: 1000,
+        pollInterval: 100,
+      },
     });
 
     watcher.on("all", (event, filePath) => {
       const ext = path.extname(filePath).toLowerCase();
+      const isKifu = SUPPORTED_EXTENSIONS.includes(ext);
       if (
-        SUPPORTED_EXTENSIONS.includes(ext) ||
+        isKifu ||
         BOOK_EXTENSIONS.includes(ext) ||
         POSITION_EXTENSIONS.includes(ext) ||
         event === "addDir" ||
         event === "unlinkDir"
       ) {
         clearKifuListCache();
+      }
+      if (onEvent && isKifu && (event === "add" || event === "change" || event === "unlink")) {
+        onEvent(event, normalizePath(path.relative(baseDir, filePath)));
       }
     });
 

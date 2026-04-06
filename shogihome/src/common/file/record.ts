@@ -138,3 +138,17 @@ export type InitialRecordFileRequest = {
   path: string;
   ply?: number;
 } | null;
+
+export interface KifuSearchResult {
+  id: number;
+  file_path: string;
+  mtime: number;
+  size: number;
+  black_name?: string;
+  white_name?: string;
+  start_date?: string;
+  event?: string;
+  indexed_at: number;
+  matched_ply?: number;
+  matched_sfen?: string;
+}

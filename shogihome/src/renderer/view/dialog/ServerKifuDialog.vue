@@ -1,30 +1,47 @@
 <template>
   <DialogFrame @cancel="onCancel">
     <div class="title">{{ t.serverKifu }}</div>
-    <div class="header row align-center">
-      <div class="filter row align-center">
-        <div class="view-mode-selector row align-center">
-          <ToggleButton v-model:value="isFolderView" :label="t.folderView" />
-        </div>
-        <div class="search-filter row align-center">
-          <input v-model.trim="searchWord" :placeholder="t.search" />
-          <button @click="searchWord = ''">&#x2715;</button>
-        </div>
+    <div v-if="indexStatus && indexStatus.isIndexing" class="indexing-status">
+      {{ t.indexingKifuProgress(indexStatus.total, indexStatus.indexed) }}
+    </div>
+    <div class="tab-header row">
+      <div class="tab-item" :class="{ active: activeTab === 'list' }" @click="activeTab = 'list'">
+        {{ t.list }}
       </div>
-      <button class="reload" @click="updateList(true)">{{ t.reload }}</button>
+      <div
+        class="tab-item"
+        :class="{ active: activeTab === 'search' }"
+        @click="activeTab = 'search'"
+      >
+        {{ t.search }}
+      </div>
     </div>
-    <div v-if="isFolderView" class="breadcrumbs row align-center">
-      <div class="breadcrumb-item" @click="currentDir = ''">Root</div>
-      <template v-for="(dir, index) in breadcrumbs" :key="index">
-        <div class="breadcrumb-separator">/</div>
-        <div class="breadcrumb-item" @click="currentDir = dir.path">
-          {{ dir.name }}
+
+    <!-- LIST TAB -->
+    <div v-if="activeTab === 'list'" class="list-tab column">
+      <div class="header row align-center">
+        <div class="filter row align-center">
+          <div class="view-mode-selector row align-center">
+            <ToggleButton v-model:value="isFolderView" :label="t.folderView" />
+          </div>
         </div>
-      </template>
-    </div>
-    <div class="form-group kifu-list">
-      <div v-for="entry in displayEntries" :key="entry.relPath">
-        <div class="kifu-list-entry row align-center">
+        <button class="reload" @click="updateList(true)">{{ t.reload }}</button>
+      </div>
+      <div v-if="isFolderView" class="breadcrumbs row align-center">
+        <div class="breadcrumb-item" @click="currentDir = ''">Root</div>
+        <template v-for="(dir, index) in breadcrumbs" :key="index">
+          <div class="breadcrumb-separator">/</div>
+          <div class="breadcrumb-item" @click="currentDir = dir.path">
+            {{ dir.name }}
+          </div>
+        </template>
+      </div>
+      <div class="form-group kifu-list">
+        <div
+          v-for="entry in displayEntries"
+          :key="entry.relPath"
+          class="kifu-list-entry row align-center"
+        >
           <div class="kifu-header row align-center">
             <span
               v-if="entry.isDirectory"
@@ -34,16 +51,126 @@
             >
             <span v-else class="file-path">{{ entry.name }}</span>
           </div>
-          <div class="connector"></div>
           <button v-if="!entry.isDirectory" @click="open(entry.relPath)">
             {{ t.open }}
           </button>
         </div>
-      </div>
-      <div v-if="list.length === 0" class="note">
-        {{ t.noKifuFoundCheckKifuDir }}
+        <div v-if="list.length === 0" class="note">
+          {{ t.noKifuFoundCheckKifuDir }}
+        </div>
       </div>
     </div>
+
+    <!-- SEARCH TAB -->
+    <div v-if="activeTab === 'search'" class="search-tab column">
+      <!-- Search Parameters View -->
+      <div v-if="!isResultsVisible" class="search-params">
+        <div class="search-content">
+          <div class="search-preview column align-center">
+            <BoardView
+              class="search-board"
+              :layout-type="BoardLayoutType.COMPACT"
+              :board-image-type="appSettings.boardImage"
+              :custom-board-image-url="appSettings.boardImageFileURL"
+              :board-image-opacity="appSettings.enableTransparent ? appSettings.boardOpacity : 1"
+              :board-grid-color="appSettings.boardGridColor || undefined"
+              :piece-stand-image-type="appSettings.pieceStandImage"
+              :custom-piece-stand-image-url="appSettings.pieceStandImageFileURL"
+              :piece-stand-image-opacity="
+                appSettings.enableTransparent ? appSettings.pieceStandOpacity : 1
+              "
+              :promotion-selector-style="appSettings.promotionSelectorStyle"
+              :board-label-type="appSettings.boardLabelType"
+              :piece-image-url-template="getPieceImageURLTemplate(appSettings)"
+              :king-piece-type="appSettings.kingPieceType"
+              :max-size="maxBoardSize"
+              :position="searchPosition"
+              :last-move="searchLastMove"
+              :flip="flip"
+              :hide-clock="true"
+              :allow-move="true"
+              :allow-edit="true"
+              :drop-shadows="true"
+              :next-move-label="t.nextTurn"
+              @move="onSearchBoardMove"
+              @edit="onEditPosition"
+            />
+            <div class="board-controls row">
+              <button class="thin" @click="syncPosition">{{ t.currentPosition }}</button>
+              <button class="thin" @click="paste">{{ t.paste }}</button>
+              <button class="thin" @click="swapTurn">{{ t.changeTurn }}</button>
+              <button class="thin" @click="resetToStart">{{ t.initializePosition }}</button>
+              <button class="thin" @click="toggleFlip">
+                <Icon v-if="isMobile" :icon="IconType.FLIP" />
+                <template v-else>{{ t.flipBoard }}</template>
+              </button>
+            </div>
+          </div>
+          <div class="search-inputs column">
+            <div class="search-row row align-center">
+              <div class="label">{{ t.keyword }}</div>
+              <input
+                v-model.trim="keyword"
+                class="flex-1"
+                :placeholder="t.keyword"
+                @keypress.enter="search"
+              />
+            </div>
+            <div class="search-row row align-center">
+              <div class="label">{{ t.startDateTime }}</div>
+              <ComboBox v-model="searchYear" :options="yearOptions" free-text-label="Year" />
+              <div class="separator">/</div>
+              <ComboBox v-model="searchMonth" :options="monthOptions" free-text-label="Month" />
+            </div>
+            <div class="search-row row align-center">
+              <div class="label">{{ t.searchByPosition }}</div>
+              <ToggleButton v-model:value="searchByPosition" />
+            </div>
+            <div class="execute-row row">
+              <button class="execute-search-btn" @click="search">{{ t.search }}</button>
+              <button class="cancel-search-btn" @click="onCancel">{{ t.cancel }}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Search Results View -->
+      <div v-else class="search-results-view column">
+        <div class="results-header row align-center">
+          <button class="thin" @click="isResultsVisible = false">&lt; {{ t.back }}</button>
+          <div class="results-count">
+            {{ t.nKifuFound(searchResults.length) }}
+          </div>
+        </div>
+        <div class="form-group search-results-container">
+          <div
+            v-for="entry in searchResults"
+            :key="entry.id"
+            class="kifu-list-entry row align-center"
+          >
+            <div class="kifu-info column">
+              <div class="kifu-header row align-center">
+                <span class="file-path">{{ entry.file_path }}</span>
+              </div>
+              <div class="kifu-metadata row">
+                <span v-if="entry.start_date" class="metadata-item">{{ entry.start_date }}</span>
+                <span v-if="entry.event" class="metadata-item">{{ entry.event }}</span>
+                <span v-if="entry.black_name || entry.white_name" class="metadata-item">
+                  {{ entry.black_name || "?" }} vs {{ entry.white_name || "?" }}
+                </span>
+              </div>
+            </div>
+            <button @click="open(entry.file_path, entry.matched_ply, entry.matched_sfen)">
+              {{ t.open }}
+            </button>
+          </div>
+          <div v-if="searchResults.length === 0" class="note">
+            {{ t.noKifuFound }}
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="main-buttons">
       <button data-hotkey="Escape" @click="onCancel()">
         {{ t.cancel }}
@@ -54,30 +181,173 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch, shallowRef, triggerRef } from "vue";
 import { useStore } from "@/renderer/store";
 import api from "@/renderer/ipc/api";
 import { useErrorStore } from "@/renderer/store/error";
 import { useBusyState } from "@/renderer/store/busy";
 import DialogFrame from "./DialogFrame.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
+import ComboBox from "@/renderer/view/primitive/ComboBox.vue";
+import BoardView from "@/renderer/view/primitive/BoardView.vue";
+import Icon from "@/renderer/view/primitive/Icon.vue";
 import { normalizePath } from "@/common/helpers/path";
+import { KifuSearchResult } from "@/common/file/record";
+import { RectSize } from "@/common/assets/geometry";
+import { Record as TssRecord, Move, reverseColor, PositionChange } from "tsshogi";
+import { useAppSettings } from "@/renderer/store/settings";
+import { getPieceImageURLTemplate } from "@/common/settings/app";
+import { BoardLayoutType } from "@/common/settings/layout";
+import { IconType } from "@/renderer/assets/icons";
 
 const store = useStore();
+const appSettings = useAppSettings();
 const busyState = useBusyState();
 const list = ref<string[]>([]);
-const searchWord = ref("");
 const isFolderView = ref(localStorage.getItem("serverKifuFolderView") === "true");
 const currentDir = ref("");
 
+const activeTab = ref(localStorage.getItem("serverKifuActiveTab") || "list");
+
+const keyword = ref("");
+const searchByPosition = ref(true);
+const searchResults = ref<KifuSearchResult[]>([]);
+const isResultsVisible = ref(false);
+const indexStatus = ref<{ total: number; indexed: number; isIndexing: boolean } | null>(null);
+let statusTimer: ReturnType<typeof setInterval> | null = null;
+
+const flip = ref(appSettings.boardFlipping);
+const searchYear = ref("");
+const searchMonth = ref("");
+
+const isMobile = computed(() => window.innerWidth < 600);
+
+const maxBoardSize = computed(() => {
+  if (isMobile.value) {
+    return new RectSize(window.innerWidth * 0.9, window.innerWidth * 0.9);
+  }
+  return new RectSize(540, 540);
+});
+
+const yearOptions = computed(() => {
+  const currentYear = new Date().getFullYear();
+  const options = [{ value: "", label: t.all }];
+  for (let y = currentYear; y >= 2000; y--) {
+    options.push({ value: String(y), label: String(y) });
+  }
+  return options;
+});
+
+const monthOptions = computed(() => {
+  const options = [{ value: "", label: t.all }];
+  for (let m = 1; m <= 12; m++) {
+    const s = String(m).padStart(2, "0");
+    options.push({ value: s, label: s });
+  }
+  return options;
+});
+
+const searchRecord = shallowRef<TssRecord>(new TssRecord());
+const searchPosition = computed(() => searchRecord.value.position);
+const searchLastMove = computed(() => {
+  const move = searchRecord.value.current.move;
+  return move instanceof Move ? move : null;
+});
+
+function onSearchBoardMove(move: Move) {
+  if (searchRecord.value.append(move)) {
+    triggerRef(searchRecord);
+  }
+}
+
+function onEditPosition(change: PositionChange) {
+  const position = searchRecord.value.position.clone();
+  position.edit(change);
+  searchRecord.value.clear(position);
+  triggerRef(searchRecord);
+}
+
+function swapTurn() {
+  const position = searchRecord.value.position.clone();
+  position.setColor(reverseColor(position.color));
+  searchRecord.value.clear(position);
+  triggerRef(searchRecord);
+}
+
+function toggleFlip() {
+  flip.value = !flip.value;
+}
+
+function syncPosition() {
+  searchRecord.value.clear(store.record.position);
+  triggerRef(searchRecord);
+}
+
+function paste() {
+  store.showPasteDialog();
+}
+
+function resetToStart() {
+  searchRecord.value = new TssRecord();
+}
+
 watch(isFolderView, (val) => {
   localStorage.setItem("serverKifuFolderView", String(val));
+});
+
+watch(activeTab, (val) => {
+  localStorage.setItem("serverKifuActiveTab", val);
+  if (val !== "search") {
+    isResultsVisible.value = false;
+  }
 });
 
 async function updateList(reload?: boolean) {
   try {
     busyState.retain();
     list.value = await api.listServerKifu(reload);
+  } catch (e) {
+    console.warn(e);
+    useErrorStore().add(e);
+  } finally {
+    busyState.release();
+  }
+}
+
+async function updateIndexStatus() {
+  try {
+    indexStatus.value = await api.getServerKifuIndexStatus();
+    if (!indexStatus.value.isIndexing && statusTimer) {
+      clearInterval(statusTimer);
+      statusTimer = null;
+    }
+  } catch (e) {
+    console.warn(e);
+  }
+}
+
+async function search() {
+  try {
+    busyState.retain();
+    let sfen: string | undefined;
+
+    if (searchByPosition.value) {
+      sfen = searchRecord.value.position.sfen;
+    }
+
+    let startDate: string | undefined;
+    if (searchYear.value && searchMonth.value) {
+      startDate = searchYear.value + "/" + searchMonth.value;
+    } else if (searchYear.value) {
+      startDate = searchYear.value;
+    }
+
+    searchResults.value = await api.searchServerKifu({
+      keyword: keyword.value,
+      sfen: sfen,
+      startDate: startDate,
+    });
+    isResultsVisible.value = true;
   } catch (e) {
     console.warn(e);
     useErrorStore().add(e);
@@ -102,57 +372,25 @@ const breadcrumbs = computed(() => {
 });
 
 const displayEntries = computed<Entry[]>(() => {
-  const words = searchWord.value
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((w) => !!w);
-
   if (!isFolderView.value) {
-    return list.value
-      .filter((file) => {
-        const fileLower = file.toLowerCase();
-        return words.every((word) => fileLower.includes(word));
-      })
-      .map((file) => ({
-        name: normalizePath(file),
-        relPath: file,
-        isDirectory: false,
-      }));
+    return list.value.map((file) => ({
+      name: normalizePath(file),
+      relPath: file,
+      isDirectory: false,
+    }));
   }
 
-  // hierarchy mode
   const currentDirNormalized = normalizePath(currentDir.value);
-  const currentDirLower = currentDirNormalized.toLowerCase();
   const prefix = currentDirNormalized ? currentDirNormalized + "/" : "";
+  const prefixLower = prefix.toLowerCase();
 
-  // 検索ワードがある場合は再帰的に検索
-  if (words.length > 0) {
-    return list.value
-      .filter((file) => {
-        const fileNormalized = normalizePath(file);
-        if (!fileNormalized.toLowerCase().startsWith(currentDirLower)) {
-          return false;
-        }
-        const relative = fileNormalized.substring(prefix.length).toLowerCase();
-        return words.every((word) => relative.includes(word));
-      })
-      .map((file) => ({
-        name: normalizePath(file).substring(prefix.length),
-        relPath: file,
-        isDirectory: false,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }
-
-  // 検索ワードがない場合は現在の階層のファイルとフォルダを表示
   const entriesMap = new Map<string, Entry>();
   list.value.forEach((file) => {
     const fileNormalized = normalizePath(file);
-    if (fileNormalized.toLowerCase().startsWith(currentDirLower)) {
+    if (fileNormalized.toLowerCase().startsWith(prefixLower)) {
       const relative = fileNormalized.substring(prefix.length);
       const parts = relative.split("/");
       if (parts.length > 1) {
-        // Subdirectory
         const dirName = parts[0];
         const dirPath = prefix + dirName;
         if (!entriesMap.has(dirName)) {
@@ -163,7 +401,6 @@ const displayEntries = computed<Entry[]>(() => {
           });
         }
       } else if (parts.length === 1 && parts[0] !== "") {
-        // File in current directory
         const fileName = parts[0];
         entriesMap.set(fileName, {
           name: fileName,
@@ -182,15 +419,27 @@ const displayEntries = computed<Entry[]>(() => {
   });
 });
 
-async function open(relPath: string) {
+async function open(relPath: string, ply?: number, sfen?: string) {
+  let fileURI: string;
   try {
     busyState.retain();
-    const fileURI = await api.loadServerKifu(relPath);
-    busyState.release();
-    store.closeModalDialog();
-    store.openRecord(fileURI);
+    fileURI = await api.loadServerKifu(relPath);
   } catch (e) {
     busyState.release();
+    useErrorStore().add(e);
+    return;
+  }
+  busyState.release();
+  store.closeModalDialog();
+  try {
+    if (sfen != null && ply != null) {
+      store.openRecord(fileURI, { ply, sfen });
+    } else if (ply != null) {
+      store.openRecord(fileURI, { ply });
+    } else {
+      store.openRecord(fileURI);
+    }
+  } catch (e) {
     useErrorStore().add(e);
   }
 }
@@ -201,14 +450,87 @@ function onCancel() {
 
 onMounted(() => {
   updateList();
+  updateIndexStatus();
+  statusTimer = setInterval(() => {
+    updateIndexStatus();
+  }, 2000);
+  syncPosition();
+
+  const handlePaste = (data: string) => {
+    const recordOrError = store.parseRecordData(data);
+    if (recordOrError instanceof Error) {
+      useErrorStore().add(recordOrError);
+      return;
+    }
+    searchRecord.value.clear(recordOrError.position);
+    triggerRef(searchRecord);
+  };
+
+  store.setOnPasteHandler(handlePaste);
+
+  const pendingData = store.dequeuePendingPasteData();
+  if (pendingData) {
+    handlePaste(pendingData);
+  }
+});
+
+onUnmounted(() => {
+  store.setOnPasteHandler(undefined);
+  if (statusTimer) {
+    clearInterval(statusTimer);
+  }
 });
 </script>
 
 <style scoped>
+.tab-header {
+  margin: 10px 10px 0 10px;
+  border-bottom: 1px solid var(--text-dashed-separator-color);
+}
+.tab-item {
+  padding: 8px 20px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 5px 5px 0 0;
+  margin-bottom: -1px;
+}
+.tab-item.active {
+  background-color: var(--text-bg-color);
+  border-color: var(--text-dashed-separator-color);
+  font-weight: bold;
+}
+.list-tab,
+.search-tab {
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+}
 .form-group {
   width: 600px;
   max-width: 100%;
   box-sizing: border-box;
+}
+.search-params {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.search-content {
+  width: 600px;
+  max-width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.indexing-status {
+  margin: 5px 10px;
+  font-size: 0.85em;
+  color: var(--text-color-sub);
+  text-align: left;
 }
 .header {
   margin: 10px 5px;
@@ -221,22 +543,166 @@ onMounted(() => {
   margin-right: 15px;
   white-space: nowrap;
 }
-.search-filter {
+button.reload {
+  width: auto;
+  min-width: 120px;
+  margin-left: 10px;
+  white-space: nowrap;
+}
+
+.kifu-list {
+  height: calc(100vh - 350px);
+  overflow-y: auto;
+  background-color: var(--text-bg-color);
+}
+
+.search-inputs {
+  width: 100%;
+  gap: 6px;
+}
+.search-row {
+  gap: 10px;
+}
+.search-row .label {
+  width: 100px;
+  text-align: left;
+  font-size: 0.9em;
+  flex-shrink: 0;
+}
+.search-row .separator {
+  color: var(--text-color-sub);
+}
+.execute-row {
+  gap: 10px;
+  margin-top: 8px;
+}
+.execute-search-btn,
+.cancel-search-btn {
   flex: 1;
+  padding: 8px;
+  font-weight: bold;
+}
+.search-preview {
+  width: 100%;
+  padding: 8px;
+  background-color: var(--text-bg-color);
+  border-radius: 5px;
+  box-sizing: border-box;
+}
+.search-board {
+  margin: 0 auto;
+}
+.board-controls {
+  margin-top: 4px;
+  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.board-controls button {
+  font-size: 0.7em;
+  padding: 2px 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.board-controls button .icon {
+  height: 1.2em;
+}
+
+.search-results-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.results-header {
+  padding: 0 5px 10px 5px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+.results-count {
+  font-size: 0.85em;
+  color: var(--text-color-sub);
+}
+.search-results-container {
+  height: calc(100vh - 350px);
+  overflow-y: auto;
+  background-color: var(--text-bg-color);
+}
+
+.kifu-list-entry {
+  padding: 8px 10px;
+  border-bottom: 1px dashed var(--text-dashed-separator-color);
+  justify-content: space-between;
+}
+.kifu-list-entry button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.kifu-info {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  margin-right: 10px;
+}
+.kifu-header {
+  font-size: 0.9em;
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 450px;
   min-width: 0;
 }
-.search-filter > input {
-  width: 100%;
-  min-width: 100px;
+.kifu-metadata {
+  font-size: 0.75em;
+  color: var(--text-color-sub);
+  margin-top: 4px;
+  gap: 15px;
+  flex-wrap: wrap;
 }
-.search-filter > button {
-  font-size: 0.62em;
-  margin: 0;
+.metadata-item {
+  white-space: nowrap;
 }
-button.reload {
-  width: 120px;
-  margin-left: 10px;
+.directory-name {
+  cursor: pointer;
+  color: var(--text-color-link);
+  font-weight: bold;
 }
+.directory-name:hover {
+  text-decoration: underline;
+}
+.file-path {
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.note {
+  margin-top: 20px;
+  font-size: 0.8em;
+  color: var(--text-color-warning);
+}
+
+.breadcrumbs {
+  margin: 0 10px 10px 10px;
+  padding: 5px 10px;
+  background-color: var(--text-bg-color);
+  border-radius: 5px;
+  font-size: 0.85em;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.breadcrumb-item {
+  cursor: pointer;
+  color: var(--text-color-link);
+}
+.breadcrumb-item:hover {
+  text-decoration: underline;
+}
+.breadcrumb-separator {
+  margin: 0 5px;
+  color: var(--text-color-sub);
+}
+
 @media (max-width: 600px) {
   .header.row {
     display: flex;
@@ -263,74 +729,25 @@ button.reload {
     padding: 5px 15px;
     flex-shrink: 0;
   }
-  .search-filter {
-    order: 3;
-    width: 100%;
-    flex: none;
-    margin-bottom: 5px;
-    margin-right: 0;
-    box-sizing: border-box;
+  .search-preview {
+    padding: 4px;
+    background-color: transparent;
   }
-}
-.breadcrumbs {
-  margin: 0 10px 5px 10px;
-  padding: 5px 10px;
-  background-color: var(--text-bg-color);
-  border-radius: 5px;
-  font-size: 0.85em;
-  overflow-x: auto;
-  white-space: nowrap;
-}
-.breadcrumb-item {
-  cursor: pointer;
-  color: var(--text-color-link);
-}
-.breadcrumb-item:hover {
-  text-decoration: underline;
-}
-.breadcrumb-separator {
-  margin: 0 5px;
-  color: var(--text-color-sub);
-}
-.kifu-list {
-  height: calc(100vh - 350px);
-  overflow-y: auto;
-  background-color: var(--text-bg-color);
-}
-.kifu-list-entry {
-  padding: 8px 10px;
-}
-.kifu-list-entry button {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.kifu-header {
-  font-size: 0.9em;
-  white-space: nowrap;
-  overflow: hidden;
-  max-width: 450px;
-  min-width: 0;
-}
-.directory-name {
-  cursor: pointer;
-  color: var(--text-color-link);
-  font-weight: bold;
-}
-.directory-name:hover {
-  text-decoration: underline;
-}
-.file-path {
-  text-overflow: ellipsis;
-  overflow: hidden;
-}
-.connector {
-  flex: 1;
-  border-bottom: 1px dashed var(--text-dashed-separator-color);
-  margin: 0 10px;
-}
-.note {
-  margin-top: 20px;
-  font-size: 0.8em;
-  color: var(--text-color-warning);
+  .board-controls {
+    gap: 4px;
+  }
+  .board-controls button {
+    padding: 2px 6px;
+  }
+  .kifu-list,
+  .search-results-container {
+    height: calc(100dvh - 280px);
+  }
+  .search-content {
+    gap: 6px;
+  }
+  .search-inputs {
+    gap: 4px;
+  }
 }
 </style>

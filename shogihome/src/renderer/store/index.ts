@@ -6,6 +6,7 @@ import {
   ImmutableNode,
   Move,
   PositionChange,
+  Record,
   formatSpecialMove,
   exportKIF,
   RecordMetadataKey,
@@ -234,6 +235,8 @@ class Store {
   private onChangePositionHandlers: ChangePositionHandler[] = [];
   private onUpdateRecordTreeHandlers: UpdateTreeHandler[] = [];
   private onUpdateCustomDataHandlers: UpdateCustomDataHandler[] = [];
+  private onPaste?: (data: string) => void;
+  private _pendingPasteData?: string;
 
   constructor() {
     const refs = reactive(this);
@@ -453,32 +456,46 @@ class Store {
     this._pvPreview = pvPreview;
   }
 
+  setOnPasteHandler(handler?: (data: string) => void): void {
+    this.onPaste = handler;
+  }
+
   closePVPreviewDialog(): void {
     this._pvPreview = undefined;
   }
 
   showPasteDialog(): void {
-    if (this.appState !== AppState.NORMAL) {
+    if (this.appState !== AppState.NORMAL && this.appState !== AppState.SERVER_KIFU_DIALOG) {
       return;
     }
+    const prevAppState = this.appState;
     const appSettings = useAppSettings();
     if (appSettings.showPasteDialog) {
+      this._lastAppState = prevAppState;
       this._appState = AppState.PASTE_DIALOG;
       return;
     }
     navigator.clipboard
       .readText()
       .then((text) => {
+        if (this.appState !== prevAppState) {
+          return;
+        }
         if (text) {
           this.pasteRecord(text);
         } else {
           // Open the dialog if the clipboard is empty.
+          this._lastAppState = prevAppState;
           this._appState = AppState.PASTE_DIALOG;
         }
       })
       .catch((err) => {
         console.error(`paste error: ${err}`);
+        if (this.appState !== prevAppState) {
+          return;
+        }
         // For example, if the user has not given permission.
+        this._lastAppState = prevAppState;
         this._appState = AppState.PASTE_DIALOG;
       });
   }
@@ -622,7 +639,8 @@ class Store {
       this.appState === AppState.DUPLICATE_POSITIONS_DIALOG ||
       this.appState === AppState.SEARCH_DUPLICATE_POSITIONS_DIALOG
     ) {
-      this._appState = this._lastAppState;
+      const nextState = this._lastAppState;
+      this._appState = nextState;
       this._lastAppState = AppState.NORMAL;
     }
   }
@@ -1645,7 +1663,12 @@ class Store {
   }
 
   pasteRecord(data: string): void {
+    if (this.onPaste) {
+      this.onPaste(data);
+      return;
+    }
     if (this.appState !== AppState.NORMAL) {
+      this._pendingPasteData = data;
       return;
     }
     const error = this.recordManager.importRecord(data.trim());
@@ -1655,7 +1678,17 @@ class Store {
     }
   }
 
-  async openRecord(path?: string, opt?: { ply?: number }): Promise<void> {
+  dequeuePendingPasteData(): string | undefined {
+    const data = this._pendingPasteData;
+    this._pendingPasteData = undefined;
+    return data;
+  }
+
+  parseRecordData(data: string, type?: RecordFormatType): Record | Error {
+    return this.recordManager.parseRecordData(data, type);
+  }
+
+  async openRecord(path?: string, opt?: { ply?: number; sfen?: string }): Promise<void> {
     if (
       (this.appState !== AppState.NORMAL &&
         this.appState !== AppState.SERVER_KIFU_DIALOG &&
@@ -1689,7 +1722,9 @@ class Store {
       if (e) {
         throw e;
       }
-      if (opt?.ply) {
+      if (opt?.sfen && opt?.ply) {
+        this.recordManager.changePlyBySFEN(opt.ply, opt.sfen);
+      } else if (opt?.ply) {
         this.recordManager.changePly(opt.ply);
       }
     } catch (e) {

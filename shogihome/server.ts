@@ -34,6 +34,9 @@ import {
   initBookSession,
   isBookOnTheFly,
 } from "./src/background/book";
+import { getNormalizedSfenAndHash } from "./src/background/usi/sfen";
+import * as kifuIndexDB from "./src/background/database/kifu_index";
+import * as kifuIndexSync from "./src/background/kifu_index/sync";
 import { writeFileAtomic, writeFileAtomicSync } from "./src/background/file/atomic";
 import { fetch as fetchRemote } from "./src/background/helpers/http";
 import { getHistory, saveBackup, clearHistory, addHistory } from "./src/background/file/history";
@@ -47,7 +50,6 @@ import {
   exportAnalysisResultsByEngine,
 } from "./src/background/database/sqlite";
 import { parseInfoCommand, USIInfoCommand } from "./src/common/game/usi";
-import { getNormalizedSfenAndHash } from "./src/background/usi/sfen";
 
 const getBasePath = () => {
   // SEA (Single Executable Application) environment check
@@ -166,8 +168,12 @@ updatePuzzlesManifest();
 
 const dataDir = path.join(getBasePath(), "data");
 initDatabase(dataDir);
+kifuIndexDB.initDatabase(dataDir);
 
 const KIFU_DIR = process.env.KIFU_DIR ? path.resolve(getBasePath(), process.env.KIFU_DIR) : null;
+if (KIFU_DIR) {
+  kifuIndexSync.syncKifuDirectory(KIFU_DIR);
+}
 
 const ONTHEFLY_THRESHOLD_MB = (() => {
   const raw = process.env.ONTHEFLY_THRESHOLD_MB;
@@ -361,6 +367,45 @@ app.get("/api/kifu/list", async (req, res) => {
   }
   const list = await getKifuList(KIFU_DIR);
   res.json(list);
+});
+
+app.get("/api/kifu/search", async (req, res) => {
+  if (!KIFU_DIR) {
+    sendError(res, 404, "KIFU_DIR is not configured");
+    return;
+  }
+  let sfen = req.query.sfen as string | undefined;
+  let sfenHash: bigint | undefined;
+  if (sfen) {
+    const normalized = getNormalizedSfenAndHash(sfen);
+    if (!normalized) {
+      sendError(res, 400, "Invalid sfen");
+      return;
+    }
+    sfen = normalized.sfen;
+    sfenHash = normalized.hash;
+  }
+  if (!sfen) {
+    sfenHash = undefined;
+  }
+  const keyword = req.query.keyword as string | undefined;
+  const startDate = req.query.startDate as string | undefined;
+  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+  const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : undefined;
+
+  const results = kifuIndexDB.searchKifu({
+    sfen,
+    sfenHash,
+    keyword,
+    startDate,
+    limit,
+    offset,
+  });
+  res.json(results);
+});
+
+app.get("/api/kifu/index/status", (req, res) => {
+  res.json(kifuIndexSync.getSyncStatus());
 });
 
 app.get("/api/kifu/enabled", (req, res) => {
@@ -1705,7 +1750,9 @@ const isExecutedDirectly = (() => {
 if (isExecutedDirectly) {
   if (KIFU_DIR) {
     console.log(`Server-side kifu directory: ${KIFU_DIR}`);
-    setupKifuWatcher(KIFU_DIR, process.env.KIFU_DIR_USE_POLLING === "true");
+    setupKifuWatcher(KIFU_DIR, process.env.KIFU_DIR_USE_POLLING === "true", (event, relPath) => {
+      kifuIndexSync.onKifuFileEvent(event, KIFU_DIR, relPath);
+    });
   }
   server.listen(PORT, BIND_ADDRESS, () => {
     console.log(`Server is listening on ${BIND_ADDRESS}:${PORT}`);

@@ -31,9 +31,22 @@ describe("background/helpers/kifu", () => {
     const list = await getKifuList(tempDir);
     expect(list).toHaveLength(3);
     expect(list).toContain("test1.kif");
-    expect(list).toContain(path.join("subdir", "test3.csa"));
-    expect(list).toContain(path.join("日本語ディレクトリ", "棋譜.jkf"));
+    expect(list).toContain("subdir/test3.csa");
+    expect(list).toContain("日本語ディレクトリ/棋譜.jkf");
     expect(list).not.toContain("test2.txt");
+  });
+
+  it("getKifuList returns forward-slash normalized paths even on any platforms", async () => {
+    const subDir = path.join(tempDir, "sub");
+    fs.mkdirSync(subDir);
+    fs.writeFileSync(path.join(subDir, "test.kif"), "test");
+
+    const list = await getKifuList(tempDir);
+    expect(list.length).toBe(1);
+    // On Windows, path.relative might return "sub\\test.kif",
+    // but getKifuList should normalize it to "sub/test.kif".
+    expect(list[0]).toBe("sub/test.kif");
+    expect(list[0]).not.toContain("\\");
   });
 
   it("getKifuList respects depth limit", async () => {
@@ -54,24 +67,11 @@ describe("background/helpers/kifu", () => {
     // Thus files in level1 to level10 should be found.
     expect(list).toHaveLength(10);
     for (let i = 1; i <= 10; i++) {
-      const expectedPath = Array.from({ length: i }, (_, k) => `level${k + 1}`).join(path.sep);
-      expect(list).toContain(path.join(expectedPath, `test${i}.kif`));
+      const expectedPath = Array.from({ length: i }, (_, k) => `level${k + 1}`).join("/");
+      expect(list).toContain(expectedPath + `/test${i}.kif`);
     }
     expect(list).not.toContain(
-      path.join(
-        "level1",
-        "level2",
-        "level3",
-        "level4",
-        "level5",
-        "level6",
-        "level7",
-        "level8",
-        "level9",
-        "level10",
-        "level11",
-        "test11.kif",
-      ),
+      "level1/level2/level3/level4/level5/level6/level7/level8/level9/level10/level11/test11.kif",
     );
   });
 
