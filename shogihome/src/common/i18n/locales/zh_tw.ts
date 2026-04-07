@@ -42,6 +42,8 @@ export const zh_tw: Texts = {
   copyPosition: "複製局面",
   asSFEN: "SFEN形式",
   asBOD: "BOD形式",
+  delete: "刪除",
+  deleteThisAnalysisResult: "您確定要刪除這條分析結果嗎？",
   pasteRecordOrPosition: "貼上棋譜、局面",
   addSpecialMove: "特殊手",
   deleteMoves: "刪除現在位置後的棋譜",

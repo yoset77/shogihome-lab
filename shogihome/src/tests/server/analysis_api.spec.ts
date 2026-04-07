@@ -17,6 +17,7 @@ const sqliteMock = vi.hoisted(() => ({
   getAnalysisDBStats: vi.fn(() => [] as unknown[]),
   deleteAnalysisResultsByEngine: vi.fn(),
   cleanupAnalysisResults: vi.fn(),
+  deleteAnalysisResult: vi.fn(),
   exportAnalysisResultsByEngine: vi.fn(function* () {
     yield "#YANEURAOU-DB2016 1.00\n";
   }),
@@ -106,6 +107,75 @@ describe("Analysis DB API error handling", () => {
 
     expect(response.status).toBe(200);
     expect(sqliteMock.cleanupAnalysisResults).toHaveBeenCalledWith(10);
+  });
+
+  it("should return 200 when delete succeeds", async () => {
+    const response = await request(app)
+      .post("/api/analysis/delete")
+      .set("Host", `localhost:${SERVER_PORT}`)
+      .send({ sfen: "startpos", engineId: 1, multipv: 1 });
+
+    expect(response.status).toBe(200);
+    expect(sqliteMock.deleteAnalysisResult).toHaveBeenCalledWith(
+      expect.any(BigInt),
+      expect.any(String),
+      1,
+      1,
+    );
+  });
+
+  it("should return 400 when delete fails due to missing sfen", async () => {
+    const response = await request(app)
+      .post("/api/analysis/delete")
+      .set("Host", `localhost:${SERVER_PORT}`)
+      .send({ engineId: 1, multipv: 1 });
+
+    expect(response.status).toBe(400);
+    expect(response.text).toContain("sfen is required");
+  });
+
+  it("should return 400 when delete fails due to invalid engineId", async () => {
+    const response = await request(app)
+      .post("/api/analysis/delete")
+      .set("Host", `localhost:${SERVER_PORT}`)
+      .send({ sfen: "startpos", engineId: -1, multipv: 1 });
+
+    expect(response.status).toBe(400);
+    expect(response.text).toContain("engineId must be a positive integer");
+  });
+
+  it("should return 400 when delete fails due to invalid multipv", async () => {
+    const response = await request(app)
+      .post("/api/analysis/delete")
+      .set("Host", `localhost:${SERVER_PORT}`)
+      .send({ sfen: "startpos", engineId: 1, multipv: 0 });
+
+    expect(response.status).toBe(400);
+    expect(response.text).toContain("multipv must be a positive integer");
+  });
+
+  it("should return 400 when delete fails due to invalid sfen", async () => {
+    const response = await request(app)
+      .post("/api/analysis/delete")
+      .set("Host", `localhost:${SERVER_PORT}`)
+      .send({ sfen: "invalid-sfen", engineId: 1, multipv: 1 });
+
+    expect(response.status).toBe(400);
+    expect(response.text).toContain("invalid sfen");
+  });
+
+  it("should return 500 when delete fails due to database error", async () => {
+    sqliteMock.deleteAnalysisResult.mockImplementation(() => {
+      throw new Error("delete database failure");
+    });
+
+    const response = await request(app)
+      .post("/api/analysis/delete")
+      .set("Host", `localhost:${SERVER_PORT}`)
+      .send({ sfen: "startpos", engineId: 1, multipv: 1 });
+
+    expect(response.status).toBe(500);
+    expect(response.text).toContain("delete database failure");
   });
 
   it("should export analysis results to a file", async () => {

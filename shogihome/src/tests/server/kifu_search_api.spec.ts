@@ -24,6 +24,7 @@ const sqliteMock = vi.hoisted(() => ({
   getAnalysisDBStats: vi.fn(() => [] as unknown[]),
   deleteAnalysisResultsByEngine: vi.fn(),
   cleanupAnalysisResults: vi.fn(),
+  deleteAnalysisResult: vi.fn(),
   exportAnalysisResultsByEngine: vi.fn(function* () {}),
 }));
 
