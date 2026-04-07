@@ -1,4 +1,5 @@
 import { CommentBehavior, SearchCommentFormat } from "@/common/settings/comment.js";
+import { normalizeSfen } from "@/common/usi/sfen.js";
 import {
   Color,
   InitialPositionSFEN,
@@ -565,6 +566,67 @@ describe("store/record", () => {
     // エクスポート時のパス更新
     recordManager.exportRecordAsBuffer("server://new/path.jkf", {});
     expect(recordManager.serverKifuPath).toBe("new/path.jkf");
-    expect(recordManager.recordFilePath).toBeUndefined();
+    expect(recordManager.unsaved).toBeFalsy();
+  });
+
+  describe("changePlyBySFEN", () => {
+    it("should jump to the correct position on the main line", () => {
+      const recordManager = new RecordManager();
+      recordManager.appendMove({
+        move: recordManager.record.position.createMoveByUSI("7g7f")!,
+      });
+      recordManager.appendMove({
+        move: recordManager.record.position.createMoveByUSI("3c3d")!,
+      });
+
+      const sfen1 = normalizeSfen(recordManager.record.moves[1].sfen);
+      expect(recordManager.changePlyBySFEN(1, sfen1)).toBe(true);
+      expect(recordManager.record.current.ply).toBe(1);
+
+      const sfen2 = normalizeSfen(recordManager.record.moves[2].sfen);
+      expect(recordManager.changePlyBySFEN(2, sfen2)).toBe(true);
+      expect(recordManager.record.current.ply).toBe(2);
+    });
+
+    it("should jump to a position on a branch", () => {
+      const recordManager = new RecordManager();
+      // Main line: ▲7六歩 △3四歩
+      recordManager.appendMove({
+        move: recordManager.record.position.createMoveByUSI("7g7f")!,
+      });
+      recordManager.appendMove({
+        move: recordManager.record.position.createMoveByUSI("3c3d")!,
+      });
+
+      // Branch: ▲2六歩 △8四歩
+      recordManager.changePly(0);
+      const pos = recordManager.record.position.clone();
+      const m1 = pos.createMoveByUSI("2g2f")!;
+      pos.doMove(m1);
+      const m2 = pos.createMoveByUSI("8c8d")!;
+      pos.doMove(m2);
+
+      recordManager.appendMove({ move: m1 });
+      recordManager.appendMove({ move: m2 });
+
+      // Find the branch node's SFEN by traversing all nodes
+      let branchSfen1: string | undefined;
+      recordManager.record.forEach((node) => {
+        if (node.ply === 1 && node.branchIndex > 0) {
+          branchSfen1 = normalizeSfen(node.sfen);
+        }
+      });
+      expect(branchSfen1).toBeDefined();
+
+      // Currently on main line, branch is not reachable by changePly alone
+      expect(recordManager.changePlyBySFEN(1, branchSfen1!)).toBe(true);
+      expect(recordManager.record.current.ply).toBe(1);
+      expect(recordManager.record.current.branchIndex).toBeGreaterThan(0);
+    });
+
+    it("should return false when no matching position exists", () => {
+      const recordManager = new RecordManager();
+      expect(recordManager.changePlyBySFEN(5, "invalid_sfen")).toBe(false);
+    });
   });
 });

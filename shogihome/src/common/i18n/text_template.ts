@@ -784,6 +784,7 @@ export type Texts = {
   fileNotFound: (path: string) => string;
   directoryNotFound: (path: string) => string;
   serverKifu: string;
+  noKifuFound: string;
   noKifuFoundCheckKifuDir: string;
   enterFileName: string;
   loadFromServer: string;
@@ -797,4 +798,9 @@ export type Texts = {
   hierarchy: string;
   list: string;
   folderView: string;
+  kifuSearch: string;
+  searchByPosition: string;
+  keyword: string;
+  nKifuFound: (n: number) => string;
+  indexingKifuProgress: (total: number, indexed: number) => string;
 };

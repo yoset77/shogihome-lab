@@ -44,6 +44,7 @@ import {
   importRecordFromBuffer,
 } from "@/common/file/record.js";
 import { SCORE_MATE_INFINITE } from "@/common/game/usi.js";
+import { normalizeSfen } from "@/common/usi/sfen.js";
 import api from "@/renderer/ipc/api.js";
 import { LogLevel } from "@/common/log.js";
 import { secondsToMMSS } from "@/common/helpers/time.js";
@@ -491,7 +492,7 @@ export class RecordManager {
     this.clearRecord(this._record.position);
   }
 
-  private parseRecordData(data: string, type?: RecordFormatType): Record | Error {
+  parseRecordData(data: string, type?: RecordFormatType): Record | Error {
     let recordOrError: Record | Error;
     switch (type || detectRecordFormat(data)) {
       case RecordFormatType.SFEN: {
@@ -668,6 +669,20 @@ export class RecordManager {
 
   changePly(ply: number): void {
     this._record.goto(ply);
+  }
+
+  changePlyBySFEN(ply: number, sfen: string): boolean {
+    let target: ImmutableNode | null = null;
+    this._record.forEach((node) => {
+      const normalized = normalizeSfen(node.sfen);
+      if (node.ply === ply && normalized === sfen) {
+        target = node;
+      }
+    });
+    if (target) {
+      return this._record.gotoNode(target);
+    }
+    return false;
   }
 
   changeBranch(index: number): boolean {

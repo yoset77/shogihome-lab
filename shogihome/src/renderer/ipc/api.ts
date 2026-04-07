@@ -13,7 +13,11 @@ import { MateSearchSettings } from "@/common/settings/mate.js";
 import { BatchConversionSettings } from "@/common/settings/conversion.js";
 import { BatchConversionResult } from "@/common/file/conversion.js";
 import { RecordFileHistory } from "@/common/file/history.js";
-import { InitialRecordFileRequest, RecordFileFormat } from "@/common/file/record.js";
+import {
+  InitialRecordFileRequest,
+  RecordFileFormat,
+  KifuSearchResult,
+} from "@/common/file/record.js";
 import { VersionStatus } from "@/common/version.js";
 import { SessionStates } from "@/common/advanced/monitor.js";
 import { PromptTarget } from "@/common/advanced/prompt.js";
@@ -149,6 +153,18 @@ export interface API {
   // Server Kifu (LAN only)
   isServerKifuEnabled(): Promise<boolean>;
   listServerKifu(reload?: boolean): Promise<string[]>;
+  searchServerKifu(params: {
+    sfen?: string;
+    keyword?: string;
+    startDate?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<KifuSearchResult[]>;
+  getServerKifuIndexStatus(): Promise<{
+    total: number;
+    indexed: number;
+    isIndexing: boolean;
+  }>;
   listServerBook(): Promise<string[]>;
   listServerPosition(): Promise<string[]>;
   loadServerKifu(path: string): Promise<string>;
@@ -346,6 +362,22 @@ const api: API = {
   },
   async listServerKifu(reload?: boolean): Promise<string[]> {
     return await bridge.listServerKifu(reload);
+  },
+  async searchServerKifu(params: {
+    sfen?: string;
+    keyword?: string;
+    startDate?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<KifuSearchResult[]> {
+    return await bridge.searchServerKifu(params);
+  },
+  async getServerKifuIndexStatus(): Promise<{
+    total: number;
+    indexed: number;
+    isIndexing: boolean;
+  }> {
+    return await bridge.getServerKifuIndexStatus();
   },
   async listServerBook(): Promise<string[]> {
     return await bridge.listServerBook();

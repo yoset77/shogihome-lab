@@ -840,7 +840,9 @@ export const en: Texts = {
   changeMultiPVFromPVTab: "Change MultiPV from PV Tab",
   multiPVMustBe1To10: "MultiPV must be between 1 and 10.",
   serverKifu: "Server Kifu",
+  noKifuFound: "No kifu found.",
   noKifuFoundCheckKifuDir: "No kifu found. Please check if KIFU_DIR is configured correctly.",
+
   enterFileName: "Please enter file name",
   loadFromServer: "Open from Server",
   saveToServer: "Save to Server",
@@ -854,4 +856,13 @@ export const en: Texts = {
   hierarchy: "Hierarchy",
   list: "List",
   folderView: "Folder View",
+  kifuSearch: "Kifu Search",
+  searchByPosition: "Search by Position",
+  keyword: "Keyword",
+  nKifuFound(n: number) {
+    return `${n} kifu found.`;
+  },
+  indexingKifuProgress(total: number, indexed: number) {
+    return `Indexing kifu (${indexed}/${total})...`;
+  },
 };

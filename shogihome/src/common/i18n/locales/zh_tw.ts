@@ -823,6 +823,7 @@ export const zh_tw: Texts = {
   changeMultiPVFromPVTab: "從讀筋標籤變更候補手數",
   multiPVMustBe1To10: "MultiPV 必須介於 1 到 10 之間。",
   serverKifu: "伺服器端棋譜",
+  noKifuFound: "未找到棋譜。",
   noKifuFoundCheckKifuDir: "未找到棋譜。請檢查 KIFU_DIR 配置是否正確。",
   enterFileName: "請輸入檔案名稱",
   loadFromServer: "從伺服器開啟",
@@ -837,4 +838,13 @@ export const zh_tw: Texts = {
   hierarchy: "階層",
   list: "列表",
   folderView: "資料夾顯示",
+  kifuSearch: "棋譜搜尋",
+  searchByPosition: "以局面搜尋",
+  keyword: "關鍵字",
+  nKifuFound(n: number) {
+    return `找到 ${n} 份棋譜。`;
+  },
+  indexingKifuProgress(total: number, indexed: number) {
+    return `棋譜索引建立中 (${indexed}/${total})...`;
+  },
 };

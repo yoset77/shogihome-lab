@@ -1,5 +1,6 @@
 import { Record, Position } from "tsshogi";
 import { hash as aperyHash } from "@/background/book/apery_zobrist.js";
+import { normalizeSfen } from "@/common/usi/sfen.js";
 
 /**
  * USIの position コマンド (例: "position startpos moves 7g7f ...") をパースし、
@@ -46,7 +47,7 @@ export function getNormalizedSfenAndHash(usiPositionCommand: string): {
 
     // 末尾の手数 (" \d+$") を除外したものを正規化SFENとして保存する
     // 例: "... b - 1" -> "... b -"
-    const normalizedSfen = leafSfen.replace(/\s+\d+$/, "");
+    const normalizedSfen = normalizeSfen(leafSfen);
 
     return {
       sfen: normalizedSfen,
