@@ -792,6 +792,7 @@ export type Texts = {
   loadFromServer: string;
   saveToServer: string;
   search: string;
+  results: string;
   bookDataWasSaved: string;
   openBook: string;
   showBookTableOnMobile: string;
@@ -799,7 +800,6 @@ export type Texts = {
   noBookFoundCheckKifuDir: string;
   hierarchy: string;
   list: string;
-  folderView: string;
   kifuSearch: string;
   searchByPosition: string;
   keyword: string;

@@ -15,26 +15,30 @@
       >
         {{ t.search }}
       </div>
+      <div
+        class="tab-item"
+        :class="{ active: activeTab === 'results' }"
+        @click="activeTab = 'results'"
+      >
+        {{ t.results }}
+      </div>
     </div>
 
     <!-- LIST TAB -->
     <div v-if="activeTab === 'list'" class="list-tab column">
-      <div class="header row align-center">
-        <div class="filter row align-center">
-          <div class="view-mode-selector row align-center">
-            <ToggleButton v-model:value="isFolderView" :label="t.folderView" />
-          </div>
+      <div class="list-header row align-center justify-between">
+        <div class="breadcrumbs row align-center">
+          <div class="breadcrumb-item" @click="currentDir = ''">Root</div>
+          <template v-for="(dir, index) in breadcrumbs" :key="index">
+            <div class="breadcrumb-separator">/</div>
+            <div class="breadcrumb-item" @click="currentDir = dir.path">
+              {{ dir.name }}
+            </div>
+          </template>
         </div>
-        <button class="reload" @click="updateList(true)">{{ t.reload }}</button>
-      </div>
-      <div v-if="isFolderView" class="breadcrumbs row align-center">
-        <div class="breadcrumb-item" @click="currentDir = ''">Root</div>
-        <template v-for="(dir, index) in breadcrumbs" :key="index">
-          <div class="breadcrumb-separator">/</div>
-          <div class="breadcrumb-item" @click="currentDir = dir.path">
-            {{ dir.name }}
-          </div>
-        </template>
+        <button class="reload-btn thin row align-center" :title="t.reload" @click="onReload">
+          <Icon :icon="IconType.REFRESH" />
+        </button>
       </div>
       <div class="form-group kifu-list">
         <div
@@ -63,8 +67,7 @@
 
     <!-- SEARCH TAB -->
     <div v-if="activeTab === 'search'" class="search-tab column">
-      <!-- Search Parameters View -->
-      <div v-if="!isResultsVisible" class="search-params">
+      <div class="search-params">
         <div class="search-content">
           <div class="search-preview column align-center">
             <BoardView
@@ -133,11 +136,12 @@
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- Search Results View -->
-      <div v-else class="search-results-view column">
+    <!-- RESULTS TAB -->
+    <div v-if="activeTab === 'results'" class="search-tab column">
+      <div class="search-results-view column">
         <div class="results-header row align-center">
-          <button class="thin" @click="isResultsVisible = false">&lt; {{ t.back }}</button>
           <div class="results-count">
             {{ t.nKifuFound(searchResults.length) }}
           </div>
@@ -181,7 +185,7 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
-import { computed, onMounted, onUnmounted, ref, watch, shallowRef, triggerRef } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useStore } from "@/renderer/store";
 import api from "@/renderer/ipc/api";
 import { useErrorStore } from "@/renderer/store/error";
@@ -192,33 +196,34 @@ import ComboBox from "@/renderer/view/primitive/ComboBox.vue";
 import BoardView from "@/renderer/view/primitive/BoardView.vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { normalizePath } from "@/common/helpers/path";
-import { KifuSearchResult } from "@/common/file/record";
 import { RectSize } from "@/common/assets/geometry";
-import { Record as TssRecord, Move, reverseColor, PositionChange } from "tsshogi";
+import { Move, reverseColor, PositionChange, Record as TssRecord } from "tsshogi";
 import { useAppSettings } from "@/renderer/store/settings";
 import { getPieceImageURLTemplate } from "@/common/settings/app";
 import { BoardLayoutType } from "@/common/settings/layout";
 import { IconType } from "@/renderer/assets/icons";
+import { useServerKifuStore } from "@/renderer/store/serverKifu";
 
 const store = useStore();
+const {
+  activeTab,
+  currentDir,
+  keyword,
+  searchByPosition,
+  searchYear,
+  searchMonth,
+  searchResults,
+  searchRecord,
+  triggerSearchRecord,
+} = useServerKifuStore();
 const appSettings = useAppSettings();
 const busyState = useBusyState();
 const list = ref<string[]>([]);
-const isFolderView = ref(localStorage.getItem("serverKifuFolderView") === "true");
-const currentDir = ref("");
 
-const activeTab = ref(localStorage.getItem("serverKifuActiveTab") || "list");
-
-const keyword = ref("");
-const searchByPosition = ref(true);
-const searchResults = ref<KifuSearchResult[]>([]);
-const isResultsVisible = ref(false);
 const indexStatus = ref<{ total: number; indexed: number; isIndexing: boolean } | null>(null);
 let statusTimer: ReturnType<typeof setInterval> | null = null;
 
 const flip = ref(appSettings.boardFlipping);
-const searchYear = ref("");
-const searchMonth = ref("");
 
 const isMobile = computed(() => window.innerWidth < 600);
 
@@ -247,7 +252,6 @@ const monthOptions = computed(() => {
   return options;
 });
 
-const searchRecord = shallowRef<TssRecord>(new TssRecord());
 const searchPosition = computed(() => searchRecord.value.position);
 const searchLastMove = computed(() => {
   const move = searchRecord.value.current.move;
@@ -256,7 +260,7 @@ const searchLastMove = computed(() => {
 
 function onSearchBoardMove(move: Move) {
   if (searchRecord.value.append(move)) {
-    triggerRef(searchRecord);
+    triggerSearchRecord();
   }
 }
 
@@ -264,14 +268,14 @@ function onEditPosition(change: PositionChange) {
   const position = searchRecord.value.position.clone();
   position.edit(change);
   searchRecord.value.clear(position);
-  triggerRef(searchRecord);
+  triggerSearchRecord();
 }
 
 function swapTurn() {
   const position = searchRecord.value.position.clone();
   position.setColor(reverseColor(position.color));
   searchRecord.value.clear(position);
-  triggerRef(searchRecord);
+  triggerSearchRecord();
 }
 
 function toggleFlip() {
@@ -280,7 +284,7 @@ function toggleFlip() {
 
 function syncPosition() {
   searchRecord.value.clear(store.record.position);
-  triggerRef(searchRecord);
+  triggerSearchRecord();
 }
 
 function paste() {
@@ -290,17 +294,6 @@ function paste() {
 function resetToStart() {
   searchRecord.value = new TssRecord();
 }
-
-watch(isFolderView, (val) => {
-  localStorage.setItem("serverKifuFolderView", String(val));
-});
-
-watch(activeTab, (val) => {
-  localStorage.setItem("serverKifuActiveTab", val);
-  if (val !== "search") {
-    isResultsVisible.value = false;
-  }
-});
 
 async function updateList(reload?: boolean) {
   try {
@@ -312,6 +305,10 @@ async function updateList(reload?: boolean) {
   } finally {
     busyState.release();
   }
+}
+
+function onReload() {
+  updateList(true);
 }
 
 async function updateIndexStatus() {
@@ -347,7 +344,7 @@ async function search() {
       sfen: sfen,
       startDate: startDate,
     });
-    isResultsVisible.value = true;
+    activeTab.value = "results";
   } catch (e) {
     console.warn(e);
     useErrorStore().add(e);
@@ -372,14 +369,6 @@ const breadcrumbs = computed(() => {
 });
 
 const displayEntries = computed<Entry[]>(() => {
-  if (!isFolderView.value) {
-    return list.value.map((file) => ({
-      name: normalizePath(file),
-      relPath: file,
-      isDirectory: false,
-    }));
-  }
-
   const currentDirNormalized = normalizePath(currentDir.value);
   const prefix = currentDirNormalized ? currentDirNormalized + "/" : "";
   const prefixLower = prefix.toLowerCase();
@@ -454,7 +443,6 @@ onMounted(() => {
   statusTimer = setInterval(() => {
     updateIndexStatus();
   }, 2000);
-  syncPosition();
 
   const handlePaste = (data: string) => {
     const recordOrError = store.parseRecordData(data);
@@ -463,7 +451,7 @@ onMounted(() => {
       return;
     }
     searchRecord.value.clear(recordOrError.position);
-    triggerRef(searchRecord);
+    triggerSearchRecord();
   };
 
   store.setOnPasteHandler(handlePaste);
@@ -532,22 +520,14 @@ onUnmounted(() => {
   color: var(--text-color-sub);
   text-align: left;
 }
-.header {
+.list-header {
   margin: 10px 5px;
 }
-.filter {
-  text-align: left;
-  width: 100%;
+.reload-btn {
+  padding: 2px 8px;
 }
-.view-mode-selector {
-  margin-right: 15px;
-  white-space: nowrap;
-}
-button.reload {
-  width: auto;
-  min-width: 120px;
-  margin-left: 10px;
-  white-space: nowrap;
+.reload-btn .icon {
+  height: 1.5em;
 }
 
 .kifu-list {
@@ -683,13 +663,15 @@ button.reload {
 }
 
 .breadcrumbs {
-  margin: 0 10px 10px 10px;
+  margin: 0;
   padding: 5px 10px;
   background-color: var(--text-bg-color);
   border-radius: 5px;
   font-size: 0.85em;
   overflow-x: auto;
   white-space: nowrap;
+  flex: 1;
+  margin-right: 10px;
 }
 .breadcrumb-item {
   cursor: pointer;
@@ -704,31 +686,6 @@ button.reload {
 }
 
 @media (max-width: 600px) {
-  .header.row {
-    display: flex;
-    flex-wrap: wrap;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .filter.row {
-    display: contents;
-  }
-  .view-mode-selector {
-    order: 1;
-    flex: 0 1 auto;
-    margin-right: 0;
-    margin-bottom: 10px;
-  }
-  button.reload {
-    order: 2;
-    width: auto;
-    margin-left: auto;
-    margin-right: 0;
-    margin-bottom: 10px;
-    padding: 5px 15px;
-    flex-shrink: 0;
-  }
   .search-preview {
     padding: 4px;
     background-color: transparent;
