@@ -42,6 +42,8 @@ export const ja: Texts = {
   copyPosition: "局面コピー",
   asSFEN: "SFEN形式",
   asBOD: "BOD形式",
+  delete: "削除",
+  deleteThisAnalysisResult: "この読み筋を削除しますか？",
   pasteRecordOrPosition: "棋譜・局面貼り付け",
   addSpecialMove: "特殊な指し手",
   deleteMoves: "現在の位置から棋譜を削除",

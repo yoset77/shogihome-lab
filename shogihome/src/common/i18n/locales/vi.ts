@@ -42,6 +42,8 @@ export const vi: Texts = {
   copyPosition: "Sao chép thế cờ",
   asSFEN: "dưới dạng SFEN",
   asBOD: "dưới dạng BOD",
+  delete: "Xóa",
+  deleteThisAnalysisResult: "Bạn có chắc chắn muốn xóa kết quả phân tích này không?",
   pasteRecordOrPosition: "Dán kỳ phổ/thế cờ",
   addSpecialMove: "Chèn nước đi đặc biệt",
   deleteMoves: "Xóa từ nước hiện tại trở đi",

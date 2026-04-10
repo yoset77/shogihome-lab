@@ -31,6 +31,9 @@
                   <Icon :icon="IconType.PLAY" />
                   <span>{{ t.displayPVShort }}</span>
                 </button>
+                <button class="icon-only" :title="t.delete" @click="deleteRecord(info)">
+                  <Icon :icon="IconType.TRASH" />
+                </button>
                 {{ info.pvText }}
               </td>
             </tr>
@@ -66,6 +69,9 @@
                 <Icon :icon="IconType.PLAY" />
                 <span>{{ t.displayPVShort }}</span>
               </button>
+              <button class="icon-only" :title="t.delete" @click="deleteRecord(info)">
+                <Icon :icon="IconType.TRASH" />
+              </button>
             </div>
             <div class="mobile-pv-text">
               {{ info.pvText }}
@@ -91,6 +97,8 @@
 import { computed, ref, watch, onUnmounted } from "vue";
 import { useStore } from "@/renderer/store";
 import { useAppSettings } from "@/renderer/store/settings";
+import { useConfirmationStore } from "@/renderer/store/confirm";
+import { useErrorStore } from "@/renderer/store/error";
 import { t } from "@/common/i18n";
 import { IconType } from "@/renderer/assets/icons";
 import Icon from "@/renderer/view/primitive/Icon.vue";
@@ -107,6 +115,7 @@ defineProps({
 });
 
 interface DBRecord {
+  engine_id: number;
   engine_name: string;
   multipv: number;
   depth: number;
@@ -120,6 +129,7 @@ interface DBRecord {
 
 interface FormattedInfo {
   id: string;
+  engineId: number;
   engineName: string;
   multipv: number;
   depth: number;
@@ -245,6 +255,7 @@ const formattedResults = computed<FormattedInfo[]>(() => {
 
     return {
       id: `${r.engine_name}-${r.multipv}-${index}`,
+      engineId: r.engine_id,
       engineName: r.engine_name,
       multipv: r.multipv,
       depth: r.depth,
@@ -286,6 +297,32 @@ const showPreview = (info: FormattedInfo) => {
       pv: pvMoves,
     });
   }
+};
+
+const deleteRecord = (info: FormattedInfo) => {
+  const sfen = store.record.position.sfen;
+  useConfirmationStore().show({
+    message: t.deleteThisAnalysisResult,
+    onOk: async () => {
+      try {
+        const response = await fetch("/api/analysis/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sfen,
+            engineId: info.engineId,
+            multipv: info.multipv,
+          }),
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        await fetchResults();
+      } catch (e) {
+        useErrorStore().add(e);
+      }
+    },
+  });
 };
 </script>
 
@@ -367,6 +404,23 @@ table.list td.text {
   text-overflow: ellipsis;
   overflow: hidden;
 }
+table.list td.text button {
+  height: 22px;
+  vertical-align: middle;
+  margin-bottom: 1px;
+}
+button.icon-only {
+  padding: 0;
+  width: 24px;
+  height: 22px;
+  background-color: transparent;
+  vertical-align: middle;
+  margin-left: 2px;
+  margin-bottom: 1px;
+}
+button.icon-only:hover {
+  background-color: var(--button-bg-color-hover);
+}
 .no-data {
   box-sizing: border-box;
   width: 100%;
@@ -444,7 +498,12 @@ button span {
   flex-shrink: 0;
   margin: 0;
   padding: 1px 2px;
-  height: auto;
+  height: 22px;
+}
+.mobile-pv-header .icon-only {
+  margin: 0;
+  height: 22px;
+  width: 24px;
 }
 .mobile-pv-text {
   padding-top: 5px;

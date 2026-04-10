@@ -47,6 +47,7 @@ import {
   getAnalysisDBStats,
   deleteAnalysisResultsByEngine,
   cleanupAnalysisResults,
+  deleteAnalysisResult,
   exportAnalysisResultsByEngine,
 } from "./src/background/database/sqlite";
 import { parseInfoCommand, USIInfoCommand } from "./src/common/game/usi";
@@ -492,6 +493,31 @@ app.post("/api/analysis/cleanup", express.json(), async (req, res) => {
     return;
   }
   cleanupAnalysisResults(minDepth);
+  res.send("ok");
+});
+
+app.post("/api/analysis/delete", express.json(), async (req, res) => {
+  const sfen = req.body.sfen;
+  const engineId = req.body.engineId;
+  const multipv = req.body.multipv;
+  if (typeof sfen !== "string") {
+    sendError(res, 400, "sfen is required");
+    return;
+  }
+  if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
+    sendError(res, 400, "engineId must be a positive integer");
+    return;
+  }
+  if (typeof multipv !== "number" || !Number.isInteger(multipv) || multipv < 1) {
+    sendError(res, 400, "multipv must be a positive integer");
+    return;
+  }
+  const parsed = getNormalizedSfenAndHash(sfen);
+  if (!parsed) {
+    sendError(res, 400, "invalid sfen");
+    return;
+  }
+  deleteAnalysisResult(parsed.hash, parsed.sfen, engineId, multipv);
   res.send("ok");
 });
 

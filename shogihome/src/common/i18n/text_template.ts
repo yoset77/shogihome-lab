@@ -40,6 +40,8 @@ export type Texts = {
   copyPosition: string;
   asSFEN: string;
   asBOD: string;
+  delete: string;
+  deleteThisAnalysisResult: string;
   pasteRecordOrPosition: string;
   addSpecialMove: string;
   deleteMoves: string;

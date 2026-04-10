@@ -10,6 +10,7 @@ let insertEngineStmt: StatementSync | null = null;
 let updateEngineStmt: StatementSync | null = null;
 let getEngineStmt: StatementSync | null = null;
 let upsertResultStmt: StatementSync | null = null;
+let deleteResultStmt: StatementSync | null = null;
 
 export function initDatabase(dataDir: string) {
   try {
@@ -72,6 +73,12 @@ export function initDatabase(dataDir: string) {
     insertEngineStmt = db.prepare("INSERT OR IGNORE INTO engines (engine_key, name) VALUES (?, ?)");
     updateEngineStmt = db.prepare("UPDATE engines SET name = ? WHERE engine_key = ? AND name != ?");
     getEngineStmt = db.prepare("SELECT id FROM engines WHERE engine_key = ?");
+    deleteResultStmt = db.prepare(`
+      DELETE FROM analysis_results
+      WHERE position_id = (SELECT id FROM positions WHERE sfen_hash = ? AND sfen = ?)
+        AND engine_id = ?
+        AND multipv = ?
+    `);
     upsertResultStmt = db.prepare(`
       INSERT INTO analysis_results (
         position_id, engine_id, multipv, depth, seldepth, nodes, score_cp, score_mate, pv, updated_at
@@ -94,6 +101,7 @@ export function initDatabase(dataDir: string) {
     updateEngineStmt = null;
     getEngineStmt = null;
     upsertResultStmt = null;
+    deleteResultStmt = null;
     db = null;
   }
 }
@@ -105,6 +113,7 @@ export function closeDatabase() {
   updateEngineStmt = null;
   getEngineStmt = null;
   upsertResultStmt = null;
+  deleteResultStmt = null;
   if (db) {
     db.close();
     db = null;
@@ -186,6 +195,7 @@ export function saveAnalysisResults(
 }
 
 export interface DBAnalysisResult {
+  engine_id: number;
   engine_name: string;
   multipv: number;
   depth: number;
@@ -204,6 +214,7 @@ export function getAnalysisResults(sfenHash: bigint, sfen: string): DBAnalysisRe
   try {
     const stmt = conn.prepare(`
       SELECT
+        e.id as engine_id,
         e.name as engine_name,
         r.multipv,
         r.depth,
@@ -278,12 +289,12 @@ export function deleteAnalysisResultsByEngine(engineId: number): void {
     // 参照されなくなった局面データをクリーンアップ
     db.exec(`
       DELETE FROM positions
-      WHERE id NOT IN (SELECT DISTINCT position_id FROM analysis_results)
+      WHERE NOT EXISTS (SELECT 1 FROM analysis_results WHERE analysis_results.position_id = positions.id)
     `);
     // 参照されなくなったエンジンデータをクリーンアップ
     db.exec(`
       DELETE FROM engines
-      WHERE id NOT IN (SELECT DISTINCT engine_id FROM analysis_results)
+      WHERE NOT EXISTS (SELECT 1 FROM analysis_results WHERE analysis_results.engine_id = engines.id)
     `);
     db.exec("COMMIT");
   } catch (e) {
@@ -303,13 +314,15 @@ export function cleanupAnalysisResults(minDepth: number): void {
     db.exec("BEGIN IMMEDIATE");
     const stmt = db.prepare("DELETE FROM analysis_results WHERE depth < ?");
     stmt.run(minDepth);
+    // 参照されなくなった局面データをクリーンアップ
     db.exec(`
       DELETE FROM positions
-      WHERE id NOT IN (SELECT DISTINCT position_id FROM analysis_results)
+      WHERE NOT EXISTS (SELECT 1 FROM analysis_results WHERE analysis_results.position_id = positions.id)
     `);
+    // 参照されなくなったエンジンデータをクリーンアップ
     db.exec(`
       DELETE FROM engines
-      WHERE id NOT IN (SELECT DISTINCT engine_id FROM analysis_results)
+      WHERE NOT EXISTS (SELECT 1 FROM analysis_results WHERE analysis_results.engine_id = engines.id)
     `);
     db.exec("COMMIT");
   } catch (e) {
@@ -319,6 +332,38 @@ export function cleanupAnalysisResults(minDepth: number): void {
       /* ignore */
     }
     console.error("Failed to cleanup analysis results:", e);
+    throw e;
+  }
+}
+
+export function deleteAnalysisResult(
+  sfenHash: bigint,
+  sfen: string,
+  engineId: number,
+  multipv: number,
+): void {
+  if (!db || !deleteResultStmt) return;
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    deleteResultStmt.run(sfenHash, sfen, engineId, multipv);
+    // 参照されなくなった局面データをクリーンアップ
+    db.exec(`
+      DELETE FROM positions
+      WHERE NOT EXISTS (SELECT 1 FROM analysis_results WHERE analysis_results.position_id = positions.id)
+    `);
+    // 参照されなくなったエンジンデータをクリーンアップ
+    db.exec(`
+      DELETE FROM engines
+      WHERE NOT EXISTS (SELECT 1 FROM analysis_results WHERE analysis_results.engine_id = engines.id)
+    `);
+    db.exec("COMMIT");
+  } catch (e) {
+    try {
+      db?.exec("ROLLBACK");
+    } catch {
+      /* ignore */
+    }
+    console.error("Failed to delete analysis result:", e);
     throw e;
   }
 }

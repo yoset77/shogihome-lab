@@ -43,6 +43,8 @@ export const en: Texts = {
   copyPosition: "Copy Position",
   asSFEN: "SFEN",
   asBOD: "BOD",
+  delete: "Delete",
+  deleteThisAnalysisResult: "Are you sure you want to delete this analysis result?",
   pasteRecordOrPosition: "Paste Record/Position",
   addSpecialMove: "Add Special Move",
   deleteMoves: "Delete Moves from Current Position",
