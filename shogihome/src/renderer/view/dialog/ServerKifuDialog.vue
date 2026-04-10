@@ -43,19 +43,19 @@
       <div class="form-group kifu-list">
         <div
           v-for="entry in displayEntries"
-          :key="entry.relPath"
+          :key="entry.path"
           class="kifu-list-entry row align-center"
         >
           <div class="kifu-header row align-center">
             <span
               v-if="entry.isDirectory"
               class="directory-name"
-              @click="currentDir = entry.relPath"
+              @click="currentDir = entry.path"
               >{{ entry.name }}</span
             >
             <span v-else class="file-path">{{ entry.name }}</span>
           </div>
-          <button v-if="!entry.isDirectory" @click="open(entry.relPath)">
+          <button v-if="!entry.isDirectory" @click="open(entry.path)">
             {{ t.open }}
           </button>
         </div>
@@ -185,7 +185,7 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useStore } from "@/renderer/store";
 import api from "@/renderer/ipc/api";
 import { useErrorStore } from "@/renderer/store/error";
@@ -203,6 +203,7 @@ import { getPieceImageURLTemplate } from "@/common/settings/app";
 import { BoardLayoutType } from "@/common/settings/layout";
 import { IconType } from "@/renderer/assets/icons";
 import { useServerKifuStore } from "@/renderer/store/serverKifu";
+import { KifuListEntry } from "@/common/file/record";
 
 const store = useStore();
 const {
@@ -218,7 +219,7 @@ const {
 } = useServerKifuStore();
 const appSettings = useAppSettings();
 const busyState = useBusyState();
-const list = ref<string[]>([]);
+const list = ref<KifuListEntry[]>([]);
 
 const indexStatus = ref<{ total: number; indexed: number; isIndexing: boolean } | null>(null);
 let statusTimer: ReturnType<typeof setInterval> | null = null;
@@ -298,7 +299,8 @@ function resetToStart() {
 async function updateList(reload?: boolean) {
   try {
     busyState.retain();
-    list.value = await api.listServerKifu(reload);
+    list.value = [];
+    list.value = await api.listServerKifu(currentDir.value, reload);
   } catch (e) {
     console.warn(e);
     useErrorStore().add(e);
@@ -353,11 +355,9 @@ async function search() {
   }
 }
 
-interface Entry {
-  name: string;
-  relPath: string;
-  isDirectory: boolean;
-}
+watch(currentDir, () => {
+  updateList();
+});
 
 const breadcrumbs = computed(() => {
   if (!currentDir.value) return [];
@@ -368,45 +368,7 @@ const breadcrumbs = computed(() => {
   }));
 });
 
-const displayEntries = computed<Entry[]>(() => {
-  const currentDirNormalized = normalizePath(currentDir.value);
-  const prefix = currentDirNormalized ? currentDirNormalized + "/" : "";
-  const prefixLower = prefix.toLowerCase();
-
-  const entriesMap = new Map<string, Entry>();
-  list.value.forEach((file) => {
-    const fileNormalized = normalizePath(file);
-    if (fileNormalized.toLowerCase().startsWith(prefixLower)) {
-      const relative = fileNormalized.substring(prefix.length);
-      const parts = relative.split("/");
-      if (parts.length > 1) {
-        const dirName = parts[0];
-        const dirPath = prefix + dirName;
-        if (!entriesMap.has(dirName)) {
-          entriesMap.set(dirName, {
-            name: dirName,
-            relPath: dirPath,
-            isDirectory: true,
-          });
-        }
-      } else if (parts.length === 1 && parts[0] !== "") {
-        const fileName = parts[0];
-        entriesMap.set(fileName, {
-          name: fileName,
-          relPath: file,
-          isDirectory: false,
-        });
-      }
-    }
-  });
-
-  return Array.from(entriesMap.values()).sort((a, b) => {
-    if (a.isDirectory !== b.isDirectory) {
-      return a.isDirectory ? -1 : 1;
-    }
-    return a.name.localeCompare(b.name);
-  });
-});
+const displayEntries = computed(() => list.value);
 
 async function open(relPath: string, ply?: number, sfen?: string) {
   let fileURI: string;

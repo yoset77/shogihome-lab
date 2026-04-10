@@ -7,7 +7,7 @@ export const SUPPORTED_EXTENSIONS = [".kif", ".kifu", ".ki2", ".ki2u", ".csa", "
 const BOOK_EXTENSIONS = [".db", ".bin"];
 const POSITION_EXTENSIONS = [".sfen"];
 const MAX_DEPTH = 10;
-const MAX_FILES = 10000;
+const MAX_FILES = 100000;
 
 let cachedKifuList: string[] | null = null;
 

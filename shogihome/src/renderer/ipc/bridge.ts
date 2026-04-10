@@ -3,7 +3,7 @@ import { PromptTarget } from "@/common/advanced/prompt.js";
 import { BookLoadingMode } from "@/common/book.js";
 import { MenuEvent } from "@/common/control/menu.js";
 import { AppState, ResearchState } from "@/common/control/state.js";
-import { RecordFileFormat, KifuSearchResult } from "@/common/file/record.js";
+import { RecordFileFormat, KifuSearchResult, KifuListEntry } from "@/common/file/record.js";
 import { CSAGameResult, CSASpecialMove } from "@/common/game/csa.js";
 import { GameResult } from "@/common/game/result.js";
 import { LogLevel, LogType } from "@/common/log.js";
@@ -150,7 +150,7 @@ export interface Bridge {
 
   // Server Kifu (LAN only)
   isServerKifuEnabled(): Promise<boolean>;
-  listServerKifu(reload?: boolean): Promise<string[]>;
+  listServerKifu(dir?: string, reload?: boolean): Promise<KifuListEntry[]>;
   searchServerKifu(params: {
     sfen?: string;
     keyword?: string;

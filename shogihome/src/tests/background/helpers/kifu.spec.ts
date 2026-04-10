@@ -59,11 +59,10 @@ describe("background/helpers/kifu", () => {
     }
 
     const list = await getKifuList(tempDir);
-    // MAX_DEPTH is 10, so level 1 to 11 should be included?
-    // Wait, if depth starts at 0 (baseDir):
-    // baseDir (0) -> level1 (1) -> level2 (2) -> ... -> level10 (10) -> level11 (11)
-    // If walk(level11, 11) is called, it returns immediately.
-    // So level11's files and subdirectories are NOT processed.
+    // baseDir (0) -> level1 (1) -> ... -> level10 (10) -> level11 (11)
+    // walk(dir, depth) returns if depth > MAX_DEPTH (10).
+    // So walk(level10, 10) proceeds to readdir and find test10.kif.
+    // It also calls walk(level11, 11) for the subdirectory, which returns immediately.
     // Thus files in level1 to level10 should be found.
     expect(list).toHaveLength(10);
     for (let i = 1; i <= 10; i++) {
