@@ -134,7 +134,7 @@ export class LanEngine {
             this.handlePong();
             return; // Don't propagate pong
           }
-        } catch (e) {
+        } catch {
           // ignore
         }
 
@@ -243,7 +243,7 @@ export class LanEngine {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(command);
-      } catch (e) {
+      } catch {
         console.warn("Failed to send command, buffering:", command);
         this.commandQueue.push(command);
       }
@@ -346,7 +346,7 @@ export class LanEngine {
             resolve(json.engineList);
             return true;
           }
-        } catch (e) {
+        } catch {
           // ignore
         }
         return false;

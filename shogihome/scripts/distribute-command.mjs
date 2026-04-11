@@ -41,5 +41,7 @@ depcheck(distDir, {
   fs.writeFileSync(outputFilePath, JSON.stringify(packageJson, null, 2), "utf8");
 });
 
-fs.copyFileSync(readmeSrcFilePath, readmeDistFilePath);
+if (fs.existsSync(readmeSrcFilePath)) {
+  fs.copyFileSync(readmeSrcFilePath, readmeDistFilePath);
+}
 fs.copyFileSync(licenseSrcFilePath, licenseDistFilePath);

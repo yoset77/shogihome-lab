@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 
-const pkg = JSON.parse(fs.readFileSync(resolve(__dirname, "package.json"), "utf-8"));
+const pkg = JSON.parse(fs.readFileSync(resolve(import.meta.dirname, "package.json"), "utf-8"));
 
 export default defineConfig({
   resolve: {
@@ -12,7 +12,7 @@ export default defineConfig({
       { find: "@", replacement: "/src" },
       {
         find: "electron",
-        replacement: resolve(__dirname, "src/tests/mock/electron.ts"),
+        replacement: resolve(import.meta.dirname, "src/tests/mock/electron.ts"),
       },
     ],
   },
@@ -24,13 +24,13 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        main: resolve(__dirname, "index.html"),
-        prompt: resolve(__dirname, "prompt.html"),
-        monitor: resolve(__dirname, "monitor.html"),
-        "layout-manager": resolve(__dirname, "layout-manager.html"),
+        main: resolve(import.meta.dirname, "index.html"),
+        prompt: resolve(import.meta.dirname, "prompt.html"),
+        monitor: resolve(import.meta.dirname, "monitor.html"),
+        "layout-manager": resolve(import.meta.dirname, "layout-manager.html"),
       },
     },
-    outDir: resolve(__dirname, "dist"),
+    outDir: resolve(import.meta.dirname, "dist"),
     chunkSizeWarningLimit: 5000000,
   },
   server: {
@@ -56,7 +56,7 @@ export default defineConfig({
         // 設定ファイル
         "vite.config.mts",
         "vite.config-pwa.mts",
-        "webpack.config.cjs",
+        "webpack.config.mjs",
         ".*.*",
         "**/*.d.ts",
         "**/*.vue",

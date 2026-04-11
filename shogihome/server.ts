@@ -120,7 +120,7 @@ ALLOWED_ORIGINS.forEach((origin) => {
   try {
     const url = new URL(origin);
     ALLOWED_HOSTS.add(url.host);
-  } catch (e) {
+  } catch {
     // ignore invalid URLs
   }
 });
@@ -998,7 +998,7 @@ class EngineSession {
       try {
         console.log(`Terminating replaced socket for session ${this.sessionId}`);
         this.ws.terminate();
-      } catch (e) {
+      } catch {
         // ignore
       }
     }

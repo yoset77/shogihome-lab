@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 import { LogDestination, getAppLogger, setLogDestinations } from "@/background/log.js";
 import {
   login as csaLogin,
@@ -449,13 +448,14 @@ export function preload(config: Config) {
   setLogDestinations(LogType.USI, usiDestinations, config.logLevel);
   setLogDestinations(LogType.CSA, csaDestinations, config.logLevel);
 
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const usi = require("@/renderer/players/usi.js");
   setUSIHandlers({
     ...usi,
     sendPromptCommand: () => {},
   });
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const csa = require("@/renderer/store/csa.js");
   setCSAHandlers({
     ...csa,

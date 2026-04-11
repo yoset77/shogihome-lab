@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import api, { API } from "@/renderer/ipc/api.js";
 import { ImmutablePosition, Move, Position } from "tsshogi";
 import fs from "node:fs";

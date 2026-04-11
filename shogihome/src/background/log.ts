@@ -101,7 +101,6 @@ export function getCSALogger(): Logger {
 
 export function shutdownLoggers(): void {
   log4js.shutdown((e) => {
-    // eslint-disable-next-line no-console
     console.error("failed to shutdown loggers:", e);
   });
 }

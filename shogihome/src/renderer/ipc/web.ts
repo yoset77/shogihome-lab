@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 import { defaultAnalysisSettings } from "@/common/settings/analysis.js";
 import { defaultAppSettings } from "@/common/settings/app.js";
 import { defaultGameSettings } from "@/common/settings/game.js";
@@ -291,7 +290,7 @@ export const webAPI: Bridge = {
         const data = await response.json();
         return JSON.stringify(data);
       }
-    } catch (e) {
+    } catch {
       // Ignore errors silently as backup is an auxiliary feature
     }
     return JSON.stringify(getEmptyHistory());
@@ -318,7 +317,7 @@ export const webAPI: Bridge = {
   async clearRecordFileHistory(): Promise<void> {
     try {
       await fetchWithTimeout("/api/history/clear", { method: "POST" });
-    } catch (e) {
+    } catch {
       // Ignore errors
     }
   },
@@ -331,7 +330,7 @@ export const webAPI: Bridge = {
         },
         body: kif,
       });
-    } catch (e) {
+    } catch {
       // Ignore errors silently
     }
   },
@@ -742,7 +741,7 @@ export const webAPI: Bridge = {
       const response = await fetchWithTimeout("/api/kifu/enabled");
       const json = await response.json();
       return !!json.enabled;
-    } catch (e) {
+    } catch {
       return false;
     }
   },

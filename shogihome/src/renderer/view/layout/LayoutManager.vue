@@ -416,7 +416,7 @@ const importProfile = async () => {
     const profile = deserializeLayoutProfile(data);
     store.addCustomProfile(profile);
     messageStore.enqueue({ text: t.profileImported });
-  } catch (e) {
+  } catch {
     errorStore.add(new Error(t.failedToImportProfile));
   }
 };
