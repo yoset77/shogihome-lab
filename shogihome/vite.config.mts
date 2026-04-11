@@ -56,7 +56,6 @@ export default defineConfig({
         // 設定ファイル
         "vite.config.mts",
         "vite.config-pwa.mts",
-        "webpack.config.mjs",
         ".*.*",
         "**/*.d.ts",
         "**/*.vue",

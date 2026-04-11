@@ -40,10 +40,10 @@
     "release:beta": "npm run license:commit && npm version preminor --preid beta",
     "release:pre": "npm run license:commit && npm version prerelease",
     "release:stable": "tsx scripts/publish-release.ts stable && npm run docs && git add . && git commit -m \"update stable version\"",
-    "usi-csa-bridge:build": "webpack --config-name command:usi-csa-bridge && node scripts/distribute-command.mjs usi-csa-bridge",
+    "usi-csa-bridge:build": "node scripts/build-command.mjs && node scripts/distribute-command.mjs usi-csa-bridge",
     "usi-csa-bridge:install": "npm run usi-csa-bridge:build && npm install -g ./dist/command/usi-csa-bridge",
     "server:start": "tsx server.ts",
-    "server:build": "webpack --config-name server",
+    "server:build": "node scripts/build-server.mjs",
     "server:exe": "npm run server:build && node scripts/build-sea.mjs"
   },
   "overrides": {
@@ -93,6 +93,7 @@
     "ajv": "^8.18.0",
     "ajv-keywords": "^5.1.0",
     "depcheck": "^1.4.7",
+    "esbuild": "^0.27.7",
     "eslint": "^9.21.0",
     "eslint-config-prettier": "^10.0.2",
     "eslint-import-resolver-typescript": "^3.8.3",
@@ -104,16 +105,12 @@
     "postject": "^1.0.0-alpha.6",
     "prettier": "^3.0.1",
     "supertest": "^7.2.2",
-    "terser-webpack-plugin": "^5.3.6",
-    "ts-loader": "^9.5.2",
     "tsc-alias": "^1.7.0",
     "typescript": "^5.5.4",
     "typescript-eslint": "^8.24.1",
     "vite": "^7.3.0",
     "vite-plugin-pwa": "^1.0.0",
     "vitest": "^3.1.1",
-    "vue-tsc": "^3.2.1",
-    "webpack": "^5.94.0",
-    "webpack-cli": "^6.0.1"
+    "vue-tsc": "^3.2.1"
   }
 }
