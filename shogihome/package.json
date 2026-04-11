@@ -106,7 +106,7 @@
     "prettier": "^3.0.1",
     "supertest": "^7.2.2",
     "tsc-alias": "^1.7.0",
-    "typescript": "^5.5.4",
+    "typescript": "^6.0.2",
     "typescript-eslint": "^8.24.1",
     "vite": "^7.3.0",
     "vite-plugin-pwa": "^1.0.0",
