@@ -95,7 +95,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import StandardLayout from "@/renderer/view/main/StandardLayout.vue";
 import GameDialog from "@/renderer/view/dialog/GameDialog.vue";
 import CSAGameDialog from "@/renderer/view/dialog/CSAGameDialog.vue";
@@ -115,7 +115,7 @@ import AnalysisDialog from "@/renderer/view/dialog/AnalysisDialog.vue";
 import CSAGameReadyDialog from "@/renderer/view/dialog/CSAGameReadyDialog.vue";
 import { CSAGameState } from "@/renderer/store/csa";
 import { useAppSettings } from "./store/settings";
-import { BackgroundImageType } from "@/common/settings/app";
+import { BackgroundImageType, Thema } from "@/common/settings/app";
 import MateSearchDialog from "./view/dialog/MateSearchDialog.vue";
 import PVPreviewDialog from "./view/dialog/PVPreviewDialog.vue";
 import PVPreviewDialogMobile from "./view/dialog/PVPreviewDialogMobile.vue";
@@ -148,6 +148,32 @@ const store = useStore();
 const messageStore = useMessageStore();
 const errorStore = useErrorStore();
 const busyState = useBusyState();
+
+const themeColors: { [key in Thema]: string } = {
+  [Thema.STANDARD]: "#6d8a6d",
+  [Thema.CHERRY_BLOSSOM]: "#efc4c4",
+  [Thema.AUTUMN]: "#dbb579",
+  [Thema.SNOW]: "#e9e8ef",
+  [Thema.CLASSIC]: "#c2c5cc",
+  [Thema.BEIGE]: "#dbc8ad",
+  [Thema.DARK_GREEN]: "#293737",
+  [Thema.DARK]: "#000000",
+};
+
+watch(
+  () => appSettings.thema,
+  (thema: Thema) => {
+    let meta = document.querySelector('meta[name="theme-color"]');
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.setAttribute("name", "theme-color");
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute("content", themeColors[thema]);
+  },
+  { immediate: true },
+);
+
 const confirmation = useConfirmationStore();
 
 const onCopy = () => {

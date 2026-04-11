@@ -213,6 +213,8 @@ export type Texts = {
   customImage: string;
   autumn: string;
   snow: string;
+  classic: string;
+  beige: string;
   darkGreen: string;
   dark: string;
   boardLayout: string;

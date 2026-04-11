@@ -214,6 +214,8 @@ export const vi: Texts = {
   customImage: "Ảnh tùy chọn",
   autumn: "Mùa thu",
   snow: "Tuyết rơi",
+  classic: "Cổ điển",
+  beige: "Màu be",
   darkGreen: "Xanh lá đậm",
   dark: "Tối",
   boardLayout: "Bố cục bàn cờ",
