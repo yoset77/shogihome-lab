@@ -202,7 +202,11 @@ import {
   validateBookImportSettings,
 } from "@/common/settings/book";
 import DialogFrame from "./DialogFrame.vue";
-import { RecordFileFormat, getStandardRecordFileFormats } from "@/common/file/record";
+import {
+  RecordFileFormat,
+  getStandardRecordFileFormats,
+  KifuListEntry,
+} from "@/common/file/record";
 
 type InMemoryMove = {
   type: "move";
@@ -227,7 +231,7 @@ const errorStore = useErrorStore();
 const busyState = useBusyState();
 const settings = ref(defaultBookImportSettings());
 const inMemoryList = ref<(InMemoryMove | Branch)[]>([]);
-const serverSelectionList = ref<string[]>([]);
+const serverSelectionList = ref<KifuListEntry[]>([]);
 const currentServerDir = ref("");
 
 watch(
@@ -255,44 +259,36 @@ const sourceTypeOptions = computed(() => {
 });
 
 const serverSelectionEntries = computed(() => {
-  const currentDirNormalized = normalizePath(currentServerDir.value);
-  const currentDirLower = currentDirNormalized.toLowerCase();
-  const prefix = currentDirNormalized ? currentDirNormalized + "/" : "";
-
   const entriesMap = new Map<string, { name: string; path: string; isDirectory: boolean }>();
+  const currentDirNormalized = normalizePath(currentServerDir.value);
   if (currentServerDir.value) {
     const parent = currentDirNormalized.split("/").slice(0, -1).join("/");
     entriesMap.set("..", { name: "..", path: parent, isDirectory: true });
   }
 
-  serverSelectionList.value.forEach((file) => {
-    const fileNormalized = normalizePath(file);
-    if (fileNormalized.toLowerCase().startsWith(currentDirLower)) {
-      const relative = fileNormalized.substring(prefix.length);
-      const parts = relative.split("/");
-      if (parts.length > 1) {
-        const dirName = parts[0];
-        const dirPath = prefix + dirName;
-        if (!entriesMap.has(dirName)) {
-          entriesMap.set(dirName, { name: dirName, path: dirPath, isDirectory: true });
-        }
-      } else if (
-        parts.length === 1 &&
-        parts[0] !== "" &&
-        settings.value.sourceType !== SourceType.DIRECTORY
-      ) {
-        const fileName = parts[0];
-        entriesMap.set(fileName, { name: fileName, path: file, isDirectory: false });
-      }
+  serverSelectionList.value.forEach((entry) => {
+    if (settings.value.sourceType !== SourceType.DIRECTORY || entry.isDirectory) {
+      entriesMap.set(entry.name, {
+        name: entry.name,
+        path: entry.path,
+        isDirectory: entry.isDirectory,
+      });
     }
   });
 
-  return Array.from(entriesMap.values()).sort((a, b) => {
-    if (a.name === "..") return -1;
-    if (b.name === "..") return 1;
-    if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
+  return Array.from(entriesMap.values());
+});
+
+watch(currentServerDir, async () => {
+  try {
+    busyState.retain();
+    serverSelectionList.value = [];
+    serverSelectionList.value = await api.listServerKifu(currentServerDir.value);
+  } catch (e) {
+    useErrorStore().add(e);
+  } finally {
+    busyState.release();
+  }
 });
 
 const setupInMemoryList = async () => {
@@ -386,8 +382,11 @@ const selectDirectory = async () => {
   if (!isNative()) {
     try {
       busyState.retain();
-      serverSelectionList.value = await api.listServerKifu();
-      currentServerDir.value = "";
+      if (currentServerDir.value === "") {
+        serverSelectionList.value = await api.listServerKifu("");
+      } else {
+        currentServerDir.value = ""; // This will trigger the watch
+      }
     } catch (e) {
       useErrorStore().add(e);
     } finally {
@@ -416,7 +415,11 @@ const selectRecordFile = async () => {
   if (!isNative()) {
     try {
       busyState.retain();
-      serverSelectionList.value = await api.listServerKifu();
+      if (currentServerDir.value === "") {
+        serverSelectionList.value = await api.listServerKifu("");
+      } else {
+        currentServerDir.value = ""; // This will trigger the watch
+      }
     } catch (e) {
       useErrorStore().add(e);
     } finally {

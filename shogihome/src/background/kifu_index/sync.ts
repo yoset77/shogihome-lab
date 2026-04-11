@@ -56,13 +56,18 @@ export async function syncKifuDirectory(kifuDir: string) {
     // 2. Identify files to index (new or changed) and files to delete
     const filesOnDisk = new Set(files);
     const filesToIndex: string[] = [];
-    for (const relPath of files) {
+    for (let i = 0; i < files.length; i++) {
+      const relPath = files[i];
       const fullPath = path.join(kifuDir, relPath);
-      const stats = fs.lstatSync(fullPath);
+      const stats = await fs.promises.lstat(fullPath);
       const existing = getKifuFileByPath(relPath);
 
       if (!existing || existing.mtime !== stats.mtimeMs || existing.size !== stats.size) {
         filesToIndex.push(relPath);
+      }
+
+      if (i % 100 === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
       }
     }
 

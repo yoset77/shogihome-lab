@@ -13,6 +13,7 @@ import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import escapeHTML from "escape-html";
 import { getLocalIpAddresses } from "./src/background/helpers/ip";
+import { normalizePath } from "./src/common/helpers/path";
 import {
   getKifuList,
   getBookList,
@@ -367,7 +368,48 @@ app.get("/api/kifu/list", async (req, res) => {
     clearKifuListCache();
   }
   const list = await getKifuList(KIFU_DIR);
-  res.json(list);
+
+  const dirParam = req.query.dir as string | undefined;
+  if (
+    dirParam &&
+    normalizePath(dirParam)
+      .split("/")
+      .some((s) => s === "..")
+  ) {
+    sendError(res, 400, "invalid dir");
+    return;
+  }
+  const entriesMap = new Map<string, { name: string; path: string; isDirectory: boolean }>();
+  const currentDirNormalized = dirParam ? normalizePath(dirParam) : "";
+  const prefix = currentDirNormalized ? currentDirNormalized + "/" : "";
+  const prefixLower = prefix.toLowerCase();
+
+  list.forEach((file) => {
+    const fileNormalized = normalizePath(file);
+    if (fileNormalized.toLowerCase().startsWith(prefixLower)) {
+      const relative = fileNormalized.substring(prefix.length);
+      const parts = relative.split("/");
+      if (parts.length > 1) {
+        const dirName = parts[0];
+        const dirPath = prefix + dirName;
+        if (!entriesMap.has(dirName)) {
+          entriesMap.set(dirName, { name: dirName, path: dirPath, isDirectory: true });
+        }
+      } else if (parts.length === 1 && parts[0] !== "") {
+        const fileName = parts[0];
+        entriesMap.set(fileName, { name: fileName, path: fileNormalized, isDirectory: false });
+      }
+    }
+  });
+
+  const responseList = Array.from(entriesMap.values()).sort((a, b) => {
+    if (a.isDirectory !== b.isDirectory) {
+      return a.isDirectory ? -1 : 1;
+    }
+    return a.name.localeCompare(b.name);
+  });
+
+  res.json(responseList);
 });
 
 app.get("/api/kifu/search", async (req, res) => {

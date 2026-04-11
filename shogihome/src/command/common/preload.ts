@@ -29,7 +29,7 @@ import { LogLevel, LogType } from "@/common/log.js";
 import { USIEngine } from "@/common/settings/usi.js";
 import { Bridge } from "@/renderer/ipc/bridge.js";
 import { BookLoadingMode } from "@/common/book.js";
-import { KifuSearchResult } from "@/common/file/record.js";
+import { KifuSearchResult, KifuListEntry } from "@/common/file/record.js";
 import { Language, setLanguage } from "@/common/i18n/index.js";
 
 const bridge: Bridge = {
@@ -397,7 +397,7 @@ const bridge: Bridge = {
   async isServerKifuEnabled(): Promise<boolean> {
     return false;
   },
-  async listServerKifu(): Promise<string[]> {
+  async listServerKifu(): Promise<KifuListEntry[]> {
     throw new Error("This feature is not available on command line tool");
   },
   async searchServerKifu(): Promise<KifuSearchResult[]> {

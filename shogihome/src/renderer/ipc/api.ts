@@ -17,6 +17,7 @@ import {
   InitialRecordFileRequest,
   RecordFileFormat,
   KifuSearchResult,
+  KifuListEntry,
 } from "@/common/file/record.js";
 import { VersionStatus } from "@/common/version.js";
 import { SessionStates } from "@/common/advanced/monitor.js";
@@ -152,7 +153,7 @@ export interface API {
 
   // Server Kifu (LAN only)
   isServerKifuEnabled(): Promise<boolean>;
-  listServerKifu(reload?: boolean): Promise<string[]>;
+  listServerKifu(dir?: string, reload?: boolean): Promise<KifuListEntry[]>;
   searchServerKifu(params: {
     sfen?: string;
     keyword?: string;
@@ -360,8 +361,8 @@ const api: API = {
   async isServerKifuEnabled(): Promise<boolean> {
     return await bridge.isServerKifuEnabled();
   },
-  async listServerKifu(reload?: boolean): Promise<string[]> {
-    return await bridge.listServerKifu(reload);
+  async listServerKifu(dir?: string, reload?: boolean): Promise<KifuListEntry[]> {
+    return await bridge.listServerKifu(dir, reload);
   },
   async searchServerKifu(params: {
     sfen?: string;

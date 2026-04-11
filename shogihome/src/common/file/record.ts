@@ -152,3 +152,9 @@ export interface KifuSearchResult {
   matched_ply?: number;
   matched_sfen?: string;
 }
+
+export interface KifuListEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+}

@@ -99,4 +99,18 @@ describe("background/kifu_index/sync", () => {
     expect(indexedAt3).toBeGreaterThan(indexedAt1); // Should have been re-indexed
     expect(getKifuFileByPath(kifPath)?.black_name).toBe("C");
   });
+
+  it("should sync many files without blocking (non-blocking loop check)", async () => {
+    // Create 110 dummy files to exceed the 100-item yield threshold
+    for (let i = 0; i < 110; i++) {
+      fs.writeFileSync(path.join(tempDir, `test_${i}.kif`), `手数----指手----\n1 ７六歩(77)\n`);
+    }
+
+    await syncKifuDirectory(tempDir);
+
+    expect(getKifuCount()).toBe(110);
+    const status = getSyncStatus();
+    expect(status.total).toBe(110);
+    expect(status.indexed).toBe(110);
+  });
 });

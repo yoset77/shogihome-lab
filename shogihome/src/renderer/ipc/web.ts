@@ -18,7 +18,7 @@ import { SessionStates } from "@/common/advanced/monitor.js";
 import { emptyLayoutProfileList } from "@/common/settings/layout.js";
 import * as uri from "@/common/uri.js";
 import { normalizePath } from "@/common/helpers/path.js";
-import { KifuSearchResult } from "@/common/file/record.js";
+import { KifuSearchResult, KifuListEntry } from "@/common/file/record.js";
 import { convert } from "encoding-japanese";
 
 enum STORAGE_KEY {
@@ -746,8 +746,15 @@ export const webAPI: Bridge = {
       return false;
     }
   },
-  async listServerKifu(reload?: boolean): Promise<string[]> {
-    const response = await fetchWithTimeout(`/api/kifu/list${reload ? "?reload=true" : ""}`);
+  async listServerKifu(dir?: string, reload?: boolean): Promise<KifuListEntry[]> {
+    const url = new URL("/api/kifu/list", location.href);
+    if (dir) {
+      url.searchParams.set("dir", dir);
+    }
+    if (reload) {
+      url.searchParams.set("reload", "true");
+    }
+    const response = await fetchWithTimeout(url.toString());
     if (!response.ok) {
       throw new Error(await response.text());
     }
