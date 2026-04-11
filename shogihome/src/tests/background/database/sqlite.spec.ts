@@ -21,7 +21,7 @@ describe("background/database/sqlite", () => {
     if (fs.existsSync(testDataDir)) {
       try {
         fs.rmSync(testDataDir, { recursive: true, force: true });
-      } catch (e) {
+      } catch {
         // ignore
       }
     }
@@ -33,7 +33,7 @@ describe("background/database/sqlite", () => {
     if (fs.existsSync(testDataDir)) {
       try {
         fs.rmSync(testDataDir, { recursive: true, force: true });
-      } catch (e) {
+      } catch {
         // Windows file locking might still cause issues occasionally, safe to ignore during teardown
       }
     }

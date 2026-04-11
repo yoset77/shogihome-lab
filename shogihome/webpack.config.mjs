@@ -1,7 +1,7 @@
-const TerserPlugin = require("terser-webpack-plugin");
-const webpack = require("webpack");
-const customPlugins = require("./plugins/webpack");
-const path = require("path");
+import TerserPlugin from "terser-webpack-plugin";
+import webpack from "webpack";
+import { AddExecPermission } from "./plugins/webpack.mjs";
+import path from "node:path";
 
 const optimization = {
   minimize: true,
@@ -28,7 +28,7 @@ const moduleForCJS = {
 
 const resolveForCJS = {
   alias: {
-    "@": path.resolve(__dirname, "src"),
+    "@": path.resolve(import.meta.dirname, "src"),
   },
   extensions: [".ts", ".js"],
   extensionAlias: {
@@ -36,7 +36,7 @@ const resolveForCJS = {
   },
 };
 
-module.exports = [
+export default [
   {
     name: "server",
     mode: "production",
@@ -44,16 +44,16 @@ module.exports = [
     target: "node",
     output: {
       filename: "server.js",
-      path: __dirname + "/dist/server",
+      path: path.join(import.meta.dirname, "dist", "server"),
       libraryTarget: "commonjs",
     },
     module: moduleForCJS,
     resolve: resolveForCJS,
     optimization,
     ignoreWarnings: [
-      { module: /node_modules[\\/\\\\]express[\\/\\\\]lib[\\/\\\\]view\.js/ },
-      { module: /node_modules[\\/\\\\]log4js[\\/\\\\]lib[\\/\\\\]appenders[\\/\\\\]index\.js/ },
-      { module: /node_modules[\\/\\\\]ws[\\/\\\\]lib[\\/\\\\](buffer-util|validation)\.js/ },
+      { module: /node_modules[\\/\\\\]express[\\/\\\\]view\.js/ },
+      { module: /node_modules[\\/\\\\]log4js[\\/\\\\]appenders[\\/\\\\]index\.js/ },
+      { module: /node_modules[\\/\\\\]ws[\\/\\\\](buffer-util|validation)\.js/ },
     ],
   },
   {
@@ -63,7 +63,7 @@ module.exports = [
     target: "node",
     output: {
       filename: "index.js",
-      path: __dirname + "/dist/command/usi-csa-bridge",
+      path: path.join(import.meta.dirname, "dist", "command", "usi-csa-bridge"),
       libraryTarget: "commonjs2",
     },
     module: moduleForCJS,
@@ -76,7 +76,7 @@ module.exports = [
         resource.request = newResource;
       }),
       new webpack.BannerPlugin({ banner: "#!/usr/bin/env node", raw: true }),
-      customPlugins.AddExecPermission,
+      AddExecPermission,
     ],
   },
 ];

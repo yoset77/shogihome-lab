@@ -52,7 +52,7 @@ function execute(command, options = {}) {
   try {
     execSync(command, { stdio: "inherit", ...options });
     return true;
-  } catch (err) {
+  } catch {
     return false;
   }
 }

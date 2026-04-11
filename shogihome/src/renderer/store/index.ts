@@ -1580,7 +1580,7 @@ class Store {
     try {
       await navigator.clipboard.writeText(text);
       useMessageStore().enqueue({ text: "クリップボードにコピーしました。" }); // TODO: i18n
-    } catch (e) {
+    } catch {
       // クリップボードへのアクセスに失敗した場合 (HTTP環境など)
       // Web Share API によるテキスト共有を試みる
       if (navigator.share) {

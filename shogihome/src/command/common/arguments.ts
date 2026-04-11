@@ -172,12 +172,10 @@ export class ArgumentsParser {
   }
 
   showHelp(): void {
-    // eslint-disable-next-line no-console
     console.log(this.help);
   }
 
   private onError(message: string): void {
-    // eslint-disable-next-line no-console
     console.error(message);
     process.exit(1);
   }

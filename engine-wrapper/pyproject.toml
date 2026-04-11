@@ -10,6 +10,7 @@ dependencies = [
     "pillow>=12.1.0",
     "pystray>=0.19.5",
     "python-dotenv>=1.0.1",
+    "pythonnet>=3.0.0",
     "pywebview>=6.1",
     "qrcode>=8.2",
 ]

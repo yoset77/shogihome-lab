@@ -1,4 +1,4 @@
-/* eslint-disable no-console,no-restricted-imports */
+/* eslint-disable no-restricted-imports */
 import fs from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { Releases } from "../src/common/version";

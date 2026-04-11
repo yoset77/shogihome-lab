@@ -133,7 +133,7 @@ export class LanPlayer implements Player {
               this.lanEngine.removeMessageListener(readyListener);
               reject(new Error(data.error));
             }
-          } catch (e) {
+          } catch {
             // ignore
           }
           return false;
@@ -455,7 +455,7 @@ export class LanPlayer implements Player {
           this.rejectStopPromise(new Error("Engine stopped"));
         }
       }
-    } catch (e) {
+    } catch {
       // Ignore non-JSON messages or parse errors
     }
   }

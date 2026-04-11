@@ -7,7 +7,7 @@ export function killTree(proc: ChildProcess): void {
     } else {
       try {
         process.kill(-proc.pid, "SIGKILL");
-      } catch (e) {
+      } catch {
         // ignore
       }
     }
