@@ -1,14 +1,20 @@
 import fs, { ReadStream } from "node:fs";
 import path from "node:path";
-import { BookImportSummary, BookLoadingOptions, BookMove } from "@/common/book.js";
+import {
+  BookImportSummary,
+  BookLoadingOptions,
+  BookMove as CommonBookMove,
+} from "@/common/book.js";
 import { getAppLogger } from "@/background/log.js";
 import {
   arrayMoveToCommonBookMove,
   Book,
   BookEntry,
   BookFormat,
+  BookMove as InternalBookMove,
   commonBookMoveToArray,
   IDX_COUNT,
+  IDX_SCORE,
   IDX_USI,
   mergeBookEntries,
 } from "./types.js";
@@ -86,14 +92,6 @@ async function retrieveMergedEntry(book: BookHandle, sfen: string): Promise<Book
 }
 
 // メモリ上のエントリーを取得する。返されたエントリーを更新した場合に book に反映されることを保証する。
-function retrieveEntry(book: BookHandle, sfen: string): BookEntry | undefined {
-  switch (book.format) {
-    case "yane2016":
-      return book.entries.get(sfen);
-    case "apery":
-      return book.entries.get(aperyHash(sfen));
-  }
-}
 
 function storeEntry(book: BookHandle, sfen: string, entry: BookEntry): void {
   switch (book.format) {
@@ -327,13 +325,13 @@ export function clearBook(session: number): void {
   bookFiles.set(session, emptyBook());
 }
 
-export async function searchBookMoves(session: number, sfen: string): Promise<BookMove[]> {
+export async function searchBookMoves(session: number, sfen: string): Promise<CommonBookMove[]> {
   const book = getBook(session);
   const entry = await retrieveMergedEntry(book, sfen);
   return entry ? entry.moves.map(arrayMoveToCommonBookMove) : [];
 }
 
-function updateBookEntry(entry: BookEntry, move: BookMove): void {
+function updateBookEntry(entry: BookEntry, move: CommonBookMove): void {
   for (let i = 0; i < entry.moves.length; i++) {
     if (entry.moves[i][IDX_USI] === move.usi) {
       entry.moves[i] = commonBookMoveToArray(move);
@@ -343,7 +341,7 @@ function updateBookEntry(entry: BookEntry, move: BookMove): void {
   entry.moves.push(commonBookMoveToArray(move));
 }
 
-export async function updateBookMove(session: number, sfen: string, move: BookMove) {
+export async function updateBookMove(session: number, sfen: string, move: CommonBookMove) {
   const book = getBook(session);
   if (book.busy) {
     throw new Error(t.processingPleaseWait);
@@ -420,46 +418,6 @@ export async function updateBookMoveOrder(
   entry.moves = entry.moves.filter((move) => move[IDX_USI] !== usi);
   entry.moves.splice(order, 0, move);
   storeEntry(book, sfen, entry);
-}
-
-function updateBookMovePatch(book: BookHandle, sfen: string, move: BookMove) {
-  let entry = retrieveEntry(book, sfen);
-  if (book.format === "yane2016") {
-    if (entry) {
-      updateBookEntry(entry, move);
-    } else {
-      entry = {
-        type: book.type === "in-memory" ? "normal" : "patch",
-        comment: "",
-        moves: [commonBookMoveToArray(move)],
-        minPly: 0,
-      };
-      book.entries.set(sfen, entry);
-    }
-  } else {
-    const sanitizedMove = {
-      score: 0, // required for Apery book
-      count: 0, // required for Apery book
-      ...move,
-      comment: "", // not supported
-    };
-    delete sanitizedMove.usi2; // not supported
-    delete sanitizedMove.depth; // not supported
-    const hash = aperyHash(sfen);
-    if (entry) {
-      updateBookEntry(entry, sanitizedMove);
-    } else {
-      entry = {
-        type: book.type === "in-memory" ? "normal" : "patch",
-        comment: "",
-        moves: [commonBookMoveToArray(sanitizedMove)],
-        minPly: 0,
-      };
-      book.entries.set(hash, entry);
-    }
-  }
-  entry.moves.sort((a, b) => (b[IDX_COUNT] || 0) - (a[IDX_COUNT] || 0));
-  book.saved = false;
 }
 
 export async function importBookMoves(
@@ -696,22 +654,38 @@ export async function importBookMoves(
     let entryCount = 0;
     let duplicateCount = 0;
     for (const [sfen, movesMap] of pendingMoves.entries()) {
-      const entry = entriesMap.get(sfen);
-      const bookMoves = entry?.moves || [];
-      const moves = bookMoves.map(arrayMoveToCommonBookMove);
+      const entry = entriesMap.get(sfen) || {
+        type: book.type === "in-memory" ? "normal" : "patch",
+        comment: "",
+        moves: [],
+        minPly: 0,
+      };
+
+      const currentMovesMap = new Map<string, InternalBookMove>();
+      for (const move of entry.moves) {
+        currentMovesMap.set(move[IDX_USI], move);
+      }
 
       for (const [usi, count] of movesMap.entries()) {
-        const existing = moves.find((m) => m.usi === usi);
+        const existing = currentMovesMap.get(usi);
         if (existing) {
           duplicateCount += count;
+          existing[IDX_COUNT] = (existing[IDX_COUNT] || 0) + count;
         } else {
           entryCount++;
           duplicateCount += count - 1;
+          const newMove = commonBookMoveToArray({ usi, comment: "", count });
+          if (book.format === "apery") {
+            newMove[IDX_SCORE] = 0;
+            // usi2, depth, and comment are already undefined/empty in newMove
+          }
+          currentMovesMap.set(usi, newMove);
         }
-        const bookMove = existing || { usi, comment: "" };
-        bookMove.count = (bookMove.count || 0) + count;
-        updateBookMovePatch(book, sfen, bookMove);
       }
+
+      entry.moves = Array.from(currentMovesMap.values());
+      entry.moves.sort((a, b) => (b[IDX_COUNT] || 0) - (a[IDX_COUNT] || 0));
+      storeEntry(book, sfen, entry);
     }
 
     if (book.type === "in-memory") {

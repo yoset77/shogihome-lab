@@ -13,7 +13,7 @@ async function build() {
       outfile: path.join(projectRoot, "dist", "server", "server.js"),
       minify: true,
       format: "esm",
-      external: ["fsevents"], // Exclude platform-specific native modules  
+      external: ["fsevents"], // Exclude platform-specific native modules
       define: {
         "process.env.NODE_ENV": '"production"',
       },
