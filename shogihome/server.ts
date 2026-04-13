@@ -7,7 +7,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import readline from "readline";
 import events from "node:events";
-import dotenv from "dotenv";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
@@ -64,7 +63,10 @@ const getBasePath = () => {
   return path.dirname(__filename);
 };
 
-dotenv.config({ path: path.join(getBasePath(), ".env") });
+const envPath = path.join(getBasePath(), ".env");
+if (fs.existsSync(envPath)) {
+  process.loadEnvFile(envPath);
+}
 
 export const app = express();
 if (process.env.TRUST_PROXY === "true") {

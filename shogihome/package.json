@@ -55,7 +55,6 @@
     "chart.js": "^4.0.1",
     "chokidar": "^5.0.0",
     "dayjs": "^1.11.12",
-    "dotenv": "^17.2.2",
     "encoding-japanese": "^2.0.0",
     "escape-html": "^1.0.3",
     "express": "^5.0.1",
