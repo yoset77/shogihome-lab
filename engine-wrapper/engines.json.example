@@ -12,14 +12,33 @@
     }
   },
   {
-    "id": "fukauraou",
-    "name": "FukauraOu",
+    "id": "yaneuraou_1t",
+    "name": "YaneuraOu (1T)",
     "type": "both",
-    "path": "engines/fukauraou/yaneuraou-deep.exe",
+    "path": "/path/to/yaneuraou-executable",
+    "analysisDBGroupId": "yaneuraou_group",
+    "analysisDBGroupName": "YaneuraOu",
     "options": {
-      "DNN_Model1": "my_model.onnx",
-      "DNN_Batch_Size1": 256
+      "Threads": 1
     }
+  },
+  {
+    "id": "yaneuraou_8t",
+    "name": "YaneuraOu (8T)",
+    "type": "both",
+    "path": "/path/to/yaneuraou-executable",
+    "analysisDBGroupId": "yaneuraou_group",
+    "analysisDBGroupName": "YaneuraOu",
+    "options": {
+      "Threads": 8
+    }
+  },
+  {
+    "id": "test_engine",
+    "name": "Test Engine",
+    "type": "research",
+    "path": "/path/to/test-executable",
+    "skipAnalysisDB": true
   },
   {
     "id": "suisho",

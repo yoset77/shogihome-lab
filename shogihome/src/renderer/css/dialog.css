@@ -148,6 +148,14 @@ dialog.message-box .message-area {
   align-items: center;
 }
 
+dialog.message-box .message {
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-width: 600px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
 dialog.message-box .icon {
   margin-right: 15px;
 }

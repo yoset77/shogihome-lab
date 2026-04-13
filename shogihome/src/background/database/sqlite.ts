@@ -418,3 +418,123 @@ export function* exportAnalysisResultsByEngine(engineId: number): Generator<stri
     yield `${usi} ${usi2} ${scoreText} ${row.depth} \n`;
   }
 }
+
+export interface MigrationSummary {
+  sourceEngineKey: string;
+  sourceEngineName: string;
+  targetEngineKey: string;
+  targetEngineName: string;
+  recordCount: number;
+}
+
+export function getMigrationSummary(
+  mapping: Map<string, string>,
+  nameMapping: Map<string, string>,
+): MigrationSummary[] {
+  if (!db) return [];
+  const results: MigrationSummary[] = [];
+  try {
+    const stmt = db.prepare(`
+      SELECT
+        e.engine_key,
+        e.name,
+        COUNT(r.position_id) as record_count
+      FROM engines e
+      JOIN analysis_results r ON e.id = r.engine_id
+      GROUP BY e.id
+    `);
+
+    const stats = stmt.all() as { engine_key: string; name: string; record_count: number }[];
+    for (const stat of stats) {
+      const targetKey = mapping.get(stat.engine_key);
+      if (targetKey && targetKey !== stat.engine_key) {
+        results.push({
+          sourceEngineKey: stat.engine_key,
+          sourceEngineName: stat.name,
+          targetEngineKey: targetKey,
+          targetEngineName: nameMapping.get(targetKey) || "Target Group",
+          recordCount: stat.record_count,
+        });
+      }
+    }
+  } catch (e) {
+    console.error("Failed to get migration summary:", e);
+  }
+  return results;
+}
+
+export function executeMigration(mapping: Map<string, string>, nameMapping: Map<string, string>) {
+  if (!db) return;
+  try {
+    db.exec("BEGIN IMMEDIATE");
+
+    const getEngineIdStmt = db.prepare("SELECT id FROM engines WHERE engine_key = ?");
+    const insertEngineIgnoreStmt = db.prepare(
+      "INSERT OR IGNORE INTO engines (engine_key, name) VALUES (?, ?)",
+    );
+    const updateEngineNameStmt = db.prepare("UPDATE engines SET name = ? WHERE id = ?");
+    const migrateStmt = db.prepare(`
+      INSERT INTO analysis_results (
+        position_id, engine_id, multipv, depth, seldepth, nodes, score_cp, score_mate, pv, updated_at
+      )
+      SELECT
+        position_id, ?, multipv, depth, seldepth, nodes, score_cp, score_mate, pv, updated_at
+      FROM analysis_results
+      WHERE engine_id = ?
+      ON CONFLICT(position_id, engine_id, multipv) DO UPDATE SET
+        depth = excluded.depth,
+        seldepth = excluded.seldepth,
+        nodes = excluded.nodes,
+        score_cp = excluded.score_cp,
+        score_mate = excluded.score_mate,
+        pv = excluded.pv,
+        updated_at = excluded.updated_at
+      WHERE excluded.depth > analysis_results.depth
+    `);
+    const deleteSourceStmt = db.prepare("DELETE FROM analysis_results WHERE engine_id = ?");
+
+    for (const [sourceKey, targetKey] of mapping.entries()) {
+      if (sourceKey === targetKey) continue;
+
+      // 1. 移行元が存在するか確認
+      const sourceRow = getEngineIdStmt.get(sourceKey) as { id: number } | undefined;
+      if (!sourceRow) continue;
+      const sourceId = sourceRow.id;
+
+      // 2. 移行先エンジンレコードを確保
+      const targetName = nameMapping.get(targetKey) || targetKey;
+      insertEngineIgnoreStmt.run(targetKey, targetName);
+      const targetRow = getEngineIdStmt.get(targetKey) as { id: number };
+      const targetId = targetRow.id;
+
+      // 3. 移行先エンジン名がデフォルトなら更新
+      updateEngineNameStmt.run(targetName, targetId);
+
+      // 4. データの移行 (衝突時は depth が大きい方を残す)
+      migrateStmt.run(targetId, sourceId);
+
+      // 5. 移行元データの削除
+      deleteSourceStmt.run(sourceId);
+    }
+
+    // 6. 参照されなくなったエンジンと局面のクリーンアップ
+    db.exec(`
+      DELETE FROM engines
+      WHERE NOT EXISTS (SELECT 1 FROM analysis_results WHERE analysis_results.engine_id = engines.id)
+    `);
+    db.exec(`
+      DELETE FROM positions
+      WHERE NOT EXISTS (SELECT 1 FROM analysis_results WHERE analysis_results.position_id = positions.id)
+    `);
+
+    db.exec("COMMIT");
+  } catch (e) {
+    try {
+      db?.exec("ROLLBACK");
+    } catch {
+      /* ignore */
+    }
+    console.error("Failed to execute migration:", e);
+    throw e;
+  }
+}

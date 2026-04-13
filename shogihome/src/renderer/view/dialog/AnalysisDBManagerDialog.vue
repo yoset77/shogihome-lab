@@ -24,7 +24,9 @@
             </thead>
             <tbody>
               <tr v-for="stat in stats" :key="stat.id">
-                <td class="engine-name" :title="stat.name">{{ stat.name }}</td>
+                <td class="engine-name">
+                  <div class="name-text" :title="stat.name">{{ stat.name }}</div>
+                </td>
                 <td class="number">{{ stat.record_count.toLocaleString() }}</td>
                 <td class="number">{{ stat.min_depth }}</td>
                 <td class="number">{{ stat.max_depth }}</td>
@@ -47,7 +49,7 @@
         <!-- Mobile Card Layout -->
         <div v-if="stats.length > 0" class="list-container mobile-only">
           <div v-for="stat in stats" :key="stat.id" class="stat-card column">
-            <div class="stat-header row center">
+            <div class="stat-header column">
               <div class="engine-name" :title="stat.name">{{ stat.name }}</div>
             </div>
             <div class="stat-body row">
@@ -81,7 +83,12 @@
         </div>
       </div>
 
-      <hr />
+      <!-- Integration Section -->
+      <div class="integration-area row center">
+        <button class="migrate-button" @click="migrate">
+          <span>{{ t.integrateDataBasedOnSettings }}</span>
+        </button>
+      </div>
 
       <!-- Cleanup Section -->
       <div class="cleanup-area row center">
@@ -91,6 +98,8 @@
           <Icon :icon="IconType.TRASH" />
         </button>
       </div>
+
+      <hr />
 
       <div class="main-buttons">
         <button class="close-button" autofocus @click="onClose">
@@ -112,6 +121,7 @@ import { useBusyState } from "@/renderer/store/busy";
 import { useMessageStore } from "@/renderer/store/message";
 import { useConfirmationStore } from "@/renderer/store/confirm";
 import { useErrorStore } from "@/renderer/store/error";
+import { useLanStore } from "@/renderer/store/lan";
 
 interface DBEngineStats {
   id: number;
@@ -226,6 +236,64 @@ const cleanup = () => {
     },
   });
 };
+
+interface MigrationSummary {
+  sourceEngineKey: string;
+  sourceEngineName: string;
+  targetEngineKey: string;
+  targetEngineName: string;
+  recordCount: number;
+}
+
+const migrate = async () => {
+  useBusyState().retain();
+  try {
+    await useLanStore().fetchEngineList(true);
+    const dryRunResponse = await fetch("/api/analysis/migrate/dry-run");
+    if (!dryRunResponse.ok) {
+      throw new Error(`Failed to dry-run migration: ${await dryRunResponse.text()}`);
+    }
+    const summary = (await dryRunResponse.json()) as MigrationSummary[];
+    useBusyState().release();
+
+    if (summary.length === 0) {
+      useMessageStore().enqueue({ text: t.noDataToIntegrate });
+      return;
+    }
+
+    const lines = summary.map((s) =>
+      t.nRecordsOfEngineWillBeIntegratedToGroup(
+        s.sourceEngineName,
+        s.recordCount,
+        s.targetEngineName,
+      ),
+    );
+    const message = lines.join("\n") + "\n\n" + t.areYouSureWantToIntegrateData;
+
+    useConfirmationStore().show({
+      message,
+      onOk: async () => {
+        useBusyState().retain();
+        try {
+          const response = await fetch("/api/analysis/migrate/execute", { method: "POST" });
+          if (response.ok) {
+            await fetchStats();
+            useMessageStore().enqueue({ text: t.dataIntegrationCompleted });
+          } else {
+            useErrorStore().add(new Error(`Failed to migrate data: ${await response.text()}`));
+          }
+        } catch (e) {
+          useErrorStore().add(e);
+        } finally {
+          useBusyState().release();
+        }
+      },
+    });
+  } catch (e) {
+    useErrorStore().add(e);
+    useBusyState().release();
+  }
+};
 </script>
 
 <style scoped>
@@ -299,6 +367,9 @@ const cleanup = () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.stats-table td.engine-name .name-text {
+  font-weight: bold;
 }
 .stats-table td.date {
   font-size: 0.8rem;
@@ -395,19 +466,32 @@ const cleanup = () => {
 }
 
 /* Cleanup & Footer */
+.integration-area {
+  padding: 16px 0 8px 0;
+}
+.migrate-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 16px;
+}
 .cleanup-area {
-  padding: 16px 0;
+  padding: 8px 0 16px 0;
   gap: 12px;
   flex-wrap: wrap;
 }
 .depth-input {
   width: 60px;
+  height: 24px;
+  box-sizing: border-box;
 }
 .cleanup-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 4px 8px;
+  padding: 2px 8px;
+  height: 24px;
+  box-sizing: border-box;
 }
 .main-buttons {
   margin-top: 16px;
