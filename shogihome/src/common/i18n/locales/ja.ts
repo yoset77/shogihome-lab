@@ -321,6 +321,14 @@ export const ja: Texts = {
   minDepth: "最小深さ",
   maxDepth: "最大深さ",
   lastUpdated: "最終更新日",
+  integrateDataBasedOnSettings: "設定に基づきデータを統合",
+  dataIntegration: "データの統合",
+  nRecordsOfEngineWillBeIntegratedToGroup(name: string, count: number, group: string) {
+    return `エンジン「${name}」の解析結果 ${count.toLocaleString()} 件をグループ「${group}」に統合します。`;
+  },
+  areYouSureWantToIntegrateData: "これらのデータを統合しますか？この操作は元に戻せません。",
+  noDataToIntegrate: "統合できるデータはありません。",
+  dataIntegrationCompleted: "データの統合が完了しました。",
   confirmDeleteEngineData: "このエンジンの解析結果をすべて削除しますか？",
   confirmCleanupData: "指定された深さ未満の解析結果をすべて削除しますか？",
   noDataInAnalysisDB: "この局面の検討結果はDBに登録されていません。",

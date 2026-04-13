@@ -318,6 +318,15 @@ export const zh_tw: Texts = {
   minDepth: "最小深度",
   maxDepth: "最大深度",
   lastUpdated: "最後更新時間",
+  integrateDataBasedOnSettings: "Integrate Data based on Settings",
+  dataIntegration: "Data Integration",
+  nRecordsOfEngineWillBeIntegratedToGroup(name: string, count: number, group: string) {
+    return `${count.toLocaleString()} records of engine "${name}" will be integrated to group "${group}".`;
+  },
+  areYouSureWantToIntegrateData:
+    "Are you sure you want to integrate these data? This operation cannot be undone.",
+  noDataToIntegrate: "No data to integrate.",
+  dataIntegrationCompleted: "Data integration completed.",
   confirmDeleteEngineData: "您確定要刪除此引擎的所有分析結果嗎？",
   confirmCleanupData: "您確定要刪除所有深度小於指定值的分析結果嗎？",
   noDataInAnalysisDB: "資料庫中沒有此局面的資料。",

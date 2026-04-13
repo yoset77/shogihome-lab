@@ -10,9 +10,9 @@ lanDiscoveryEngine.subscribeStatus((newStatus) => {
 });
 
 export function useLanStore() {
-  const fetchEngineList = async () => {
+  const fetchEngineList = async (force = false) => {
     try {
-      engineList.value = await lanDiscoveryEngine.getEngineList(false);
+      engineList.value = await lanDiscoveryEngine.getEngineList(force);
       error.value = null;
     } catch (e) {
       console.error("Failed to fetch engine list:", e);

@@ -21,6 +21,8 @@ const sqliteMock = vi.hoisted(() => ({
   exportAnalysisResultsByEngine: vi.fn(function* () {
     yield "#YANEURAOU-DB2016 1.00\n";
   }),
+  getMigrationSummary: vi.fn(() => [] as unknown[]),
+  executeMigration: vi.fn(),
 }));
 
 vi.mock("@/background/database/sqlite.js", () => sqliteMock);
@@ -187,5 +189,69 @@ describe("Analysis DB API error handling", () => {
     expect(response.status).toBe(200);
     expect(response.text).toBe("ok");
     expect(sqliteMock.exportAnalysisResultsByEngine).toHaveBeenCalledWith(1);
+  });
+
+  it("should return migration dry-run summary", async () => {
+    sqliteMock.getMigrationSummary.mockReturnValue([
+      {
+        sourceEngineKey: "e1",
+        sourceEngineName: "E1",
+        targetEngineKey: "g1",
+        targetEngineName: "G1",
+        recordCount: 10,
+      },
+    ]);
+
+    const response = await request(app)
+      .get("/api/analysis/migrate/dry-run")
+      .set("Host", `localhost:${SERVER_PORT}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual([
+      {
+        sourceEngineKey: "e1",
+        sourceEngineName: "E1",
+        targetEngineKey: "g1",
+        targetEngineName: "G1",
+        recordCount: 10,
+      },
+    ]);
+    expect(sqliteMock.getMigrationSummary).toHaveBeenCalledWith(expect.any(Map), expect.any(Map));
+  });
+
+  it("should return 500 when migration dry-run fails", async () => {
+    sqliteMock.getMigrationSummary.mockImplementation(() => {
+      throw new Error("dry-run failure");
+    });
+
+    const response = await request(app)
+      .get("/api/analysis/migrate/dry-run")
+      .set("Host", `localhost:${SERVER_PORT}`);
+
+    expect(response.status).toBe(500);
+    expect(response.text).toContain("dry-run failure");
+  });
+
+  it("should execute migration", async () => {
+    const response = await request(app)
+      .post("/api/analysis/migrate/execute")
+      .set("Host", `localhost:${SERVER_PORT}`);
+
+    expect(response.status).toBe(200);
+    expect(response.text).toBe("ok");
+    expect(sqliteMock.executeMigration).toHaveBeenCalledWith(expect.any(Map), expect.any(Map));
+  });
+
+  it("should return 500 when migration execution fails", async () => {
+    sqliteMock.executeMigration.mockImplementation(() => {
+      throw new Error("execution failure");
+    });
+
+    const response = await request(app)
+      .post("/api/analysis/migrate/execute")
+      .set("Host", `localhost:${SERVER_PORT}`);
+
+    expect(response.status).toBe(500);
+    expect(response.text).toContain("Migration failed");
   });
 });

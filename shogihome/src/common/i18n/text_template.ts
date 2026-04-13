@@ -318,6 +318,12 @@ export type Texts = {
   minDepth: string;
   maxDepth: string;
   lastUpdated: string;
+  integrateDataBasedOnSettings: string;
+  dataIntegration: string;
+  nRecordsOfEngineWillBeIntegratedToGroup: (name: string, count: number, group: string) => string;
+  areYouSureWantToIntegrateData: string;
+  noDataToIntegrate: string;
+  dataIntegrationCompleted: string;
   confirmDeleteEngineData: string;
   confirmCleanupData: string;
   noDataInAnalysisDB: string;

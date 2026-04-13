@@ -50,6 +50,8 @@ import {
   cleanupAnalysisResults,
   deleteAnalysisResult,
   exportAnalysisResultsByEngine,
+  getMigrationSummary,
+  executeMigration,
 } from "./src/background/database/sqlite";
 import { parseInfoCommand, USIInfoCommand } from "./src/common/game/usi";
 
@@ -201,7 +203,16 @@ const ANALYSIS_DB_MIN_DEPTH = (() => {
 
 const SESSION_ID_HEADER_REGEX = /^[a-zA-Z0-9_-]{8,128}$/;
 
-const engineNameCache = new Map<string, string>();
+type EngineConfig = {
+  id: string;
+  name: string;
+  type?: string;
+  skipAnalysisDB?: boolean;
+  analysisDBGroupId?: string;
+  analysisDBGroupName?: string;
+};
+
+const engineConfigCache = new Map<string, EngineConfig>();
 
 class BookSessionManager {
   private sessions = new Map<string, number>();
@@ -603,6 +614,37 @@ app.post("/api/analysis/export", express.json(), async (req, res) => {
   res.send("ok");
 });
 
+app.get("/api/analysis/migrate/dry-run", async (req, res) => {
+  const keyMapping = new Map<string, string>();
+  const nameMapping = new Map<string, string>();
+  for (const config of engineConfigCache.values()) {
+    if (config.analysisDBGroupId) {
+      keyMapping.set(config.id, config.analysisDBGroupId);
+      nameMapping.set(config.analysisDBGroupId, config.analysisDBGroupName || config.name);
+    }
+  }
+  const summary = getMigrationSummary(keyMapping, nameMapping);
+  res.json(summary);
+});
+
+app.post("/api/analysis/migrate/execute", async (req, res) => {
+  const keyMapping = new Map<string, string>();
+  const nameMapping = new Map<string, string>();
+  for (const config of engineConfigCache.values()) {
+    if (config.analysisDBGroupId) {
+      keyMapping.set(config.id, config.analysisDBGroupId);
+      nameMapping.set(config.analysisDBGroupId, config.analysisDBGroupName || config.name);
+    }
+  }
+  try {
+    executeMigration(keyMapping, nameMapping);
+    res.send("ok");
+  } catch (e) {
+    console.error("Migration failed:", e);
+    res.status(500).send("Migration failed");
+  }
+});
+
 app.post("/api/history/add", express.json(), async (req, res) => {
   const { path } = req.body;
   if (typeof path !== "string" || !path) {
@@ -961,7 +1003,7 @@ async function authenticateSocket(
 
 class EngineSession {
   private currentEngineId: string | null = null;
-  private currentEngineDisplayName = "Unknown Engine";
+  private currentEngineConfig: EngineConfig | null = null;
   private engineHandle: EngineHandle | null = null;
   private connectingSocket: net.Socket | null = null;
   private engineState = EngineState.UNINITIALIZED;
@@ -1248,6 +1290,7 @@ class EngineSession {
       this.engineHandle = null;
     }
     this.currentEngineId = null;
+    this.currentEngineConfig = null;
     this.engineState = EngineState.STOPPED;
     this.commandQueue.length = 0;
     this.postStopCommandQueue.length = 0;
@@ -1289,7 +1332,12 @@ class EngineSession {
       this.sendToClient({ sfen: this.pendingGoSfen, info: line });
 
       if (line.startsWith("bestmove")) {
-        if (this.currentEngineId && this.pendingGoSfen && this.lastInfos.size > 0) {
+        if (
+          this.currentEngineConfig &&
+          !this.currentEngineConfig.skipAnalysisDB &&
+          this.pendingGoSfen &&
+          this.lastInfos.size > 0
+        ) {
           const validInfos = new Map<number, USIInfoCommand>();
           for (const [multipv, info] of this.lastInfos.entries()) {
             if (info.depth !== undefined && info.depth >= ANALYSIS_DB_MIN_DEPTH) {
@@ -1300,11 +1348,15 @@ class EngineSession {
           if (validInfos.size > 0) {
             const parsedSfen = getNormalizedSfenAndHash(this.pendingGoSfen);
             if (parsedSfen) {
+              const engineKey =
+                this.currentEngineConfig.analysisDBGroupId || this.currentEngineConfig.id;
+              const engineName =
+                this.currentEngineConfig.analysisDBGroupName || this.currentEngineConfig.name;
               saveAnalysisResults(
                 parsedSfen.hash,
                 parsedSfen.sfen,
-                this.currentEngineId,
-                this.currentEngineDisplayName,
+                engineKey,
+                engineName,
                 validInfos,
               );
             }
@@ -1393,7 +1445,7 @@ class EngineSession {
     }
     this.engineState = EngineState.STARTING;
     this.currentEngineId = engineId;
-    this.currentEngineDisplayName = engineNameCache.get(engineId) || engineId;
+    this.currentEngineConfig = engineConfigCache.get(engineId) || { id: engineId, name: engineId };
 
     console.log(`Connecting to remote engine at ${REMOTE_ENGINE_HOST}:${REMOTE_ENGINE_PORT}`);
     const socket = new net.Socket();
@@ -1714,9 +1766,17 @@ const getEngineList = (ws: WebSocket) => {
     try {
       const engines = JSON.parse(data.trim());
       if (Array.isArray(engines)) {
-        engines.forEach((e: { id?: string; name?: string }) => {
+        engineConfigCache.clear();
+        engines.forEach((e: EngineConfig) => {
           if (e.id && e.name) {
-            engineNameCache.set(e.id, e.name);
+            engineConfigCache.set(e.id, {
+              id: e.id,
+              name: e.name,
+              type: e.type,
+              skipAnalysisDB: e.skipAnalysisDB,
+              analysisDBGroupId: e.analysisDBGroupId,
+              analysisDBGroupName: e.analysisDBGroupName,
+            });
           }
         });
       }

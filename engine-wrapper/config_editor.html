@@ -206,7 +206,10 @@
     <div class="card" id="editorSection" style="display:none;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
             <h2>エンジン一覧</h2>
-            <button class="btn btn-primary" onclick="openEngineModal()">+ エンジン追加</button>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn btn-info" onclick="openGroupModal()">エンジングループ管理</button>
+                <button class="btn btn-primary" onclick="openEngineModal()">+ エンジン追加</button>
+            </div>
         </div>
         <div class="table-responsive">
             <table id="engineTable">
@@ -240,20 +243,39 @@
             <label>名前 (Name) <span style="color:red">*</span></label>
             <input type="text" id="editName" placeholder="例: YaneuraOu">
         </div>
-        <div class="form-group">
-            <label>ID (自動生成)</label>
+        <div class="form-group" style="display: none;">
+            <label>ID (自動生成) <span style="color:red">*</span></label>
             <div style="display: flex; gap: 5px;">
                 <input type="text" id="editId" readonly style="background-color: #e9ecef; color: #6c757d; font-family: monospace;">
                 <button class="btn" onclick="regenerateId()" title="IDを再生成">↺</button>
             </div>
         </div>
         <div class="form-group">
-            <label>種類 (Type)</label>
+            <label>種類 (Type) <span style="color:red">*</span></label>
             <select id="editType">
                 <option value="game">対局 (Game)</option>
                 <option value="research">検討 (Research)</option>
                 <option value="both" selected>両方 (Both)</option>
             </select>
+        </div>
+        <div class="form-group" style="display:flex; justify-content:space-between; align-items:center;">
+            <label style="margin-bottom:0;">読み筋をデータベースに保存</label>
+            <div class="opt-val-container" style="background: #fff; border: 1px solid var(--border); padding: 5px;">
+                <input type="checkbox" id="editSaveAnalysisDB" style="width: auto;" onchange="document.getElementById('editSaveAnalysisDBLabel').textContent = this.checked ? 'true' : 'false'">
+                <span class="bool-label" id="editSaveAnalysisDBLabel">true</span>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>所属エンジングループ</label>
+            <div style="display: flex; gap: 5px;">
+                <select id="editAnalysisDBGroupId" style="flex: 1;">
+                    <option value="">個別管理 (グループなし)</option>
+                </select>
+                <button class="btn btn-sm" onclick="addNewGroupFromEngineModal()" title="新規グループ作成" style="white-space: nowrap; padding: 0 10px;">＋ 新規作成</button>
+            </div>
+            <div class="hint">
+                同じグループに設定されたエンジンはデータベース上で単一のエンジンとして集約されます。
+            </div>
         </div>
         <div class="form-group">
             <label>実行ファイルのパス (Path) <span style="color:red">*</span></label>
@@ -296,6 +318,35 @@
     </div>
 </div>
 
+<!-- Group Management Modal -->
+<div id="groupModal" class="modal">
+    <div class="modal-content">
+        <h3>エンジングループ管理</h3>
+        <p class="hint">ここでは既存グループの名前を一括変更できます。エンジンへの割り当てはエンジン編集画面で行ってください。</p>
+        
+        <div style="text-align: right; margin-bottom: 10px;">
+            <button class="btn btn-sm btn-primary" onclick="addNewGroupFromGroupModal()">+ 新規グループ作成</button>
+        </div>
+        
+        <div class="table-responsive">
+            <table id="groupTable">
+                <thead>
+                    <tr>
+                        <th>グループ名</th>
+                        <th>所属エンジン数</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div class="modal-footer">
+            <button class="btn" onclick="closeGroupModal()">閉じる</button>
+        </div>
+    </div>
+</div>
+
 <!-- Toast Container -->
 <div id="toastContainer" class="toast-container"></div>
 
@@ -303,6 +354,159 @@
     let engines = [];
     let editingIndex = -1;
     let isAppMode = false;
+    let virtualGroups = []; // [{id, name}] - Temporary groups created during editing
+
+    function getUniqueGroups() {
+        const groups = new Map();
+        // Add existing groups from engines
+        engines.forEach(eng => {
+            if (eng.analysisDBGroupId && eng.analysisDBGroupName) {
+                groups.set(eng.analysisDBGroupId, eng.analysisDBGroupName);
+            }
+        });
+        // Add virtual groups that might not be assigned to any engine yet
+        virtualGroups.forEach(g => {
+            groups.set(g.id, g.name);
+        });
+        return Array.from(groups.entries()).map(([id, name]) => ({ id, name }));
+    }
+
+    function openGroupModal() {
+        renderGroupTable();
+        document.getElementById('groupModal').style.display = 'block';
+    }
+
+    function closeGroupModal() {
+        document.getElementById('groupModal').style.display = 'none';
+    }
+
+    function renderGroupTable() {
+        const groups = getUniqueGroups();
+        const tbody = document.querySelector('#groupTable tbody');
+        tbody.innerHTML = '';
+        groups.forEach(group => {
+            const count = engines.filter(e => e.analysisDBGroupId === group.id).length;
+            const tr = document.createElement('tr');
+            
+            const nameTd = document.createElement('td');
+            nameTd.textContent = group.name;
+            tr.appendChild(nameTd);
+            
+            const countTd = document.createElement('td');
+            countTd.textContent = count;
+            tr.appendChild(countTd);
+            
+            const actionTd = document.createElement('td');
+            const renameBtn = document.createElement('button');
+            renameBtn.className = 'btn btn-sm btn-primary';
+            renameBtn.textContent = 'リネーム';
+            renameBtn.style.marginRight = '5px';
+            renameBtn.addEventListener('click', () => renameGroup(group.id));
+            actionTd.appendChild(renameBtn);
+            
+            const delBtn = document.createElement('button');
+            delBtn.className = 'btn btn-sm btn-danger';
+            delBtn.textContent = '削除';
+            delBtn.addEventListener('click', () => deleteGroup(group.id));
+            actionTd.appendChild(delBtn);
+            
+            tr.appendChild(actionTd);
+            
+            tbody.appendChild(tr);
+        });
+    }
+
+    function renameGroup(groupId) {
+        const groups = getUniqueGroups();
+        const group = groups.find(g => g.id === groupId);
+        if (!group) return;
+        const newName = prompt('新しいグループ名を入力してください:', group.name);
+        if (newName === null) return;
+        const trimmed = newName.trim();
+        if (!trimmed) { showMessage('グループ名を入力してください', 'error'); return; }
+        
+        // Update all engines in this group
+        engines.forEach(eng => {
+            if (eng.analysisDBGroupId === groupId) {
+                eng.analysisDBGroupName = trimmed;
+            }
+        });
+        // Update virtual groups
+        virtualGroups.forEach(g => {
+            if (g.id === groupId) g.name = trimmed;
+        });
+        
+        renderGroupTable();
+        renderTable(); // Update main engine list
+        showMessage('グループ名を変更しました', 'success');
+    }
+
+    function deleteGroup(groupId) {
+        const groups = getUniqueGroups();
+        const group = groups.find(g => g.id === groupId);
+        if (!group) return;
+        
+        const count = engines.filter(e => e.analysisDBGroupId === groupId).length;
+        let msg = `グループ「${group.name}」を削除しますか？`;
+        if (count > 0) {
+            msg += `\n所属する ${count} 個のエンジンのグループ設定は解除されます。`;
+        }
+        
+        if (!confirm(msg)) return;
+        
+        // Clear group info from all engines in this group
+        engines.forEach(eng => {
+            if (eng.analysisDBGroupId === groupId) {
+                delete eng.analysisDBGroupId;
+                delete eng.analysisDBGroupName;
+            }
+        });
+        
+        // Remove from virtual groups
+        virtualGroups = virtualGroups.filter(g => g.id !== groupId);
+        
+        renderGroupTable();
+        renderTable();
+        showMessage('グループを削除しました', 'success');
+    }
+
+    function updateGroupSelect(selectedGroupId = '') {
+        const select = document.getElementById('editAnalysisDBGroupId');
+        const groups = getUniqueGroups();
+        
+        // Clear except first option
+        while (select.options.length > 1) { select.remove(1); }
+        
+        groups.forEach(group => {
+            const opt = document.createElement('option');
+            opt.value = group.id;
+            opt.textContent = group.name;
+            if (group.id === selectedGroupId) opt.selected = true;
+            select.appendChild(opt);
+        });
+    }
+
+    function addNewGroup() {
+        const name = prompt('新規グループ名を入力してください:');
+        if (name === null) return null;
+        const trimmed = name.trim();
+        if (!trimmed) { showMessage('名前を入力してください', 'error'); return null; }
+        const existing = getUniqueGroups().find(g => g.name === trimmed);
+        if (existing) { showMessage('既存のグループがあります'); return existing.id; }
+        const newId = generateId();
+        virtualGroups.push({ id: newId, name: trimmed });
+        showMessage('新しいグループを作成しました', 'success');
+        return newId;
+    }
+
+    function addNewGroupFromEngineModal() {
+        const id = addNewGroup();
+        if (id) updateGroupSelect(id);
+    }
+
+    function addNewGroupFromGroupModal() {
+        if (addNewGroup()) renderGroupTable();
+    }
 
     // --- Toast Notification ---
     function showMessage(text, type = 'info', duration = 3000) {
@@ -345,6 +549,7 @@
             if (data.error) throw new Error(data.error);
             isAppMode = true;
             engines = data.engines || [];
+            virtualGroups = [];
             const os = data.os;
             if (os && os !== 'nt') {
                 const browseBtn = document.getElementById('browseBtn');
@@ -392,6 +597,7 @@
             try {
                 engines = JSON.parse(e.target.result);
                 if (!Array.isArray(engines)) throw new Error('Root must be an array');
+                virtualGroups = [];
                 renderTable();
                 document.getElementById('editorSection').style.display = 'block';
                 showMessage('JSONを読み込みました', 'success');
@@ -403,6 +609,7 @@
     function startNew() {
         if (confirm('現在の編集内容を破棄して新規作成しますか？')) {
             engines = [];
+            virtualGroups = [];
             renderTable();
             document.getElementById('editorSection').style.display = 'block';
             fileInput.value = '';
@@ -445,8 +652,18 @@
             const isLast = idx === engines.length - 1;
             const upBtn = `<button class="btn btn-sm" onclick="moveEngine(${idx}, -1)" ${isFirst?'disabled':''} style="padding:2px 6px;">↑</button>`;
             const downBtn = `<button class="btn btn-sm" onclick="moveEngine(${idx}, 1)" ${isLast?'disabled':''} style="padding:2px 6px;">↓</button>`;
+            
+            let badges = '';
+            if (eng.skipAnalysisDB) {
+                badges += `<span style="font-size: 0.75rem; background: #dc3545; color: white; padding: 2px 4px; border-radius: 3px; margin-left: 5px;">No DB</span>`;
+            }
+            if (eng.analysisDBGroupId) {
+                const groupDisplayName = eng.analysisDBGroupName || eng.name;
+                badges += `<span style="font-size: 0.75rem; background: #6f42c1; color: white; padding: 2px 4px; border-radius: 3px; margin-left: 5px;">Group: ${escapeHtml(groupDisplayName)}</span>`;
+            }
+
             tr.innerHTML = `
-                <td>${escapeHtml(eng.name)}</td>
+                <td>${escapeHtml(eng.name)}${badges}</td>
                 <td>${escapeHtml(eng.type)}</td>
                 <td>
                     ${upBtn} ${downBtn}
@@ -477,6 +694,10 @@
             document.getElementById('editName').value = eng.name || '';
             document.getElementById('editId').value = eng.id || generateId();
             document.getElementById('editType').value = eng.type || 'game';
+            const saveAnalysisDB = !eng.skipAnalysisDB;
+            document.getElementById('editSaveAnalysisDB').checked = saveAnalysisDB;
+            document.getElementById('editSaveAnalysisDBLabel').textContent = saveAnalysisDB ? 'true' : 'false';
+            updateGroupSelect(eng.analysisDBGroupId || '');
             document.getElementById('editPath').value = eng.path || '';
             if (eng.options) {
                 Object.entries(eng.options).forEach(([k, v]) => {
@@ -492,6 +713,9 @@
             document.getElementById('editName').value = '';
             document.getElementById('editId').value = generateId();
             document.getElementById('editType').value = 'both';
+            document.getElementById('editSaveAnalysisDB').checked = true;
+            document.getElementById('editSaveAnalysisDBLabel').textContent = 'true';
+            updateGroupSelect('');
             document.getElementById('editPath').value = '';
         }
         modal.style.display = 'block';
@@ -694,7 +918,17 @@
         const id = document.getElementById('editId').value.trim();
         const path = document.getElementById('editPath').value.trim();
         const type = document.getElementById('editType').value;
+        const saveAnalysisDB = document.getElementById('editSaveAnalysisDB').checked;
+        const analysisDBGroupId = document.getElementById('editAnalysisDBGroupId').value;
+
         if (!name || !id || !path) { showMessage('名前、ID、パスは必須です。', 'error'); return; }
+
+        let analysisDBGroupName = '';
+        if (analysisDBGroupId) {
+            const group = getUniqueGroups().find(g => g.id === analysisDBGroupId);
+            if (group) analysisDBGroupName = group.name;
+        }
+
         const options = {};
         const errors = [];
         document.querySelectorAll('#optionsList .option-row').forEach(row => {
@@ -716,7 +950,12 @@
             options[key] = val;
         });
         if (errors.length > 0) { showMessage('入力エラー:\n' + errors.join('\n'), 'error', 5000); return; }
+        
         const newEngine = { id, name, type, path, options };
+        if (!saveAnalysisDB) newEngine.skipAnalysisDB = true;
+        if (analysisDBGroupId) newEngine.analysisDBGroupId = analysisDBGroupId;
+        if (analysisDBGroupName) newEngine.analysisDBGroupName = analysisDBGroupName;
+
         if (editingIndex >= 0) { engines[editingIndex] = newEngine; }
         else {
             if (engines.some(e => e.id === id)) { showMessage('このIDは既に使用されています: ' + id, 'error'); return; }
@@ -782,8 +1021,10 @@
     }
 
     window.onclick = function(event) {
-        const modal = document.getElementById('engineModal');
-        if (event.target == modal) { closeModal(); }
+        const engineModal = document.getElementById('engineModal');
+        const groupModal = document.getElementById('groupModal');
+        if (event.target == engineModal) { closeModal(); }
+        if (event.target == groupModal) { closeGroupModal(); }
     }
 </script>
 

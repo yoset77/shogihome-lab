@@ -322,6 +322,15 @@ export const en: Texts = {
   minDepth: "Min Depth",
   maxDepth: "Max Depth",
   lastUpdated: "Last Updated",
+  integrateDataBasedOnSettings: "Integrate Data based on Settings",
+  dataIntegration: "Data Integration",
+  nRecordsOfEngineWillBeIntegratedToGroup(name: string, count: number, group: string) {
+    return `${count.toLocaleString()} records of engine "${name}" will be integrated to group "${group}".`;
+  },
+  areYouSureWantToIntegrateData:
+    "Are you sure you want to integrate these data? This operation cannot be undone.",
+  noDataToIntegrate: "No data to integrate.",
+  dataIntegrationCompleted: "Data integration completed.",
   confirmDeleteEngineData: "Are you sure you want to delete all analysis results for this engine?",
   confirmCleanupData:
     "Are you sure you want to delete all analysis results with depth less than specified?",
