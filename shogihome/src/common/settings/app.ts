@@ -293,6 +293,7 @@ export type AppSettings = {
 
   // Mobile
   showBookTableOnMobile: boolean;
+  showSearchLogOnMobile: boolean;
   evaluationChartType: EvaluationChartType;
 
   // Analysis DB
@@ -442,6 +443,7 @@ export function defaultAppSettings(opt?: {
     lastOtherFilePath: "",
     emptyRecordInfoVisibility: true,
     showBookTableOnMobile: false,
+    showSearchLogOnMobile: false,
     evaluationChartType: EvaluationChartType.RAW,
     analysisDBSearchMode: AnalysisDBSearchMode.EXCEPT_GAMES,
     analysisDBMaxPVLength: 15,

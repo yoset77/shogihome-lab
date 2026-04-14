@@ -804,6 +804,7 @@ export type Texts = {
   bookDataWasSaved: string;
   openBook: string;
   showBookTableOnMobile: string;
+  showSearchLogOnMobile: string;
   evaluationChartType: string;
   noBookFoundCheckKifuDir: string;
   hierarchy: string;

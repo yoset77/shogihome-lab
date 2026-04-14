@@ -62,6 +62,20 @@
           :show-nodes-column="false"
           :show-score-column="false"
         />
+        <EngineAnalytics
+          v-if="showRecordViewOnBottom && !isEvaluationPuzzle"
+          v-show="bottomUIType === BottomUIType.SEARCH"
+          :style="{ flexShrink: 0 }"
+          :size="bottomViewSize"
+          :history-mode="true"
+          :mobile-layout="true"
+          :show-header="true"
+          :show-time-column="true"
+          :show-multi-pv-column="true"
+          :show-depth-column="true"
+          :show-nodes-column="true"
+          :show-score-column="true"
+        />
         <AnalysisDB
           v-if="showRecordViewOnBottom && !isEvaluationPuzzle"
           v-show="bottomUIType === BottomUIType.ANALYSIS_DB"
@@ -140,6 +154,20 @@
           :show-nodes-column="false"
           :show-score-column="false"
         />
+        <EngineAnalytics
+          v-if="!isEvaluationPuzzle"
+          v-show="sideUIType === SideUIType.SEARCH"
+          :style="{ flexShrink: 0 }"
+          :size="sideViewSize"
+          :history-mode="true"
+          :mobile-layout="true"
+          :show-header="true"
+          :show-time-column="true"
+          :show-multi-pv-column="true"
+          :show-depth-column="true"
+          :show-nodes-column="true"
+          :show-score-column="true"
+        />
         <AnalysisDB
           v-if="!isEvaluationPuzzle"
           v-show="sideUIType === SideUIType.ANALYSIS_DB"
@@ -180,6 +208,7 @@ enum BottomUIType {
   COMMENT = "comment",
   INFO = "info",
   PV = "pv",
+  SEARCH = "search",
   ANALYSIS_DB = "analysisDB",
   CHART = "chart",
   BOOK = "book",
@@ -189,6 +218,7 @@ enum SideUIType {
   RECORD = "record",
   INFO = "info",
   PV = "pv",
+  SEARCH = "search",
   ANALYSIS_DB = "analysisDB",
   CHART = "chart",
   BOOK = "book",
@@ -282,11 +312,15 @@ const sideViewSize = computed(() => {
 });
 
 const bottomUIItems = computed(() => {
-  const items = [
-    { label: t.pv, value: BottomUIType.PV },
+  const items = [];
+  if (appSettings.showSearchLogOnMobile) {
+    items.push({ label: t.searchLog, value: BottomUIType.SEARCH });
+  }
+  items.push({ label: t.pv, value: BottomUIType.PV });
+  items.push(
     { label: t.analysisDB, value: BottomUIType.ANALYSIS_DB },
     { label: t.chart, value: BottomUIType.CHART },
-  ];
+  );
   if (appSettings.showBookTableOnMobile) {
     items.push({ label: t.book, value: BottomUIType.BOOK });
   }
@@ -299,11 +333,15 @@ const bottomUIItems = computed(() => {
 });
 
 const sideUIItems = computed(() => {
-  const items = [
-    { label: t.pv, value: SideUIType.PV },
+  const items = [];
+  if (appSettings.showSearchLogOnMobile) {
+    items.push({ label: t.searchLog, value: SideUIType.SEARCH });
+  }
+  items.push({ label: t.pv, value: SideUIType.PV });
+  items.push(
     { label: t.analysisDB, value: SideUIType.ANALYSIS_DB },
     { label: t.chart, value: SideUIType.CHART },
-  ];
+  );
   if (appSettings.showBookTableOnMobile) {
     items.push({ label: t.book, value: SideUIType.BOOK });
   }

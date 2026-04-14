@@ -864,6 +864,7 @@ export const en: Texts = {
   bookDataWasSaved: "Book data was saved.",
   openBook: "Open Book",
   showBookTableOnMobile: "Show Book Tab",
+  showSearchLogOnMobile: "Show Search Log Tab",
   evaluationChartType: "Evaluation Chart Type",
   noBookFoundCheckKifuDir:
     "No book found. Please check if KIFU_DIR is configured correctly and contains supported extensions (.db, .bin).",
