@@ -1,19 +1,34 @@
 from unittest.mock import mock_open, patch
+import json
 
 from config_editor import Api
 
 
 def test_api_save_valid_data():
     api = Api()
-    valid_data = [{"id": "test-engine", "name": "Test Engine", "path": "path/to/engine", "type": "both", "options": {"MultiPV": 1}}]
+    # List type
+    valid_data = [{"id": "test-engine", "name": "Test Engine", "path": "path/to/engine", "type": ["game", "research"], "options": {"MultiPV": 1}}]
 
     with patch("config_editor.ENGINES_JSON_PATH", "/fake/path/engines.json"):
         with patch("builtins.open", mock_open()) as mocked_file:
             result = api.save(valid_data)
             assert result == {"status": "ok"}
-            # Check if json.dump was called correctly
             mocked_file.assert_called_once_with("/fake/path/engines.json", "w", encoding="utf-8")
 
+def test_api_save_backward_compatibility():
+    api = Api()
+    # String type 'both' should be converted to list ['game', 'research']
+    input_data = [{"id": "test-engine", "name": "Test Engine", "path": "path/to/engine", "type": "both"}]
+
+    with patch("config_editor.ENGINES_JSON_PATH", "/fake/path/engines.json"):
+        with patch("builtins.open", mock_open()) as mocked_file:
+            result = api.save(input_data)
+            assert result == {"status": "ok"}
+            
+            # Get the written content by joining all write calls
+            written_content = "".join(call.args[0] for call in mocked_file().write.call_args_list)
+            written_json = json.loads(written_content)
+            assert written_json[0]["type"] == ["game", "research", "mate"]
 
 def test_api_save_invalid_root_type():
     api = Api()
@@ -51,11 +66,18 @@ def test_api_save_empty_id():
 
 def test_api_save_invalid_type_enum():
     api = Api()
-    invalid_data = [{"id": "id", "name": "Name", "path": "path", "type": "invalid"}]
+    # 'both' as a list element is invalid (it should be converted if it was a string, but here it's in a list)
+    invalid_data = [{"id": "id", "name": "Name", "path": "path", "type": ["invalid"]}]
     result = api.save(invalid_data)
     assert "error" in result
     assert "Invalid type 'invalid'" in result["error"]
 
+def test_api_save_invalid_type_both_in_list():
+    api = Api()
+    invalid_data = [{"id": "id", "name": "Name", "path": "path", "type": ["both"]}]
+    result = api.save(invalid_data)
+    assert "error" in result
+    assert "Invalid type 'both'" in result["error"]
 
 def test_api_save_invalid_options_type():
     api = Api()

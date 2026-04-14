@@ -210,7 +210,7 @@ export class USIMonitor {
     // 終了しているセッションを検出して削除する。
     // ただし、現在の更新処理に含まれているセッションは削除しない。
     this._sessions = this._sessions.filter((session) => {
-      // Do not remove the LAN engine session.
+      // Do not remove the engine session.
       if (session.sessionID === -1) {
         return true;
       }

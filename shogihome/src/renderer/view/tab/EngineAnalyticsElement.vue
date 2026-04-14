@@ -369,7 +369,7 @@ const updateMultiPV = (add: number) => {
   }
   const newValue = value + add;
 
-  // Standard engines (including new LAN engine)
+  // Standard engines (including new engine)
   // Confirm if the suggestions count is too large
   if (
     !ignoreSuggestionsCountLimit &&

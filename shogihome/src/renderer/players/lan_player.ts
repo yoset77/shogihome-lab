@@ -1,5 +1,5 @@
-import { Player, SearchHandler, SearchInfo } from "./player";
-import { ImmutablePosition, Color } from "tsshogi";
+import { Player, SearchHandler, SearchInfo, MateHandler } from "./player";
+import { ImmutablePosition, Color, Move } from "tsshogi";
 import { TimeStates } from "@/common/game/time";
 import { LanEngine } from "@/renderer/network/lan_engine";
 import { GameResult } from "@/common/game/result";
@@ -33,6 +33,7 @@ export function isActiveLanPlayerSession(sessionID: number): boolean {
 
 export class LanPlayer implements Player {
   private handler?: SearchHandler;
+  private mateHandler?: MateHandler;
   private position?: ImmutablePosition;
   private onSearchInfo?: (info: SearchInfo) => void;
   private info?: SearchInfo;
@@ -66,7 +67,7 @@ export class LanPlayer implements Player {
     this.onSearchInfo = onSearchInfo;
     this.onErrorCallback = onError;
 
-    // Use deterministic session ID for LAN engines to avoid collisions and pruning.
+    // Use deterministic session ID for engines to avoid collisions and pruning.
     // USIPlayer uses IDs from 1. We use a high offset.
     if (sessionKey === "research_main") {
       this._sessionID = 200000;
@@ -175,6 +176,7 @@ export class LanPlayer implements Player {
     handler: SearchHandler,
   ): Promise<void> {
     const isNewSfen = this.currentSfen !== usi;
+    this.clearHandlers();
     this.handler = handler;
     this.position = position;
     this.currentSfen = usi;
@@ -213,7 +215,7 @@ export class LanPlayer implements Player {
   }
 
   async startResearch(position: ImmutablePosition, usi: string): Promise<void> {
-    this.handler = undefined;
+    this.clearHandlers();
     this.position = position.clone();
     this.currentSfen = usi;
     this.clearPendingInfo();
@@ -239,11 +241,23 @@ export class LanPlayer implements Player {
   }
 
   async startMateSearch(
-    _position: ImmutablePosition,
-    _usi: string,
-    _maxSeconds: number | undefined,
+    position: ImmutablePosition,
+    usi: string,
+    maxSeconds: number | undefined,
+    handler: MateHandler,
   ): Promise<void> {
-    // Mate search is not supported in this implementation.
+    this.clearHandlers();
+    this.mateHandler = handler;
+    this.position = position.clone();
+    this.currentSfen = usi;
+    this.clearPendingInfo();
+    if (this.isThinking) {
+      await this.stopAndWait();
+    }
+    this.lanEngine.sendCommand(usi);
+    this.lanEngine.sendCommand("go mate" + (maxSeconds ? ` ${maxSeconds * 1000}` : " infinite"));
+    this.isThinking = true;
+    triggerOnStartSearch(this._sessionID, this.position);
   }
   /* eslint-enable @typescript-eslint/no-unused-vars */
 
@@ -262,6 +276,7 @@ export class LanPlayer implements Player {
 
   async close(): Promise<void> {
     this.clearPendingInfo();
+    this.clearHandlers();
     try {
       if (this.isThinking) {
         await this.stopAndWait();
@@ -328,12 +343,17 @@ export class LanPlayer implements Player {
       this.currentSfen,
       (move) => {
         const handler = this.handler;
-        this.handler = undefined;
+        this.clearHandlers();
         if (handler) {
           handler.onMove(move);
         }
       },
     );
+  }
+
+  private clearHandlers(): void {
+    this.handler = undefined;
+    this.mateHandler = undefined;
   }
 
   private async stopAndWait(): Promise<void> {
@@ -366,7 +386,7 @@ export class LanPlayer implements Player {
         } else if (this.onErrorCallback) {
           this.onErrorCallback(error);
         } else {
-          console.error("LAN Engine Error:", data.error);
+          console.error("Engine Error:", data.error);
         }
         return;
       }
@@ -408,6 +428,55 @@ export class LanPlayer implements Player {
                 this.handler.onMove(move, delay ? infoWithDelay : undefined);
               }
             }
+          }
+        } else if (infoStr.startsWith("checkmate") && this.position) {
+          this.clearReadyReplayTimeout();
+          if (this.stopPromiseResolver || data.sfen === this.currentSfen) {
+            this.isThinking = false;
+          }
+          this.resolveStopPromise();
+
+          if (data.sfen !== this.currentSfen) {
+            this.clearPendingInfo();
+            return;
+          }
+
+          this.flushInfo();
+
+          const parts = infoStr.trim().split(" ");
+          const usiMoves = parts.slice(1);
+          if (usiMoves.length > 0 && usiMoves[0] !== "nomate" && usiMoves[0] !== "timeout") {
+            dispatchUSIInfoUpdate(this.sessionID, this.position, this.name, { pv: usiMoves });
+          }
+
+          if (this.mateHandler) {
+            const parts = infoStr.trim().split(" ");
+            const result = parts[1];
+            if (result === "nomate") {
+              this.mateHandler.onNoMate();
+            } else if (result === "timeout") {
+              this.mateHandler.onTimeout();
+            } else if (result === "notimplemented") {
+              this.mateHandler.onNotImplemented();
+            } else {
+              const usiMoves = parts.slice(1);
+              const moves: Move[] = [];
+              const pos = this.position.clone();
+              let error = false;
+              for (const usiMove of usiMoves) {
+                const move = pos.createMoveByUSI(usiMove);
+                if (!move || !pos.doMove(move)) {
+                  this.mateHandler.onError("Invalid move: " + usiMove);
+                  error = true;
+                  break;
+                }
+                moves.push(move);
+              }
+              if (!error) {
+                this.mateHandler.onCheckmate(moves);
+              }
+            }
+            this.mateHandler = undefined;
           }
         } else if (infoStr.startsWith("info") && this.position) {
           // Parse info string for research
@@ -461,7 +530,7 @@ export class LanPlayer implements Player {
   }
 
   private updateInfo(infoCommand: USIInfoCommand, sfen?: string) {
-    if (!this.position || !this.onSearchInfo) return;
+    if (!this.position) return;
 
     // Check if the received USI command matches the current command.
     if (sfen !== this.currentSfen) {
@@ -484,6 +553,10 @@ export class LanPlayer implements Player {
     }
 
     dispatchUSIInfoUpdate(this.sessionID, this.position, this.name, infoCommand);
+
+    if (!this.onSearchInfo) {
+      return;
+    }
 
     if (infoCommand.multipv && infoCommand.multipv !== 1) {
       return;

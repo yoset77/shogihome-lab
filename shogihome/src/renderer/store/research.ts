@@ -102,7 +102,7 @@ export class ResearchManager {
       if (usi!.uri.startsWith("lan-engine")) {
         const uri = usi!.uri;
         let engineId = "research";
-        let engineName = "LAN Engine";
+        let engineName = uri;
 
         if (uri.startsWith("lan-engine:")) {
           engineId = uri.split(":")[1];

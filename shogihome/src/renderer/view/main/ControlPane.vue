@@ -327,7 +327,7 @@ const onResearch = async () => {
   if (uri) {
     let engine: USIEngine | undefined;
     if (uri.startsWith("lan-engine")) {
-      let name = "LAN Engine";
+      let name = uri;
       if (uri.startsWith("lan-engine:")) {
         const id = uri.split(":")[1];
         try {
@@ -335,16 +335,16 @@ const onResearch = async () => {
           const list = lanStore.engineList.value;
           const info = list.find((e) => e.id === id);
           if (info) name = info.name;
-          else name = `LAN Engine (${id})`;
+          else name = `${id} (Not Found)`;
         } catch {
-          name = `LAN Engine (${id})`;
+          name = `${id} (Not Found)`;
         }
       }
 
       engine = {
         uri,
         name,
-        defaultName: "LAN Engine",
+        defaultName: "",
         author: "",
         path: "",
         options: {},
