@@ -26,7 +26,7 @@ export function defaultPlayerBuilder(engineTimeoutSeconds?: number): PlayerBuild
       }
       if (playerSettings.uri === "lan-engine" || playerSettings.uri.startsWith("lan-engine:")) {
         let engineId = "game";
-        let engineName = "LAN Engine";
+        let engineName = playerSettings.uri;
         if (playerSettings.uri.startsWith("lan-engine:")) {
           engineId = playerSettings.uri.split(":")[1];
           engineName = playerSettings.name || engineId;

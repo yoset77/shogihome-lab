@@ -42,7 +42,7 @@ export interface Player {
   startMateSearch(
     position: ImmutablePosition,
     usi: string,
-    maxSeconds: number,
+    maxSeconds: number | undefined,
     handler: MateHandler,
   ): Promise<void>;
   stop(): Promise<void>;

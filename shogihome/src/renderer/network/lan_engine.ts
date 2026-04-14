@@ -4,7 +4,7 @@ type MessageListener = (data: string) => boolean; // Return true to remove liste
 export interface LanEngineInfo {
   id: string;
   name: string;
-  type?: "game" | "research" | "both";
+  type?: ("game" | "research" | "mate")[];
 }
 
 export type LanEngineStatus = "disconnected" | "connecting" | "connected";

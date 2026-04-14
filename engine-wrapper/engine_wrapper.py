@@ -67,19 +67,31 @@ def get_engine_list():
 
 async def pipe_stream(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, log_prefix: str):
     try:
-        while not reader.at_eof():
-            data = await reader.read(1024)
-            if not data:
+        while True:
+            line_bytes = await reader.readline()
+            if not line_bytes:
                 break
 
-            text = data.decode(errors="ignore").strip()
+            # Heuristic decoding: Try UTF-8 first, then CP932 (Shift-JIS) for Japanese engines
+            try:
+                line_str = line_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                try:
+                    line_str = line_bytes.decode("cp932")
+                except UnicodeDecodeError:
+                    line_str = line_bytes.decode("utf-8", errors="replace")
+
+            # Logging the decoded string
+            text = line_str.strip()
             # Reduce logging noise: Skip 'info' commands unless debugging
             if text.startswith("info"):
                 logging.debug(f"{log_prefix} {text}")
             else:
                 logging.info(f"{log_prefix} {text}")
 
-            writer.write(data)
+            # Always send as UTF-8 to the client (ShogiHome server)
+            # This ensures that the Node.js side always receives valid UTF-8 strings.
+            writer.write(line_str.encode("utf-8"))
             await writer.drain()
     except (ConnectionResetError, BrokenPipeError, asyncio.CancelledError, ConnectionAbortedError):
         pass

@@ -7,7 +7,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import readline from "readline";
 import events from "node:events";
-import dotenv from "dotenv";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
@@ -64,7 +63,10 @@ const getBasePath = () => {
   return path.dirname(__filename);
 };
 
-dotenv.config({ path: path.join(getBasePath(), ".env") });
+const envPath = path.join(getBasePath(), ".env");
+if (fs.existsSync(envPath)) {
+  process.loadEnvFile(envPath);
+}
 
 export const app = express();
 if (process.env.TRUST_PROXY === "true") {
@@ -206,7 +208,7 @@ const SESSION_ID_HEADER_REGEX = /^[a-zA-Z0-9_-]{8,128}$/;
 type EngineConfig = {
   id: string;
   name: string;
-  type?: string;
+  type?: string | string[];
   skipAnalysisDB?: boolean;
   analysisDBGroupId?: string;
   analysisDBGroupName?: string;
@@ -1239,11 +1241,15 @@ class EngineSession {
         for (let i = 0; i < args.length; i++) {
           const t = args[i];
           if (["ponder", "infinite"].includes(t)) continue;
+          if (t === "mate") {
+            // go mate / go mate infinite / go mate <milliseconds> をすべて受け入れる
+            if (i + 1 < args.length && /^(\d+|infinite)$/.test(args[i + 1])) {
+              i++;
+            }
+            continue;
+          }
           if (["btime", "wtime", "byoyomi", "binc", "winc"].includes(t)) {
             if (i + 1 >= args.length || !/^-?\d+$/.test(args[i + 1])) return false;
-            i++;
-          } else if (t === "mate") {
-            if (i + 1 >= args.length || !/^(\d+|infinite)$/.test(args[i + 1])) return false;
             i++;
           } else {
             return false;
@@ -1331,8 +1337,9 @@ class EngineSession {
 
       this.sendToClient({ sfen: this.pendingGoSfen, info: line });
 
-      if (line.startsWith("bestmove")) {
+      if (line.startsWith("bestmove") || line.startsWith("checkmate")) {
         if (
+          line.startsWith("bestmove") &&
           this.currentEngineConfig &&
           !this.currentEngineConfig.skipAnalysisDB &&
           this.pendingGoSfen &&
@@ -1782,11 +1789,25 @@ const getEngineList = (ws: WebSocket) => {
       }
       if (ws.readyState === WebSocket.OPEN) {
         const sanitizedEngines = Array.isArray(engines)
-          ? engines.map((e: { id: string; name: string; type?: string }) => ({
-              id: e.id,
-              name: e.name,
-              type: e.type,
-            }))
+          ? engines.map((e: { id: string; name: string; type?: string | string[] }) => {
+              let types: string[] | undefined;
+              if (Array.isArray(e.type)) {
+                types = e.type;
+              } else if (typeof e.type === "string") {
+                if (e.type === "both") {
+                  types = ["game", "research", "mate"];
+                } else {
+                  types = [e.type];
+                }
+              } else {
+                types = ["game", "research", "mate"];
+              }
+              return {
+                id: e.id,
+                name: e.name,
+                type: types,
+              };
+            })
           : [];
         ws.send(JSON.stringify({ engineList: sanitizedEngines }));
       }

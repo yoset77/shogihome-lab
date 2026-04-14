@@ -1,5 +1,6 @@
 import { MateSearchSettings } from "@/common/settings/mate.js";
 import { USIPlayer } from "@/renderer/players/usi.js";
+import { LanPlayer } from "@/renderer/players/lan_player.js";
 import { useAppSettings } from "./settings.js";
 import { ImmutableRecord, Move } from "tsshogi";
 
@@ -10,7 +11,7 @@ type NoMateCallback = () => void;
 type ErrorCallback = (e: unknown) => void;
 
 export class MateSearchManager {
-  private engine: USIPlayer | null = null;
+  private engine: USIPlayer | LanPlayer | null = null;
   private onNotImplemented: NotImplementedCallback = () => {
     /* noop */
   };
@@ -60,7 +61,25 @@ export class MateSearchManager {
     }
     // エンジンを起動する。
     const appSettings = useAppSettings();
-    this.engine = new USIPlayer(settings.usi, appSettings.engineTimeoutSeconds);
+    if (settings.usi.uri.startsWith("lan-engine")) {
+      const uri = settings.usi.uri;
+      let engineId = "mate";
+      if (uri.startsWith("lan-engine:")) {
+        engineId = uri.split(":")[1];
+      }
+      this.engine = new LanPlayer(
+        "mate_search",
+        engineId,
+        settings.usi.name,
+        undefined,
+        (e) => {
+          this.onError(e);
+        },
+        settings.usi.extraBook,
+      );
+    } else {
+      this.engine = new USIPlayer(settings.usi, appSettings.engineTimeoutSeconds);
+    }
     const maxSeconds = settings.enableMaxSeconds ? settings.maxSeconds : undefined;
     try {
       await this.engine.launch();

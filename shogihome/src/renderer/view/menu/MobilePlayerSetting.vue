@@ -25,7 +25,7 @@
       <button class="action-btn" :disabled="disabled">{{ t.settings }}</button>
     </div>
 
-    <!-- Extra Book Row (LAN Engine only) -->
+    <!-- Extra Book Row -->
     <template v-if="isLanEngine">
       <div class="list-item">
         <div class="item-label">{{ t.frontendBook }}</div>
@@ -106,12 +106,17 @@ const playerItems = computed(() => {
   const items = [{ value: uri.ES_HUMAN, label: t.human }];
   if (lanStore.engineList.value.length > 0) {
     lanStore.engineList.value
-      .filter((e) => !e.type || e.type === "game" || e.type === "both")
+      .filter((e) => {
+        const types = Array.isArray(e.type)
+          ? e.type
+          : (e.type as unknown as string) === "both"
+            ? ["game", "research"]
+            : [(e.type as unknown as string) || "game"];
+        return types.includes("game");
+      })
       .forEach((info) => {
         items.push({ value: `lan-engine:${info.id}`, label: info.name });
       });
-  } else {
-    items.push({ value: "lan-engine", label: "LAN Engine" });
   }
   items.push({
     value: uri.ES_BASIC_ENGINE_STATIC_ROOK_V1,

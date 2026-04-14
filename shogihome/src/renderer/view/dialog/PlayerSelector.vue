@@ -117,13 +117,13 @@ const engineOptionsDialog = ref(null as USIEngine | null);
 const lanStore = useLanStore();
 
 onMounted(async () => {
-  // Fetch LAN engines if containsHuman or containsLan is true
+  // Fetch engines if containsHuman or containsLan is true
   if (props.containsHuman || props.containsLan) {
     if (lanStore.status.value === "disconnected") {
       try {
         await lanStore.fetchEngineList();
       } catch (e) {
-        console.warn("Failed to connect to LAN engine server:", e);
+        console.warn("Failed to connect to engine server:", e);
       }
     }
   }
@@ -152,11 +152,14 @@ const listItems = computed(() => {
       });
     } else if (lanStore.engineList.value.length > 0) {
       for (const info of lanStore.engineList.value) {
-        // Filter by type if context is known
+        const types = info.type || ["game", "research", "mate"];
+
         if (props.defaultTag === getPredefinedUSIEngineTag("game")) {
-          if (info.type && info.type !== "game" && info.type !== "both") continue;
+          if (!types.includes("game")) continue;
         } else if (props.defaultTag === getPredefinedUSIEngineTag("research")) {
-          if (info.type && info.type !== "research" && info.type !== "both") continue;
+          if (!types.includes("research")) continue;
+        } else if (props.defaultTag === getPredefinedUSIEngineTag("mate")) {
+          if (!types.includes("mate")) continue;
         }
 
         items.push({

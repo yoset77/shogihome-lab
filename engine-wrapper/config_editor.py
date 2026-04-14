@@ -156,12 +156,21 @@ class Api:
                 if not entry["path"].strip():
                     raise ValueError(f"Field 'path' in entry {i} cannot be empty")
 
-                # Optional fields validation
                 if "type" in entry:
-                    if not isinstance(entry["type"], str):
-                        raise ValueError(f"Field 'type' in entry {i} must be a string")
-                    if entry["type"] not in ["game", "research", "both"]:
-                        raise ValueError(f"Invalid type '{entry['type']}' in entry {i}")
+                    if isinstance(entry["type"], str):
+                        # Backward compatibility
+                        if entry["type"] == "both":
+                            entry["type"] = ["game", "research", "mate"]
+                        else:
+                            entry["type"] = [entry["type"]]
+
+                    if not isinstance(entry["type"], list):
+                        raise ValueError(f"Field 'type' in entry {i} must be a list of strings")
+
+                    allowed_types = ["game", "research", "mate"]
+                    for t in entry["type"]:
+                        if t not in allowed_types:
+                            raise ValueError(f"Invalid type '{t}' in entry {i}")
 
                 if "options" in entry and not isinstance(entry["options"], dict):
                     raise ValueError(f"Field 'options' in entry {i} must be an object")

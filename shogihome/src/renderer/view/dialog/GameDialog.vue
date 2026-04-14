@@ -395,7 +395,7 @@ onMounted(async () => {
       try {
         await lanStore.fetchEngineList();
       } catch (e) {
-        console.warn("Failed to connect to LAN engine server:", e);
+        console.warn("Failed to connect to engine server:", e);
       }
     }
   } catch (e) {
@@ -411,14 +411,14 @@ const buildPlayerSettings = (
   extraBook: USIEngineExtraBookConfig,
 ): PlayerSettings => {
   if (playerURI === "lan-engine" || playerURI.startsWith("lan-engine:")) {
-    let name = "LAN Engine";
+    let name = playerURI;
     if (playerURI.startsWith("lan-engine:")) {
       const id = playerURI.split(":")[1];
       const info = lanStore.engineList.value.find((e) => e.id === id);
       if (info) {
         name = info.name;
       } else {
-        name = `LAN Engine (${id})`;
+        name = `${id} (Not Found)`;
       }
     }
     return {
@@ -426,6 +426,7 @@ const buildPlayerSettings = (
       uri: playerURI,
       usi: {
         ...emptyUSIEngine(),
+        defaultName: "",
         extraBook,
       },
     };

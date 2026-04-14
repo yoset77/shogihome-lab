@@ -50,6 +50,10 @@
           <Icon :icon="IconType.RESUME" />
           <div class="label">{{ t.resume }}</div>
         </button>
+        <button v-if="states.mateSearch" @click="onMateSearch">
+          <Icon :icon="IconType.MATE_SEARCH" />
+          <div class="label">{{ t.mateSearch }}</div>
+        </button>
         <button v-if="states.positionEditing" @click="onPositionEditing">
           <Icon :icon="IconType.EDIT" />
           <div class="label">{{ t.setupPosition }}</div>
@@ -241,12 +245,16 @@ const onPuzzle = () => {
   store.startPuzzle();
   emit("close");
 };
+const onMateSearch = () => {
+  store.showMateSearchDialog();
+  emit("close");
+};
 const onResearch = async () => {
   const uri = appSettings.defaultResearchEngineURI;
   if (isMobileWebApp() && uri) {
     let engine: USIEngine | undefined;
     if (uri.startsWith("lan-engine")) {
-      let name = "LAN Engine";
+      let name = uri;
       if (uri.startsWith("lan-engine:")) {
         const id = uri.split(":")[1];
         try {
@@ -254,15 +262,15 @@ const onResearch = async () => {
           const list = lanStore.engineList.value;
           const info = list.find((e) => e.id === id);
           if (info) name = info.name;
-          else name = `LAN Engine (${id})`;
+          else name = `${id} (Not Found)`;
         } catch {
-          name = `LAN Engine (${id})`;
+          name = `${id} (Not Found)`;
         }
       }
       engine = {
         uri,
         name,
-        defaultName: "LAN Engine",
+        defaultName: "",
         author: "",
         path: "",
         options: {},
@@ -436,6 +444,7 @@ const states = computed(() => {
     resign: store.appState === AppState.GAME && store.isMovableByUser,
     puzzle: store.appState === AppState.NORMAL,
     research: store.appState === AppState.NORMAL && store.researchState === ResearchState.IDLE,
+    mateSearch: store.appState === AppState.NORMAL && store.researchState === ResearchState.IDLE,
     stopResearch:
       store.researchState === ResearchState.RUNNING ||
       store.researchState === ResearchState.PAUSED ||

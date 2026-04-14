@@ -296,24 +296,59 @@ const server = net.createServer((socket) => {
     console.log(`[${new Date().toISOString()}] Started engine: ${engineName} (ID: ${shortId}...) Path: ${enginePath} (PID: ${engineProcess.pid})`);
     engineStarted = true;
 
-    // Pipe all output from engine back to client
-    engineProcess.stdout.on('data', (data) => {
-      const output = data.toString().trim();
-      
-      // Reduce logging noise: Skip 'info' commands
-      if (!output.startsWith("info")) {
-        console.log(`[Engine -> Client] ${output}`);
-      }
-      if (socket.writable) {
-        socket.write(data);
-      }
-    });
-    engineProcess.stderr.on('data', (data) => {
-      console.error(`[Engine ERROR] ${data.toString().trim()}`);
-      if (socket.writable) {
-        socket.write(data);
-      }
-    });
+    const setupPipe = (stream, prefix, isError = false) => {
+      let remainder = Buffer.alloc(0);
+
+      const processLine = (lineBytes) => {
+        let lineStr;
+        try {
+          // Try UTF-8 first
+          const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+          lineStr = utf8Decoder.decode(lineBytes);
+        } catch (e) {
+          try {
+            // Fallback to Shift-JIS (CP932)
+            const sjisDecoder = new TextDecoder('shift_jis');
+            lineStr = sjisDecoder.decode(lineBytes);
+          } catch (e2) {
+            // Final fallback
+            lineStr = lineBytes.toString('utf-8');
+          }
+        }
+
+        const output = lineStr.trim();
+        if (isError) {
+          console.error(`${prefix} ${output}`);
+        } else if (!output.startsWith("info")) {
+          console.log(`${prefix} ${output}`);
+        }
+
+        if (socket.writable) {
+          // Always send as UTF-8 to the client
+          socket.write(Buffer.from(lineStr, 'utf-8'));
+        }
+      };
+
+      stream.on('data', (chunk) => {
+        remainder = Buffer.concat([remainder, chunk]);
+        let lineEnd;
+        while ((lineEnd = remainder.indexOf(10)) !== -1) {
+          const lineBytes = remainder.subarray(0, lineEnd + 1);
+          remainder = remainder.subarray(lineEnd + 1);
+          processLine(lineBytes);
+        }
+      });
+
+      stream.on('end', () => {
+        if (remainder.length > 0) {
+          processLine(remainder);
+          remainder = Buffer.alloc(0);
+        }
+      });
+    };
+
+    setupPipe(engineProcess.stdout, '[Engine -> Client]');
+    setupPipe(engineProcess.stderr, '[Engine ERROR]', true);
 
     engineProcess.on('close', (code) => {
       console.log(`[${new Date().toISOString()}] Engine process exited with code ${code}.`);

@@ -89,6 +89,7 @@
         table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
         th, td { padding: 0.75rem; border-top: 1px solid var(--border); text-align: left; }
         thead th { vertical-align: bottom; border-bottom: 2px solid var(--border); }
+        th:nth-child(3), td:nth-child(3) { white-space: nowrap; }
         
         /* Modal */
         .modal {
@@ -252,11 +253,12 @@
         </div>
         <div class="form-group">
             <label>種類 (Type) <span style="color:red">*</span></label>
-            <select id="editType">
-                <option value="game">対局 (Game)</option>
-                <option value="research">検討 (Research)</option>
-                <option value="both" selected>両方 (Both)</option>
-            </select>
+            <div id="editTypeContainer" style="display: flex; gap: 10px; margin-bottom: 10px;">
+                <label style="font-weight: normal;"><input type="checkbox" name="type" value="game"> 対局 (game)</label>
+                <label style="font-weight: normal;"><input type="checkbox" name="type" value="research"> 検討 (research)</label>
+                <label style="font-weight: normal;"><input type="checkbox" name="type" value="mate"> 詰み探索 (mate)</label>
+            </div>
+
         </div>
         <div class="form-group" style="display:flex; justify-content:space-between; align-items:center;">
             <label style="margin-bottom:0;">読み筋をデータベースに保存</label>
@@ -664,7 +666,7 @@
 
             tr.innerHTML = `
                 <td>${escapeHtml(eng.name)}${badges}</td>
-                <td>${escapeHtml(eng.type)}</td>
+                <td>${Array.isArray(eng.type) ? eng.type.join(', ') : escapeHtml(eng.type)}</td>
                 <td>
                     ${upBtn} ${downBtn}
                     <button class="btn btn-sm btn-info" onclick="duplicateEngine(${idx})">複製</button>
@@ -693,7 +695,12 @@
             const eng = engines[index];
             document.getElementById('editName').value = eng.name || '';
             document.getElementById('editId').value = eng.id || generateId();
-            document.getElementById('editType').value = eng.type || 'game';
+            
+            const types = Array.isArray(eng.type) ? eng.type : ((!eng.type || eng.type === 'both') ? ['game', 'research', 'mate'] : [eng.type]);
+            document.querySelectorAll('#editTypeContainer input[name="type"]').forEach(cb => {
+                cb.checked = types.includes(cb.value);
+            });
+
             const saveAnalysisDB = !eng.skipAnalysisDB;
             document.getElementById('editSaveAnalysisDB').checked = saveAnalysisDB;
             document.getElementById('editSaveAnalysisDBLabel').textContent = saveAnalysisDB ? 'true' : 'false';
@@ -712,7 +719,9 @@
             document.getElementById('modalTitle').innerText = 'エンジン追加';
             document.getElementById('editName').value = '';
             document.getElementById('editId').value = generateId();
-            document.getElementById('editType').value = 'both';
+            document.querySelectorAll('#editTypeContainer input[name="type"]').forEach(cb => {
+                cb.checked = (cb.value === 'game' || cb.value === 'research');
+            });
             document.getElementById('editSaveAnalysisDB').checked = true;
             document.getElementById('editSaveAnalysisDBLabel').textContent = 'true';
             updateGroupSelect('');
@@ -917,7 +926,10 @@
         const name = document.getElementById('editName').value.trim();
         const id = document.getElementById('editId').value.trim();
         const path = document.getElementById('editPath').value.trim();
-        const type = document.getElementById('editType').value;
+        
+        const type = Array.from(document.querySelectorAll('#editTypeContainer input[name="type"]:checked')).map(cb => cb.value);
+        if (type.length === 0) { showMessage('種類 (Type) は少なくとも1つ選択してください。', 'error'); return; }
+
         const saveAnalysisDB = document.getElementById('editSaveAnalysisDB').checked;
         const analysisDBGroupId = document.getElementById('editAnalysisDBGroupId').value;
 
