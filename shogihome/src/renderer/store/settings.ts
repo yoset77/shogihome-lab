@@ -309,6 +309,9 @@ class AppSettingsStore {
   get showBookTableOnMobile(): boolean {
     return this.merged.showBookTableOnMobile;
   }
+  get showSearchLogOnMobile(): boolean {
+    return this.merged.showSearchLogOnMobile;
+  }
   get evaluationChartType(): EvaluationChartType {
     return this.merged.evaluationChartType;
   }

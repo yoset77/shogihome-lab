@@ -20,8 +20,9 @@
           }"
         />
         <RecordPane
-          v-if="showRecordViewOnBottom && !isEvaluationPuzzle"
-          v-show="bottomUIType === BottomUIType.RECORD"
+          v-show="
+            bottomUIType === BottomUIType.RECORD && showRecordViewOnBottom && !isEvaluationPuzzle
+          "
           :style="{
             width: `${windowSize.width}px`,
             height: `${bottomViewSize.height}px`,
@@ -33,8 +34,9 @@
           :show-comment="true"
         />
         <RecordComment
-          v-if="showRecordViewOnBottom && !isEvaluationPuzzle"
-          v-show="bottomUIType === BottomUIType.COMMENT"
+          v-show="
+            bottomUIType === BottomUIType.COMMENT && showRecordViewOnBottom && !isEvaluationPuzzle
+          "
           class="bottom-element"
           :style="{
             width: `${windowSize.width}px`,
@@ -43,14 +45,14 @@
           }"
         />
         <RecordInfo
-          v-if="showRecordViewOnBottom && !isEvaluationPuzzle"
-          v-show="bottomUIType === BottomUIType.INFO"
+          v-show="
+            bottomUIType === BottomUIType.INFO && showRecordViewOnBottom && !isEvaluationPuzzle
+          "
           :style="{ flexShrink: 0 }"
           :size="bottomViewSize"
         />
         <EngineAnalytics
-          v-if="showRecordViewOnBottom && !isEvaluationPuzzle"
-          v-show="bottomUIType === BottomUIType.PV"
+          v-if="bottomUIType === BottomUIType.PV && showRecordViewOnBottom && !isEvaluationPuzzle"
           :style="{ flexShrink: 0 }"
           :size="bottomViewSize"
           :history-mode="false"
@@ -62,16 +64,38 @@
           :show-nodes-column="false"
           :show-score-column="false"
         />
+        <EngineAnalytics
+          v-if="
+            bottomUIType === BottomUIType.SEARCH &&
+            appSettings.showSearchLogOnMobile &&
+            showRecordViewOnBottom &&
+            !isEvaluationPuzzle
+          "
+          :style="{ flexShrink: 0 }"
+          :size="bottomViewSize"
+          :history-mode="true"
+          :mobile-layout="true"
+          :show-header="true"
+          :show-time-column="true"
+          :show-multi-pv-column="true"
+          :show-depth-column="true"
+          :show-nodes-column="true"
+          :show-score-column="true"
+        />
         <AnalysisDB
-          v-if="showRecordViewOnBottom && !isEvaluationPuzzle"
-          v-show="bottomUIType === BottomUIType.ANALYSIS_DB"
+          v-if="
+            bottomUIType === BottomUIType.ANALYSIS_DB &&
+            showRecordViewOnBottom &&
+            !isEvaluationPuzzle
+          "
           :style="{ flexShrink: 0 }"
           :size="bottomViewSize"
           :mobile-layout="true"
         />
         <EvaluationChart
-          v-if="showRecordViewOnBottom && !isEvaluationPuzzle"
-          v-show="bottomUIType === BottomUIType.CHART"
+          v-if="
+            bottomUIType === BottomUIType.CHART && showRecordViewOnBottom && !isEvaluationPuzzle
+          "
           :style="{ flexShrink: 0 }"
           :size="bottomViewSize"
           :type="appSettings.evaluationChartType"
@@ -79,8 +103,7 @@
           :coefficient-in-sigmoid="appSettings.coefficientInSigmoid"
         />
         <BookPane
-          v-if="showRecordViewOnBottom && !isEvaluationPuzzle"
-          v-show="bottomUIType === BottomUIType.BOOK"
+          v-if="bottomUIType === BottomUIType.BOOK && showRecordViewOnBottom && !isEvaluationPuzzle"
           :size="bottomViewSize"
         />
         <HorizontalSelector
@@ -103,8 +126,7 @@
         />
         <PuzzlePane v-if="isEvaluationPuzzle" class="full" style="flex-shrink: 0" />
         <RecordPane
-          v-if="!isEvaluationPuzzle"
-          v-show="sideUIType === SideUIType.RECORD"
+          v-show="sideUIType === SideUIType.RECORD && !isEvaluationPuzzle"
           :style="{ height: `${sideViewSize.height * 0.6}px`, flexShrink: 0 }"
           :show-top-control="false"
           :show-bottom-control="false"
@@ -112,8 +134,7 @@
           :show-comment="true"
         />
         <RecordComment
-          v-if="!isEvaluationPuzzle"
-          v-show="sideUIType === SideUIType.RECORD"
+          v-show="sideUIType === SideUIType.RECORD && !isEvaluationPuzzle"
           :style="{
             'margin-top': '5px',
             height: `${sideViewSize.height * 0.4 - 5}px`,
@@ -121,14 +142,12 @@
           }"
         />
         <RecordInfo
-          v-if="!isEvaluationPuzzle"
-          v-show="sideUIType === SideUIType.INFO"
+          v-show="sideUIType === SideUIType.INFO && !isEvaluationPuzzle"
           :style="{ flexShrink: 0 }"
           :size="sideViewSize"
         />
         <EngineAnalytics
-          v-if="!isEvaluationPuzzle"
-          v-show="sideUIType === SideUIType.PV"
+          v-if="sideUIType === SideUIType.PV && !isEvaluationPuzzle"
           :style="{ flexShrink: 0 }"
           :size="sideViewSize"
           :history-mode="false"
@@ -140,16 +159,31 @@
           :show-nodes-column="false"
           :show-score-column="false"
         />
+        <EngineAnalytics
+          v-if="
+            sideUIType === SideUIType.SEARCH &&
+            appSettings.showSearchLogOnMobile &&
+            !isEvaluationPuzzle
+          "
+          :style="{ flexShrink: 0 }"
+          :size="sideViewSize"
+          :history-mode="true"
+          :mobile-layout="true"
+          :show-header="true"
+          :show-time-column="true"
+          :show-multi-pv-column="true"
+          :show-depth-column="true"
+          :show-nodes-column="true"
+          :show-score-column="true"
+        />
         <AnalysisDB
-          v-if="!isEvaluationPuzzle"
-          v-show="sideUIType === SideUIType.ANALYSIS_DB"
+          v-if="sideUIType === SideUIType.ANALYSIS_DB && !isEvaluationPuzzle"
           :style="{ flexShrink: 0 }"
           :size="sideViewSize"
           :mobile-layout="true"
         />
         <EvaluationChart
-          v-if="!isEvaluationPuzzle"
-          v-show="sideUIType === SideUIType.CHART"
+          v-if="sideUIType === SideUIType.CHART && !isEvaluationPuzzle"
           :style="{ flexShrink: 0 }"
           :size="sideViewSize"
           :type="EvaluationChartType.RAW"
@@ -157,8 +191,7 @@
           :coefficient-in-sigmoid="appSettings.coefficientInSigmoid"
         />
         <BookPane
-          v-if="!showRecordViewOnBottom && !isEvaluationPuzzle"
-          v-show="sideUIType === SideUIType.BOOK"
+          v-if="sideUIType === SideUIType.BOOK && !showRecordViewOnBottom && !isEvaluationPuzzle"
           :size="sideViewSize"
         />
         <HorizontalSelector
@@ -180,6 +213,7 @@ enum BottomUIType {
   COMMENT = "comment",
   INFO = "info",
   PV = "pv",
+  SEARCH = "search",
   ANALYSIS_DB = "analysisDB",
   CHART = "chart",
   BOOK = "book",
@@ -189,6 +223,7 @@ enum SideUIType {
   RECORD = "record",
   INFO = "info",
   PV = "pv",
+  SEARCH = "search",
   ANALYSIS_DB = "analysisDB",
   CHART = "chart",
   BOOK = "book",
@@ -282,11 +317,15 @@ const sideViewSize = computed(() => {
 });
 
 const bottomUIItems = computed(() => {
-  const items = [
-    { label: t.pv, value: BottomUIType.PV },
+  const items: { label: string; value: BottomUIType }[] = [];
+  if (appSettings.showSearchLogOnMobile) {
+    items.push({ label: t.searchLog, value: BottomUIType.SEARCH });
+  }
+  items.push({ label: t.pv, value: BottomUIType.PV });
+  items.push(
     { label: t.analysisDB, value: BottomUIType.ANALYSIS_DB },
     { label: t.chart, value: BottomUIType.CHART },
-  ];
+  );
   if (appSettings.showBookTableOnMobile) {
     items.push({ label: t.book, value: BottomUIType.BOOK });
   }
@@ -299,11 +338,15 @@ const bottomUIItems = computed(() => {
 });
 
 const sideUIItems = computed(() => {
-  const items = [
-    { label: t.pv, value: SideUIType.PV },
+  const items: { label: string; value: SideUIType }[] = [];
+  if (appSettings.showSearchLogOnMobile) {
+    items.push({ label: t.searchLog, value: SideUIType.SEARCH });
+  }
+  items.push({ label: t.pv, value: SideUIType.PV });
+  items.push(
     { label: t.analysisDB, value: SideUIType.ANALYSIS_DB },
     { label: t.chart, value: SideUIType.CHART },
-  ];
+  );
   if (appSettings.showBookTableOnMobile) {
     items.push({ label: t.book, value: SideUIType.BOOK });
   }

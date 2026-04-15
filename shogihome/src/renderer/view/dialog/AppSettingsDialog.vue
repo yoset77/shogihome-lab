@@ -362,6 +362,11 @@
           <div class="form-item-label-wide">{{ t.showBookTableOnMobile }}</div>
           <ToggleButton v-model:value="update.showBookTableOnMobile" />
         </div>
+        <!-- 思考タブを表示 (モバイル) -->
+        <div v-if="isMobileWebApp()" class="form-item">
+          <div class="form-item-label-wide">{{ t.showSearchLogOnMobile }}</div>
+          <ToggleButton v-model:value="update.showSearchLogOnMobile" />
+        </div>
         <!-- グラフの表示形式 (モバイル) -->
         <div v-if="isMobileWebApp()" class="form-item">
           <div class="form-item-label-wide">{{ t.evaluationChartType }}</div>
@@ -1014,6 +1019,7 @@ const update = ref({
   logLevel: org.logLevel,
   enableHardwareAcceleration: org.enableHardwareAcceleration,
   showBookTableOnMobile: org.showBookTableOnMobile,
+  showSearchLogOnMobile: org.showSearchLogOnMobile,
   evaluationChartType: org.evaluationChartType,
   analysisDBSearchMode: org.analysisDBSearchMode,
   analysisDBMaxPVLength: org.analysisDBMaxPVLength,

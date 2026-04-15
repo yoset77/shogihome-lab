@@ -156,6 +156,13 @@ const isGame = computed(() => {
 });
 
 const isAutoSearchEnabled = computed(() => {
+  if (
+    store.appState === AppState.POSITION_EDITING ||
+    store.appState === AppState.PUZZLE ||
+    store.appState === AppState.ANALYSIS
+  ) {
+    return false;
+  }
   const searchMode = appSettings.analysisDBSearchMode;
   return (
     searchMode === AnalysisDBSearchMode.ALWAYS ||

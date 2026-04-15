@@ -846,6 +846,7 @@ export const zh_tw: Texts = {
   bookDataWasSaved: "定跡檔案已儲存。",
   openBook: "開啟定跡",
   showBookTableOnMobile: "顯示定跡分頁",
+  showSearchLogOnMobile: "顯示思考分頁",
   evaluationChartType: "評分圖表顯示形式",
   noBookFoundCheckKifuDir:
     "未找到定跡檔案。請檢查 KIFU_DIR 是否正確配置，且包含支援的副檔名（.db, .bin）。",

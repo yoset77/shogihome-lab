@@ -1,22 +1,15 @@
 <template>
   <div>
-    <div class="full column root" :class="{ paused }">
-      <div v-if="showHeader && isResearchSession" class="overlay-control row reverse">
-        <button v-if="paused" @click="onResume">
-          <Icon :icon="IconType.RESUME" />
-          <span>{{ t.resume }}</span>
-        </button>
-        <button v-else @click="onPause">
-          <Icon :icon="IconType.PAUSE" />
-          <span>{{ t.stop }}</span>
-        </button>
-      </div>
+    <div
+      class="full column root"
+      :class="{ paused, 'mobile-history-layout': mobileLayout && historyMode }"
+    >
       <div v-if="showHeader" class="row headers">
-        <div class="header">
+        <div class="header name">
           <span>{{ t.name }}: </span>
           <span>{{ monitor.name }}</span>
         </div>
-        <div class="header">
+        <div v-if="!mobileLayout" class="header">
           <span>{{ t.prediction }}: </span>
           <span>
             {{ monitor.ponderMove ? monitor.ponderMove : "---" }}
@@ -26,11 +19,11 @@
           <span>{{ t.best }}: </span>
           <span>{{ monitor.currentMoveText || "---" }}</span>
         </div>
-        <div class="header">
+        <div v-if="!mobileLayout" class="header">
           <span>NPS: </span>
           <span>{{ (monitor.nps && formatNodeCount(monitor.nps)) || "---" }}</span>
         </div>
-        <div class="header">
+        <div v-if="!mobileLayout" class="header">
           <span>{{ t.nodes }}: </span>
           <span>{{ (monitor.nodes && formatNodeCount(monitor.nodes)) || "---" }}</span>
         </div>
@@ -38,11 +31,22 @@
           <span>{{ t.hashUsage }}: </span>
           <span>{{ monitor.hashfull ? (monitor.hashfull * 100).toFixed(1) : "---" }} %</span>
         </div>
+        <!-- Right Side Control -->
+        <div v-if="isResearchSession" class="header-button">
+          <button v-if="paused" @click="onResume">
+            <Icon :icon="IconType.RESUME" />
+            <span>{{ t.resume }}</span>
+          </button>
+          <button v-else @click="onPause">
+            <Icon :icon="IconType.PAUSE" />
+            <span>{{ t.stop }}</span>
+          </button>
+        </div>
       </div>
 
-      <!-- Desktop Layout -->
+      <!-- Desktop Layout & Mobile History Layout -->
       <div
-        v-if="!mobileLayout"
+        v-if="!mobileLayout || historyMode"
         class="list-area"
         :style="{ height: `${height - (showHeader ? 22 : 0) - 2}px` }"
       >
@@ -62,7 +66,11 @@
               <td v-if="showDepthColumn" class="depth" :style="columnStyleMap['depth']">
                 {{ t.depth }}
               </td>
-              <td v-if="showNodesColumn" class="nodes" :style="columnStyleMap['nodes']">
+              <td
+                v-if="showNodesColumn && !mobileLayout"
+                class="nodes"
+                :style="columnStyleMap['nodes']"
+              >
                 {{ t.nodes }}
               </td>
               <td v-if="showScoreColumn" class="score" :style="columnStyleMap['score']">
@@ -94,7 +102,7 @@
                 }}{{ info.selectiveDepth !== undefined && info.depth !== undefined ? "/" : ""
                 }}{{ info.selectiveDepth }}
               </td>
-              <td v-if="showNodesColumn" class="nodes">
+              <td v-if="showNodesColumn && !mobileLayout" class="nodes">
                 {{ info.nodes && formatNodeCount(info.nodes) }}
               </td>
               <td v-if="showScoreColumn" class="score">
@@ -151,9 +159,9 @@
         </div>
       </div>
 
-      <!-- Mobile Layout -->
+      <!-- Mobile PV Layout -->
       <div
-        v-else
+        v-else-if="mobileLayout && !historyMode"
         class="mobile-list-area"
         :style="{ height: `${height - (showHeader ? 22 : 0) - 2}px` }"
       >
@@ -289,7 +297,8 @@ const paused = computed(() => {
   return (
     store.appState !== AppState.GAME &&
     store.appState !== AppState.CSA_GAME &&
-    store.appState !== AppState.ANALYSIS
+    store.appState !== AppState.ANALYSIS &&
+    store.appState !== AppState.MATE_SEARCH
   );
 });
 
@@ -401,23 +410,34 @@ const updateMultiPV = (add: number) => {
 .root {
   position: relative;
   padding-bottom: 2px;
-  background-color: var(--active-tab-bg-color);
-}
-.overlay-control {
-  position: absolute;
-  width: 100%;
-  margin: 0px 0px 0px 0px;
+  background-color: var(--tab-content-bg-color);
 }
 .headers {
   width: 100%;
+  max-width: 100%;
   height: 22px;
   text-align: left;
+  overflow: hidden;
 }
 .header {
+  flex-shrink: 0;
   margin: 0px 5px 0px 0px;
   padding: 0px 5px 0px 5px;
   background-color: var(--text-bg-color);
   color: var(--text-color);
+}
+.header.name {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header-button {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
 }
 .paused .header {
   background-color: var(--text-bg-color-disabled);
@@ -429,16 +449,21 @@ const updateMultiPV = (add: number) => {
 .list-area {
   width: 100%;
   overflow-y: scroll;
+  overflow-x: auto;
   background-color: var(--text-bg-color);
   color: var(--text-color);
+  -webkit-overflow-scrolling: touch;
 }
 .paused .list-area {
   background-color: var(--text-bg-color-disabled);
 }
 table.list {
   width: 100%;
-  max-width: 100%;
   border-collapse: collapse;
+}
+.mobile-history-layout table.list {
+  width: auto;
+  max-width: none;
 }
 tr.list-header > td {
   height: 16px;
@@ -449,6 +474,9 @@ tr.list-header > td {
   position: sticky;
   top: 0;
   left: 0;
+}
+.mobile-history-layout tr.list-header > td {
+  width: auto;
 }
 .paused tr.list-header > td {
   background-color: var(--text-bg-color-disabled);
@@ -499,6 +527,10 @@ table.list td.text {
   text-align: left;
   text-overflow: ellipsis;
   overflow: hidden;
+}
+.mobile-history-layout table.list td.text {
+  max-width: none;
+  overflow: visible;
 }
 button {
   margin: 0px 0px 1px 0px;
