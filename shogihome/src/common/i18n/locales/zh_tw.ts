@@ -45,6 +45,12 @@ export const zh_tw: Texts = {
   delete: "刪除",
   deleteThisAnalysisResult: "您確定要刪除這條分析結果嗎？",
   pasteRecordOrPosition: "貼上棋譜、局面",
+  pasteRecordMerge: "Paste Record (Merge)",
+  toRootPosition: "to Root Position",
+  toCurrentPosition: "to Current Position",
+  asNewFile: "as New File",
+  mergeToRootPosition: "Merge to Root Position",
+  mergeToCurrentPosition: "Merge to Current Position",
   addSpecialMove: "特殊手",
   deleteMoves: "刪除現在位置後的棋譜",
   view: "表示",
@@ -736,6 +742,12 @@ export const zh_tw: Texts = {
   inaccuracyThresholdMustBeLessThanDubiousThreshold: "緩手門檻應小於疑問手門檻。",
   dubiousThresholdMustBeLessThanMistakeThreshold: "疑問手門檻應小於惡手門檻。",
   mistakeThresholdMustBeLessThanBlunderThreshold: "惡手門檻應小於大惡手門檻。",
+  failedToMergeRecordWithDifferentInitialPosition:
+    "Failed to merge record with different initial position.",
+  failedToMergeRecordWithDifferentTurn: "Failed to merge record with different turn.",
+  skippedMovesInMerge(skipped: number, total: number): string {
+    return `${skipped} / ${total} moves were skipped in the merge.`;
+  },
   thisEngineNotSupportsMateSearch: "這個引擎不支援詰將棋搜索。",
   pleaseEndActiveFeaturesBeforeOpenRecord: "請關閉現正運行的功能再開啟棋譜。",
   bothTimeLimitAndByoyomiAreNotSet: "持時間與讀秒尚未設置。",

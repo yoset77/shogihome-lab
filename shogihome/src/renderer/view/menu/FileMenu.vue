@@ -171,6 +171,14 @@
           <Icon :icon="IconType.PASTE" />
           <div class="label">{{ t.paste }}</div>
         </button>
+        <button :disabled="!states.paste" @click="onPasteMergeToRoot">
+          <Icon :icon="IconType.PASTE" />
+          <div class="label">{{ t.mergeToRootPosition }}</div>
+        </button>
+        <button :disabled="!states.paste" @click="onPasteMergeToCurrent">
+          <Icon :icon="IconType.PASTE" />
+          <div class="label">{{ t.mergeToCurrentPosition }}</div>
+        </button>
       </div>
       <div v-if="isMobileWebApp()" class="group">
         <button @click="onAppSettings">
@@ -431,6 +439,14 @@ const onCopyBOD = () => {
 };
 const onPaste = () => {
   store.showPasteDialog();
+  emit("close");
+};
+const onPasteMergeToRoot = () => {
+  store.showPasteDialog("mergeIntoRoot");
+  emit("close");
+};
+const onPasteMergeToCurrent = () => {
+  store.showPasteDialog("mergeIntoCurrent");
   emit("close");
 };
 const onAppSettings = () => {

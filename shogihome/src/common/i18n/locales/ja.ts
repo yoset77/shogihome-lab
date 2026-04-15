@@ -45,8 +45,14 @@ export const ja: Texts = {
   delete: "削除",
   deleteThisAnalysisResult: "この読み筋を削除しますか？",
   pasteRecordOrPosition: "棋譜・局面貼り付け",
+  pasteRecordMerge: "棋譜貼り付け(マージ)",
+  toRootPosition: "棋譜の先頭へ",
+  toCurrentPosition: "現局面へ",
+  asNewFile: "新規ファイル",
+  mergeToRootPosition: "先頭へマージ",
+  mergeToCurrentPosition: "現局面へマージ",
   addSpecialMove: "特殊な指し手",
-  deleteMoves: "現在の位置から棋譜を削除",
+  deleteMoves: "現局面から棋譜を削除",
   view: "表示",
   uiMode: "UIモード",
   auto: "自動",
@@ -743,6 +749,12 @@ export const ja: Texts = {
     "緩手には疑問手より小さい値を指定してください。",
   dubiousThresholdMustBeLessThanMistakeThreshold: "疑問手には悪手より小さい値を指定してください。",
   mistakeThresholdMustBeLessThanBlunderThreshold: "悪手には大悪手より小さい値を指定してください。",
+  failedToMergeRecordWithDifferentInitialPosition:
+    "初期局面が異なるため棋譜をマージできませんでした。",
+  failedToMergeRecordWithDifferentTurn: "手番が異なるため棋譜をマージできませんでした。",
+  skippedMovesInMerge(skipped: number, total: number): string {
+    return `${total}手中、${skipped}手がマージできませんでした。`;
+  },
   thisEngineNotSupportsMateSearch: "このエンジンは詰将棋探索をサポートしていません。",
   pleaseEndActiveFeaturesBeforeOpenRecord: "棋譜を開くには現在利用している機能を終了してください。",
   bothTimeLimitAndByoyomiAreNotSet: "持ち時間と秒読みが両方とも0です。",
