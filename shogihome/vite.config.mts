@@ -42,6 +42,14 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     setupFiles: ["./src/tests/setup.ts"],
+    poolOptions: {
+      forks: {
+        execArgv: ["--no-webstorage"],
+      },
+      threads: {
+        execArgv: ["--no-webstorage"],
+      },
+    },
     coverage: {
       exclude: [
         "docs",
