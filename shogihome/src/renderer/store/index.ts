@@ -237,6 +237,7 @@ class Store {
   private onUpdateCustomDataHandlers: UpdateCustomDataHandler[] = [];
   private onPaste?: (data: string) => void;
   private _pendingPasteData?: string;
+  private _pasteMode: "standard" | "mergeIntoRoot" | "mergeIntoCurrent" = "standard";
 
   constructor() {
     const refs = reactive(this);
@@ -464,7 +465,7 @@ class Store {
     this._pvPreview = undefined;
   }
 
-  showPasteDialog(): void {
+  showPasteDialog(mode: "standard" | "mergeIntoRoot" | "mergeIntoCurrent" = "standard"): void {
     if (this.appState !== AppState.NORMAL && this.appState !== AppState.SERVER_KIFU_DIALOG) {
       return;
     }
@@ -472,6 +473,7 @@ class Store {
     const appSettings = useAppSettings();
     if (appSettings.showPasteDialog) {
       this._lastAppState = prevAppState;
+      this._pasteMode = mode;
       this._appState = AppState.PASTE_DIALOG;
       return;
     }
@@ -482,10 +484,11 @@ class Store {
           return;
         }
         if (text) {
-          this.pasteRecord(text);
+          this.pasteRecord(text, mode);
         } else {
           // Open the dialog if the clipboard is empty.
           this._lastAppState = prevAppState;
+          this._pasteMode = mode;
           this._appState = AppState.PASTE_DIALOG;
         }
       })
@@ -496,6 +499,7 @@ class Store {
         }
         // For example, if the user has not given permission.
         this._lastAppState = prevAppState;
+        this._pasteMode = mode;
         this._appState = AppState.PASTE_DIALOG;
       });
   }
@@ -1662,16 +1666,24 @@ class Store {
     this.copyTextToClipboard(usen);
   }
 
-  pasteRecord(data: string): void {
+  get pasteMode(): "standard" | "mergeIntoRoot" | "mergeIntoCurrent" {
+    return this._pasteMode;
+  }
+
+  pasteRecord(
+    data: string,
+    mode: "standard" | "mergeIntoRoot" | "mergeIntoCurrent" = "standard",
+  ): void {
     if (this.onPaste) {
       this.onPaste(data);
       return;
     }
     if (this.appState !== AppState.NORMAL) {
       this._pendingPasteData = data;
+      this._pasteMode = mode;
       return;
     }
-    const error = this.recordManager.importRecord(data.trim());
+    const error = this.recordManager.importRecord(data.trim(), { mode });
     if (error) {
       useErrorStore().add(error);
       return;

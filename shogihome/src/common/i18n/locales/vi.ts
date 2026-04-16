@@ -45,6 +45,12 @@ export const vi: Texts = {
   delete: "Xóa",
   deleteThisAnalysisResult: "Bạn có chắc chắn muốn xóa kết quả phân tích này không?",
   pasteRecordOrPosition: "Dán kỳ phổ/thế cờ",
+  pasteRecordMerge: "Paste Record (Merge)",
+  toRootPosition: "to Root Position",
+  toCurrentPosition: "to Current Position",
+  asNewFile: "as New File",
+  mergeToRootPosition: "Merge to Root Position",
+  mergeToCurrentPosition: "Merge to Current Position",
   addSpecialMove: "Chèn nước đi đặc biệt",
   deleteMoves: "Xóa từ nước hiện tại trở đi",
   view: "Hiển thị",
@@ -744,6 +750,12 @@ export const vi: Texts = {
     "Ngưỡng không chính xác phải nhỏ hơn ngưỡng sai lầm.",
   mistakeThresholdMustBeLessThanBlunderThreshold:
     "Ngưỡng sai lầm phải nhỏ hơn ngưỡng sai lầm ngớ ngẩn.",
+  failedToMergeRecordWithDifferentInitialPosition:
+    "Failed to merge record with different initial position.",
+  failedToMergeRecordWithDifferentTurn: "Failed to merge record with different turn.",
+  skippedMovesInMerge(skipped: number, total: number): string {
+    return `${skipped} / ${total} moves were skipped in the merge.`;
+  },
   thisEngineNotSupportsMateSearch: "Phần mềm này không hỗ trợ đọc chiếu hết.",
   pleaseEndActiveFeaturesBeforeOpenRecord:
     "Vui lòng đóng các tính năng đang chạy trước khi mở kỳ phổ.",

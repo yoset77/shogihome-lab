@@ -1,6 +1,6 @@
 <template>
   <div>
-    <dialog v-if="!isGameMenuVisible" ref="dialog" class="menu">
+    <dialog v-if="!isGameMenuVisible && !isSpecialMoveMenuVisible" ref="dialog" class="menu">
       <div class="group">
         <button data-hotkey="Escape" class="close" @click="onClose">
           <Icon :icon="IconType.CLOSE" />
@@ -171,6 +171,18 @@
           <Icon :icon="IconType.PASTE" />
           <div class="label">{{ t.paste }}</div>
         </button>
+        <button :disabled="!states.paste" @click="onPasteMergeToRoot">
+          <Icon :icon="IconType.PASTE" />
+          <div class="label">{{ t.mergeToRootPosition }}</div>
+        </button>
+        <button :disabled="!states.paste" @click="onPasteMergeToCurrent">
+          <Icon :icon="IconType.PASTE" />
+          <div class="label">{{ t.mergeToCurrentPosition }}</div>
+        </button>
+        <button @click="onAddSpecialMove">
+          <Icon :icon="IconType.NOTE" />
+          <div class="label">{{ t.addSpecialMove }}</div>
+        </button>
       </div>
       <div v-if="isMobileWebApp()" class="group">
         <button @click="onAppSettings">
@@ -186,6 +198,7 @@
       </div>
     </dialog>
     <MobileGameMenu v-if="isGameMenuVisible" @close="emit('close')" />
+    <SpecialMoveMenu v-if="isSpecialMoveMenuVisible" @close="emit('close')" />
   </div>
 </template>
 
@@ -202,6 +215,7 @@ import { useAppSettings } from "@/renderer/store/settings";
 import { installHotKeyForDialog, uninstallHotKeyForDialog } from "@/renderer/devices/hotkey";
 import { openCopyright } from "@/renderer/helpers/copyright";
 import MobileGameMenu from "@/renderer/view/menu/MobileGameMenu.vue";
+import SpecialMoveMenu from "@/renderer/view/menu/SpecialMoveMenu.vue";
 import { defaultResearchSettings } from "@/common/settings/research";
 import { USIEngine } from "@/common/settings/usi";
 import { useLanStore } from "@/renderer/store/lan";
@@ -216,6 +230,7 @@ const appSettings = useAppSettings();
 const lanStore = useLanStore();
 const dialog = ref();
 const isGameMenuVisible = ref(false);
+const isSpecialMoveMenuVisible = ref(false);
 const onClose = () => {
   emit("close");
 };
@@ -432,6 +447,17 @@ const onCopyBOD = () => {
 const onPaste = () => {
   store.showPasteDialog();
   emit("close");
+};
+const onPasteMergeToRoot = () => {
+  store.showPasteDialog("mergeIntoRoot");
+  emit("close");
+};
+const onPasteMergeToCurrent = () => {
+  store.showPasteDialog("mergeIntoCurrent");
+  emit("close");
+};
+const onAddSpecialMove = () => {
+  isSpecialMoveMenuVisible.value = true;
 };
 const onAppSettings = () => {
   store.showAppSettingsDialog();

@@ -12,9 +12,35 @@ import {
   Square,
   formatPV,
   specialMove,
+  exportKI2,
 } from "tsshogi";
 import { SCORE_MATE_INFINITE } from "@/common/game/usi.js";
 import { RecordManager, SearchInfoSenderType } from "@/renderer/store/record.js";
+
+const sampleKIF = `
+手合割：平手
+手数----指手---------消費時間--
+   1 ２六歩(27)   ( 0:00/00:00:00)
+*通常コメント
+   2 ８四歩(83)   ( 0:00/00:00:00)
+*#評価値=108
+   3 ７六歩(77)   ( 0:00/00:00:00)
+   4 ８五歩(84)   ( 0:00/00:00:00)
+   5 ７七角(88)   ( 0:00/00:00:00)
+   6 ３二金(41)   ( 0:00/00:00:00)
+   7 ６八銀(79)   ( 0:00/00:00:00)
+   8 ３四歩(33)   ( 0:00/00:00:00)
+   9 ７八金(69)   ( 0:00/00:00:00)
+  10 ４二銀(31)   ( 0:00/00:00:00)
+`;
+
+const sampleKIF2 = `
+手合割：平手
+手数----指手---------消費時間--
+   1 １六歩(17)   ( 0:00/00:00:00)
+   2 １四歩(13)   ( 0:00/00:00:00)
+   3 ３八銀(39)   ( 0:00/00:00:00)
+`;
 
 describe("store/record", () => {
   it("new", () => {
@@ -498,6 +524,40 @@ describe("store/record", () => {
     expect(recordManager.record.moves).toHaveLength(6);
     expect(recordManager.unsaved).toBeFalsy();
     expect(recordManager.positionCounts.size).toBe(6);
+  });
+
+  it("importRecord/merge", () => {
+    const recordManager = new RecordManager();
+    recordManager.importRecord(sampleKIF);
+    recordManager.changePly(6);
+    recordManager.importRecord(sampleKIF2, { mode: "mergeIntoRoot" });
+    expect(exportKI2(recordManager.record)).toBe(`手合割：平手
+▲２六歩
+*通常コメント
+△８四歩
+*#評価値=108
+▲７六歩    △８五歩    ▲７七角    △３二金    ▲６八銀    △３四歩
+▲７八金    △４二銀
+
+変化：1手
+▲１六歩    △１四歩    ▲３八銀`);
+  });
+
+  it("mergeRecordIntoCurrent", () => {
+    const recordManager = new RecordManager();
+    recordManager.importRecord(sampleKIF);
+    recordManager.changePly(6);
+    recordManager.importRecord(sampleKIF2, { mode: "mergeIntoCurrent" });
+    expect(exportKI2(recordManager.record)).toBe(`手合割：平手
+▲２六歩
+*通常コメント
+△８四歩
+*#評価値=108
+▲７六歩    △８五歩    ▲７七角    △３二金    ▲６八銀    △３四歩
+▲７八金    △４二銀
+
+変化：7手
+▲１六歩    △１四歩    ▲３八銀`);
   });
 
   it("positionCounts", () => {

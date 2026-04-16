@@ -46,6 +46,12 @@ export const en: Texts = {
   delete: "Delete",
   deleteThisAnalysisResult: "Are you sure you want to delete this analysis result?",
   pasteRecordOrPosition: "Paste Record/Position",
+  pasteRecordMerge: "Paste Record (Merge)",
+  toRootPosition: "to Root Position",
+  toCurrentPosition: "to Current Position",
+  asNewFile: "as New File",
+  mergeToRootPosition: "Merge to Root Position",
+  mergeToCurrentPosition: "Merge to Current Position",
   addSpecialMove: "Add Special Move",
   deleteMoves: "Delete Moves from Current Position",
   view: "View",
@@ -747,6 +753,12 @@ export const en: Texts = {
     "Dubious threshold must be less than mistake threshold.",
   mistakeThresholdMustBeLessThanBlunderThreshold:
     "Mistake threshold must be less than blunder threshold.",
+  failedToMergeRecordWithDifferentInitialPosition:
+    "Failed to merge record with different initial position.",
+  failedToMergeRecordWithDifferentTurn: "Failed to merge record with different turn.",
+  skippedMovesInMerge(skipped: number, total: number): string {
+    return `${skipped} / ${total} moves were skipped in the merge.`;
+  },
   thisEngineNotSupportsMateSearch: "This engine does not support mate search.",
   pleaseEndActiveFeaturesBeforeOpenRecord: "Please end active features before open record.",
   bothTimeLimitAndByoyomiAreNotSet: "Both time limit and byoyomi are not set.",

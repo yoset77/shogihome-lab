@@ -43,6 +43,12 @@ export type Texts = {
   delete: string;
   deleteThisAnalysisResult: string;
   pasteRecordOrPosition: string;
+  pasteRecordMerge: string;
+  toRootPosition: string;
+  toCurrentPosition: string;
+  asNewFile: string;
+  mergeToRootPosition: string;
+  mergeToCurrentPosition: string;
   addSpecialMove: string;
   deleteMoves: string;
   view: string;
@@ -723,6 +729,9 @@ export type Texts = {
   inaccuracyThresholdMustBeLessThanDubiousThreshold: string;
   dubiousThresholdMustBeLessThanMistakeThreshold: string;
   mistakeThresholdMustBeLessThanBlunderThreshold: string;
+  failedToMergeRecordWithDifferentInitialPosition: string;
+  failedToMergeRecordWithDifferentTurn: string;
+  skippedMovesInMerge: (skipped: number, total: number) => string;
   thisEngineNotSupportsMateSearch: string;
   pleaseEndActiveFeaturesBeforeOpenRecord: string;
   bothTimeLimitAndByoyomiAreNotSet: string;
