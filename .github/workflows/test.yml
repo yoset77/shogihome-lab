@@ -30,6 +30,9 @@ jobs:
       - name: Security Audit
         run: npm audit --audit-level=high
 
+      - name: Audit Scripts
+        run: npm run audit:scripts
+
       - name: Lint
         run: npm run lint
 
