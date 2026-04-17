@@ -15,12 +15,12 @@ PC上のUSI将棋エンジンをスマートフォンやタブレットからWeb
 <table>
   <tr>
     <td align="center">
-      <img src="./images/shogihome-lab_research.webp" width="250">
+      <img src="./images/research-mobile.webp" width="250">
     <br>
      <em>検討画面</em>
     </td>
     <td align="center">
-      <img src="./images/shogihome-lab_pv-preview.webp" width="250">
+      <img src="./images/pvpreview-mobile.webp" width="250">
     <br>
      <em>PVプレビュー画面</em>
     </td>
