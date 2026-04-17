@@ -24,6 +24,15 @@ updates:
         patterns:
           - "*"
 
+  - package-ecosystem: "uv"
+    directory: "/engine-wrapper"
+    schedule:
+      interval: "weekly"
+      day: "saturday"
+      time: "17:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 10
+
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"

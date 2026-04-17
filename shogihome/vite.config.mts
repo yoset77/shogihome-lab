@@ -44,10 +44,12 @@ export default defineConfig({
     setupFiles: ["./src/tests/setup.ts"],
     poolOptions: {
       forks: {
-        execArgv: ["--no-webstorage"],
+        execArgv:
+          parseInt(process.versions.node.split(".")[0], 10) >= 25 ? ["--no-webstorage"] : [],
       },
       threads: {
-        execArgv: ["--no-webstorage"],
+        execArgv:
+          parseInt(process.versions.node.split(".")[0], 10) >= 25 ? ["--no-webstorage"] : [],
       },
     },
     coverage: {
