@@ -12,9 +12,7 @@ function checkPackageJson(packageJsonPath: string) {
 
     // All packages should NOT have preinstall or install scripts
     if (scripts?.preinstall) {
-      throw new Error(
-        `Package ${name}@${version} has unexpected preinstall scripts`,
-      );
+      throw new Error(`Package ${name}@${version} has unexpected preinstall scripts`);
     }
     if (scripts?.install) {
       throw new Error(`Package ${name}@${version} has unexpected install scripts`);
@@ -25,41 +23,27 @@ function checkPackageJson(packageJsonPath: string) {
       case "electron":
       case "esbuild":
         if (!scripts?.postinstall) {
-          throw new Error(
-            `Package ${name}@${version} is missing postinstall scripts`,
-          );
+          throw new Error(`Package ${name}@${version} is missing postinstall scripts`);
         }
         if (scripts.postinstall !== "node install.js") {
-          throw new Error(
-            `Package ${name}@${version} has unexpected postinstall scripts`,
-          );
+          throw new Error(`Package ${name}@${version} has unexpected postinstall scripts`);
         }
         break;
 
       // The postinstall is introduced since https://github.com/unrs/unrs-resolver/pull/66 (v1.6.0)
       case "unrs-resolver":
         if (!scripts?.postinstall) {
-          throw new Error(
-            `Package ${name}@${version} is missing postinstall scripts`,
-          );
+          throw new Error(`Package ${name}@${version} is missing postinstall scripts`);
         }
-        if (
-          !scripts.postinstall.match(
-            /^napi-postinstall unrs-resolver [\d.]+ check$/,
-          )
-        ) {
-          throw new Error(
-            `Package ${name}@${version} has unexpected postinstall scripts`,
-          );
+        if (!scripts.postinstall.match(/^napi-postinstall unrs-resolver [\d.]+ check$/)) {
+          throw new Error(`Package ${name}@${version} has unexpected postinstall scripts`);
         }
         break;
 
       // Other packages should not have postinstall scripts
       default:
         if (scripts?.postinstall) {
-          throw new Error(
-            `Package ${name}@${version} has unexpected postinstall scripts`,
-          );
+          throw new Error(`Package ${name}@${version} has unexpected postinstall scripts`);
         }
         break;
     }
