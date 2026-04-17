@@ -98,7 +98,7 @@
     "eslint-import-resolver-typescript": "^3.8.3",
     "eslint-plugin-import": "^2.31.0",
     "eslint-plugin-vue": "^9.33.0",
-    "globals": "^15.15.0",
+    "globals": "^17.5.0",
     "jsdom": "^26.0.0",
     "license-checker": "^25.0.1",
     "postject": "^1.0.0-alpha.6",
