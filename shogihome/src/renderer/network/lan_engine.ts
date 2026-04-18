@@ -85,7 +85,7 @@ export class LanEngine {
   connect(onMessage?: MessageHandler): Promise<void> {
     this.ensureListenersRegistered();
     this.isExplicitlyClosed = false;
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       if (
         this.ws &&
         (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)
@@ -115,7 +115,25 @@ export class LanEngine {
         this.onMessageHandler = onMessage;
       }
 
+      let connected = false;
+      const timeoutId = window.setTimeout(() => {
+        if (!connected) {
+          if (this.ws) {
+            this.ws.onopen = null;
+            this.ws.onmessage = null;
+            this.ws.onerror = null;
+            this.ws.onclose = null;
+            this.ws.close();
+            this.ws = null;
+          }
+          this.setStatus("disconnected");
+          reject(new Error("WebSocket connection timeout"));
+        }
+      }, 10000);
+
       this.ws.onopen = () => {
+        connected = true;
+        window.clearTimeout(timeoutId);
         console.log("WebSocket connection established");
         this.reconnectAttempts = 0;
         this.setStatus("connected");
@@ -145,6 +163,15 @@ export class LanEngine {
       };
 
       this.ws.onclose = (event) => {
+        if (!connected) {
+          window.clearTimeout(timeoutId);
+          this.ws = null;
+          this.setStatus("disconnected");
+          reject(
+            new Error(`WebSocket connection closed: code=${event.code} reason=${event.reason}`),
+          );
+          return;
+        }
         console.log(`WebSocket connection closed: code=${event.code} reason=${event.reason}`);
         this.ws = null;
         this.stopHeartbeat();
@@ -156,6 +183,12 @@ export class LanEngine {
 
       this.ws.onerror = (error) => {
         console.error("WebSocket error:", error);
+        if (!connected) {
+          // Rejection will be handled by onclose which usually follows onerror,
+          // but we can reject here to be safe and specific.
+          window.clearTimeout(timeoutId);
+          reject(new Error("WebSocket connection error"));
+        }
       };
     });
   }
@@ -231,10 +264,12 @@ export class LanEngine {
     this.removeListeners();
     this.clearReconnect();
     this.stopHeartbeat();
-    this.commandQueue = [];
-    if (this.ws) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.flushCommandQueue();
       this.ws.close();
     }
+    this.ws = null;
+    this.commandQueue = [];
     this.messageListeners = [];
     this.setStatus("disconnected");
   }
