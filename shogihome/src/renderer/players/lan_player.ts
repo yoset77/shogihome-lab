@@ -508,35 +508,10 @@ export class LanPlayer implements Player {
           (data.state === "uninitialized" || data.state === "stopped" || data.state === "ready")
         ) {
           // If the engine is not thinking (uninitialized, stopped, or ready) but the client expects it to be,
-          // it means the session was lost, the process crashed, or the state is inconsistent.
-          // We should NOT automatically restart to avoid losing the search tree/hash silently.
-
-          // Exception: If state is 'ready', it might be that we just connected and 'bestmove' is coming in the replay buffer.
-          // However, server sends 'state' BEFORE replay buffer.
-          // If we treat 'ready' as error immediately, we might kill the session before processing 'bestmove'.
-          // So we should ignore 'ready' here and let the replay buffer handle it.
-          // If 'bestmove' never comes, we will timeout eventually or user will stop manually.
-
-          if (data.state === "ready") {
-            this.scheduleReadyReplayTimeout();
-            return;
-          }
-
-          this.clearReadyReplayTimeout();
-          this.lanEngine.disconnect();
-
-          const error = new Error(
-            data.state === "uninitialized"
-              ? t.researchStoppedBecauseLanDisconnected
-              : t.engineProcessWasClosedUnexpectedly,
-          );
-          if (this.handler) {
-            this.handler.onError(error);
-          } else if (this.onErrorCallback) {
-            this.onErrorCallback(error);
-          }
-          this.isThinking = false;
-          this.rejectStopPromise(new Error("Engine stopped"));
+          // it might mean we just reconnected and 'bestmove' is coming in the replay buffer.
+          // Wait for the replay buffer to deliver 'bestmove' or a timeout.
+          this.scheduleReadyReplayTimeout();
+          return;
         }
       }
     } catch {
@@ -627,10 +602,7 @@ export class LanPlayer implements Player {
 
   private handleTransportDisconnect() {
     this.clearReadyReplayTimeout();
-    if (this.stopPromiseRejector) {
-      this.isThinking = false;
-      this.rejectStopPromise(new Error("Engine connection was lost while stopping"));
-    }
+    console.log("Transport disconnected. Waiting for reconnection...");
   }
 
   private clearStopPromiseTimeout() {
@@ -670,6 +642,14 @@ export class LanPlayer implements Player {
     this.readyReplayTimeoutId = window.setTimeout(() => {
       this.readyReplayTimeoutId = null;
       if (!this.isThinking) {
+        return;
+      }
+
+      if (this.stopPromiseResolver) {
+        // We were waiting to stop, and it never sent bestmove, but server says it's stopped/ready.
+        // It's safe to resolve the stop promise here.
+        this.isThinking = false;
+        this.resolveStopPromise();
         return;
       }
 
