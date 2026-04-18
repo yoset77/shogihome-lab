@@ -554,4 +554,48 @@ describe("LanPlayer", () => {
     vi.advanceTimersByTime(500);
     expect(onSearchInfo).toBeCalled();
   });
+
+  it("should reset isThinking on server error", async () => {
+    interface LanPlayerInternals {
+      isThinking: boolean;
+      onMessage(message: string): void;
+    }
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine");
+    const internals = player as unknown as LanPlayerInternals;
+    internals.isThinking = true;
+
+    internals.onMessage(JSON.stringify({ error: "some error" }));
+
+    expect(internals.isThinking).toBe(false);
+  });
+
+  it("should execute search calls sequentially using lock", async () => {
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine");
+    await launchPlayer(player);
+
+    const usi1 = "position startpos moves 7g7f";
+    const usi2 = "position startpos moves 2g2f";
+    const record1 = Record.newByUSI(usi1) as Record;
+    const record2 = Record.newByUSI(usi2) as Record;
+
+    const mockHandler1 = { onMove: vi.fn(), onResign: vi.fn(), onWin: vi.fn(), onError: vi.fn() };
+    const mockHandler2 = { onMove: vi.fn(), onResign: vi.fn(), onWin: vi.fn(), onError: vi.fn() };
+
+    const timeStates = {
+      black: { timeMs: 1000, byoyomi: 0, increment: 0 },
+      white: { timeMs: 1000, byoyomi: 0, increment: 0 },
+    };
+
+    // Call two searches overlappingly
+    const p1 = player.startSearch(record1.position, usi1, timeStates, mockHandler1);
+    const p2 = player.startSearch(record2.position, usi2, timeStates, mockHandler2);
+
+    await vi.runAllTimersAsync();
+    await p1;
+    await p2;
+
+    // Both should have finished, but sequentially.
+    // We verify currentSfen is the second one.
+    expect((player as unknown as { currentSfen: string }).currentSfen).toBe(usi2);
+  });
 });

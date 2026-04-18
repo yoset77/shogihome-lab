@@ -1515,6 +1515,7 @@ export class EngineSession {
           console.error(`Authentication failed: ${message}`);
           this.sendError(message);
           socket.destroy();
+          this.onEngineClose();
         }
       } else {
         setup();

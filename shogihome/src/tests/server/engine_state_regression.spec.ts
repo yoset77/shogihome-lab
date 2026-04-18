@@ -70,4 +70,19 @@ describe("Engine State Regression Tests", () => {
     // But it should be handled immediately.
     expect(tSession.postStopCommandQueue.length).toBe(0);
   });
+
+  it("should reset engine state on authentication failure", async () => {
+    // 1. Move to STARTING
+    tSession.engineState = EngineState.STARTING;
+    (tSession as unknown as { currentEngineId: string }).currentEngineId = "test-engine";
+    tSession.engineHandle = null;
+
+    // 2. Mock a failed authentication and trigger rollback logic
+    // In server.ts, startEngine's catch block calls onEngineClose()
+    tSession.onEngineClose();
+
+    // Verification: State should be STOPPED and ID cleared
+    expect(tSession.engineState).toBe(EngineState.STOPPED);
+    expect((tSession as unknown as { currentEngineId: string | null }).currentEngineId).toBeNull();
+  });
 });

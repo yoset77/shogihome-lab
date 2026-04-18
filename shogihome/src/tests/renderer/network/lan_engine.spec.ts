@@ -45,21 +45,28 @@ describe("LanEngine", () => {
     const engine = new LanEngine("test-session");
     const promise = engine.connect();
 
+    const expectPromise = expect(promise).rejects.toThrow("WebSocket connection timeout");
+
     await vi.advanceTimersByTimeAsync(11000);
 
-    await expect(promise).rejects.toThrow("WebSocket connection timeout");
+    await expectPromise;
     expect(mockWs.close).toHaveBeenCalled();
+
+    // Ensure all timers are cleared to avoid unhandled rejection in subsequent tests
+    await vi.runAllTimersAsync();
   });
 
   it("should reject connect() on connection error", async () => {
     const engine = new LanEngine("test-session");
     const promise = engine.connect();
 
+    const expectPromise = expect(promise).rejects.toThrow("WebSocket connection error");
+
     if (mockWs.onerror) {
       mockWs.onerror(new Error("Network Error"));
     }
 
-    await expect(promise).rejects.toThrow("WebSocket connection error");
+    await expectPromise;
   });
 
   it("should flush command queue and close socket on disconnect", async () => {
