@@ -58,7 +58,9 @@ export class LanEngine {
         this.ws = null;
         this.setStatus("disconnected");
       }
-      this.connect();
+      this.connect().catch((e) => {
+        console.warn(`Reconnect after visibility change failed: ${e}`);
+      });
     }
   };
 
@@ -173,6 +175,9 @@ export class LanEngine {
           reject(
             new Error(`WebSocket connection closed: code=${event.code} reason=${event.reason}`),
           );
+          if (!this.isExplicitlyClosed) {
+            this.scheduleReconnect();
+          }
           return;
         }
         console.log(`WebSocket connection closed: code=${event.code} reason=${event.reason}`);

@@ -391,15 +391,20 @@ export class LanPlayer implements Player {
     // Expected format from server: {"sfen":"...","info":"bestmove ..."}
     try {
       const data = JSON.parse(message);
+
       if (data.error) {
         this.clearReadyReplayTimeout();
         this.isThinking = false;
         const error = new Error(data.error);
+        const handler = this.handler;
+        const onErrorCallback = this.onErrorCallback;
+        this.clearHandlers();
+        this.clearPendingInfo();
         this.rejectStopPromise(error);
-        if (this.handler) {
-          this.handler.onError(error);
-        } else if (this.onErrorCallback) {
-          this.onErrorCallback(error);
+        if (handler) {
+          handler.onError(error);
+        } else if (onErrorCallback) {
+          onErrorCallback(error);
         } else {
           console.error("Engine Error:", data.error);
         }

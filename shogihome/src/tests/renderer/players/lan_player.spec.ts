@@ -569,6 +569,34 @@ describe("LanPlayer", () => {
     expect(internals.isThinking).toBe(false);
   });
 
+  it("should handle error message, call onError, and ignore subsequent bestmove", async () => {
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine");
+    await launchPlayer(player);
+
+    const usi = "position startpos";
+    const record = Record.newByUSI(usi) as Record;
+
+    const mockHandler = { onMove: vi.fn(), onResign: vi.fn(), onWin: vi.fn(), onError: vi.fn() };
+    const timeStates = {
+      black: { timeMs: 1000, byoyomi: 0, increment: 0 },
+      white: { timeMs: 1000, byoyomi: 0, increment: 0 },
+    };
+
+    const p = player.startSearch(record.position, usi, timeStates, mockHandler);
+    await vi.runAllTimersAsync();
+    await p;
+
+    // Send error
+    messageHandler(JSON.stringify({ error: "Something went wrong" }));
+
+    expect(mockHandler.onError).toBeCalledWith(new Error("Something went wrong"));
+
+    // Send bestmove after error
+    messageHandler(JSON.stringify({ sfen: usi, info: "bestmove 7g7f" }));
+
+    expect(mockHandler.onMove).not.toBeCalled();
+  });
+
   it("should execute search calls sequentially using lock", async () => {
     const player = new LanPlayer("test-session", "test-engine", "Test Engine");
     await launchPlayer(player);

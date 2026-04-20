@@ -155,4 +155,24 @@ describe("LanEngine", () => {
       configurable: true,
     });
   });
+
+  it("should schedule reconnect when socket closes before onopen", async () => {
+    const engine = new LanEngine("test-session");
+
+    // Start connecting
+    const connectPromise = engine.connect();
+    connectPromise.catch(() => {}); // ignore rejection
+
+    const scheduleReconnectSpy = vi.spyOn(
+      engine as unknown as { scheduleReconnect: () => void },
+      "scheduleReconnect",
+    );
+
+    // Close before open
+    if (mockWs.onclose) {
+      mockWs.onclose({ code: 1006, reason: "abnormal closure" });
+    }
+
+    expect(scheduleReconnectSpy).toHaveBeenCalled();
+  });
 });
