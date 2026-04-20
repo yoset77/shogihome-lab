@@ -94,4 +94,65 @@ describe("LanEngine", () => {
     expect(mockWs.close).toHaveBeenCalled();
     expect((engine as unknown as { ws: MockWebSocket | null }).ws).toBeNull();
   });
+
+  it("should remove all listeners before closing socket on disconnect", async () => {
+    const engine = new LanEngine("test-session");
+
+    // Start connecting
+    const connectPromise = engine.connect();
+    // Suppress unhandled rejection since connect() will reject when we close the socket or timeout
+    connectPromise.catch(() => {});
+
+    // Before connection establishes, they should be set
+    expect(mockWs.onopen).not.toBeNull();
+    expect(mockWs.onmessage).not.toBeNull();
+    expect(mockWs.onerror).not.toBeNull();
+    expect(mockWs.onclose).not.toBeNull();
+
+    engine.disconnect();
+
+    // They should be nullified
+    expect(mockWs.onopen).toBeNull();
+    expect(mockWs.onmessage).toBeNull();
+    expect(mockWs.onerror).toBeNull();
+    expect(mockWs.onclose).toBeNull();
+    expect(mockWs.close).toHaveBeenCalled();
+  });
+
+  it("should remove all listeners before closing socket on visibility change", async () => {
+    const engine = new LanEngine("test-session");
+    const connectPromise = engine.connect();
+    connectPromise.catch(() => {});
+
+    expect(mockWs.onopen).not.toBeNull();
+
+    // Prevent connect() from overwriting mockWs properties
+    vi.spyOn(engine, "connect").mockImplementation(() => Promise.resolve());
+
+    // Mock document.visibilityState
+    const originalVisibilityState = document.visibilityState;
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      writable: true,
+      configurable: true,
+    });
+
+    // Simulate visibility change
+    const onVisibilityChange = (engine as unknown as { onVisibilityChange: () => void })
+      .onVisibilityChange;
+    onVisibilityChange();
+
+    expect(mockWs.onopen).toBeNull();
+    expect(mockWs.onmessage).toBeNull();
+    expect(mockWs.onerror).toBeNull();
+    expect(mockWs.onclose).toBeNull();
+    expect(mockWs.close).toHaveBeenCalled();
+
+    // Clean up
+    Object.defineProperty(document, "visibilityState", {
+      value: originalVisibilityState,
+      writable: true,
+      configurable: true,
+    });
+  });
 });

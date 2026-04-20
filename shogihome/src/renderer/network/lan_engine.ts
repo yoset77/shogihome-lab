@@ -50,6 +50,9 @@ export class LanEngine {
       console.log(`Foreground detected. Refreshing session ${this.sessionId}...`);
       this.clearReconnect();
       if (this.ws) {
+        this.ws.onopen = null;
+        this.ws.onmessage = null;
+        this.ws.onerror = null;
         this.ws.onclose = null;
         this.ws.close();
         this.ws = null;
