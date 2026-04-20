@@ -264,8 +264,14 @@ export class LanEngine {
     this.removeListeners();
     this.clearReconnect();
     this.stopHeartbeat();
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.flushCommandQueue();
+    if (this.ws) {
+      if (this.ws.readyState === WebSocket.OPEN) {
+        this.flushCommandQueue();
+      }
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
       this.ws.close();
     }
     this.ws = null;
