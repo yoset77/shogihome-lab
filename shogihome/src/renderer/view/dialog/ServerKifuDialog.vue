@@ -110,12 +110,19 @@
             </div>
           </div>
           <div class="search-inputs column">
+            <datalist id="server-kifu-keyword-history">
+              <option v-for="item in keywordHistory" :key="item" :value="item" />
+            </datalist>
+            <datalist id="server-kifu-player-history">
+              <option v-for="item in playerHistory" :key="item" :value="item" />
+            </datalist>
             <div class="search-row row align-center">
               <div class="label">{{ t.keyword }}</div>
               <input
                 v-model.trim="keyword"
                 class="flex-1"
                 :placeholder="t.keyword"
+                list="server-kifu-keyword-history"
                 @keypress.enter="search"
               />
             </div>
@@ -125,6 +132,7 @@
                 v-model.trim="player1"
                 class="flex-1"
                 :placeholder="isStrictTurn ? t.senteOrShitate : t.player1"
+                list="server-kifu-player-history"
                 @keypress.enter="search"
               />
             </div>
@@ -134,6 +142,7 @@
                 v-model.trim="player2"
                 class="flex-1"
                 :placeholder="isStrictTurn ? t.goteOrUwate : t.player2"
+                list="server-kifu-player-history"
                 @keypress.enter="search"
               />
             </div>
@@ -239,7 +248,10 @@ const {
   searchMonth,
   searchResults,
   searchRecord,
+  keywordHistory,
+  playerHistory,
   triggerSearchRecord,
+  addHistory,
 } = useServerKifuStore();
 const appSettings = useAppSettings();
 const busyState = useBusyState();
@@ -373,6 +385,7 @@ async function search() {
       sfen: sfen,
       startDate: startDate,
     });
+    addHistory(keyword.value, player1.value, player2.value);
     activeTab.value = "results";
   } catch (e) {
     console.warn(e);
