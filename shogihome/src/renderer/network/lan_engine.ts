@@ -115,7 +115,8 @@ export class LanEngine {
 
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const url = `${protocol}//${window.location.host}/?sessionId=${this.sessionId}`;
-      this.ws = new WebSocket(url);
+      const ws = new WebSocket(url);
+      this.ws = ws;
       if (onMessage) {
         this.onMessageHandler = onMessage;
       }
@@ -123,20 +124,23 @@ export class LanEngine {
       let connected = false;
       const timeoutId = window.setTimeout(() => {
         if (!connected) {
-          if (this.ws) {
+          if (this.ws === ws) {
             this.ws.onopen = null;
             this.ws.onmessage = null;
             this.ws.onerror = null;
             this.ws.onclose = null;
             this.ws.close();
             this.ws = null;
+            this.setStatus("disconnected");
+            if (!this.isExplicitlyClosed) {
+              this.scheduleReconnect();
+            }
           }
-          this.setStatus("disconnected");
           reject(new Error("WebSocket connection timeout"));
         }
       }, 10000);
 
-      this.ws.onopen = () => {
+      ws.onopen = () => {
         connected = true;
         window.clearTimeout(timeoutId);
         console.log("WebSocket connection established");
@@ -147,7 +151,7 @@ export class LanEngine {
         resolve();
       };
 
-      this.ws.onmessage = (event) => {
+      ws.onmessage = (event) => {
         const data = event.data;
 
         // Handle heartbeat
@@ -167,29 +171,33 @@ export class LanEngine {
         }
       };
 
-      this.ws.onclose = (event) => {
+      ws.onclose = (event) => {
         if (!connected) {
           window.clearTimeout(timeoutId);
-          this.ws = null;
-          this.setStatus("disconnected");
+          if (this.ws === ws) {
+            this.ws = null;
+            this.setStatus("disconnected");
+            if (!this.isExplicitlyClosed) {
+              this.scheduleReconnect();
+            }
+          }
           reject(
             new Error(`WebSocket connection closed: code=${event.code} reason=${event.reason}`),
           );
-          if (!this.isExplicitlyClosed) {
-            this.scheduleReconnect();
-          }
           return;
         }
         console.log(`WebSocket connection closed: code=${event.code} reason=${event.reason}`);
-        this.ws = null;
-        this.stopHeartbeat();
-        this.setStatus("disconnected");
-        if (!this.isExplicitlyClosed) {
-          this.scheduleReconnect();
+        if (this.ws === ws) {
+          this.ws = null;
+          this.stopHeartbeat();
+          this.setStatus("disconnected");
+          if (!this.isExplicitlyClosed) {
+            this.scheduleReconnect();
+          }
         }
       };
 
-      this.ws.onerror = (error) => {
+      ws.onerror = (error) => {
         console.error("WebSocket error:", error);
         if (!connected) {
           // Rejection will be handled by onclose which usually follows onerror,

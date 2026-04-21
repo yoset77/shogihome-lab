@@ -52,7 +52,68 @@ describe("LanEngine", () => {
     await expectPromise;
     expect(mockWs.close).toHaveBeenCalled();
 
+    engine.disconnect();
     // Ensure all timers are cleared to avoid unhandled rejection in subsequent tests
+    await vi.runAllTimersAsync();
+  });
+
+  it("should schedule reconnect after connection timeout", async () => {
+    const engine = new LanEngine("test-session");
+    const scheduleReconnectSpy = vi.spyOn(
+      engine as unknown as { scheduleReconnect: () => void },
+      "scheduleReconnect",
+    );
+    const promise = engine.connect();
+    promise.catch(() => {});
+
+    await vi.advanceTimersByTimeAsync(11000);
+    // タイムアウト後に scheduleReconnect が呼ばれること
+    expect(scheduleReconnectSpy).toHaveBeenCalled();
+    engine.disconnect();
+    await vi.runAllTimersAsync();
+  });
+
+  it("should not destroy new connection when stale timeout fires", async () => {
+    let mockWs2: MockWebSocket | undefined;
+    let callCount = 0;
+    const MockWS = vi.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) return mockWs; // ws1（タイムアウトする接続）
+      mockWs2 = {
+        readyState: 0,
+        send: vi.fn(),
+        close: vi.fn(),
+        onopen: null,
+        onerror: null,
+        onclose: null,
+        onmessage: null,
+      };
+      return mockWs2;
+    });
+    Object.assign(MockWS, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
+    global.WebSocket = MockWS as unknown as typeof WebSocket;
+
+    const engine = new LanEngine("test-session");
+
+    // ws1 で接続開始
+    const p1 = engine.connect();
+    p1.catch(() => {});
+
+    // 10秒以内に disconnect → reconnect
+    engine.disconnect();
+    const p2 = engine.connect();
+    // ws2 が開く
+    mockWs2!.readyState = 1;
+    if (mockWs2!.onopen) mockWs2!.onopen();
+    await p2; // ws2 は正常接続
+
+    // ws1 の stale タイムアウトが発火しても ws2 は無傷
+    await vi.advanceTimersByTimeAsync(11000);
+
+    expect((engine as unknown as { ws: unknown }).ws).toBe(mockWs2);
+    expect(mockWs2!.close).not.toHaveBeenCalled(); // ws2 は close されない
+
+    engine.disconnect();
     await vi.runAllTimersAsync();
   });
 
