@@ -45,6 +45,10 @@ export function initDatabase(dataDir: string) {
       "CREATE INDEX IF NOT EXISTS idx_kifu_files_metadata ON kifu_files(black_name, white_name, start_date, event);",
     );
 
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_kifu_files_sort ON kifu_files(start_date DESC, indexed_at DESC);",
+    );
+
     db.exec(`
       CREATE TABLE IF NOT EXISTS positions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
