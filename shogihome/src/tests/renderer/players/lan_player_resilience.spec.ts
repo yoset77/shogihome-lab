@@ -51,6 +51,7 @@ describe("LanPlayer resilience", () => {
     (LanEngine.prototype.sendCommand as Mock).mockImplementation(() => Promise.resolve());
     (LanEngine.prototype.stopEngine as Mock).mockImplementation(() => undefined);
     (LanEngine.prototype.disconnect as Mock).mockImplementation(() => undefined);
+    (LanEngine.prototype.isConnected as Mock).mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -77,7 +78,7 @@ describe("LanPlayer resilience", () => {
     await launchPromise;
   }
 
-  it("stopAndWait should reject when the transport disconnects mid-stop", async () => {
+  it("stopAndWait should NOT reject when the transport disconnects mid-stop", async () => {
     const player = new LanPlayer("research_main", "test-engine", "Test Engine");
     await launchPlayer(player);
 
@@ -89,7 +90,27 @@ describe("LanPlayer resilience", () => {
     await vi.advanceTimersByTimeAsync(100);
     updateStatus("disconnected");
 
-    await expect(stopPromise).rejects.toBeInstanceOf(Error);
+    // It should still be pending
+    let resolved = false;
+    stopPromise.then(() => {
+      resolved = true;
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(resolved).toBe(false);
+
+    // Now simulate reconnection and stopped state frame
+    updateStatus("connected");
+    sendMsg({ state: "stopped" });
+
+    // It should still wait for bestmove
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(resolved).toBe(false);
+
+    // Receive bestmove from replay buffer
+    sendMsg({ info: "bestmove 7g7f", sfen: usi });
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(stopPromise).resolves.toBeUndefined();
   });
 
   it("should fail a stale ready state if bestmove replay never arrives", async () => {
@@ -101,6 +122,27 @@ describe("LanPlayer resilience", () => {
     await vi.advanceTimersByTimeAsync(5001);
 
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
+    expect((player as unknown as { isThinking: boolean }).isThinking).toBe(false);
+  });
+
+  it("should resolve stop promise if state syncs to stopped and bestmove never arrives", async () => {
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine");
+    await launchPlayer(player);
+
+    const usi = "position startpos";
+    const record = Record.newByUSI(usi) as Record;
+    await player.startResearch(record.position, usi);
+
+    const stopPromise = player.stop();
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Simulate reconnection state frame
+    sendMsg({ state: "stopped" });
+
+    // Wait for the readyReplayTimeout (5000ms)
+    await vi.advanceTimersByTimeAsync(5001);
+
+    await expect(stopPromise).resolves.toBeUndefined();
     expect((player as unknown as { isThinking: boolean }).isThinking).toBe(false);
   });
 });

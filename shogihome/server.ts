@@ -944,7 +944,7 @@ app.get(/.*/, (req, res) => {
 
 app.use(errorHandler);
 
-enum EngineState {
+export enum EngineState {
   UNINITIALIZED,
   STARTING,
   WAITING_USIOK,
@@ -1003,7 +1003,7 @@ async function authenticateSocket(
   });
 }
 
-class EngineSession {
+export class EngineSession {
   private currentEngineId: string | null = null;
   private currentEngineConfig: EngineConfig | null = null;
   private engineHandle: EngineHandle | null = null;
@@ -1515,6 +1515,7 @@ class EngineSession {
           console.error(`Authentication failed: ${message}`);
           this.sendError(message);
           socket.destroy();
+          this.onEngineClose();
         }
       } else {
         setup();
@@ -1605,11 +1606,6 @@ class EngineSession {
       handleStop();
     }
 
-    if (this.engineState === EngineState.STOPPING_SEARCH) {
-      if (command !== "stop") this.pushToQueue(this.postStopCommandQueue, command);
-      return;
-    }
-
     if (command.startsWith("start_engine ")) {
       const engineId = command.substring("start_engine ".length).trim();
       if (!/^[a-zA-Z0-9_\-.]+$/.test(engineId)) {
@@ -1666,6 +1662,11 @@ class EngineSession {
       } else {
         this.onEngineClose();
       }
+      return;
+    }
+
+    if (this.engineState === EngineState.STOPPING_SEARCH) {
+      if (command !== "stop") this.pushToQueue(this.postStopCommandQueue, command);
       return;
     }
 

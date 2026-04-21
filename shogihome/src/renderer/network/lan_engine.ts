@@ -50,12 +50,17 @@ export class LanEngine {
       console.log(`Foreground detected. Refreshing session ${this.sessionId}...`);
       this.clearReconnect();
       if (this.ws) {
+        this.ws.onopen = null;
+        this.ws.onmessage = null;
+        this.ws.onerror = null;
         this.ws.onclose = null;
         this.ws.close();
         this.ws = null;
         this.setStatus("disconnected");
       }
-      this.connect();
+      this.connect().catch((e) => {
+        console.warn(`Reconnect after visibility change failed: ${e}`);
+      });
     }
   };
 
@@ -85,7 +90,7 @@ export class LanEngine {
   connect(onMessage?: MessageHandler): Promise<void> {
     this.ensureListenersRegistered();
     this.isExplicitlyClosed = false;
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       if (
         this.ws &&
         (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)
@@ -110,12 +115,34 @@ export class LanEngine {
 
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const url = `${protocol}//${window.location.host}/?sessionId=${this.sessionId}`;
-      this.ws = new WebSocket(url);
+      const ws = new WebSocket(url);
+      this.ws = ws;
       if (onMessage) {
         this.onMessageHandler = onMessage;
       }
 
-      this.ws.onopen = () => {
+      let connected = false;
+      const timeoutId = window.setTimeout(() => {
+        if (!connected) {
+          if (this.ws === ws) {
+            this.ws.onopen = null;
+            this.ws.onmessage = null;
+            this.ws.onerror = null;
+            this.ws.onclose = null;
+            this.ws.close();
+            this.ws = null;
+            this.setStatus("disconnected");
+            if (!this.isExplicitlyClosed) {
+              this.scheduleReconnect();
+            }
+          }
+          reject(new Error("WebSocket connection timeout"));
+        }
+      }, 10000);
+
+      ws.onopen = () => {
+        connected = true;
+        window.clearTimeout(timeoutId);
         console.log("WebSocket connection established");
         this.reconnectAttempts = 0;
         this.setStatus("connected");
@@ -124,7 +151,7 @@ export class LanEngine {
         resolve();
       };
 
-      this.ws.onmessage = (event) => {
+      ws.onmessage = (event) => {
         const data = event.data;
 
         // Handle heartbeat
@@ -144,18 +171,40 @@ export class LanEngine {
         }
       };
 
-      this.ws.onclose = (event) => {
+      ws.onclose = (event) => {
+        if (!connected) {
+          window.clearTimeout(timeoutId);
+          if (this.ws === ws) {
+            this.ws = null;
+            this.setStatus("disconnected");
+            if (!this.isExplicitlyClosed) {
+              this.scheduleReconnect();
+            }
+          }
+          reject(
+            new Error(`WebSocket connection closed: code=${event.code} reason=${event.reason}`),
+          );
+          return;
+        }
         console.log(`WebSocket connection closed: code=${event.code} reason=${event.reason}`);
-        this.ws = null;
-        this.stopHeartbeat();
-        this.setStatus("disconnected");
-        if (!this.isExplicitlyClosed) {
-          this.scheduleReconnect();
+        if (this.ws === ws) {
+          this.ws = null;
+          this.stopHeartbeat();
+          this.setStatus("disconnected");
+          if (!this.isExplicitlyClosed) {
+            this.scheduleReconnect();
+          }
         }
       };
 
-      this.ws.onerror = (error) => {
+      ws.onerror = (error) => {
         console.error("WebSocket error:", error);
+        if (!connected) {
+          // Rejection will be handled by onclose which usually follows onerror,
+          // but we can reject here to be safe and specific.
+          window.clearTimeout(timeoutId);
+          reject(new Error("WebSocket connection error"));
+        }
       };
     });
   }
@@ -231,10 +280,18 @@ export class LanEngine {
     this.removeListeners();
     this.clearReconnect();
     this.stopHeartbeat();
-    this.commandQueue = [];
     if (this.ws) {
+      if (this.ws.readyState === WebSocket.OPEN) {
+        this.flushCommandQueue();
+      }
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
       this.ws.close();
     }
+    this.ws = null;
+    this.commandQueue = [];
     this.messageListeners = [];
     this.setStatus("disconnected");
   }

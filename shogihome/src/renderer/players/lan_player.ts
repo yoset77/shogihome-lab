@@ -9,6 +9,7 @@ import { t } from "@/common/i18n";
 import api from "@/renderer/ipc/api";
 import { USIEngineExtraBookConfig } from "@/common/settings/usi";
 import { searchBookMovesForPlayer } from "./book_search";
+import AsyncLock from "async-lock";
 
 import { generateSessionId } from "@/renderer/helpers/unique";
 
@@ -43,6 +44,7 @@ export class LanPlayer implements Player {
   private engineName: string;
   private currentSfen: string = "";
   private isThinking: boolean = false;
+  private lock = new AsyncLock();
   private stopPromiseResolver: (() => void) | null = null;
   private stopPromiseRejector: ((err: Error) => void) | null = null;
   private stopPromise: Promise<void> | null = null;
@@ -175,60 +177,64 @@ export class LanPlayer implements Player {
     timeStates: TimeStates,
     handler: SearchHandler,
   ): Promise<void> {
-    const isNewSfen = this.currentSfen !== usi;
-    this.clearHandlers();
-    this.handler = handler;
-    this.position = position;
-    this.currentSfen = usi;
-    if (isNewSfen) {
-      this.clearPendingInfo();
-    }
-    if (await this.searchBook()) {
-      return;
-    }
-    if (this.isThinking) {
-      await this.stopAndWait();
-    }
-    this.lanEngine.sendCommand(usi); // "position ..."
+    return this.lock.acquire("search", async () => {
+      const isNewSfen = this.currentSfen !== usi;
+      this.clearHandlers();
+      this.handler = handler;
+      this.position = position;
+      this.currentSfen = usi;
+      if (isNewSfen) {
+        this.clearPendingInfo();
+      }
+      if (await this.searchBook()) {
+        return;
+      }
+      if (this.isThinking) {
+        await this.stopAndWait();
+      }
+      this.lanEngine.sendCommand(usi); // "position ..."
 
-    // ShogiHome keeps the time after adding the increment.
-    // However, USI requires the time before adding the increment (btime + binc).
-    // So we subtract the increment from the current time.
-    const black = timeStates.black;
-    const white = timeStates.white;
-    const byoyomi = timeStates[position.color === Color.BLACK ? "black" : "white"].byoyomi || 0;
+      // ShogiHome keeps the time after adding the increment.
+      // However, USI requires the time before adding the increment (btime + binc).
+      // So we subtract the increment from the current time.
+      const black = timeStates.black;
+      const white = timeStates.white;
+      const byoyomi = timeStates[position.color === Color.BLACK ? "black" : "white"].byoyomi || 0;
 
-    const btime = black.timeMs - (black.increment || 0) * 1e3;
-    const wtime = white.timeMs - (white.increment || 0) * 1e3;
-    const binc = byoyomi === 0 ? (black.increment || 0) * 1e3 : 0;
-    const winc = byoyomi === 0 ? (white.increment || 0) * 1e3 : 0;
+      const btime = black.timeMs - (black.increment || 0) * 1e3;
+      const wtime = white.timeMs - (white.increment || 0) * 1e3;
+      const binc = byoyomi === 0 ? (black.increment || 0) * 1e3 : 0;
+      const winc = byoyomi === 0 ? (white.increment || 0) * 1e3 : 0;
 
-    let goCommand = `go btime ${btime} wtime ${wtime}`;
-    if (byoyomi > 0) {
-      goCommand += ` byoyomi ${byoyomi * 1e3}`;
-    } else if (binc > 0 || winc > 0) {
-      goCommand += ` binc ${binc} winc ${winc}`;
-    }
-    this.lanEngine.sendCommand(goCommand);
-    this.isThinking = true;
-    triggerOnStartSearch(this._sessionID, this.position);
+      let goCommand = `go btime ${btime} wtime ${wtime}`;
+      if (byoyomi > 0) {
+        goCommand += ` byoyomi ${byoyomi * 1e3}`;
+      } else if (binc > 0 || winc > 0) {
+        goCommand += ` binc ${binc} winc ${winc}`;
+      }
+      this.lanEngine.sendCommand(goCommand);
+      this.isThinking = true;
+      triggerOnStartSearch(this._sessionID, this.position);
+    });
   }
 
   async startResearch(position: ImmutablePosition, usi: string): Promise<void> {
-    this.clearHandlers();
-    this.position = position.clone();
-    this.currentSfen = usi;
-    this.clearPendingInfo();
-    if (await this.searchBook()) {
-      return;
-    }
-    if (this.isThinking) {
-      await this.stopAndWait();
-    }
-    this.lanEngine.sendCommand(usi);
-    this.lanEngine.sendCommand("go infinite");
-    this.isThinking = true;
-    triggerOnStartSearch(this._sessionID, this.position);
+    return this.lock.acquire("search", async () => {
+      this.clearHandlers();
+      this.position = position.clone();
+      this.currentSfen = usi;
+      this.clearPendingInfo();
+      if (await this.searchBook()) {
+        return;
+      }
+      if (this.isThinking) {
+        await this.stopAndWait();
+      }
+      this.lanEngine.sendCommand(usi);
+      this.lanEngine.sendCommand("go infinite");
+      this.isThinking = true;
+      triggerOnStartSearch(this._sessionID, this.position);
+    });
   }
 
   /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -246,51 +252,59 @@ export class LanPlayer implements Player {
     maxSeconds: number | undefined,
     handler: MateHandler,
   ): Promise<void> {
-    this.clearHandlers();
-    this.mateHandler = handler;
-    this.position = position.clone();
-    this.currentSfen = usi;
-    this.clearPendingInfo();
-    if (this.isThinking) {
-      await this.stopAndWait();
-    }
-    this.lanEngine.sendCommand(usi);
-    this.lanEngine.sendCommand("go mate" + (maxSeconds ? ` ${maxSeconds * 1000}` : " infinite"));
-    this.isThinking = true;
-    triggerOnStartSearch(this._sessionID, this.position);
+    return this.lock.acquire("search", async () => {
+      this.clearHandlers();
+      this.mateHandler = handler;
+      this.position = position.clone();
+      this.currentSfen = usi;
+      this.clearPendingInfo();
+      if (this.isThinking) {
+        await this.stopAndWait();
+      }
+      this.lanEngine.sendCommand(usi);
+      this.lanEngine.sendCommand("go mate" + (maxSeconds ? ` ${maxSeconds * 1000}` : " infinite"));
+      this.isThinking = true;
+      triggerOnStartSearch(this._sessionID, this.position);
+    });
   }
   /* eslint-enable @typescript-eslint/no-unused-vars */
 
   async stop(): Promise<void> {
-    if (this.isThinking) {
-      await this.stopAndWait();
-    }
-  }
-
-  async gameover(result: GameResult): Promise<void> {
-    if (this.isThinking) {
-      await this.stopAndWait();
-    }
-    this.lanEngine.sendCommand("gameover " + result);
-  }
-
-  async close(): Promise<void> {
-    this.clearPendingInfo();
-    this.clearHandlers();
-    try {
+    return this.lock.acquire("search", async () => {
       if (this.isThinking) {
         await this.stopAndWait();
       }
-    } finally {
-      this.lanEngine.stopEngine();
-      this.lanEngine.disconnect();
-      this.unsubscribeStatus?.();
-      this.unsubscribeStatus = undefined;
-      delete lanPlayers[this._sessionID];
-      if (this.bookSessionID) {
-        api.closeBook(this.bookSessionID);
+    });
+  }
+
+  async gameover(result: GameResult): Promise<void> {
+    return this.lock.acquire("search", async () => {
+      if (this.isThinking) {
+        await this.stopAndWait();
       }
-    }
+      this.lanEngine.sendCommand("gameover " + result);
+    });
+  }
+
+  async close(): Promise<void> {
+    return this.lock.acquire("search", async () => {
+      this.clearPendingInfo();
+      this.clearHandlers();
+      try {
+        if (this.isThinking) {
+          await this.stopAndWait();
+        }
+      } finally {
+        this.lanEngine.stopEngine();
+        this.lanEngine.disconnect();
+        this.unsubscribeStatus?.();
+        this.unsubscribeStatus = undefined;
+        delete lanPlayers[this._sessionID];
+        if (this.bookSessionID) {
+          api.closeBook(this.bookSessionID);
+        }
+      }
+    });
   }
 
   get multiPV(): number | undefined {
@@ -377,14 +391,20 @@ export class LanPlayer implements Player {
     // Expected format from server: {"sfen":"...","info":"bestmove ..."}
     try {
       const data = JSON.parse(message);
+
       if (data.error) {
         this.clearReadyReplayTimeout();
+        this.isThinking = false;
         const error = new Error(data.error);
+        const handler = this.handler;
+        const onErrorCallback = this.onErrorCallback;
+        this.clearHandlers();
+        this.clearPendingInfo();
         this.rejectStopPromise(error);
-        if (this.handler) {
-          this.handler.onError(error);
-        } else if (this.onErrorCallback) {
-          this.onErrorCallback(error);
+        if (handler) {
+          handler.onError(error);
+        } else if (onErrorCallback) {
+          onErrorCallback(error);
         } else {
           console.error("Engine Error:", data.error);
         }
@@ -493,35 +513,10 @@ export class LanPlayer implements Player {
           (data.state === "uninitialized" || data.state === "stopped" || data.state === "ready")
         ) {
           // If the engine is not thinking (uninitialized, stopped, or ready) but the client expects it to be,
-          // it means the session was lost, the process crashed, or the state is inconsistent.
-          // We should NOT automatically restart to avoid losing the search tree/hash silently.
-
-          // Exception: If state is 'ready', it might be that we just connected and 'bestmove' is coming in the replay buffer.
-          // However, server sends 'state' BEFORE replay buffer.
-          // If we treat 'ready' as error immediately, we might kill the session before processing 'bestmove'.
-          // So we should ignore 'ready' here and let the replay buffer handle it.
-          // If 'bestmove' never comes, we will timeout eventually or user will stop manually.
-
-          if (data.state === "ready") {
-            this.scheduleReadyReplayTimeout();
-            return;
-          }
-
-          this.clearReadyReplayTimeout();
-          this.lanEngine.disconnect();
-
-          const error = new Error(
-            data.state === "uninitialized"
-              ? t.researchStoppedBecauseLanDisconnected
-              : t.engineProcessWasClosedUnexpectedly,
-          );
-          if (this.handler) {
-            this.handler.onError(error);
-          } else if (this.onErrorCallback) {
-            this.onErrorCallback(error);
-          }
-          this.isThinking = false;
-          this.rejectStopPromise(new Error("Engine stopped"));
+          // it might mean we just reconnected and 'bestmove' is coming in the replay buffer.
+          // Wait for the replay buffer to deliver 'bestmove' or a timeout.
+          this.scheduleReadyReplayTimeout();
+          return;
         }
       }
     } catch {
@@ -612,10 +607,7 @@ export class LanPlayer implements Player {
 
   private handleTransportDisconnect() {
     this.clearReadyReplayTimeout();
-    if (this.stopPromiseRejector) {
-      this.isThinking = false;
-      this.rejectStopPromise(new Error("Engine connection was lost while stopping"));
-    }
+    console.log("Transport disconnected. Waiting for reconnection...");
   }
 
   private clearStopPromiseTimeout() {
@@ -655,6 +647,14 @@ export class LanPlayer implements Player {
     this.readyReplayTimeoutId = window.setTimeout(() => {
       this.readyReplayTimeoutId = null;
       if (!this.isThinking) {
+        return;
+      }
+
+      if (this.stopPromiseResolver) {
+        // We were waiting to stop, and it never sent bestmove, but server says it's stopped/ready.
+        // It's safe to resolve the stop promise here.
+        this.isThinking = false;
+        this.resolveStopPromise();
         return;
       }
 
