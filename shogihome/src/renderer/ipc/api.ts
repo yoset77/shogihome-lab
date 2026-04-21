@@ -157,6 +157,9 @@ export interface API {
   searchServerKifu(params: {
     sfen?: string;
     keyword?: string;
+    player1?: string;
+    player2?: string;
+    isStrictTurn?: boolean;
     startDate?: string;
     limit?: number;
     offset?: number;

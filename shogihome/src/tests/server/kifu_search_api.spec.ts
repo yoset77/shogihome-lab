@@ -81,6 +81,29 @@ describe("Kifu search API", () => {
       sfen: "normalized sfen",
       sfenHash: 123n,
       keyword: undefined,
+      player1: undefined,
+      player2: undefined,
+      isStrictTurn: false,
+      startDate: undefined,
+      limit: undefined,
+      offset: undefined,
+    });
+  });
+
+  it("should pass player1, player2, and isStrictTurn to the database search", async () => {
+    const response = await request(app)
+      .get("/api/kifu/search")
+      .set("Host", `localhost:${SERVER_PORT}`)
+      .query({ player1: "Habu", player2: "Fujii", isStrictTurn: "true" });
+
+    expect(response.status).toBe(200);
+    expect(kifuIndexMock.searchKifu).toHaveBeenCalledWith({
+      sfen: undefined,
+      sfenHash: undefined,
+      keyword: undefined,
+      player1: "Habu",
+      player2: "Fujii",
+      isStrictTurn: true,
       startDate: undefined,
       limit: undefined,
       offset: undefined,

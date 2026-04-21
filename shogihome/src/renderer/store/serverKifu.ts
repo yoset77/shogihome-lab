@@ -10,6 +10,9 @@ const activeTab = ref<ServerKifuTab>(
 );
 const currentDir = ref("");
 const keyword = ref("");
+const player1 = ref("");
+const player2 = ref("");
+const isStrictTurn = ref(false);
 const searchByPosition = ref(true);
 const searchYear = ref("");
 const searchMonth = ref("");
@@ -32,6 +35,9 @@ export function useServerKifuStore() {
     activeTab,
     currentDir,
     keyword,
+    player1,
+    player2,
+    isStrictTurn,
     searchByPosition,
     searchYear,
     searchMonth,

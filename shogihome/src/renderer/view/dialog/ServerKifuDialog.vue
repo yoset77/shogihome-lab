@@ -120,6 +120,28 @@
               />
             </div>
             <div class="search-row row align-center">
+              <div class="label">{{ isStrictTurn ? t.senteOrShitate : t.player1 }}</div>
+              <input
+                v-model.trim="player1"
+                class="flex-1"
+                :placeholder="isStrictTurn ? t.senteOrShitate : t.player1"
+                @keypress.enter="search"
+              />
+            </div>
+            <div class="search-row row align-center">
+              <div class="label">{{ isStrictTurn ? t.goteOrUwate : t.player2 }}</div>
+              <input
+                v-model.trim="player2"
+                class="flex-1"
+                :placeholder="isStrictTurn ? t.goteOrUwate : t.player2"
+                @keypress.enter="search"
+              />
+            </div>
+            <div class="search-row row align-center">
+              <div class="label">{{ t.distinguishSenteGote }}</div>
+              <ToggleButton v-model:value="isStrictTurn" />
+            </div>
+            <div class="search-row row align-center">
               <div class="label">{{ t.startDateTime }}</div>
               <ComboBox v-model="searchYear" :options="yearOptions" free-text-label="Year" />
               <div class="separator">/</div>
@@ -128,10 +150,6 @@
             <div class="search-row row align-center">
               <div class="label">{{ t.searchByPosition }}</div>
               <ToggleButton v-model:value="searchByPosition" />
-            </div>
-            <div class="execute-row row">
-              <button class="execute-search-btn" @click="search">{{ t.search }}</button>
-              <button class="cancel-search-btn" @click="onCancel">{{ t.cancel }}</button>
             </div>
           </div>
         </div>
@@ -176,6 +194,9 @@
     </div>
 
     <div class="main-buttons">
+      <button v-if="activeTab === 'search'" class="execute-search-btn" @click="search">
+        {{ t.search }}
+      </button>
       <button data-hotkey="Escape" @click="onCancel()">
         {{ t.cancel }}
       </button>
@@ -210,6 +231,9 @@ const {
   activeTab,
   currentDir,
   keyword,
+  player1,
+  player2,
+  isStrictTurn,
   searchByPosition,
   searchYear,
   searchMonth,
@@ -343,6 +367,9 @@ async function search() {
 
     searchResults.value = await api.searchServerKifu({
       keyword: keyword.value,
+      player1: player1.value,
+      player2: player2.value,
+      isStrictTurn: isStrictTurn.value,
       sfen: sfen,
       startDate: startDate,
     });
@@ -514,14 +541,12 @@ onUnmounted(() => {
 .search-row .separator {
   color: var(--text-color-sub);
 }
-.execute-row {
-  gap: 10px;
-  margin-top: 8px;
+.main-buttons {
+  gap: 20px;
 }
-.execute-search-btn,
-.cancel-search-btn {
-  flex: 1;
-  padding: 8px;
+.main-buttons button {
+  min-width: 120px;
+  padding: 8px 20px;
   font-weight: bold;
 }
 .search-preview {

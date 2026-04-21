@@ -762,6 +762,9 @@ export const webAPI: Bridge = {
   async searchServerKifu(params: {
     sfen?: string;
     keyword?: string;
+    player1?: string;
+    player2?: string;
+    isStrictTurn?: boolean;
     startDate?: string;
     limit?: number;
     offset?: number;
@@ -769,6 +772,9 @@ export const webAPI: Bridge = {
     const query = new URLSearchParams();
     if (params.sfen) query.append("sfen", params.sfen);
     if (params.keyword) query.append("keyword", params.keyword);
+    if (params.player1) query.append("player1", params.player1);
+    if (params.player2) query.append("player2", params.player2);
+    if (params.isStrictTurn) query.append("isStrictTurn", "true");
     if (params.startDate) query.append("startDate", params.startDate);
     if (params.limit) query.append("limit", params.limit.toString());
     if (params.offset) query.append("offset", params.offset.toString());

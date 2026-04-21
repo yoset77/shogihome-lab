@@ -823,4 +823,7 @@ export type Texts = {
   keyword: string;
   nKifuFound: (n: number) => string;
   indexingKifuProgress: (total: number, indexed: number) => string;
+  player1: string;
+  player2: string;
+  distinguishSenteGote: string;
 };
