@@ -5,6 +5,8 @@ import {
   RecordMetadataKey,
   exportJKFString,
   importJKFString,
+  areSameMoves,
+  Move,
 } from "tsshogi";
 import { useErrorStore } from "./error.js";
 import { isMobileWebApp, isNative } from "@/renderer/ipc/api.js";
@@ -47,8 +49,40 @@ export function loadRecordForWebApp(): Record | undefined {
     const record = Record.newByUSEN(storedUsen, branch, ply);
     const dataRecord = importJKFString(storedJKF);
     if (!(record instanceof Error) && !(dataRecord instanceof Error)) {
-      dataRecord.merge(record);
-      dataRecord.switchBranchByIndex(branch);
+      // USENレコードからルートからの指し手パスを取得して、JKFレコード上でそのパスを再現する。
+      // これにより、merge() のバグ（USEN内の不備が他のブランチに波及する問題）を回避しつつ、
+      // ユーザーが選択していたブランチ（SpecialMoveを含む）を正確に復元できる。
+      const path = record.movesBefore;
+      let current = dataRecord.first;
+
+      for (let i = 1; i < path.length; i++) {
+        const targetMove = path[i].move;
+        let child = current.next;
+
+        let found = false;
+        while (child) {
+          const moveA = child.move;
+          const moveB = targetMove;
+
+          if (
+            areSameMoves(moveA, moveB) ||
+            (moveA instanceof Move && moveB instanceof Move && moveA.usi === moveB.usi) ||
+            (!(moveA instanceof Move) && !(moveB instanceof Move) && moveA.type === moveB.type)
+          ) {
+            current = child;
+            found = true;
+            break;
+          }
+          child = child.branch;
+        }
+        if (!found) {
+          break;
+        }
+      }
+
+      dataRecord.gotoNode(current);
+
+      // 最後に指定の手数へ移動（pathが途切れていた場合のため）
       dataRecord.goto(ply);
       return dataRecord;
     }
