@@ -884,4 +884,7 @@ export const vi: Texts = {
   indexingKifuProgress(total: number, indexed: number) {
     return `Đang tạo chỉ mục kỳ phổ (${indexed}/${total})...`;
   },
+  player1: "Người chơi 1",
+  player2: "Người chơi 2",
+  distinguishSenteGote: "Phân biệt Tiên/Hậu",
 };

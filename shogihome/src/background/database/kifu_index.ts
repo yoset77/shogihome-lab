@@ -45,6 +45,10 @@ export function initDatabase(dataDir: string) {
       "CREATE INDEX IF NOT EXISTS idx_kifu_files_metadata ON kifu_files(black_name, white_name, start_date, event);",
     );
 
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_kifu_files_sort ON kifu_files(start_date DESC, indexed_at DESC);",
+    );
+
     db.exec(`
       CREATE TABLE IF NOT EXISTS positions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -220,6 +224,9 @@ export function searchKifu(params: {
   sfenHash?: bigint;
   sfen?: string;
   keyword?: string;
+  player1?: string;
+  player2?: string;
+  isStrictTurn?: boolean;
   startDate?: string;
   limit?: number;
   offset?: number;
@@ -244,11 +251,46 @@ export function searchKifu(params: {
   }
 
   if (params.keyword) {
-    const kw = `%${params.keyword}%`;
-    conditions.push(
-      "(f.black_name LIKE ? OR f.white_name LIKE ? OR f.event LIKE ? OR f.file_path LIKE ?)",
-    );
-    args.push(kw, kw, kw, kw);
+    const keywords = params.keyword.split(/\s+/).filter((k) => k.length > 0);
+    for (const keyword of keywords) {
+      const kw = `%${keyword}%`;
+      conditions.push(
+        "(f.black_name LIKE ? OR f.white_name LIKE ? OR f.event LIKE ? OR f.file_path LIKE ?)",
+      );
+      args.push(kw, kw, kw, kw);
+    }
+  }
+
+  if (params.player1 && params.player2) {
+    const p1 = `%${params.player1}%`;
+    const p2 = `%${params.player2}%`;
+    if (params.isStrictTurn) {
+      conditions.push("(f.black_name LIKE ? AND f.white_name LIKE ?)");
+      args.push(p1, p2);
+    } else {
+      conditions.push(
+        "((f.black_name LIKE ? AND f.white_name LIKE ?) OR (f.black_name LIKE ? AND f.white_name LIKE ?))",
+      );
+      args.push(p1, p2, p2, p1);
+    }
+  } else if (params.player1) {
+    const p1 = `%${params.player1}%`;
+    if (params.isStrictTurn) {
+      conditions.push("f.black_name LIKE ?");
+      args.push(p1);
+    } else {
+      conditions.push("(f.black_name LIKE ? OR f.white_name LIKE ?)");
+      args.push(p1, p1);
+    }
+  } else if (params.player2) {
+    const p2 = `%${params.player2}%`;
+    if (params.isStrictTurn) {
+      conditions.push("f.white_name LIKE ?");
+      args.push(p2);
+    } else {
+      conditions.push("(f.black_name LIKE ? OR f.white_name LIKE ?)");
+      args.push(p2, p2);
+    }
   }
 
   if (params.startDate) {

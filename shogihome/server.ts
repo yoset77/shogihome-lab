@@ -445,6 +445,9 @@ app.get("/api/kifu/search", async (req, res) => {
     sfenHash = undefined;
   }
   const keyword = req.query.keyword as string | undefined;
+  const player1 = req.query.player1 as string | undefined;
+  const player2 = req.query.player2 as string | undefined;
+  const isStrictTurn = req.query.isStrictTurn === "true";
   const startDate = req.query.startDate as string | undefined;
   const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
   const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : undefined;
@@ -453,6 +456,9 @@ app.get("/api/kifu/search", async (req, res) => {
     sfen,
     sfenHash,
     keyword,
+    player1,
+    player2,
+    isStrictTurn,
     startDate,
     limit,
     offset,

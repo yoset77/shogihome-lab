@@ -886,4 +886,7 @@ export const ja: Texts = {
   indexingKifuProgress(total: number, indexed: number) {
     return `棋譜インデックス作成中 (${indexed}/${total})...`;
   },
+  player1: "対局者1",
+  player2: "対局者2",
+  distinguishSenteGote: "先後を区別",
 };

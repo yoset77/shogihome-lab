@@ -871,6 +871,9 @@ export const zh_tw: Texts = {
     return `找到 ${n} 份棋譜。`;
   },
   indexingKifuProgress(total: number, indexed: number) {
-    return `棋譜索引建立中 (${indexed}/${total})...`;
+    return `正在索引棋譜 (${indexed}/${total})...`;
   },
+  player1: "對局者1",
+  player2: "對局者2",
+  distinguishSenteGote: "區分先後",
 };

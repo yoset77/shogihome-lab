@@ -891,4 +891,7 @@ export const en: Texts = {
   indexingKifuProgress(total: number, indexed: number) {
     return `Indexing kifu (${indexed}/${total})...`;
   },
+  player1: "Player 1",
+  player2: "Player 2",
+  distinguishSenteGote: "Distinguish Sente/Gote",
 };
