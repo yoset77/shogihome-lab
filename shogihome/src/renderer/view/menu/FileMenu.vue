@@ -42,14 +42,6 @@
           <Icon :icon="IconType.END" />
           <div class="label">{{ t.endResearch }}</div>
         </button>
-        <button v-if="states.pauseResearch" @click="onPauseResearch">
-          <Icon :icon="IconType.PAUSE" />
-          <div class="label">{{ t.stop }}</div>
-        </button>
-        <button v-if="states.resumeResearch" @click="onResumeResearch">
-          <Icon :icon="IconType.RESUME" />
-          <div class="label">{{ t.resume }}</div>
-        </button>
         <button v-if="states.mateSearch" @click="onMateSearch">
           <Icon :icon="IconType.MATE_SEARCH" />
           <div class="label">{{ t.mateSearch }}</div>
@@ -327,14 +319,6 @@ const onStopResearch = () => {
   store.stopResearch();
   emit("close");
 };
-const onPauseResearch = () => {
-  store.pauseResearch();
-  emit("close");
-};
-const onResumeResearch = () => {
-  store.resumeResearch();
-  emit("close");
-};
 const onPositionEditing = () => {
   store.startPositionEditing();
   emit("close");
@@ -483,8 +467,6 @@ const states = computed(() => {
       store.researchState === ResearchState.RUNNING ||
       store.researchState === ResearchState.PAUSED ||
       store.researchState === ResearchState.STOPPING,
-    pauseResearch: store.researchState === ResearchState.RUNNING,
-    resumeResearch: store.researchState === ResearchState.PAUSED,
     positionEditing: store.appState === AppState.NORMAL,
     newFile: store.appState === AppState.NORMAL,
     open: store.appState === AppState.NORMAL,
