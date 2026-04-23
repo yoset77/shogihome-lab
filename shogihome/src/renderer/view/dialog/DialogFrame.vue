@@ -1,5 +1,5 @@
 <template>
-  <dialog ref="dialog">
+  <dialog ref="dialog" :class="appSettings.thema">
     <div class="frame" :class="{ limited }">
       <slot />
     </div>
@@ -10,8 +10,10 @@
 import { installHotKeyForDialog, uninstallHotKeyForDialog } from "@/renderer/devices/hotkey";
 import { showModalDialog } from "@/renderer/helpers/dialog";
 import { onBeforeUnmount, onMounted, ref } from "vue";
+import { useAppSettings } from "@/renderer/store/settings";
 
 const dialog = ref();
+const appSettings = useAppSettings();
 
 defineProps<{
   limited?: boolean;

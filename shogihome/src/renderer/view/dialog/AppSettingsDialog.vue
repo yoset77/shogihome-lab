@@ -698,7 +698,13 @@
           <input v-model.number="update.maxArrowsPerEngine" type="number" max="10" min="0" />
           <div class="form-item-small-label">({{ t.between(0, 10) }})</div>
         </div>
-        <!-- 検討エンジンのMultiPV -->
+        <div class="form-item">
+          <div class="form-item-label-wide">
+            {{ t.arrowScoreDiffRange }}
+          </div>
+          <input v-model.number="update.arrowScoreDiffRange" type="number" max="1000" min="0" />
+          <div class="form-item-small-label">({{ t.between(0, 1000) }})</div>
+        </div>
         <div class="form-item">
           <div class="form-item-label-wide">{{ t.researchEngineMultiPV }}</div>
           <input v-model.number="update.researchMultiPV" type="number" max="10" min="1" />
@@ -1001,6 +1007,7 @@ const update = ref({
   defaultResearchEngineURI: org.defaultResearchEngineURI,
   evaluationViewFrom: org.evaluationViewFrom,
   maxArrowsPerEngine: org.maxArrowsPerEngine,
+  arrowScoreDiffRange: org.arrowScoreDiffRange,
   researchMultiPV: org.researchMultiPV,
   researchChangeMultiPVFromPV: org.researchChangeMultiPVFromPV,
   coefficientInSigmoid: org.coefficientInSigmoid,

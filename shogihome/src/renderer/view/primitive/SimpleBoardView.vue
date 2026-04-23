@@ -7,25 +7,63 @@
       <div v-if="footer" class="footer" :class="layout.typefaceClass" :style="layout.footerStyle">
         {{ footer }}
       </div>
-      <div v-if="layout.lastMoveStyle" :style="layout.lastMoveStyle"></div>
-      <div class="board-grid" :style="layout.boardStyle">
-        <img src="/board/grid_square.svg" :style="layout.boardImageStyle" />
-      </div>
-      <div v-for="(file, index) of layout.files" :key="index" :style="file.style">
-        <span class="file-label" :class="layout.typefaceClass" :style="layout.fileCharacterStyle">{{
-          file.character
-        }}</span>
-      </div>
-      <div v-for="(rank, index) of layout.ranks" :key="index" :style="rank.style">
-        <span class="rank-label" :class="layout.typefaceClass" :style="layout.rankCharacterStyle">{{
-          rank.character
-        }}</span>
-      </div>
-      <div v-for="piece of layout.boardPieces" :key="piece.id" :style="piece.style">
-        <span class="cell" :class="layout.typefaceClass" :style="piece.characterStyle">{{
-          piece.character
-        }}</span>
-      </div>
+      <svg style="top: 0; left: 0" :width="layout.svgSize" :height="layout.svgSize">
+        <rect
+          v-if="layout.lastMoveRect"
+          :x="layout.lastMoveRect.x"
+          :y="layout.lastMoveRect.y"
+          :width="layout.lastMoveRect.width"
+          :height="layout.lastMoveRect.height"
+          fill="gold"
+        />
+        <image
+          href="/board/grid_square.svg"
+          :x="layout.boardImage.x"
+          :y="layout.boardImage.y"
+          :width="layout.boardImage.width"
+          :height="layout.boardImage.height"
+        />
+        <text
+          v-for="(file, index) of layout.files"
+          :key="index"
+          :x="file.x"
+          :y="file.y"
+          :dy="file.dy"
+          :font-size="file.fontSize"
+          :class="layout.typefaceClass"
+          dominant-baseline="central"
+          text-anchor="middle"
+        >
+          {{ file.character }}
+        </text>
+        <text
+          v-for="(rank, index) of layout.ranks"
+          :key="index"
+          :x="rank.x"
+          :y="rank.y"
+          :dy="rank.dy"
+          :font-size="rank.fontSize"
+          :class="layout.typefaceClass"
+          dominant-baseline="central"
+          text-anchor="middle"
+        >
+          {{ rank.character }}
+        </text>
+        <text
+          v-for="piece of layout.boardPieces"
+          :key="piece.id"
+          :x="piece.x"
+          :y="piece.y"
+          :dy="piece.dy"
+          :font-size="piece.fontSize"
+          :transform="piece.transform"
+          :class="layout.typefaceClass"
+          dominant-baseline="central"
+          text-anchor="middle"
+        >
+          {{ piece.character }}
+        </text>
+      </svg>
       <div class="column reverse" :style="layout.blackHand.style">
         <span class="hand black" :class="layout.typefaceClass">☗{{ layout.blackHand.text }}</span>
       </div>
@@ -51,6 +89,7 @@ import { RectSize } from "@/common/assets/geometry";
 
 const fileNumbers = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 const rankNumbers = ["一", "二", "三", "四", "五", "六", "七", "八", "九"];
+const windowsCharacterYOffsetRatio = 0.06;
 
 function buildHandText(name: string, hand: ImmutableHand) {
   const pieces =
@@ -79,7 +118,6 @@ function buildParams(size: number) {
     boardLeft: size * 0.15,
     boardTop: size * 0.12,
     boardSize: size * 0.7,
-    boardLineHeight: size * 0.088,
     boardBorderSize: size * 0.004,
     labelSize: size * 0.05,
     labelFontSize: size * 0.03,
@@ -147,11 +185,6 @@ const props = defineProps({
     required: false,
     default: false,
   },
-  characterY: {
-    type: Number,
-    required: false,
-    default: 0,
-  },
   fontScale: {
     type: Number,
     required: false,
@@ -162,8 +195,11 @@ const props = defineProps({
 const layout = computed(() => {
   const size = Math.min(props.maxSize.width, props.maxSize.height);
   const param = buildParams(size);
-  const charY = size * 0.002 * props.characterY;
+  const isWindows = /Windows/i.test(navigator.userAgent);
+  const needsCharacterYOffset = isWindows && props.typeface === "mincho";
+  const characterYOffsetRatio = needsCharacterYOffset ? windowsCharacterYOffsetRatio : 0;
   return {
+    svgSize: size,
     typefaceClass: [
       props.typeface,
       `weight-${props.fontWeight}`,
@@ -184,77 +220,57 @@ const layout = computed(() => {
       top: `${param.footerY}px`,
       fontSize: `${param.fontSize * props.fontScale}px`,
     },
-    boardStyle: {
-      left: `${param.boardLeft - param.boardBorderSize}px`,
-      top: `${param.boardTop - param.boardBorderSize}px`,
-    },
-    boardImageStyle: {
-      width: `${param.boardSize + param.boardBorderSize * 2}px`,
-      height: `${param.boardSize + param.boardBorderSize * 2}px`,
+    boardImage: {
+      x: param.boardLeft - param.boardBorderSize,
+      y: param.boardTop - param.boardBorderSize,
+      width: param.boardSize + param.boardBorderSize * 2,
+      height: param.boardSize + param.boardBorderSize * 2,
     },
     files: fileNumbers.map((character, index) => {
+      const fontSize = param.labelFontSize * props.fontScale;
       return {
-        style: {
-          left: `${param.boardLeft + param.pieceSize * (8 - index)}px`,
-          top: `${param.boardTop - param.labelSize - charY}px`,
-          width: `${param.pieceSize}px`,
-          height: `${param.labelSize}px`,
-          fontSize: `${param.labelFontSize * props.fontScale}px`,
-        },
+        x: param.boardLeft + param.pieceSize * (8 - index) + param.pieceSize / 2,
+        y: param.boardTop - param.labelSize / 2,
+        dy: 0,
+        fontSize,
         character,
       };
     }),
-    fileCharacterStyle: {
-      lineHeight: `${param.labelSize}px`,
-    },
     ranks: rankNumbers.map((character, index) => {
+      const fontSize = param.labelFontSize * props.fontScale;
       return {
-        style: {
-          left: `${param.boardLeft + param.boardSize}px`,
-          top: `${param.boardTop + param.pieceSize * index - charY}px`,
-          width: `${param.labelSize}px`,
-          height: `${param.pieceSize}px`,
-          fontSize: `${param.labelFontSize * props.fontScale}px`,
-        },
+        x: param.boardLeft + param.boardSize + param.labelSize / 2,
+        y: param.boardTop + param.pieceSize * index + param.pieceSize / 2,
+        dy: 0,
+        fontSize,
         character,
       };
     }),
-    rankCharacterStyle: {
-      lineHeight: `${param.pieceSize}px`,
-    },
-    lastMoveStyle: (function () {
+    lastMoveRect: (function () {
       if (!props.lastMove) {
         return null;
       }
       const square = props.lastMove.to;
       return {
-        backgroundColor: "gold",
-        left: `${param.boardLeft + (param.boardSize * square.x) / 9}px`,
-        top: `${param.boardTop + (param.boardSize * square.y) / 9}px`,
-        width: `${param.pieceSize}px`,
-        height: `${param.pieceSize}px`,
+        x: param.boardLeft + (param.boardSize * square.x) / 9,
+        y: param.boardTop + (param.boardSize * square.y) / 9,
+        width: param.pieceSize,
+        height: param.pieceSize,
       };
     })(),
     boardPieces: props.position.board.listNonEmptySquares().map((square) => {
       const piece = props.position.board.at(square) as Piece;
+      const cx = param.boardLeft + (param.boardSize * square.x) / 9 + param.pieceSize / 2;
+      const cy = param.boardTop + (param.boardSize * square.y) / 9 + param.pieceSize / 2;
+      const fontSize = (param.boardSize * props.fontScale) / 11;
       return {
         id: `${square.x},${square.y}`,
-        style: {
-          left: `${param.boardLeft + (param.boardSize * square.x) / 9}px`,
-          top: `${
-            param.boardTop +
-            (param.boardSize * square.y) / 9 -
-            (piece.color === Color.BLACK ? charY : -charY)
-          }px`,
-          width: `${param.boardSize / 9}px`,
-          height: `${param.boardSize / 9}px`,
-          transform: piece.color === Color.WHITE ? "rotate(180deg)" : undefined,
-          fontSize: `${(param.boardSize * props.fontScale) / 11}px`,
-        },
+        x: cx,
+        y: cy,
+        dy: fontSize * characterYOffsetRatio,
+        fontSize,
+        transform: piece.color === Color.WHITE ? `rotate(180, ${cx}, ${cy})` : undefined,
         character: pieceTypeToStringForBoard(piece.type),
-        characterStyle: {
-          lineHeight: `${param.boardLineHeight}px`,
-        },
       };
     }),
     blackHand: (function () {
@@ -264,7 +280,7 @@ const layout = computed(() => {
         text,
         style: {
           left: `${param.blackHandLeft}px`,
-          top: `${param.blackHandTop - charY}px`,
+          top: `${param.blackHandTop}px`,
           height: `${param.boardSize}px`,
           fontSize: `${fontSize * props.fontScale}px`,
         },
@@ -277,7 +293,7 @@ const layout = computed(() => {
         text,
         style: {
           left: `${param.whiteHandLeft}px`,
-          top: `${param.whiteHandTop + charY}px`,
+          top: `${param.whiteHandTop}px`,
           height: `${param.boardSize}px`,
           fontSize: `${fontSize * props.fontScale}px`,
           transform: "rotate(180deg)",
@@ -314,27 +330,6 @@ const layout = computed(() => {
 .footer {
   white-space: pre-wrap;
   text-align: left;
-}
-.file-label {
-  display: inline-block;
-  width: 100%;
-  height: 100%;
-  text-align: center;
-  vertical-align: middle;
-}
-.rank-label {
-  display: inline-block;
-  width: 100%;
-  height: 100%;
-  text-align: center;
-  vertical-align: baseline;
-}
-.cell {
-  display: inline-block;
-  width: 100%;
-  height: 100%;
-  text-align: center;
-  vertical-align: text-bottom;
 }
 .hand {
   display: inline-block;
