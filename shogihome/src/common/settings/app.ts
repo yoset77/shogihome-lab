@@ -278,7 +278,6 @@ export type AppSettings = {
   positionImageHandLabelType: PositionImageHandLabelType;
   useBookmarkAsPositionImageHeader: boolean;
   positionImageHeader: string;
-  positionImageCharacterY: number;
   positionImageFontScale: number;
   positionImageFontWeight: PositionImageFontWeight;
 
@@ -435,7 +434,6 @@ export function defaultAppSettings(opt?: {
     positionImageHandLabelType: PositionImageHandLabelType.PLAYER_NAME,
     useBookmarkAsPositionImageHeader: false,
     positionImageHeader: "",
-    positionImageCharacterY: 0,
     positionImageFontScale: 1,
     positionImageFontWeight: PositionImageFontWeight.W400X,
     lastRecordFilePath: "",
