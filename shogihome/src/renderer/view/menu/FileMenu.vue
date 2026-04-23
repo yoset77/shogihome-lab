@@ -117,6 +117,10 @@
           <Icon :icon="IconType.PV" />
           <div class="label">{{ t.searchDuplicatePositions }}</div>
         </button>
+        <button :disabled="!states.elapsedTimeChart" @click="onElapsedTimeChart">
+          <Icon :icon="IconType.HISTORY" />
+          <div class="label">{{ t.elapsedTimeChart }}</div>
+        </button>
         <button v-if="!isMobileWebApp()" :disabled="!states.exportImage" @click="onExportImage">
           <Icon :icon="IconType.GRID" />
           <div class="label">{{ t.positionImage }}</div>
@@ -396,6 +400,10 @@ const onSearchDuplicatePositions = () => {
   store.showSearchDuplicatePositionsDialog();
   emit("close");
 };
+const onElapsedTimeChart = () => {
+  store.showElapsedTimeChartDialog();
+  emit("close");
+};
 const onBatchConversion = () => {
   store.showBatchConversionDialog();
   emit("close");
@@ -486,6 +494,7 @@ const states = computed(() => {
     loadRemoteFile: store.appState === AppState.NORMAL,
     share: store.appState === AppState.NORMAL,
     searchDuplicatePositions: store.appState === AppState.NORMAL,
+    elapsedTimeChart: store.appState === AppState.NORMAL,
     batchConversion: store.appState === AppState.NORMAL,
     analysisDBManager: store.appState === AppState.NORMAL,
     exportImage: store.appState === AppState.NORMAL,

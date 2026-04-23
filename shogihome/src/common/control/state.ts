@@ -24,6 +24,7 @@ export enum AppState {
   BOOK_SELECT_DIALOG = "bookSelectDialog",
   DUPLICATE_POSITIONS_DIALOG = "duplicatePositionsDialog",
   SEARCH_DUPLICATE_POSITIONS_DIALOG = "searchDuplicatePositionsDialog",
+  ELAPSED_TIME_CHART_DIALOG = "elapsedTimeChartDialog",
   PUZZLE = "puzzle",
 }
 

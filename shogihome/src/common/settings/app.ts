@@ -251,6 +251,7 @@ export type AppSettings = {
   // Evaluation
   evaluationViewFrom: EvaluationViewFrom;
   maxArrowsPerEngine: number;
+  arrowScoreDiffRange: number;
   coefficientInSigmoid: number;
   badMoveLevelThreshold1: number;
   badMoveLevelThreshold2: number;
@@ -413,6 +414,7 @@ export function defaultAppSettings(opt?: {
     defaultResearchEngineURI: "", // Added
     evaluationViewFrom: EvaluationViewFrom.BLACK,
     maxArrowsPerEngine: 3,
+    arrowScoreDiffRange: 100,
     coefficientInSigmoid: 600,
     badMoveLevelThreshold1: 5,
     badMoveLevelThreshold2: 10,

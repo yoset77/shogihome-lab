@@ -622,39 +622,6 @@ class Store {
     }
   }
 
-  destroyModalDialog(): void {
-    if (
-      this.appState === AppState.PASTE_DIALOG ||
-      this.appState === AppState.GAME_DIALOG ||
-      this.appState === AppState.CSA_GAME_DIALOG ||
-      this.appState === AppState.ANALYSIS_DIALOG ||
-      this.appState === AppState.MATE_SEARCH_DIALOG ||
-      this.appState === AppState.USI_ENGINES_DIALOG ||
-      this.appState === AppState.EXPORT_POSITION_IMAGE_DIALOG ||
-      this.appState === AppState.RECORD_FILE_HISTORY_DIALOG ||
-      this.appState === AppState.BATCH_CONVERSION_DIALOG ||
-      this.appState === AppState.LAUNCH_USI_ENGINE_DIALOG ||
-      this.appState === AppState.CONNECT_TO_CSA_SERVER_DIALOG ||
-      this.appState === AppState.LOAD_REMOTE_FILE_DIALOG ||
-      this.appState === AppState.SHARE_DIALOG ||
-      this.appState === AppState.ADD_BOOK_MOVES_DIALOG ||
-      this.appState === AppState.SERVER_KIFU_DIALOG ||
-      this.appState === AppState.BOOK_SELECT_DIALOG ||
-      this.appState === AppState.DUPLICATE_POSITIONS_DIALOG ||
-      this.appState === AppState.SEARCH_DUPLICATE_POSITIONS_DIALOG
-    ) {
-      const nextState = this._lastAppState;
-      this._appState = nextState;
-      this._lastAppState = AppState.NORMAL;
-    }
-  }
-
-  closeModalDialog(): void {
-    if (!useBusyState().isBusy) {
-      this.destroyModalDialog();
-    }
-  }
-
   get isAppSettingsDialogVisible(): boolean {
     return this._isAppSettingsDialogVisible;
   }
@@ -678,6 +645,11 @@ class Store {
   closeAppSettingsDialog(): void {
     this._isAppSettingsDialogVisible = false;
   }
+  showElapsedTimeChartDialog(): void {
+    if (this.appState === AppState.NORMAL) {
+      this._appState = AppState.ELAPSED_TIME_CHART_DIALOG;
+    }
+  }
 
   showAnalysisDBManagerDialog(): void {
     this._isAnalysisDBManagerDialogVisible = true;
@@ -687,13 +659,47 @@ class Store {
     this._isAnalysisDBManagerDialogVisible = false;
   }
 
+  destroyModalDialog(): void {
+    if (
+      this.appState === AppState.PASTE_DIALOG ||
+      this.appState === AppState.GAME_DIALOG ||
+      this.appState === AppState.CSA_GAME_DIALOG ||
+      this.appState === AppState.ANALYSIS_DIALOG ||
+      this.appState === AppState.MATE_SEARCH_DIALOG ||
+      this.appState === AppState.USI_ENGINES_DIALOG ||
+      this.appState === AppState.EXPORT_POSITION_IMAGE_DIALOG ||
+      this.appState === AppState.RECORD_FILE_HISTORY_DIALOG ||
+      this.appState === AppState.BATCH_CONVERSION_DIALOG ||
+      this.appState === AppState.LAUNCH_USI_ENGINE_DIALOG ||
+      this.appState === AppState.CONNECT_TO_CSA_SERVER_DIALOG ||
+      this.appState === AppState.LOAD_REMOTE_FILE_DIALOG ||
+      this.appState === AppState.SHARE_DIALOG ||
+      this.appState === AppState.ADD_BOOK_MOVES_DIALOG ||
+      this.appState === AppState.SERVER_KIFU_DIALOG ||
+      this.appState === AppState.BOOK_SELECT_DIALOG ||
+      this.appState === AppState.DUPLICATE_POSITIONS_DIALOG ||
+      this.appState === AppState.SEARCH_DUPLICATE_POSITIONS_DIALOG ||
+      this.appState === AppState.ELAPSED_TIME_CHART_DIALOG
+    ) {
+      const nextState = this._lastAppState;
+      this._appState = nextState;
+      this._lastAppState = AppState.NORMAL;
+    }
+  }
+
+  closeModalDialog(): void {
+    if (!useBusyState().isBusy) {
+      this.destroyModalDialog();
+    }
+  }
+
   get usiMonitors(): USIPlayerMonitor[] {
     return this.usiMonitor.sessions;
   }
 
   get candidates(): Move[] {
     const appSettings = useAppSettings();
-    const maxScoreDiff = 100;
+    const maxScoreDiff = appSettings.arrowScoreDiffRange;
     const sfen = this.recordManager.record.position.sfen;
     const candidates: Move[] = [];
     const usiSet = new Set<string>();
@@ -1520,19 +1526,19 @@ class Store {
   }
 
   goForward(): void {
-    if (this.appState === AppState.NORMAL) {
+    if (this.appState === AppState.NORMAL || this.appState === AppState.ELAPSED_TIME_CHART_DIALOG) {
       this.recordManager.goForward();
     }
   }
 
   goBack(): void {
-    if (this.appState === AppState.NORMAL) {
+    if (this.appState === AppState.NORMAL || this.appState === AppState.ELAPSED_TIME_CHART_DIALOG) {
       this.recordManager.goBack();
     }
   }
 
   changePly(ply: number): void {
-    if (this.appState === AppState.NORMAL) {
+    if (this.appState === AppState.NORMAL || this.appState === AppState.ELAPSED_TIME_CHART_DIALOG) {
       this.recordManager.changePly(ply);
     }
   }

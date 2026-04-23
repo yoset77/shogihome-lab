@@ -194,6 +194,7 @@ export const vi: Texts = {
   analyze: "Phân tích",
   stopAnalysis: "Dừng phân tích",
   searchDuplicatePositions: "Tìm kiếm các thế cờ giống nhau",
+  elapsedTimeChart: "Biểu đồ thời gian đã qua",
   duplicatePositionSearch: "Tìm kiếm thế cờ giống nhau",
   duplicatePositions: "Các thế cờ giống nhau",
   duplicatePos: "Thế cờ giống nhau",
@@ -351,6 +352,7 @@ export const vi: Texts = {
   alwaysSenteIsPositive: "Tiên luôn dương",
   signOfEvaluation: "Dấu giá trị đánh giá",
   maxArrows: "Số mũi tên hiển thị",
+  arrowScoreDiffRange: "Ngưỡng chênh lệch điểm số mũi tên",
   winRateCoefficient: "Hệ số tỷ lệ thắng",
   nodeCountFormat: "ノード数表記", // TODO: Translate
   plainNumber: "装飾無し", // TODO: Translate

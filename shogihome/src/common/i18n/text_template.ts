@@ -193,6 +193,7 @@ export type Texts = {
   analyze: string;
   stopAnalysis: string;
   searchDuplicatePositions: string;
+  elapsedTimeChart: string;
   duplicatePositionSearch: string;
   duplicatePositions: string;
   duplicatePos: string;
@@ -344,6 +345,7 @@ export type Texts = {
   alwaysSenteIsPositive: string;
   signOfEvaluation: string;
   maxArrows: string;
+  arrowScoreDiffRange: string;
   winRateCoefficient: string;
   nodeCountFormat: string;
   plainNumber: string;

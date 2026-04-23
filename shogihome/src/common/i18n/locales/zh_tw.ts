@@ -191,6 +191,7 @@ export const zh_tw: Texts = {
   analyze: "解析開始",
   stopAnalysis: "中斷解析",
   searchDuplicatePositions: "搜尋同一局面",
+  elapsedTimeChart: "消費時間圖表",
   duplicatePositionSearch: "同一局面搜尋",
   duplicatePositions: "同一局面",
   duplicatePos: "同一局",
@@ -347,6 +348,7 @@ export const zh_tw: Texts = {
   alwaysSenteIsPositive: "先手有利時為正值",
   signOfEvaluation: "評價值符號",
   maxArrows: "箭頭顯示數量",
+  arrowScoreDiffRange: "箭頭顯示的評價值範圍",
   winRateCoefficient: "勝率換算係數",
   nodeCountFormat: "ノード数表記", // TODO: Translate
   plainNumber: "装飾無し", // TODO: Translate
