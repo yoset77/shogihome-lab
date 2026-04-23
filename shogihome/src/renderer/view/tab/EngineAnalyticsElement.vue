@@ -180,7 +180,6 @@
               <span v-if="info.scoreMate">{{ t.mateShort }}</span>
               <span v-if="info.lowerBound">++</span>
               <span v-if="info.upperBound">--</span>
-              <span class="engine-name">{{ monitor.name }}</span>
             </span>
             <button
               v-if="showPlayButton && info.pv && info.pv.length !== 0"
@@ -581,6 +580,7 @@ button span {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .mobile-pv-header .multipv-index {
   font-weight: bold;
@@ -593,12 +593,10 @@ button span {
   white-space: nowrap;
   color: var(--text-color);
 }
-.mobile-pv-header .engine-name {
-  margin-left: 12px;
-}
 .mobile-pv-header .play-button {
   flex-shrink: 0;
   margin: 0;
+  margin-left: auto;
   padding: 1px 2px;
   height: auto;
 }
