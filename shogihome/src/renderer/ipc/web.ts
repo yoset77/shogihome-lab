@@ -19,6 +19,9 @@ import * as uri from "@/common/uri.js";
 import { normalizePath } from "@/common/helpers/path.js";
 import { KifuSearchResult, KifuListEntry } from "@/common/file/record.js";
 import { convert } from "encoding-japanese";
+import { toJpeg, toPng } from "html-to-image";
+import dayjs from "dayjs";
+import { Rect } from "@/common/assets/geometry.js";
 
 enum STORAGE_KEY {
   APP_SETTINGS = "appSetting",
@@ -59,6 +62,25 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(id);
   }
+}
+
+async function exportCapture(
+  type: "png" | "jpeg",
+  execute: (el: HTMLElement, canvasWidth: number, canvasHeight: number) => Promise<string>,
+  rectJson: string,
+): Promise<void> {
+  const element = document.querySelector(".export-board") as HTMLElement;
+  if (!element) {
+    throw new Error("Element not found: .export-board");
+  }
+  const rect = new Rect(rectJson);
+  const canvasHeight = rect.targetHeight ?? rect.height;
+  const canvasWidth = rect.targetWidth ?? rect.width;
+  const dataUrl = await execute(element, canvasWidth, canvasHeight);
+  const link = document.createElement("a");
+  link.download = `shogi_position_${dayjs().format("YYYYMMDD_HHmmss")}.${type}`;
+  link.href = dataUrl;
+  link.click();
 }
 
 // Web/LAN アプリケーションとして実行した場合に使用します。
@@ -667,11 +689,34 @@ export const webAPI: Bridge = {
   async cropPieceImage(): Promise<string> {
     throw new Error(t.thisFeatureNotAvailableOnWebApp);
   },
-  async exportCaptureAsPNG(): Promise<void> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
+  async exportCaptureAsPNG(rectJson: string): Promise<void> {
+    return exportCapture(
+      "png",
+      (el, canvasWidth, canvasHeight) =>
+        toPng(el, {
+          pixelRatio: 1,
+          cacheBust: true,
+          backgroundColor: "white",
+          canvasWidth,
+          canvasHeight,
+        }),
+      rectJson,
+    );
   },
-  async exportCaptureAsJPEG(): Promise<void> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
+  async exportCaptureAsJPEG(rectJson: string): Promise<void> {
+    return exportCapture(
+      "jpeg",
+      (el, canvasWidth, canvasHeight) =>
+        toJpeg(el, {
+          pixelRatio: 1,
+          cacheBust: true,
+          backgroundColor: "white",
+          quality: 0.9,
+          canvasWidth,
+          canvasHeight,
+        }),
+      rectJson,
+    );
   },
 
   // Layout

@@ -1,7 +1,7 @@
 <template>
   <DialogFrame @cancel="onClose">
     <div class="row">
-      <div ref="board" class="board" :class="appSettings.positionImageStyle">
+      <div ref="board" class="board export-board" :class="appSettings.positionImageStyle">
         <div v-if="appSettings.positionImageStyle === PositionImageStyle.BOOK" class="book">
           <SimpleBoardView
             :max-size="maxSize"
@@ -17,7 +17,6 @@
             :typeface="appSettings.positionImageTypeface"
             :font-weight="fontWeight"
             :text-shadow="textShadow"
-            :character-y="appSettings.positionImageCharacterY"
             :font-scale="appSettings.positionImageFontScale"
           />
         </div>
@@ -55,17 +54,6 @@
                 { value: PositionImageTypeface.MINCHO, label: t.mincho },
               ]"
               @update:value="changeTypeface"
-            />
-          </div>
-          <div>
-            {{ t.vertical }}
-            <input
-              class="number"
-              type="number"
-              min="-100"
-              max="100"
-              :value="appSettings.positionImageCharacterY"
-              @change="changeCharacterY"
             />
           </div>
           <div>
@@ -329,12 +317,6 @@ const changeWhetherToUseBookmark = (value: boolean) => {
   });
 };
 
-const changeCharacterY = (e: Event) => {
-  appSettings.updateAppSettings({
-    positionImageCharacterY: readInputAsNumber(e.target as HTMLInputElement),
-  });
-};
-
 const changeFontScale = (e: Event) => {
   appSettings.updateAppSettings({
     positionImageFontScale: readInputAsNumber(e.target as HTMLInputElement) / 100,
@@ -351,25 +333,31 @@ const changeType = (value: string) => {
   appSettings.updateAppSettings({ positionImageStyle: value as PositionImageStyle });
 };
 
-const getRect = () => {
+const getTargetRect = () => {
   const elem = board.value as HTMLElement;
   const domRect = elem.getBoundingClientRect();
+  const innerWidth = domRect.width - frameMargin * 2;
+  const innerHeight = domRect.height - frameMargin * 2;
+  const targetHeight = appSettings.positionImageSize;
+  const targetWidth = Math.round(targetHeight * (innerWidth / innerHeight));
   return new Rect(
     domRect.x + frameMargin,
     domRect.y + frameMargin,
-    domRect.width - frameMargin * 2,
-    domRect.height - frameMargin * 2,
+    innerWidth,
+    innerHeight,
+    targetHeight,
+    targetWidth,
   );
 };
 
 const saveAsPNG = () => {
-  api.exportCaptureAsPNG(getRect()).catch((e) => {
+  api.exportCaptureAsPNG(getTargetRect()).catch((e) => {
     useErrorStore().add(e);
   });
 };
 
 const saveAsJPEG = () => {
-  api.exportCaptureAsJPEG(getRect()).catch((e) => {
+  api.exportCaptureAsJPEG(getTargetRect()).catch((e) => {
     useErrorStore().add(e);
   });
 };

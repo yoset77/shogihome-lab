@@ -19,20 +19,40 @@ export class Rect {
   public y: number;
   public width: number;
   public height: number;
-  constructor(x: number, y: number, width: number, height: number);
+  public targetHeight?: number;
+  public targetWidth?: number;
+  constructor(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    targetHeight?: number,
+    targetWidth?: number,
+  );
   constructor(json: string);
-  constructor(x: number | string, y?: number, width?: number, height?: number) {
+  constructor(
+    x: number | string,
+    y?: number,
+    width?: number,
+    height?: number,
+    targetHeight?: number,
+    targetWidth?: number,
+  ) {
     if (y !== undefined && width !== undefined && height !== undefined) {
       this.x = x as number;
       this.y = y;
       this.width = width;
       this.height = height;
+      this.targetHeight = targetHeight;
+      this.targetWidth = targetWidth;
     } else {
       const obj = JSON.parse(x as string);
       this.x = obj.x;
       this.y = obj.y;
       this.width = obj.width;
       this.height = obj.height;
+      this.targetHeight = obj.targetHeight;
+      this.targetWidth = obj.targetWidth;
     }
   }
   get json(): string {
@@ -41,6 +61,8 @@ export class Rect {
       y: this.y,
       width: this.width,
       height: this.height,
+      ...(this.targetHeight !== undefined && { targetHeight: this.targetHeight }),
+      ...(this.targetWidth !== undefined && { targetWidth: this.targetWidth }),
     });
   }
   get style() {

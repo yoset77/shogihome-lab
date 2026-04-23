@@ -282,9 +282,6 @@ class AppSettingsStore {
   get positionImageHeader(): string {
     return this.merged.positionImageHeader;
   }
-  get positionImageCharacterY(): number {
-    return this.merged.positionImageCharacterY;
-  }
   get positionImageFontScale(): number {
     return this.merged.positionImageFontScale;
   }
