@@ -71,6 +71,7 @@ export class MateSearchManager {
         "mate_search",
         engineId,
         settings.usi.name,
+        appSettings.engineTimeoutSeconds,
         undefined,
         (e) => {
           this.onError(e);

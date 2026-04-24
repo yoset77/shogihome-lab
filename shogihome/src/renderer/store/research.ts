@@ -119,6 +119,7 @@ export class ResearchManager {
             sessionKey,
             engineId,
             engineName,
+            appSettings.engineTimeoutSeconds,
             (info) => {
               if (type !== undefined && this.synced) {
                 this.onUpdateSearchInfo(type, info);

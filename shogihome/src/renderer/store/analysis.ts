@@ -99,6 +99,7 @@ export class AnalysisManager {
         "research_analysis",
         engine.uri,
         engine.name,
+        appSettings.engineTimeoutSeconds,
         this.updateSearchInfo.bind(this),
       );
     } else {

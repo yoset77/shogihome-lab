@@ -115,7 +115,14 @@ describe("LanPlayer resilience", () => {
 
   it("should fail a stale ready state if bestmove replay never arrives", async () => {
     const onError = vi.fn();
-    const player = new LanPlayer("test-session", "test-engine", "Test Engine", undefined, onError);
+    const player = new LanPlayer(
+      "test-session",
+      "test-engine",
+      "Test Engine",
+      10,
+      undefined,
+      onError,
+    );
     await launchPlayer(player, { state: "thinking" });
 
     sendMsg({ state: "ready" });

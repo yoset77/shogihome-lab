@@ -35,6 +35,7 @@ export function defaultPlayerBuilder(engineTimeoutSeconds?: number): PlayerBuild
           sessionKey || "default",
           engineId,
           engineName,
+          engineTimeoutSeconds,
           onSearchInfo,
           undefined,
           playerSettings.usi?.extraBook,

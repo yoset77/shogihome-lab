@@ -633,7 +633,7 @@
           <div class="form-item-small-label">({{ t.functionalOnJapaneseOnly }})</div>
         </div>
         <!-- 最大起動待ち時間 -->
-        <div v-if="false" class="form-item">
+        <div class="form-item">
           <div class="form-item-label-wide">
             {{ t.maxStartupTime }}
           </div>

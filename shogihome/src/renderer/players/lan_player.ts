@@ -60,6 +60,7 @@ export class LanPlayer implements Player {
     sessionKey: string,
     engineId: string,
     engineName: string,
+    private timeoutSeconds: number = 10,
     onSearchInfo?: (info: SearchInfo) => void,
     onError?: (e: Error) => void,
     private extraBook?: USIEngineExtraBookConfig,
@@ -118,7 +119,7 @@ export class LanPlayer implements Player {
         const timeout = setTimeout(() => {
           this.lanEngine.removeMessageListener(readyListener);
           reject(new Error("Timeout: Failed to receive ready message from engine"));
-        }, 10000);
+        }, this.timeoutSeconds * 1000);
 
         const readyListener = (message: string) => {
           try {
