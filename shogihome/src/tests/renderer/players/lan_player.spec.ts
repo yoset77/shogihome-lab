@@ -82,7 +82,7 @@ describe("LanPlayer", () => {
 
   it("updateInfo should filter multipv > 1 and use throttling", async () => {
     const onSearchInfo = vi.fn();
-    const player = new LanPlayer("test-session", "test-engine", "Test Engine", onSearchInfo);
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine", 10, onSearchInfo);
 
     await launchPlayer(player);
 
@@ -135,7 +135,7 @@ describe("LanPlayer", () => {
 
   it("updateInfo should ignore stale messages with wrong SFEN", async () => {
     const onSearchInfo = vi.fn();
-    const player = new LanPlayer("test-session", "test-engine", "Test Engine", onSearchInfo);
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine", 10, onSearchInfo);
 
     await launchPlayer(player);
 
@@ -189,7 +189,7 @@ describe("LanPlayer", () => {
 
   it("updateInfo should not flush pending info after position change", async () => {
     const onSearchInfo = vi.fn();
-    const player = new LanPlayer("test-session", "test-engine", "Test Engine", onSearchInfo);
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine", 10, onSearchInfo);
 
     await launchPlayer(player);
 
@@ -230,8 +230,8 @@ describe("LanPlayer", () => {
   });
 
   it("dispatchUSIInfoUpdate should be called even for multipv > 1", async () => {
-    const player = new LanPlayer("test-session", "test-engine", "Test Engine", () => {
-      /* noop */
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine", 10, () => {
+      // ignore
     });
 
     await launchPlayer(player);
@@ -369,6 +369,7 @@ describe("LanPlayer", () => {
       "research_main",
       "test-engine",
       "Test Engine",
+      10,
       undefined,
       undefined,
       {
@@ -400,6 +401,7 @@ describe("LanPlayer", () => {
       "research_main",
       "test-engine",
       "Test Engine",
+      10,
       undefined,
       undefined,
       {
@@ -450,6 +452,7 @@ describe("LanPlayer", () => {
       "research_main",
       "test-engine",
       "Test Engine",
+      10,
       undefined,
       undefined,
       {
@@ -488,7 +491,7 @@ describe("LanPlayer", () => {
     }
 
     const onSearchInfo = vi.fn();
-    const player = new LanPlayer("test-session", "test-engine", "Test Engine", onSearchInfo);
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine", 10, onSearchInfo);
     const usi = "position startpos";
     const record = Record.newByUSI(usi) as Record;
     const internals = player as unknown as LanPlayerInternals;
