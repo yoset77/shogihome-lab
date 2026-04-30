@@ -14,8 +14,9 @@ graph LR
 ```
 
 1.  **Frontend (`shogihome/src`)**: Vue.js 3 + TypeScript。ユーザーインターフェース。複数エンジンからID指定で起動可能。
-2.  **Middle Server (`shogihome/server.ts`)**: Node.js。
-    - WebSocketとTCPのブリッジ。`start_engine <id>` コマンドを Wrapper の `run <id>` へ変換。
+2.  **Middle Server (`shogihome/server.ts`, `shogihome/src/server/`)**: Node.js。
+    - `server.ts` は起動互換性のための薄いエントリポイントです。
+    - 実装本体は `src/server/` に分割され、Express API、セキュリティ設定、WebSocket/TCPブリッジ、USIセッション管理を構成します。`start_engine <id>` コマンドを Wrapper の `run <id>` へ変換。
 3.  **Engine Wrapper (`engine-wrapper/`)**: Python。
     - `engines.json` に基づき、指定されたIDのエンジンプロセスを起動・中継。
 
@@ -25,7 +26,12 @@ graph LR
 
 | パス | 説明 |
 | :--- | :--- |
-| `server.ts` | **中核サーバー**。Expressでのアプリ配信と、WebSocketによるエンジン中継ロジックが含まれます。 |
+| `server.ts` | **サーバー起動エントリ**。既存テスト・起動コマンドとの互換性を保つため、`src/server/main.ts` の公開 API を再exportし、直接実行時にサーバーを起動します。 |
+| `src/server/` | **中核サーバー実装**。Express アプリ構築、HTTP API、静的配信、WebSocket 接続、エンジン中継ロジックを保持します。 |
+| `src/server/config.ts` | `.env` 読み込み、基準パス、ポート、許可 Origin/Host、KIFU_DIR、エンジン接続先などのサーバー設定。 |
+| `src/server/security.ts` | Host ヘッダー検証、CSP/Helmet、rate limit などの HTTP/WebSocket 共通セキュリティ設定。 |
+| `src/server/bookSessionManager.ts` | Web/LAN 定跡編集用のセッション ID と内部 book session の対応、上限管理、期限切れクリーンアップ。 |
+| `src/server/engine/` | Wrapper 認証、エンジン設定キャッシュ、エンジン一覧取得、`EngineState` などのエンジン通信関連モジュール。 |
 | `src/renderer/store/index.ts` | **状態管理**。アプリ全体のステートを保持し、対局・検討・編集などの各マネージャー（`GameManager`, `ResearchManager` 等）を統合します。検討停止は `ResearchState.STOPPING` を経由する非同期ライフサイクルとして扱い、停止完了前に UI を `IDLE` 扱いしないようにしています。 |
 | `src/renderer/players/lan_player.ts` | **リモートプレイヤー**。USIプロトコルの同期制御（Stop待ち、コマンド送信）を実装し、通信経由でエンジンを操作する実体です。 |
 | `src/renderer/network/lan_engine.ts` | **リモートエンジン通信クライアント**。WebSocket接続とコマンド送信、エンジンリスト取得を管理。 |
@@ -65,12 +71,12 @@ graph LR
 ### リモートエンジン通信フロー
 1. **リスト取得**: フロントエンドが `get_engine_list` を送信。サーバーは Wrapper から `list` コマンドで取得したデータをサニタイズ（実行パス等の機密情報を除去）した上で返却。`lan_engine.ts` 側でキャッシュされるが、必要に応じて強制更新可能。
 2.  **起動**: フロントエンドが `start_engine <id>` を送信。**エンジンが `STARTING` または `isStopping` 状態にある間の新規起動リクエストは、競合防止のためサーバー側で拒否される。** また、`STARTING`（TCP接続中・認証中）に `stop_engine` が届いた場合は、接続処理を即座に破棄し、`run <id>` が Wrapper に送られないようにしています。
-3.  **ハンドシェイク**: `server.ts` が Wrapper 接続時に `usi` を自動送信し、`usiok` 受信時に `isready` を自動送信する。クライアントからの `usi`/`isready` は無視される。
+3.  **ハンドシェイク**: `src/server/main.ts` のエンジンセッションが Wrapper 接続時に `usi` を自動送信し、`usiok` 受信時に `isready` を自動送信する。クライアントからの `usi`/`isready` は無視される。
 4.  **同期**: 局面移動時、`lan_player.ts` は `stop` コマンドを送り、エンジンから `bestmove` を受信するまで次の `position` コマンドの送信を待機する。**サーバー側で設定されたタイムアウト（デフォルト10秒、`.env` の `ENGINE_STOP_TIMEOUT_MS` で変更可能）が発生した場合は、サーバーがハングしたエンジンを強制終了してセッションをリセットし、クライアントへ通知する。これにより不整合な状態での探索開始を防止する。** サーバー側では `stop` 送信から `bestmove` 到着までの間のコマンドをキューイングし、到着後に最新の局面のみを送信（デバウンス）する。
 5.  **リアルタイム更新**: サーバーはエンジン出力に SFEN を付与して返却。フロントエンドは `dispatchUSIInfoUpdate` を通じて `usiMonitor` を更新し、読み筋タブへ反映。
 6.  **コマンドバリデーションと暗黙の停止**: サーバーは受信したUSIコマンドを厳格にバリデーションし、不正なコマンドを破棄します。また、思考中に `position` 等のコマンドを受信した場合は、自動的に `stop` を発行して `bestmove` を待機する「暗黙の停止」処理を行い、状態の不整合を防ぎます。
-7.  **統一された状態管理**: `server.ts` 内の `EngineSession` は、接続から思考・停止・終了に至るすべてのフェーズを `EngineState` で一元管理します。これにより、思考中に停止処理が走っている状態 (`STOPPING_SEARCH`) などを明確に区別し、競合状態を防止しています。`stop_engine` 後に遅延した `bestmove` が届いた場合も、`TERMINATING` を `READY` に戻さず無視することで、終了中セッションの状態汚染を防ぎます。
-8.  **簡易認証 (Simple Auth)**: `engine-wrapper` と `server.ts` 間にトークンベースの認証(HMAC-SHA256 CRAM)を導入しました。
+7.  **統一された状態管理**: `src/server/main.ts` 内の `EngineSession` は、接続から思考・停止・終了に至るすべてのフェーズを `EngineState` で一元管理します。これにより、思考中に停止処理が走っている状態 (`STOPPING_SEARCH`) などを明確に区別し、競合状態を防止しています。`stop_engine` 後に遅延した `bestmove` が届いた場合も、`TERMINATING` を `READY` に戻さず無視することで、終了中セッションの状態汚染を防ぎます。
+8.  **簡易認証 (Simple Auth)**: `engine-wrapper` と `src/server/engine/auth.ts` 間にトークンベースの認証(HMAC-SHA256 CRAM)を導入しました。
     - 双方の `.env` に `WRAPPER_ACCESS_TOKEN` を設定することで有効化されます。
     - **CRAM方式**: 平文のトークン送信を避け、リプレイ攻撃を防ぐため、Challenge-Response認証を採用しています。
         1. Wrapper -> Server: `auth_cram_sha256 <nonce>` (16進数32文字のランダムなナンス)
