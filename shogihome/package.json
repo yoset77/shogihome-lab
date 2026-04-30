@@ -93,7 +93,7 @@
     "ajv": "^8.18.0",
     "ajv-keywords": "^5.1.0",
     "depcheck": "^1.4.7",
-    "esbuild": "^0.27.7",
+    "esbuild": "^0.28.0",
     "eslint": "^9.21.0",
     "eslint-config-prettier": "^10.0.2",
     "eslint-import-resolver-typescript": "^3.8.3",
