@@ -28,9 +28,11 @@ graph LR
 | :--- | :--- |
 | `server.ts` | **サーバー起動エントリ**。既存テスト・起動コマンドとの互換性を保つため、`src/server/main.ts` の公開 API を再exportし、直接実行時にサーバーを起動します。 |
 | `src/server/` | **中核サーバー実装**。Express アプリ構築、HTTP API、静的配信、WebSocket 接続、エンジン中継ロジックを保持します。 |
+| `src/server/routes/` | **HTTP API ルート定義**。棋譜、定跡、検討結果DB、履歴、外部棋譜取得、静的配信を責務別に登録します。 |
 | `src/server/config.ts` | `.env` 読み込み、基準パス、ポート、許可 Origin/Host、KIFU_DIR、エンジン接続先などのサーバー設定。 |
 | `src/server/security.ts` | Host ヘッダー検証、CSP/Helmet、rate limit などの HTTP/WebSocket 共通セキュリティ設定。 |
 | `src/server/bookSessionManager.ts` | Web/LAN 定跡編集用のセッション ID と内部 book session の対応、上限管理、期限切れクリーンアップ。 |
+| `src/server/websocket.ts` | WebSocket サーバーの生成、Origin/Host 検証、sessionId 検証、ハートビート、セッションへの接続委譲。 |
 | `src/server/engine/` | Wrapper 認証、エンジン設定キャッシュ、エンジン一覧取得、`EngineState` などのエンジン通信関連モジュール。 |
 | `src/renderer/store/index.ts` | **状態管理**。アプリ全体のステートを保持し、対局・検討・編集などの各マネージャー（`GameManager`, `ResearchManager` 等）を統合します。検討停止は `ResearchState.STOPPING` を経由する非同期ライフサイクルとして扱い、停止完了前に UI を `IDLE` 扱いしないようにしています。 |
 | `src/renderer/players/lan_player.ts` | **リモートプレイヤー**。USIプロトコルの同期制御（Stop待ち、コマンド送信）を実装し、通信経由でエンジンを操作する実体です。 |

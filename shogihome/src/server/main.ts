@@ -2,79 +2,45 @@ import express from "express";
 import http from "http";
 import net from "net";
 import fs from "fs";
-import { WebSocketServer, WebSocket } from "ws";
+import { WebSocket } from "ws";
 import path from "path";
 import readline from "readline";
-import events from "node:events";
-import { normalizePath } from "@/common/helpers/path";
-import { closeBookSessionForRequest, getBookSession } from "@/server/bookSessionManager";
 import { authenticateSocket } from "@/server/engine/auth";
 import { engineConfigCache, getEngineList } from "@/server/engine/list";
+import { SessionManager } from "@/server/engine/sessionManager";
 import {
   EngineState,
   type EngineConfig,
   type EngineHandle,
   type ExtendedWebSocket,
 } from "@/server/engine/types";
-import { errorHandler, sendError } from "@/server/errors";
 import {
-  ALLOWED_ORIGINS,
   ANALYSIS_DB_MIN_DEPTH,
   BIND_ADDRESS,
   CONNECTION_PROTECTION_TIMEOUT,
   dataDir,
   ENGINE_STOP_TIMEOUT_MS,
   KIFU_DIR,
-  ONTHEFLY_THRESHOLD_MB,
   PORT,
   REMOTE_ENGINE_HOST,
   REMOTE_ENGINE_PORT,
   shogiHomePath,
 } from "@/server/config";
-import {
-  createHelmetMiddleware,
-  createRateLimiter,
-  isValidHost,
-  validateHostHeader,
-} from "@/server/security";
-import {
-  getKifuList,
-  getBookList,
-  getPositionList,
-  resolveKifuPath,
-  clearKifuListCache,
-  setupKifuWatcher,
-} from "@/background/helpers/kifu";
-import {
-  openBook,
-  saveBook,
-  clearBook,
-  searchBookMoves,
-  updateBookMove,
-  removeBookMove,
-  updateBookMoveOrder,
-  importBookMoves,
-  isBookOnTheFly,
-} from "@/background/book";
+import { createHelmetMiddleware, createRateLimiter, validateHostHeader } from "@/server/security";
+import { setupKifuWatcher } from "@/background/helpers/kifu";
 import { getNormalizedSfenAndHash } from "@/background/usi/sfen";
 import * as kifuIndexDB from "@/background/database/kifu_index";
 import * as kifuIndexSync from "@/background/kifu_index/sync";
-import { writeFileAtomic, writeFileAtomicSync } from "@/background/file/atomic";
-import { fetch as fetchRemote } from "@/background/helpers/http";
-import { getHistory, saveBackup, clearHistory, addHistory } from "@/background/file/history";
-import {
-  initDatabase,
-  saveAnalysisResults,
-  getAnalysisResults,
-  getAnalysisDBStats,
-  deleteAnalysisResultsByEngine,
-  cleanupAnalysisResults,
-  deleteAnalysisResult,
-  exportAnalysisResultsByEngine,
-  getMigrationSummary,
-  executeMigration,
-} from "@/background/database/sqlite";
+import { writeFileAtomicSync } from "@/background/file/atomic";
+import { initDatabase, saveAnalysisResults } from "@/background/database/sqlite";
 import { parseInfoCommand, USIInfoCommand } from "@/common/game/usi";
+import { registerAnalysisRoutes } from "@/server/routes/analysis";
+import { registerBookRoutes } from "@/server/routes/book";
+import { registerFetchRemoteRoute } from "@/server/routes/fetchRemote";
+import { registerHistoryRoutes } from "@/server/routes/history";
+import { registerKifuRoutes } from "@/server/routes/kifu";
+import { registerStaticRoutes } from "@/server/routes/static";
+import { createEngineWebSocketServer } from "@/server/websocket";
 
 export const app = express();
 if (process.env.TRUST_PROXY === "true") {
@@ -139,631 +105,13 @@ export { EngineState };
 app.use(validateHostHeader);
 app.use(createHelmetMiddleware());
 
-const wss = new WebSocketServer({
-  server,
-  perMessageDeflate: false,
-  verifyClient: (info, cb) => {
-    const origin = info.origin;
-    const req = info.req;
-
-    // Check Origin
-    if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
-      console.warn(`Blocked connection from unauthorized origin: ${origin}`);
-      cb(false, 403, "Forbidden");
-      return;
-    }
-
-    // Check Host header (DNS Rebinding protection)
-    if (!isValidHost(req)) {
-      console.warn(`Blocked connection with invalid Host header: ${req.headers.host}`);
-      cb(false, 403, "Forbidden (Invalid Host)");
-      return;
-    }
-
-    cb(true);
-  },
-});
-
 app.use(createRateLimiter());
-
-app.get("/api/kifu/list", async (req, res) => {
-  if (!KIFU_DIR) {
-    sendError(res, 404, "KIFU_DIR is not configured");
-    return;
-  }
-  if (req.query.reload === "true") {
-    clearKifuListCache();
-  }
-  const list = await getKifuList(KIFU_DIR);
-
-  const dirParam = req.query.dir as string | undefined;
-  if (
-    dirParam &&
-    normalizePath(dirParam)
-      .split("/")
-      .some((s) => s === "..")
-  ) {
-    sendError(res, 400, "invalid dir");
-    return;
-  }
-  const entriesMap = new Map<string, { name: string; path: string; isDirectory: boolean }>();
-  const currentDirNormalized = dirParam ? normalizePath(dirParam) : "";
-  const prefix = currentDirNormalized ? currentDirNormalized + "/" : "";
-  const prefixLower = prefix.toLowerCase();
-
-  list.forEach((file) => {
-    const fileNormalized = normalizePath(file);
-    if (fileNormalized.toLowerCase().startsWith(prefixLower)) {
-      const relative = fileNormalized.substring(prefix.length);
-      const parts = relative.split("/");
-      if (parts.length > 1) {
-        const dirName = parts[0];
-        const dirPath = prefix + dirName;
-        if (!entriesMap.has(dirName)) {
-          entriesMap.set(dirName, { name: dirName, path: dirPath, isDirectory: true });
-        }
-      } else if (parts.length === 1 && parts[0] !== "") {
-        const fileName = parts[0];
-        entriesMap.set(fileName, { name: fileName, path: fileNormalized, isDirectory: false });
-      }
-    }
-  });
-
-  const responseList = Array.from(entriesMap.values()).sort((a, b) => {
-    if (a.isDirectory !== b.isDirectory) {
-      return a.isDirectory ? -1 : 1;
-    }
-    return a.name.localeCompare(b.name);
-  });
-
-  res.json(responseList);
-});
-
-app.get("/api/kifu/search", async (req, res) => {
-  if (!KIFU_DIR) {
-    sendError(res, 404, "KIFU_DIR is not configured");
-    return;
-  }
-  let sfen = req.query.sfen as string | undefined;
-  let sfenHash: bigint | undefined;
-  if (sfen) {
-    const normalized = getNormalizedSfenAndHash(sfen);
-    if (!normalized) {
-      sendError(res, 400, "Invalid sfen");
-      return;
-    }
-    sfen = normalized.sfen;
-    sfenHash = normalized.hash;
-  }
-  if (!sfen) {
-    sfenHash = undefined;
-  }
-  const keyword = req.query.keyword as string | undefined;
-  const player1 = req.query.player1 as string | undefined;
-  const player2 = req.query.player2 as string | undefined;
-  const isStrictTurn = req.query.isStrictTurn === "true";
-  const startDate = req.query.startDate as string | undefined;
-  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
-  const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : undefined;
-
-  const results = kifuIndexDB.searchKifu({
-    sfen,
-    sfenHash,
-    keyword,
-    player1,
-    player2,
-    isStrictTurn,
-    startDate,
-    limit,
-    offset,
-  });
-  res.json(results);
-});
-
-app.get("/api/kifu/index/status", (req, res) => {
-  res.json(kifuIndexSync.getSyncStatus());
-});
-
-app.get("/api/kifu/enabled", (req, res) => {
-  res.json({ enabled: !!KIFU_DIR });
-});
-
-const allowedFetchDomains = new Set(
-  (process.env.ALLOWED_FETCH_DOMAINS || "")
-    .split(",")
-    .map((d) => d.trim().toLowerCase())
-    .filter((d) => d !== ""),
-);
-
-app.get("/api/fetch-remote", async (req, res) => {
-  const targetUrl = req.query.url;
-  if (typeof targetUrl !== "string") {
-    sendError(res, 400, "url is required");
-    return;
-  }
-
-  let urlObj: URL;
-  try {
-    urlObj = new URL(targetUrl);
-  } catch {
-    sendError(res, 400, "Invalid URL");
-    return;
-  }
-  if (urlObj.protocol !== "http:" && urlObj.protocol !== "https:") {
-    sendError(res, 400, `Unsupported protocol: ${urlObj.protocol}`);
-    return;
-  }
-  if (!allowedFetchDomains.has(urlObj.hostname.toLowerCase())) {
-    console.warn(`Blocked remote fetch for unauthorized domain: ${urlObj.hostname}`);
-    sendError(
-      res,
-      403,
-      `Forbidden: domain ${urlObj.hostname} is not allowed by ALLOWED_FETCH_DOMAINS.`,
-    );
-    return;
-  }
-
-  const text = await fetchRemote(urlObj.href);
-  res.type("text/plain").send(text);
-});
-
-app.get("/api/history", async (req, res) => {
-  const history = await getHistory();
-  res.json(history);
-});
-
-app.get("/api/analysis", async (req, res) => {
-  const sfen = req.query.sfen;
-  if (typeof sfen !== "string") {
-    sendError(res, 400, "sfen is required");
-    return;
-  }
-
-  const parsed = getNormalizedSfenAndHash(sfen);
-  if (!parsed) {
-    res.json([]);
-    return;
-  }
-
-  console.log(`Analysis DB Query: sfen=${sfen} hash=${parsed.hash}`);
-
-  const results = getAnalysisResults(parsed.hash, parsed.sfen);
-  console.log(`Analysis DB Results: found ${results.length} records`);
-  res.json(results);
-});
-
-app.get("/api/analysis/stats", async (req, res) => {
-  const stats = getAnalysisDBStats();
-  res.json(stats);
-});
-
-app.post("/api/analysis/delete_by_engine", express.json(), async (req, res) => {
-  const engineId = req.body.engineId;
-  if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
-    sendError(res, 400, "engineId must be a positive integer");
-    return;
-  }
-  deleteAnalysisResultsByEngine(engineId);
-  res.send("ok");
-});
-
-app.post("/api/analysis/cleanup", express.json(), async (req, res) => {
-  const minDepth = req.body.minDepth;
-  if (typeof minDepth !== "number" || !Number.isInteger(minDepth) || minDepth <= 0) {
-    sendError(res, 400, "minDepth must be a positive integer");
-    return;
-  }
-  cleanupAnalysisResults(minDepth);
-  res.send("ok");
-});
-
-app.post("/api/analysis/delete", express.json(), async (req, res) => {
-  const sfen = req.body.sfen;
-  const engineId = req.body.engineId;
-  const multipv = req.body.multipv;
-  if (typeof sfen !== "string") {
-    sendError(res, 400, "sfen is required");
-    return;
-  }
-  if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
-    sendError(res, 400, "engineId must be a positive integer");
-    return;
-  }
-  if (typeof multipv !== "number" || !Number.isInteger(multipv) || multipv < 1) {
-    sendError(res, 400, "multipv must be a positive integer");
-    return;
-  }
-  const parsed = getNormalizedSfenAndHash(sfen);
-  if (!parsed) {
-    sendError(res, 400, "invalid sfen");
-    return;
-  }
-  deleteAnalysisResult(parsed.hash, parsed.sfen, engineId, multipv);
-  res.send("ok");
-});
-
-app.post("/api/analysis/export", express.json(), async (req, res) => {
-  const engineId = req.body.engineId;
-  const relPath = req.body.filename as string;
-  if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
-    sendError(res, 400, "engineId must be a positive integer");
-    return;
-  }
-  if (!relPath) {
-    sendError(res, 400, "filename is required");
-    return;
-  }
-  if (!KIFU_DIR) {
-    sendError(res, 404, "KIFU_DIR is not configured");
-    return;
-  }
-
-  const fullPath = resolveKifuPath(KIFU_DIR, relPath);
-  if (!fullPath) {
-    sendError(res, 400, "invalid filename");
-    return;
-  }
-  const generator = exportAnalysisResultsByEngine(engineId);
-  const stream = fs.createWriteStream(fullPath);
-
-  await new Promise<void>((resolve, reject) => {
-    stream.on("error", reject);
-    stream.on("finish", resolve);
-    (async () => {
-      for (const chunk of generator) {
-        if (!stream.write(chunk)) {
-          await events.once(stream, "drain");
-        }
-      }
-      stream.end();
-    })().catch(reject);
-  });
-
-  res.send("ok");
-});
-
-app.get("/api/analysis/migrate/dry-run", async (req, res) => {
-  const keyMapping = new Map<string, string>();
-  const nameMapping = new Map<string, string>();
-  for (const config of engineConfigCache.values()) {
-    if (config.analysisDBGroupId) {
-      keyMapping.set(config.id, config.analysisDBGroupId);
-      nameMapping.set(config.analysisDBGroupId, config.analysisDBGroupName || config.name);
-    }
-  }
-  const summary = getMigrationSummary(keyMapping, nameMapping);
-  res.json(summary);
-});
-
-app.post("/api/analysis/migrate/execute", async (req, res) => {
-  const keyMapping = new Map<string, string>();
-  const nameMapping = new Map<string, string>();
-  for (const config of engineConfigCache.values()) {
-    if (config.analysisDBGroupId) {
-      keyMapping.set(config.id, config.analysisDBGroupId);
-      nameMapping.set(config.analysisDBGroupId, config.analysisDBGroupName || config.name);
-    }
-  }
-  try {
-    executeMigration(keyMapping, nameMapping);
-    res.send("ok");
-  } catch (e) {
-    console.error("Migration failed:", e);
-    res.status(500).send("Migration failed");
-  }
-});
-
-app.post("/api/history/add", express.json(), async (req, res) => {
-  const { path } = req.body;
-  if (typeof path !== "string" || !path) {
-    sendError(res, 400, "path is required");
-    return;
-  }
-  addHistory(path);
-  res.send("ok");
-});
-
-app.post("/api/history/backup", express.text({ limit: "10mb" }), async (req, res) => {
-  const kif = req.body;
-  if (typeof kif !== "string" || !kif) {
-    sendError(res, 400, "kif text body is required");
-    return;
-  }
-  await saveBackup(kif);
-  res.send("ok");
-});
-
-app.post("/api/history/clear", async (req, res) => {
-  await clearHistory();
-  res.send("ok");
-});
-
-app.get("/api/kifu/get", async (req, res) => {
-  if (!KIFU_DIR) {
-    sendError(res, 404, "KIFU_DIR is not configured");
-    return;
-  }
-  const relPath = req.query.path;
-  if (typeof relPath !== "string") {
-    sendError(res, 400, "path is required");
-    return;
-  }
-  const fullPath = resolveKifuPath(KIFU_DIR, relPath);
-  if (!fullPath) {
-    sendError(res, 403, "forbidden");
-    return;
-  }
-  const data = await fs.promises.readFile(fullPath);
-  res.send(data);
-});
-
-app.post("/api/kifu/save", express.raw({ limit: "10mb" }), async (req, res) => {
-  if (!KIFU_DIR) {
-    sendError(res, 404, "KIFU_DIR is not configured");
-    return;
-  }
-  const relPath = req.query.path;
-  if (typeof relPath !== "string") {
-    sendError(res, 400, "path is required");
-    return;
-  }
-  const fullPath = resolveKifuPath(KIFU_DIR, relPath);
-  if (!fullPath) {
-    sendError(res, 403, "forbidden");
-    return;
-  }
-  await writeFileAtomic(fullPath, req.body);
-  clearKifuListCache();
-  res.send("ok");
-});
-
-app.get("/api/sfen/load", async (req, res) => {
-  if (!KIFU_DIR) {
-    sendError(res, 404, "KIFU_DIR is not configured");
-    return;
-  }
-  const relPath = req.query.path as string;
-  if (!relPath) {
-    sendError(res, 400, "path is required");
-    return;
-  }
-  const fullPath = resolveKifuPath(KIFU_DIR, relPath);
-  if (!fullPath || !fullPath.endsWith(".sfen")) {
-    sendError(res, 403, "Invalid path or unsupported file type");
-    return;
-  }
-  const content = await fs.promises.readFile(fullPath, "utf-8");
-  const lines = content
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("#"));
-  res.json({ lines });
-});
-
-app.post("/api/book/open", express.json(), async (req, res) => {
-  if (!KIFU_DIR) {
-    sendError(res, 404, "KIFU_DIR is not configured");
-    return;
-  }
-  let relPath = req.query.path;
-  if (typeof relPath !== "string") {
-    sendError(res, 400, "path is required");
-    return;
-  }
-  if (relPath.startsWith("server://")) {
-    relPath = relPath.substring(9);
-  }
-  const fullPath = resolveKifuPath(KIFU_DIR, relPath);
-  if (!fullPath) {
-    sendError(res, 403, "forbidden");
-    return;
-  }
-  const bookSession = getBookSession(req);
-  // Override the threshold with the server-side environment variable to protect server memory.
-  // Also, explicitly map expected properties to avoid passing unknown fields from req.body.
-  const options = {
-    forceOnTheFly: req.body?.forceOnTheFly === true,
-    onTheFlyThresholdMB: ONTHEFLY_THRESHOLD_MB,
-  };
-  const mode = await openBook(bookSession, fullPath, options);
-  res.json({ mode });
-});
-
-app.get("/api/book/list", async (req, res) => {
-  if (!KIFU_DIR) {
-    sendError(res, 404, "KIFU_DIR is not configured");
-    return;
-  }
-  const list = await getBookList(KIFU_DIR);
-  res.json(list);
-});
-
-app.get("/api/sfen/list", async (req, res) => {
-  if (!KIFU_DIR) {
-    sendError(res, 404, "KIFU_DIR is not configured");
-    return;
-  }
-  const list = await getPositionList(KIFU_DIR);
-  res.json(list);
-});
-
-app.post("/api/book/save", async (req, res) => {
-  if (!KIFU_DIR) {
-    sendError(res, 404, "KIFU_DIR is not configured");
-    return;
-  }
-  const relPath = req.query.path;
-  if (typeof relPath !== "string") {
-    sendError(res, 400, "path is required");
-    return;
-  }
-  const fullPath = resolveKifuPath(KIFU_DIR, relPath);
-  if (!fullPath) {
-    sendError(res, 403, "forbidden");
-    return;
-  }
-  const bookSession = getBookSession(req);
-  await saveBook(bookSession, fullPath);
-  res.send("ok");
-});
-
-app.post("/api/book/close", async (req, res) => {
-  closeBookSessionForRequest(req);
-  res.send("ok");
-});
-
-app.post("/api/book/clear", async (req, res) => {
-  const bookSession = getBookSession(req);
-  clearBook(bookSession);
-  res.send("ok");
-});
-
-app.get("/api/book/search", async (req, res) => {
-  const sfen = req.query.sfen;
-  if (typeof sfen !== "string") {
-    sendError(res, 400, "sfen is required");
-    return;
-  }
-  const bookSession = getBookSession(req);
-  const moves = await searchBookMoves(bookSession, sfen);
-  res.json(moves);
-});
-
-app.post("/api/book/search/batch", express.json({ limit: "10mb" }), async (req, res) => {
-  const sfens = req.body.sfens;
-  if (!Array.isArray(sfens)) {
-    sendError(res, 400, "sfens must be an array");
-    return;
-  }
-  if (sfens.length > 100000) {
-    sendError(res, 400, "sfens array is too large (max 100000)");
-    return;
-  }
-  const bookSession = getBookSession(req);
-  const results = new Array(sfens.length);
-  let nextIndex = 0;
-  const maxConcurrency = isBookOnTheFly(bookSession) ? 16 : 1;
-  const concurrency = Math.min(sfens.length, maxConcurrency);
-  const worker = async () => {
-    while (nextIndex < sfens.length) {
-      const i = nextIndex++;
-      const sfen = sfens[i];
-      const moves = await searchBookMoves(bookSession, sfen);
-      results[i] = { sfen, moves };
-    }
-  };
-  const workers = [];
-  for (let i = 0; i < concurrency; i++) {
-    workers.push(worker());
-  }
-  await Promise.all(workers);
-  res.json(results);
-});
-
-app.post("/api/book/update", express.json(), async (req, res) => {
-  const sfen = req.query.sfen;
-  if (typeof sfen !== "string") {
-    sendError(res, 400, "sfen is required");
-    return;
-  }
-  const bookSession = getBookSession(req);
-  await updateBookMove(bookSession, sfen, req.body);
-  res.send("ok");
-});
-
-app.post("/api/book/remove", express.json(), async (req, res) => {
-  const sfen = req.query.sfen;
-  const usi = req.query.usi;
-  if (typeof sfen !== "string" || typeof usi !== "string") {
-    sendError(res, 400, "sfen and usi are required");
-    return;
-  }
-  const bookSession = getBookSession(req);
-  await removeBookMove(bookSession, sfen, usi);
-  res.send("ok");
-});
-
-app.post("/api/book/order", express.json(), async (req, res) => {
-  const sfen = req.query.sfen;
-  const usi = req.query.usi;
-  const order = parseInt(req.query.order as string, 10);
-  if (typeof sfen !== "string" || typeof usi !== "string" || isNaN(order)) {
-    sendError(res, 400, "sfen, usi and order are required");
-    return;
-  }
-  const bookSession = getBookSession(req);
-  await updateBookMoveOrder(bookSession, sfen, usi, order);
-  res.send("ok");
-});
-
-app.post("/api/book/import", express.json(), async (req, res) => {
-  if (!KIFU_DIR) {
-    sendError(res, 404, "KIFU_DIR is not configured");
-    return;
-  }
-  const minPly = req.body.minPly === undefined ? 0 : Number(req.body.minPly);
-  const maxPly = req.body.maxPly === undefined ? 100 : Number(req.body.maxPly);
-  if (!Number.isInteger(minPly) || minPly < 0) {
-    sendError(res, 400, "minPly must be a non-negative integer");
-    return;
-  }
-  if (!Number.isInteger(maxPly) || maxPly < 0) {
-    sendError(res, 400, "maxPly must be a non-negative integer");
-    return;
-  }
-  if (minPly > maxPly) {
-    sendError(res, 400, "minPly must be less than or equal to maxPly");
-    return;
-  }
-  const settings = {
-    sourceType: req.body.sourceType,
-    sourceDirectory: req.body.sourceDirectory,
-    sourceRecordFile: req.body.sourceRecordFile,
-    minPly,
-    maxPly,
-    playerCriteria: req.body.playerCriteria,
-    playerName: req.body.playerName,
-  };
-  if (typeof settings.sourceRecordFile === "string" && settings.sourceRecordFile) {
-    if (!settings.sourceRecordFile.startsWith("server://")) {
-      sendError(res, 400, "sourceRecordFile must be a server:// URI");
-      return;
-    }
-    const resolved = resolveKifuPath(KIFU_DIR, settings.sourceRecordFile.substring(9));
-    if (!resolved) {
-      sendError(res, 403, "forbidden sourceRecordFile");
-      return;
-    }
-    settings.sourceRecordFile = resolved;
-  }
-  if (typeof settings.sourceDirectory === "string" && settings.sourceDirectory) {
-    if (!settings.sourceDirectory.startsWith("server://")) {
-      sendError(res, 400, "sourceDirectory must be a server:// URI");
-      return;
-    }
-    const resolved = resolveKifuPath(KIFU_DIR, settings.sourceDirectory.substring(9));
-    if (!resolved) {
-      sendError(res, 403, "forbidden sourceDirectory");
-      return;
-    }
-    settings.sourceDirectory = resolved;
-  }
-  const bookSession = getBookSession(req);
-  const summary = await importBookMoves(bookSession, settings, undefined, KIFU_DIR);
-  res.json(summary);
-});
-
-app.all(/^\/api(?:\/|$)/, (req, res) => {
-  sendError(res, 404, "API endpoint not found");
-});
-
-app.use(express.static(shogiHomePath));
-
-app.get(/.*/, (req, res) => {
-  res.sendFile(path.join(shogiHomePath, "index.html"));
-});
-
-app.use(errorHandler);
+registerKifuRoutes(app);
+registerFetchRemoteRoute(app);
+registerHistoryRoutes(app);
+registerAnalysisRoutes(app);
+registerBookRoutes(app);
+registerStaticRoutes(app);
 
 export class EngineSession {
   private currentEngineId: string | null = null;
@@ -784,7 +132,10 @@ export class EngineSession {
 
   private readonly MAX_QUEUE_SIZE = 100;
 
-  constructor(public readonly sessionId: string) {}
+  constructor(
+    public readonly sessionId: string,
+    private readonly removeSession: (sessionId: string) => void = () => {},
+  ) {}
 
   private pushToQueue(queue: string[], command: string) {
     if (this.isExplicitlyTerminated || this.engineState === EngineState.TERMINATING) {
@@ -898,7 +249,7 @@ export class EngineSession {
     } else {
       this.onEngineClose();
     }
-    sessionManager.removeSession(this.sessionId);
+    this.removeSession(this.sessionId);
   }
 
   private sendToClient(data: unknown, createdAt: number = Date.now()) {
@@ -1466,81 +817,10 @@ export class EngineSession {
   }
 }
 
-class SessionManager {
-  private sessions = new Map<string, EngineSession>();
-  private readonly MAX_SESSIONS = 50;
-
-  getOrCreateSession(sessionId: string): EngineSession | null {
-    let session = this.sessions.get(sessionId);
-    if (!session) {
-      if (this.sessions.size >= this.MAX_SESSIONS) {
-        console.warn(
-          `Session limit reached (${this.MAX_SESSIONS}), rejecting new session: ${sessionId.substring(0, 8)}...`,
-        );
-        return null;
-      }
-      console.log(`Creating new session: ${sessionId}`);
-      session = new EngineSession(sessionId);
-      this.sessions.set(sessionId, session);
-    }
-    return session;
-  }
-
-  removeSession(sessionId: string) {
-    this.sessions.delete(sessionId);
-  }
-}
-
-const sessionManager = new SessionManager();
-
-// Add a keep-alive mechanism
-const interval = setInterval(function ping() {
-  wss.clients.forEach(function each(ws: ExtendedWebSocket) {
-    if (ws.isAlive === false) {
-      console.log("Client connection timed out, terminating.");
-      return ws.terminate();
-    }
-    ws.isAlive = false;
-    ws.ping();
-  });
-}, 20000);
-interval.unref();
-
-wss.on("close", function close() {
-  clearInterval(interval);
-});
-
-wss.on("connection", (ws: ExtendedWebSocket, req) => {
-  ws.isAlive = true;
-  ws.on("pong", () => {
-    ws.isAlive = true;
-  });
-
-  const url = new URL(req.url!, `http://${req.headers.host}`);
-  const sessionId = url.searchParams.get("sessionId");
-  const SESSION_ID_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
-
-  if (!sessionId) {
-    console.warn("Connection attempt without sessionId. Closing.");
-    ws.close(1008, "sessionId required");
-    return;
-  }
-
-  if (!SESSION_ID_REGEX.test(sessionId)) {
-    console.warn(
-      `Blocked connection attempt with invalid sessionId format: ${sessionId.substring(0, 32)}`,
-    );
-    ws.close(1008, "Invalid sessionId format");
-    return;
-  }
-
-  const session = sessionManager.getOrCreateSession(sessionId);
-  if (!session) {
-    ws.close(1013, "Session limit reached");
-    return;
-  }
-  session.attach(ws);
-});
+const sessionManager = new SessionManager<EngineSession>(
+  (sessionId) => new EngineSession(sessionId, (id) => sessionManager.removeSession(id)),
+);
+createEngineWebSocketServer(server, sessionManager);
 
 const isServerEntryPoint = (entryPath: string | undefined) => {
   if (!entryPath) {
