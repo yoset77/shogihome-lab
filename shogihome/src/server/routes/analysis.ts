@@ -2,7 +2,7 @@ import express, { type Express } from "express";
 import events from "node:events";
 import fs from "fs";
 import { getNormalizedSfenAndHash } from "@/background/usi/sfen";
-import { resolveKifuPath } from "@/background/helpers/kifu";
+import { resolveKifuPath } from "@/server/helpers/kifu";
 import {
   cleanupAnalysisResults,
   deleteAnalysisResult,
@@ -12,7 +12,7 @@ import {
   getAnalysisDBStats,
   getAnalysisResults,
   getMigrationSummary,
-} from "@/background/database/sqlite";
+} from "@/server/database/sqlite";
 import { engineConfigCache } from "@/server/engine/list";
 import { KIFU_DIR } from "@/server/config";
 import { sendError } from "@/server/errors";
@@ -155,7 +155,7 @@ export const registerAnalysisRoutes = (app: Express) => {
       res.send("ok");
     } catch (e) {
       console.error("Migration failed:", e);
-      res.status(500).send("Migration failed");
+      sendError(res, 500, "Migration failed");
     }
   });
 };

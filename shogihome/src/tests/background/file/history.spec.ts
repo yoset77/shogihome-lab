@@ -6,7 +6,7 @@ import {
   getHistory,
   loadBackup,
   saveBackup,
-} from "@/background/file/history.js";
+} from "@/server/file/history.js";
 import { getUserDataPath } from "@/background/proc/path.js";
 import {
   BackupEntryV2,

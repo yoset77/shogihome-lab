@@ -14,6 +14,9 @@ let deleteResultStmt: StatementSync | null = null;
 
 export function initDatabase(dataDir: string) {
   try {
+    if (db) {
+      closeDatabase();
+    }
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
     }

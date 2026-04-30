@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getKifuList, clearKifuListCache } from "@/background/helpers/kifu.js";
+import { getKifuList, clearKifuListCache } from "@/server/helpers/kifu.js";
 import { normalizePath } from "@/common/helpers/path.js";
 import {
   getKifuFileByPath,
@@ -9,7 +9,7 @@ import {
   deleteKifuFile,
   getKifuCount,
   cleanupOrphanedPositions,
-} from "@/background/database/kifu_index.js";
+} from "@/server/database/kifu_index.js";
 import { parseAndIndexFile } from "./engine.js";
 
 export interface SyncStatus {

@@ -2,7 +2,7 @@ import net from "net";
 import readline from "readline";
 import { WebSocket } from "ws";
 import { getNormalizedSfenAndHash } from "@/background/usi/sfen";
-import { saveAnalysisResults } from "@/background/database/sqlite";
+import { saveAnalysisResults } from "@/server/database/sqlite";
 import { parseInfoCommand, type USIInfoCommand } from "@/common/game/usi";
 import {
   ANALYSIS_DB_MIN_DEPTH,

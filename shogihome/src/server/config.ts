@@ -1,15 +1,32 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { getLocalIpAddresses } from "@/background/helpers/ip";
+import { getLocalIpAddresses } from "@/server/helpers/ip";
+
+const hasRuntimeAssets = (basePath: string): boolean =>
+  fs.existsSync(path.join(basePath, "docs", "webapp")) ||
+  fs.existsSync(path.join(basePath, "package.json"));
+
+export const resolveBasePath = (
+  moduleUrl: string,
+  cwd: string,
+  execPath: string,
+  explicitBasePath = process.env.SHOGIHOME_BASE_PATH,
+) => {
+  if (explicitBasePath) {
+    return path.resolve(explicitBasePath);
+  }
+  if (path.basename(execPath) === "shogihome-server.exe") {
+    return path.dirname(execPath);
+  }
+  const moduleDir = path.dirname(fileURLToPath(moduleUrl));
+  const candidates = [cwd, path.resolve(moduleDir, "../.."), moduleDir];
+  const basePath = candidates.find(hasRuntimeAssets);
+  return basePath ?? path.resolve(moduleDir, "../..");
+};
 
 export const getBasePath = () => {
-  // SEA (Single Executable Application) environment check
-  if (path.basename(process.execPath) === "shogihome-server.exe") {
-    return path.dirname(process.execPath);
-  }
-  const __filename = fileURLToPath(import.meta.url);
-  return path.resolve(path.dirname(__filename), "../..");
+  return resolveBasePath(import.meta.url, process.cwd(), process.execPath);
 };
 
 const envPath = path.join(getBasePath(), ".env");
@@ -35,6 +52,14 @@ export const parseIntegerConfigValue = (
 
 const parseIntegerEnv = (name: string, defaultValue: number, min: number, max: number): number =>
   parseIntegerConfigValue(process.env[name], name, defaultValue, min, max);
+
+export const parseAllowedFetchDomains = (raw: string | undefined): Set<string> =>
+  new Set(
+    (raw || "")
+      .split(",")
+      .map((d) => d.trim().toLowerCase())
+      .filter((d) => d !== ""),
+  );
 
 export const PORT = parseIntegerEnv("PORT", 8140, 1, 65535);
 export const ENGINE_STOP_TIMEOUT_MS = parseIntegerEnv(
@@ -117,4 +142,5 @@ export const REMOTE_ENGINE_HOST = process.env.REMOTE_ENGINE_HOST || "localhost";
 export const REMOTE_ENGINE_PORT = parseIntegerEnv("REMOTE_ENGINE_PORT", 4082, 1, 65535);
 export const CONNECTION_PROTECTION_TIMEOUT =
   parseIntegerEnv("ENGINE_CONNECTION_PROTECTION_TIMEOUT", 60, 1, 3600) * 1000;
+export const ALLOWED_FETCH_DOMAINS = parseAllowedFetchDomains(process.env.ALLOWED_FETCH_DOMAINS);
 export const BIND_ADDRESS = process.env.BIND_ADDRESS || "127.0.0.1";

@@ -1,5 +1,11 @@
-import { app, EngineSession, EngineState, startIfExecutedDirectly } from "./src/server/main";
+import {
+  app,
+  EngineSession,
+  EngineState,
+  initializeServer,
+  startIfExecutedDirectly,
+} from "./src/server/main";
 
-export { app, EngineSession, EngineState, startIfExecutedDirectly };
+export { app, EngineSession, EngineState, initializeServer, startIfExecutedDirectly };
 
 startIfExecutedDirectly(process.argv[1]);

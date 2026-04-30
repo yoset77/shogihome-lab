@@ -25,7 +25,7 @@ const sqliteMock = vi.hoisted(() => ({
   executeMigration: vi.fn(),
 }));
 
-vi.mock("@/background/database/sqlite.js", () => sqliteMock);
+vi.mock("@/server/database/sqlite.js", () => sqliteMock);
 
 // eslint-disable-next-line no-restricted-imports
 import { app } from "../../../server.js";

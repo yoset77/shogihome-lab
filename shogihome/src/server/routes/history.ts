@@ -1,5 +1,5 @@
 import express, { type Express } from "express";
-import { addHistory, clearHistory, getHistory, saveBackup } from "@/background/file/history";
+import { addHistory, clearHistory, getHistory, saveBackup } from "@/server/file/history";
 import { sendError } from "@/server/errors";
 
 export const registerHistoryRoutes = (app: Express) => {

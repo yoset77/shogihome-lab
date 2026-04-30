@@ -1,7 +1,7 @@
 import http from "node:http";
 import { AddressInfo } from "node:net";
 import { promises as fs } from "node:fs";
-import { fetch } from "@/background/helpers/http.js";
+import { fetch } from "@/server/helpers/http.js";
 
 describe("helpsers/http", () => {
   it("fetch/utf8", async () => {

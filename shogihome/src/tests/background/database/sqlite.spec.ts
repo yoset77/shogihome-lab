@@ -8,7 +8,7 @@ import {
   cleanupAnalysisResults,
   exportAnalysisResultsByEngine,
   closeDatabase,
-} from "@/background/database/sqlite.js";
+} from "@/server/database/sqlite.js";
 import { USIInfoCommand } from "@/common/game/usi.js";
 import fs from "node:fs";
 import path from "node:path";

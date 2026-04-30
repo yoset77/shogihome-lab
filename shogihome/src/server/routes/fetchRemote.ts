@@ -1,13 +1,7 @@
 import type { Express } from "express";
-import { fetch as fetchRemote } from "@/background/helpers/http";
+import { fetch as fetchRemote } from "@/server/helpers/http";
 import { sendError } from "@/server/errors";
-
-const allowedFetchDomains = new Set(
-  (process.env.ALLOWED_FETCH_DOMAINS || "")
-    .split(",")
-    .map((d) => d.trim().toLowerCase())
-    .filter((d) => d !== ""),
-);
+import { ALLOWED_FETCH_DOMAINS } from "@/server/config";
 
 export const registerFetchRemoteRoute = (app: Express) => {
   app.get("/api/fetch-remote", async (req, res) => {
@@ -28,7 +22,7 @@ export const registerFetchRemoteRoute = (app: Express) => {
       sendError(res, 400, `Unsupported protocol: ${urlObj.protocol}`);
       return;
     }
-    if (!allowedFetchDomains.has(urlObj.hostname.toLowerCase())) {
+    if (!ALLOWED_FETCH_DOMAINS.has(urlObj.hostname.toLowerCase())) {
       console.warn(`Blocked remote fetch for unauthorized domain: ${urlObj.hostname}`);
       sendError(
         res,

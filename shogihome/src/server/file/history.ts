@@ -11,7 +11,7 @@ import {
 import { getAppLogger } from "@/background/log.js";
 import AsyncLock from "async-lock";
 import { exists } from "@/background/helpers/file.js";
-import { writeFileAtomic } from "./atomic.js";
+import { writeFileAtomic } from "@/background/file/atomic.js";
 import { getBlackPlayerName, getWhitePlayerName, importKIF, Record } from "tsshogi";
 import { getRecordTitleFromMetadata } from "@/common/helpers/metadata.js";
 

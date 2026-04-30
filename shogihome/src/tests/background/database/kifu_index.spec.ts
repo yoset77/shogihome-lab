@@ -5,7 +5,7 @@ import {
   upsertKifuFile,
   searchKifu,
   KifuFileMetadata,
-} from "@/background/database/kifu_index.js";
+} from "@/server/database/kifu_index.js";
 import fs from "node:fs";
 import path from "node:path";
 

@@ -1,5 +1,5 @@
 import express, { type Express } from "express";
-import { getBookList, resolveKifuPath } from "@/background/helpers/kifu";
+import { getBookList, resolveKifuPath } from "@/server/helpers/kifu";
 import {
   clearBook,
   importBookMoves,

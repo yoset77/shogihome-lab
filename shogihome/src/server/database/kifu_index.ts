@@ -17,6 +17,9 @@ let getKifuCountStmt: StatementSync | null = null;
 
 export function initDatabase(dataDir: string) {
   try {
+    if (db) {
+      closeDatabase();
+    }
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
     }
@@ -96,6 +99,17 @@ export function initDatabase(dataDir: string) {
     getKifuCountStmt = db.prepare("SELECT COUNT(*) as count FROM kifu_files");
   } catch (e) {
     console.error("Failed to initialize kifu index database:", e);
+    insertKifuFileStmt = null;
+    updateKifuFileStmt = null;
+    deleteKifuFileStmt = null;
+    getKifuFileIdStmt = null;
+    getKifuFileByPathStmt = null;
+    getAllKifuFilePathsStmt = null;
+    insertPositionStmt = null;
+    getPositionIdStmt = null;
+    insertKifuPositionStmt = null;
+    deleteKifuPositionsStmt = null;
+    getKifuCountStmt = null;
     db = null;
   }
 }

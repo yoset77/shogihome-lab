@@ -7,11 +7,11 @@ import { SessionManager } from "@/server/engine/sessionManager";
 import { EngineState } from "@/server/engine/types";
 import { BIND_ADDRESS, dataDir, KIFU_DIR, PORT, shogiHomePath } from "@/server/config";
 import { createHelmetMiddleware, createRateLimiter, validateHostHeader } from "@/server/security";
-import { setupKifuWatcher } from "@/background/helpers/kifu";
-import * as kifuIndexDB from "@/background/database/kifu_index";
-import * as kifuIndexSync from "@/background/kifu_index/sync";
+import { setupKifuWatcher } from "@/server/helpers/kifu";
+import * as kifuIndexDB from "@/server/database/kifu_index";
+import * as kifuIndexSync from "@/server/kifu_index/sync";
 import { writeFileAtomicSync } from "@/background/file/atomic";
-import { initDatabase } from "@/background/database/sqlite";
+import { initDatabase } from "@/server/database/sqlite";
 import { registerAnalysisRoutes } from "@/server/routes/analysis";
 import { registerBookRoutes } from "@/server/routes/book";
 import { registerFetchRemoteRoute } from "@/server/routes/fetchRemote";
@@ -69,15 +69,6 @@ const updatePuzzlesManifest = () => {
   }
 };
 
-updatePuzzlesManifest();
-
-initDatabase(dataDir);
-kifuIndexDB.initDatabase(dataDir);
-
-if (KIFU_DIR) {
-  kifuIndexSync.syncKifuDirectory(KIFU_DIR);
-}
-
 export { EngineSession, EngineState };
 
 app.use(validateHostHeader);
@@ -95,6 +86,21 @@ const sessionManager = new SessionManager<EngineSession>(
   (sessionId) => new EngineSession(sessionId, (id) => sessionManager.removeSession(id)),
 );
 createEngineWebSocketServer(server, sessionManager);
+
+let isServerInitialized = false;
+
+export const initializeServer = () => {
+  if (isServerInitialized) {
+    return;
+  }
+  updatePuzzlesManifest();
+  initDatabase(dataDir);
+  kifuIndexDB.initDatabase(dataDir);
+  if (KIFU_DIR) {
+    kifuIndexSync.syncKifuDirectory(KIFU_DIR);
+  }
+  isServerInitialized = true;
+};
 
 const isServerEntryPoint = (entryPath: string | undefined) => {
   if (!entryPath) {
@@ -117,6 +123,7 @@ const isServerEntryPoint = (entryPath: string | undefined) => {
 };
 
 export const startServer = () => {
+  initializeServer();
   if (KIFU_DIR) {
     const kifuDir = KIFU_DIR;
     console.log(`Server-side kifu directory: ${kifuDir}`);
