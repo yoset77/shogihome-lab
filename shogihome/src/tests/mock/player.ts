@@ -1,8 +1,8 @@
-import { parseUSIPV } from "@/common/game/usi.js";
-import { Player, SearchHandler } from "@/renderer/players/player.js";
-import { PlayerSettings } from "@/common/settings/player.js";
+import { parseUSIPV } from "@/common/game/usi";
+import { Player, SearchHandler } from "@/renderer/players/player";
+import { PlayerSettings } from "@/common/settings/player";
 import { ImmutablePosition, Move } from "tsshogi";
-import { TimeStates } from "@/common/game/time.js";
+import { TimeStates } from "@/common/game/time";
 
 export type MoveWithOption = {
   usi: string;

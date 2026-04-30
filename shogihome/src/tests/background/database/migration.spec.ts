@@ -6,8 +6,8 @@ import {
   getMigrationSummary,
   executeMigration,
   closeDatabase,
-} from "@/server/database/sqlite.js";
-import { USIInfoCommand } from "@/common/game/usi.js";
+} from "@/server/database/sqlite";
+import { USIInfoCommand } from "@/common/game/usi";
 import fs from "node:fs";
 import path from "node:path";
 

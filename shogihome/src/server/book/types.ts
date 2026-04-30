@@ -1,4 +1,4 @@
-import { BookMove as CommonBookMove } from "@/common/book.js";
+import { BookMove as CommonBookMove } from "@/common/book";
 
 export type BookFormatYane2016 = "yane2016";
 export type BookFormatApery = "apery";

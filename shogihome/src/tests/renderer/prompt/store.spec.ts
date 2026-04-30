@@ -1,8 +1,8 @@
-import api, { API } from "@/renderer/ipc/api.js";
-import { CommandType } from "@/common/advanced/command.js";
-import { Store } from "@/renderer/prompt/store.js";
+import api, { API } from "@/renderer/ipc/api";
+import { CommandType } from "@/common/advanced/command";
+import { Store } from "@/renderer/prompt/store";
 import { Mocked } from "vitest";
-import { PromptTarget } from "@/common/advanced/prompt.js";
+import { PromptTarget } from "@/common/advanced/prompt";
 
 vi.mock("@/renderer/ipc/api.js");
 

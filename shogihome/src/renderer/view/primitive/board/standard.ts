@@ -1,5 +1,5 @@
 import { Color, ImmutablePosition, reverseColor } from "tsshogi";
-import { Point, RectSize } from "@/common/assets/geometry.js";
+import { Point, RectSize } from "@/common/assets/geometry";
 import { standardViewParams } from "./params.js";
 import { Config } from "./config.js";
 import { Clock, Control, Frame, Layout, PlayerName, Turn } from "./layout.js";

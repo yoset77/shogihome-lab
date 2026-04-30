@@ -1,9 +1,9 @@
-import { PlayerSettings } from "@/common/settings/player.js";
+import { PlayerSettings } from "@/common/settings/player";
 import { humanPlayer } from "./human.js";
 import { Player, SearchInfo } from "./player.js";
 import { USIPlayer } from "./usi.js";
 import { BasicPlayer } from "./basic.js";
-import * as uri from "@/common/uri.js";
+import * as uri from "@/common/uri";
 import { LanPlayer } from "./lan_player.js";
 
 export interface PlayerBuilder {

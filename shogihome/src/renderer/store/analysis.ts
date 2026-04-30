@@ -1,14 +1,14 @@
-import { SearchInfo } from "@/renderer/players/player.js";
-import { USIPlayer } from "@/renderer/players/usi.js";
-import { LanPlayer } from "@/renderer/players/lan_player.js";
-import { AnalysisSettings, defaultAnalysisSettings } from "@/common/settings/analysis.js";
-import { AppSettings } from "@/common/settings/app.js";
-import { USIEngine } from "@/common/settings/usi.js";
+import { SearchInfo } from "@/renderer/players/player";
+import { USIPlayer } from "@/renderer/players/usi";
+import { LanPlayer } from "@/renderer/players/lan_player";
+import { AnalysisSettings, defaultAnalysisSettings } from "@/common/settings/analysis";
+import { AppSettings } from "@/common/settings/app";
+import { USIEngine } from "@/common/settings/usi";
 import { Color, Move, reverseColor } from "tsshogi";
 import { RecordManager, SearchInfoSenderType } from "./record.js";
 import { scoreToPercentage } from "./score.js";
 import { useAppSettings } from "./settings.js";
-import { t } from "@/common/i18n/index.js";
+import { t } from "@/common/i18n/index";
 
 type FinishCallback = () => void;
 type ErrorCallback = (e: unknown) => void;

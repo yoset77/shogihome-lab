@@ -5,9 +5,8 @@ vi.hoisted(() => {
   process.env.KIFU_DIR = "./data";
 });
 
-// eslint-disable-next-line no-restricted-imports
-import { app } from "../../../server.js";
-import * as bookAPI from "@/server/book/index.js";
+import { app } from "@/server/main";
+import * as bookAPI from "@/server/book/index";
 
 // Mock the dependencies
 vi.mock("@/server/book/index.js", () => {

@@ -1,4 +1,4 @@
-import { getDateTimeStringMs } from "@/common/helpers/datetime.js";
+import { getDateTimeStringMs } from "@/common/helpers/datetime";
 
 export enum CommandType {
   SEND = "send",

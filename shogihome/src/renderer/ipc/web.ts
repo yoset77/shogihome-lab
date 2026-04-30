@@ -1,27 +1,27 @@
-import { defaultAnalysisSettings } from "@/common/settings/analysis.js";
-import { defaultAppSettings } from "@/common/settings/app.js";
-import { defaultGameSettings } from "@/common/settings/game.js";
-import { defaultResearchSettings } from "@/common/settings/research.js";
-import { USIEngines } from "@/common/settings/usi.js";
-import { LogLevel } from "@/common/log.js";
-import { Bridge } from "@/renderer/ipc/bridge.js";
-import { t } from "@/common/i18n/index.js";
-import { defaultCSAGameSettingsHistory } from "@/common/settings/csa.js";
-import { defaultMateSearchSettings } from "@/common/settings/mate.js";
-import { defaultBatchConversionSettings } from "@/common/settings/conversion.js";
-import { defaultBookImportSettings } from "@/common/settings/book.js";
-import { getEmptyHistory } from "@/common/file/history.js";
-import { BookLoadingMode } from "@/common/book.js";
-import { VersionStatus } from "@/common/version.js";
-import { SessionStates } from "@/common/advanced/monitor.js";
-import { emptyLayoutProfileList } from "@/common/settings/layout.js";
-import * as uri from "@/common/uri.js";
-import { normalizePath } from "@/common/helpers/path.js";
-import { KifuSearchResult, KifuListEntry } from "@/common/file/record.js";
+import { defaultAnalysisSettings } from "@/common/settings/analysis";
+import { defaultAppSettings } from "@/common/settings/app";
+import { defaultGameSettings } from "@/common/settings/game";
+import { defaultResearchSettings } from "@/common/settings/research";
+import { USIEngines } from "@/common/settings/usi";
+import { LogLevel } from "@/common/log";
+import { Bridge } from "@/renderer/ipc/bridge";
+import { t } from "@/common/i18n/index";
+import { defaultCSAGameSettingsHistory } from "@/common/settings/csa";
+import { defaultMateSearchSettings } from "@/common/settings/mate";
+import { defaultBatchConversionSettings } from "@/common/settings/conversion";
+import { defaultBookImportSettings } from "@/common/settings/book";
+import { getEmptyHistory } from "@/common/file/history";
+import { BookLoadingMode } from "@/common/book";
+import { VersionStatus } from "@/common/version";
+import { SessionStates } from "@/common/advanced/monitor";
+import { emptyLayoutProfileList } from "@/common/settings/layout";
+import * as uri from "@/common/uri";
+import { normalizePath } from "@/common/helpers/path";
+import { KifuSearchResult, KifuListEntry } from "@/common/file/record";
 import { convert } from "encoding-japanese";
 import { toJpeg, toPng } from "html-to-image";
 import dayjs from "dayjs";
-import { Rect } from "@/common/assets/geometry.js";
+import { Rect } from "@/common/assets/geometry";
 
 enum STORAGE_KEY {
   APP_SETTINGS = "appSetting",
@@ -36,7 +36,7 @@ enum STORAGE_KEY {
 
 const fileCache = new Map<string, ArrayBuffer>();
 
-import { generateSessionId } from "@/renderer/helpers/unique.js";
+import { generateSessionId } from "@/renderer/helpers/unique";
 
 const webBookSessionId = generateSessionId();
 

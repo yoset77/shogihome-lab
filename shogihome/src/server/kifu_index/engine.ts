@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { RecordMetadataKey, ImmutableNode, getBlackPlayerName, getWhitePlayerName } from "tsshogi";
-import { importRecordFromBuffer, detectRecordFileFormatByPath } from "@/common/file/record.js";
-import { getNormalizedSfenAndHash } from "@/server/usi/sfen.js";
-import { KifuFileMetadata, KifuPositionData } from "@/server/database/kifu_index.js";
-import { getRecordTitleFromMetadata } from "@/common/helpers/metadata.js";
+import { importRecordFromBuffer, detectRecordFileFormatByPath } from "@/common/file/record";
+import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
+import { KifuFileMetadata, KifuPositionData } from "@/server/database/kifu_index";
+import { getRecordTitleFromMetadata } from "@/common/helpers/metadata";
 
 function normalizeDate(dateStr?: string): string | undefined {
   if (!dateStr) return undefined;

@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { AppSettings, defaultAppSettings, normalizeAppSettings } from "@/common/settings/app.js";
-import { exists } from "@/server/helpers/file.js";
-import { getUserDataPath } from "@/server/proc/path.js";
+import { AppSettings, defaultAppSettings, normalizeAppSettings } from "@/common/settings/app";
+import { exists } from "@/server/helpers/file";
+import { getUserDataPath } from "@/server/proc/path";
 
 function getUserDir() {
   return getUserDataPath();

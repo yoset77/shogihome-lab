@@ -1,4 +1,4 @@
-import { CommandHistory, CommandType, addCommand } from "@/common/advanced/command.js";
+import { CommandHistory, CommandType, addCommand } from "@/common/advanced/command";
 
 describe("advanced/prompt", () => {
   it("addCommand", () => {

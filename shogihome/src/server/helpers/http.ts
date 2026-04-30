@@ -1,9 +1,9 @@
 import https from "node:https";
 import http from "node:http";
-import { getAppLogger } from "@/server/log.js";
+import { getAppLogger } from "@/server/log";
 import ejpn from "encoding-japanese";
-import { RateLimiter, WindowRule } from "@/server/helpers/limiter.js";
-import { isTest } from "@/server/proc/env.js";
+import { RateLimiter, WindowRule } from "@/server/helpers/limiter";
+import { isTest } from "@/server/proc/env";
 const convert = ejpn.convert;
 
 const domainLimiter = new Map<string, RateLimiter>();

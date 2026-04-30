@@ -1,4 +1,4 @@
-import api, { isNative } from "@/renderer/ipc/api.js";
+import api, { isNative } from "@/renderer/ipc/api";
 import {
   Color,
   exportCSA,
@@ -26,9 +26,9 @@ import {
   formatKIFMove,
 } from "tsshogi";
 import { reactive, UnwrapNestedRefs } from "vue";
-import { GameSettings } from "@/common/settings/game.js";
-import { ClockSoundTarget, Tab, TextDecodingRule } from "@/common/settings/app.js";
-import { beepShort, beepUnlimited, playPieceBeat, stopBeep } from "@/renderer/devices/audio.js";
+import { GameSettings } from "@/common/settings/game";
+import { ClockSoundTarget, Tab, TextDecodingRule } from "@/common/settings/app";
+import { beepShort, beepUnlimited, playPieceBeat, stopBeep } from "@/renderer/devices/audio";
 import {
   RecordManager,
   SearchInfoSenderType,
@@ -39,42 +39,42 @@ import {
   UpdateTreeHandler,
 } from "./record.js";
 import { calculateGameStatistics, GameManager, GameResults } from "./game.js";
-import { generateRecordFileName, join } from "@/renderer/helpers/path.js";
-import { ResearchSettings } from "@/common/settings/research.js";
+import { generateRecordFileName, join } from "@/renderer/helpers/path";
+import { ResearchSettings } from "@/common/settings/research";
 import { USIPlayerMonitor, USIMonitor } from "./usi.js";
-import { AppState, ResearchState } from "@/common/control/state.js";
+import { AppState, ResearchState } from "@/common/control/state";
 import { useMessageStore } from "./message.js";
-import * as uri from "@/common/uri.js";
+import * as uri from "@/common/uri";
 import { humanPlayer } from "@/renderer/players/human";
 import { AnalysisManager } from "./analysis.js";
-import { AnalysisSettings } from "@/common/settings/analysis.js";
-import { MateSearchSettings } from "@/common/settings/mate.js";
-import { LogLevel } from "@/common/log.js";
+import { AnalysisSettings } from "@/common/settings/analysis";
+import { MateSearchSettings } from "@/common/settings/mate";
+import { LogLevel } from "@/common/log";
 import { CSAGameManager, CSAGameState } from "./csa.js";
 import { Clock } from "./clock.js";
-import { CSAGameSettings, appendCSAGameSettingsHistory } from "@/common/settings/csa.js";
-import { defaultPlayerBuilder } from "@/renderer/players/builder.js";
-import { type USIInfoCommand } from "@/common/game/usi.js";
+import { CSAGameSettings, appendCSAGameSettingsHistory } from "@/common/settings/csa";
+import { defaultPlayerBuilder } from "@/renderer/players/builder";
+import { type USIInfoCommand } from "@/common/game/usi";
 import { ResearchManager } from "./research.js";
-import { SearchInfo } from "@/renderer/players/player.js";
+import { SearchInfo } from "@/renderer/players/player";
 import { useAppSettings } from "./settings.js";
-import { t } from "@/common/i18n/index.js";
+import { t } from "@/common/i18n/index";
 import { MateSearchManager } from "./mate.js";
-import { detectUnsupportedRecordProperties } from "@/renderer/helpers/record.js";
+import { detectUnsupportedRecordProperties } from "@/renderer/helpers/record";
 import {
   RecordFileFormat,
   detectRecordFileFormatByPath,
   getStandardRecordFileFormats,
-} from "@/common/file/record.js";
-import { setOnStartSearchHandler, setOnUpdateUSIInfoHandler } from "@/renderer/players/usi.js";
+} from "@/common/file/record";
+import { setOnStartSearchHandler, setOnUpdateUSIInfoHandler } from "@/renderer/players/usi";
 import { useErrorStore } from "./error.js";
 import { useBusyState } from "./busy.js";
 import { Confirmation, useConfirmationStore } from "./confirm.js";
-import { LayoutProfile, LayoutProfileList } from "@/common/settings/layout.js";
+import { LayoutProfile, LayoutProfileList } from "@/common/settings/layout";
 import { clearURLParams, loadRecordForWebApp, saveRecordForWebApp } from "./webapp.js";
 import { useBookStore } from "./book.js";
-import { CommentBehavior } from "@/common/settings/comment.js";
-import { Attachment, ListItem } from "@/common/message.js";
+import { CommentBehavior } from "@/common/settings/comment";
+import { Attachment, ListItem } from "@/common/message";
 
 const puzzleHistoryKey = "shogihome-puzzle-history";
 const puzzleHistoryExpirationDays = 28;

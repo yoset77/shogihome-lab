@@ -12,9 +12,9 @@ import {
   setHandlers,
   setOption,
   setupPlayer,
-} from "@/background/usi/index.js";
-import { ChildProcess } from "@/background/usi/process.js";
-import { testUSIEngine } from "@/tests/mock/usi.js";
+} from "@/background/usi/index";
+import { ChildProcess } from "@/background/usi/process";
+import { testUSIEngine } from "@/tests/mock/usi";
 import { MockedClass } from "vitest";
 
 vi.mock("@/background/usi/process.js");

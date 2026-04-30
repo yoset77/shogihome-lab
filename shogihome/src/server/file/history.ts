@@ -1,19 +1,19 @@
 import path from "node:path";
 import { promises as fs } from "node:fs";
-import { getUserDataPath } from "@/server/proc/path.js";
+import { getUserDataPath } from "@/server/proc/path";
 import {
   BackupEntryV2,
   HistoryClass,
   RecordFileHistory,
   RecordFileHistoryEntry,
   getEmptyHistory,
-} from "@/common/file/history.js";
-import { getAppLogger } from "@/server/log.js";
+} from "@/common/file/history";
+import { getAppLogger } from "@/server/log";
 import AsyncLock from "async-lock";
-import { exists } from "@/server/helpers/file.js";
-import { writeFileAtomic } from "@/server/file/atomic.js";
+import { exists } from "@/server/helpers/file";
+import { writeFileAtomic } from "@/server/file/atomic";
 import { getBlackPlayerName, getWhitePlayerName, importKIF, Record } from "tsshogi";
-import { getRecordTitleFromMetadata } from "@/common/helpers/metadata.js";
+import { getRecordTitleFromMetadata } from "@/common/helpers/metadata";
 
 const historyMaxLength = 20;
 

@@ -1,4 +1,4 @@
-import { Logger } from "@/server/log.js";
+import { Logger } from "@/server/log";
 
 export function getNopLogger(): Logger {
   return {

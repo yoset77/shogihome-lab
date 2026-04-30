@@ -1,5 +1,5 @@
-import { LogLevel } from "@/common/log.js";
-import api from "@/renderer/ipc/api.js";
+import { LogLevel } from "@/common/log";
+import api from "@/renderer/ipc/api";
 import { reactive, UnwrapNestedRefs } from "vue";
 
 export type Confirmation = {

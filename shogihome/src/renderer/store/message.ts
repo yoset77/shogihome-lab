@@ -1,4 +1,4 @@
-import { Message } from "@/common/message.js";
+import { Message } from "@/common/message";
 import { reactive, UnwrapNestedRefs } from "vue";
 
 export class MessageStore {

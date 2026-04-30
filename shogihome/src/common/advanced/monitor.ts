@@ -1,4 +1,4 @@
-import { CSAProtocolVersion } from "@/common/settings/csa.js";
+import { CSAProtocolVersion } from "@/common/settings/csa";
 import { Command } from "./command.js";
 
 export type USISessionState = {

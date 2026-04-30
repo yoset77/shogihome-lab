@@ -1,6 +1,6 @@
-import { issueEngineURI } from "@/common/uri.js";
-import * as uri from "@/common/uri.js";
-import { t } from "@/common/i18n/index.js";
+import { issueEngineURI } from "@/common/uri";
+import * as uri from "@/common/uri";
+import { t } from "@/common/i18n/index";
 
 // reserved option names
 export const USIPonder = "USI_Ponder";

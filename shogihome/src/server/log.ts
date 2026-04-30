@@ -1,8 +1,8 @@
 import path from "node:path";
 import log4js from "log4js";
-import { getDateTimeString } from "@/common/helpers/datetime.js";
+import { getDateTimeString } from "@/common/helpers/datetime";
 import { isTest } from "./proc/env.js";
-import { LogLevel, LogType } from "@/common/log.js";
+import { LogLevel, LogType } from "@/common/log";
 import { getUserDataPath } from "./proc/path.js";
 
 function getLogPath(name: string): string {

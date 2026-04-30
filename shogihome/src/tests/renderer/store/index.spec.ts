@@ -1,33 +1,33 @@
-import api, { API } from "@/renderer/ipc/api.js";
+import api, { API } from "@/renderer/ipc/api";
 import { exportKI2, ImmutablePosition, Move, Position } from "tsshogi";
 import fs from "node:fs";
-import { createStore } from "@/renderer/store/index.js";
-import { RecordCustomData } from "@/renderer/store/record.js";
-import * as audio from "@/renderer/devices/audio.js";
-import { gameSettings10m30s } from "@/tests/mock/game.js";
-import { GameManager } from "@/renderer/store/game.js";
-import { AppState, ResearchState } from "@/common/control/state.js";
-import { AnalysisManager } from "@/renderer/store/analysis.js";
-import { analysisSettings } from "@/tests/mock/analysis.js";
-import { researchSettings } from "@/tests/mock/research.js";
+import { createStore } from "@/renderer/store/index";
+import { RecordCustomData } from "@/renderer/store/record";
+import * as audio from "@/renderer/devices/audio";
+import { gameSettings10m30s } from "@/tests/mock/game";
+import { GameManager } from "@/renderer/store/game";
+import { AppState, ResearchState } from "@/common/control/state";
+import { AnalysisManager } from "@/renderer/store/analysis";
+import { analysisSettings } from "@/tests/mock/analysis";
+import { researchSettings } from "@/tests/mock/research";
 import {
   csaGameSettings,
   emptyCSAGameSettingsHistory,
   singleCSAGameSettingsHistory,
-} from "@/tests/mock/csa.js";
-import { CSAGameManager } from "@/renderer/store/csa.js";
+} from "@/tests/mock/csa";
+import { CSAGameManager } from "@/renderer/store/csa";
 import { convert } from "encoding-japanese";
 import { Mocked, MockedClass } from "vitest";
-import { useAppSettings } from "@/renderer/store/settings.js";
-import { defaultAppSettings } from "@/common/settings/app.js";
-import { useMessageStore } from "@/renderer/store/message.js";
-import { useBusyState } from "@/renderer/store/busy.js";
-import { useErrorStore } from "@/renderer/store/error.js";
-import { useConfirmationStore } from "@/renderer/store/confirm.js";
-import { RecordFileFormat } from "@/common/file/record.js";
-import { mateSearchSettings } from "@/tests/mock/mate.js";
-import { MateSearchManager } from "@/renderer/store/mate.js";
-import { ResearchManager } from "@/renderer/store/research.js";
+import { useAppSettings } from "@/renderer/store/settings";
+import { defaultAppSettings } from "@/common/settings/app";
+import { useMessageStore } from "@/renderer/store/message";
+import { useBusyState } from "@/renderer/store/busy";
+import { useErrorStore } from "@/renderer/store/error";
+import { useConfirmationStore } from "@/renderer/store/confirm";
+import { RecordFileFormat } from "@/common/file/record";
+import { mateSearchSettings } from "@/tests/mock/mate";
+import { MateSearchManager } from "@/renderer/store/mate";
+import { ResearchManager } from "@/renderer/store/research";
 
 vi.mock("@/renderer/devices/audio.js");
 vi.mock("@/renderer/ipc/api.js");

@@ -1,6 +1,6 @@
-import { AnalysisSettings } from "@/common/settings/analysis.js";
-import { CommentBehavior } from "@/common/settings/comment.js";
-import { USIEngine } from "@/common/settings/usi.js";
+import { AnalysisSettings } from "@/common/settings/analysis";
+import { CommentBehavior } from "@/common/settings/comment";
+import { USIEngine } from "@/common/settings/usi";
 
 const engine: USIEngine = {
   uri: "es://usi/test-engine",

@@ -5,9 +5,9 @@ import {
   USIEngineOptionType,
   USIHash,
   USIPonder,
-} from "@/common/settings/usi.js";
-import { Logger } from "@/server/log.js";
-import { USIInfoCommand, parseInfoCommand } from "@/common/game/usi.js";
+} from "@/common/settings/usi";
+import { Logger } from "@/server/log";
+import { USIInfoCommand, parseInfoCommand } from "@/common/game/usi";
 import { ChildProcess } from "./process.js";
 import {
   addCommand,
@@ -15,7 +15,7 @@ import {
   CommandHistory,
   CommandType,
   newCommand,
-} from "@/common/advanced/command.js";
+} from "@/common/advanced/command";
 
 export type EngineProcessOption = {
   timeout?: number;

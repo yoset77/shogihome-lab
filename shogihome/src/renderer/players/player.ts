@@ -1,5 +1,5 @@
-import { GameResult } from "@/common/game/result.js";
-import { TimeStates } from "@/common/game/time.js";
+import { GameResult } from "@/common/game/result";
+import { TimeStates } from "@/common/game/time";
 import { ImmutablePosition, Move } from "tsshogi";
 
 export type SearchInfo = {

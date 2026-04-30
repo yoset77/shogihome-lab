@@ -1,7 +1,7 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import path from "node:path";
 import fs from "node:fs";
-import { USIInfoCommand } from "@/common/game/usi.js";
+import { USIInfoCommand } from "@/common/game/usi";
 
 let db: DatabaseSync | null = null;
 let insertPositionStmt: StatementSync | null = null;

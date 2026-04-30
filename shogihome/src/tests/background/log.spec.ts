@@ -1,5 +1,5 @@
-import { getTailCommand, tailLogFile } from "@/server/log.js";
-import { LogType } from "@/common/log.js";
+import { getTailCommand, tailLogFile } from "@/server/log";
+import { LogType } from "@/common/log";
 
 describe("log", () => {
   afterEach(() => {

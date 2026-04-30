@@ -2,7 +2,7 @@ import { Config } from "./config.js";
 import { Color, ImmutablePosition, reverseColor } from "tsshogi";
 import { Frame, Layout, PlayerName, Turn } from "./layout.js";
 import { compactViewParams } from "./params.js";
-import { Point, RectSize } from "@/common/assets/geometry.js";
+import { Point, RectSize } from "@/common/assets/geometry";
 
 export class CompactLayoutBuilder {
   constructor(private config: Config) {}

@@ -1,9 +1,9 @@
 import path from "node:path";
 import fs from "node:fs";
-import { getUserDataPath } from "@/server/proc/path.js";
-import { loadAppSettings } from "@/server/settings.js";
-import { defaultAppSettings } from "@/common/settings/app.js";
-import { getTempPathForTesting } from "@/tests/helpers/temp.js";
+import { getUserDataPath } from "@/server/proc/path";
+import { loadAppSettings } from "@/server/settings";
+import { defaultAppSettings } from "@/common/settings/app";
+import { getTempPathForTesting } from "@/tests/helpers/temp";
 
 vi.mock("@/server/proc/path.js");
 

@@ -1,6 +1,6 @@
 import { Record, Position } from "tsshogi";
-import { hash as aperyHash } from "@/server/book/apery_zobrist.js";
-import { normalizeSfen } from "@/common/usi/sfen.js";
+import { hash as aperyHash } from "@/server/book/apery_zobrist";
+import { normalizeSfen } from "@/common/usi/sfen";
 
 /**
  * USIの position コマンド (例: "position startpos moves 7g7f ...") をパースし、

@@ -1,11 +1,7 @@
 import fs, { ReadStream } from "node:fs";
 import path from "node:path";
-import {
-  BookImportSummary,
-  BookLoadingOptions,
-  BookMove as CommonBookMove,
-} from "@/common/book.js";
-import { getAppLogger } from "@/server/log.js";
+import { BookImportSummary, BookLoadingOptions, BookMove as CommonBookMove } from "@/common/book";
+import { getAppLogger } from "@/server/log";
 import {
   arrayMoveToCommonBookMove,
   Book,
@@ -25,15 +21,15 @@ import {
   storeYaneuraOuBook,
   validateBookPositionOrdering,
 } from "./yaneuraou.js";
-import { BookImportSettings, PlayerCriteria, SourceType } from "@/common/settings/book.js";
-import { exists, listFiles } from "@/server/helpers/file.js";
+import { BookImportSettings, PlayerCriteria, SourceType } from "@/common/settings/book";
+import { exists, listFiles } from "@/server/helpers/file";
 import {
   detectRecordFileFormatByPath,
   importRecordFromBuffer,
   RecordFileFormat,
-} from "@/common/file/record.js";
-import { TextDecodingRule } from "@/common/settings/app.js";
-import { loadAppSettings } from "@/server/settings.js";
+} from "@/common/file/record";
+import { TextDecodingRule } from "@/common/settings/app";
+import { loadAppSettings } from "@/server/settings";
 import {
   Color,
   getBlackPlayerName,
@@ -42,7 +38,7 @@ import {
   Move,
   Record,
 } from "tsshogi";
-import { t } from "@/common/i18n/index.js";
+import { t } from "@/common/i18n/index";
 import { hash as aperyHash } from "./apery_zobrist.js";
 import {
   loadAperyBook,
@@ -50,7 +46,7 @@ import {
   searchAperyBookMovesOnTheFly,
   storeAperyBook,
 } from "./apery.js";
-import { writeStreamAtomic } from "@/server/file/atomic_stream.js";
+import { writeStreamAtomic } from "@/server/file/atomic_stream";
 
 type BookHandle = InMemoryBook | OnTheFlyBook;
 

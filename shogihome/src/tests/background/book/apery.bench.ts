@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { bench } from "vitest";
-import { loadAperyBook } from "@/server/book/apery.js";
-import { createTestAperyBookFile } from "@/tests/mock/book.js";
-import { getTempPathForTesting } from "@/tests/helpers/temp.js";
+import { loadAperyBook } from "@/server/book/apery";
+import { createTestAperyBookFile } from "@/tests/mock/book";
+import { getTempPathForTesting } from "@/tests/helpers/temp";
 
 const tmpdir = path.join(getTempPathForTesting(), "book/apery");
 

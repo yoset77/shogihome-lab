@@ -1,6 +1,6 @@
-import api, { API } from "@/renderer/ipc/api.js";
-import { CSAGameResult, CSASpecialMove } from "@/common/game/csa.js";
-import { CSAProtocolVersion } from "@/common/settings/csa.js";
+import api, { API } from "@/renderer/ipc/api";
+import { CSAGameResult, CSASpecialMove } from "@/common/game/csa";
+import { CSAProtocolVersion } from "@/common/settings/csa";
 import {
   Color,
   InitialPositionSFEN,
@@ -10,7 +10,7 @@ import {
   Square,
   specialMove,
 } from "tsshogi";
-import { Clock } from "@/renderer/store/clock.js";
+import { Clock } from "@/renderer/store/clock";
 import {
   CSAGameManager,
   CSAGameState,
@@ -18,22 +18,22 @@ import {
   onCSAGameSummary,
   onCSAMove,
   onCSAStart,
-} from "@/renderer/store/csa.js";
-import { RecordManager } from "@/renderer/store/record.js";
+} from "@/renderer/store/csa";
+import { RecordManager } from "@/renderer/store/record";
 import {
   csaGameSettings,
   csaGameSummary,
   csaGameSummaryInvalidPosition,
   csaGameSummaryWithUnequalTimeConfig,
   playerURI,
-} from "@/tests/mock/csa.js";
+} from "@/tests/mock/csa";
 import {
   createErrorPlayerBuilder,
   createMockPlayer,
   createMockPlayerBuilder,
-} from "@/tests/mock/player.js";
+} from "@/tests/mock/player";
 import { Mocked } from "vitest";
-import { USIEngine } from "@/common/settings/usi.js";
+import { USIEngine } from "@/common/settings/usi";
 
 vi.mock("@/renderer/ipc/api.js");
 

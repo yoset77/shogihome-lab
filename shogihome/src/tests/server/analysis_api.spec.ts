@@ -27,8 +27,7 @@ const sqliteMock = vi.hoisted(() => ({
 
 vi.mock("@/server/database/sqlite.js", () => sqliteMock);
 
-// eslint-disable-next-line no-restricted-imports
-import { app } from "../../../server.js";
+import { app } from "@/server/main";
 
 describe("Analysis DB API error handling", () => {
   beforeEach(() => {

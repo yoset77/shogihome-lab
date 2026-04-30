@@ -1,15 +1,15 @@
-import { USIEngine, emptyUSIEngine } from "@/common/settings/usi.js";
+import { USIEngine, emptyUSIEngine } from "@/common/settings/usi";
 import { EngineProcess, GameResult as USIGameResult, TimeState, State } from "./engine.js";
-import * as uri from "@/common/uri.js";
-import { GameResult } from "@/common/game/result.js";
-import { t } from "@/common/i18n/index.js";
-import { resolveEnginePath } from "@/background/usi/path.js";
-import { getUSILogger } from "@/server/log.js";
-import { USISessionState } from "@/common/advanced/monitor.js";
-import { CommandHistory, CommandType, Command } from "@/common/advanced/command.js";
-import { USIInfoCommand } from "@/common/game/usi.js";
+import * as uri from "@/common/uri";
+import { GameResult } from "@/common/game/result";
+import { t } from "@/common/i18n/index";
+import { resolveEnginePath } from "@/background/usi/path";
+import { getUSILogger } from "@/server/log";
+import { USISessionState } from "@/common/advanced/monitor";
+import { CommandHistory, CommandType, Command } from "@/common/advanced/command";
+import { USIInfoCommand } from "@/common/game/usi";
 import { Color, getNextColorFromUSI } from "tsshogi";
-import { TimeStates } from "@/common/game/time.js";
+import { TimeStates } from "@/common/game/time";
 
 interface Handlers {
   onUSIBestMove(sessionID: number, usi: string, usiMove: string, ponder?: string): void;

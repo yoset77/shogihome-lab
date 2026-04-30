@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { parseAndIndexFile } from "@/server/kifu_index/engine.js";
+import { parseAndIndexFile } from "@/server/kifu_index/engine";
 import {
   initDatabase,
   closeDatabase,
   upsertKifuFile,
   searchKifu,
-} from "@/server/database/kifu_index.js";
-import { encodeText } from "@/common/helpers/encode.js";
+} from "@/server/database/kifu_index";
+import { encodeText } from "@/common/helpers/encode";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";

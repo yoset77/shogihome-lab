@@ -1,6 +1,6 @@
 import { USIMonitor } from "@/renderer/store/usi";
-import { isActiveUSIPlayerSession } from "@/renderer/players/usi.js";
-import { isActiveLanPlayerSession } from "@/renderer/players/lan_player.js";
+import { isActiveUSIPlayerSession } from "@/renderer/players/usi";
+import { isActiveLanPlayerSession } from "@/renderer/players/lan_player";
 import { Mock } from "vitest";
 import { Color, ImmutablePosition } from "tsshogi";
 

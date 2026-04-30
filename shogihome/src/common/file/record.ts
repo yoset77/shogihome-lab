@@ -1,4 +1,4 @@
-import { decodeText, encodeText } from "@/common/helpers/encode.js";
+import { decodeText, encodeText } from "@/common/helpers/encode";
 import {
   ImmutableRecord,
   Record,

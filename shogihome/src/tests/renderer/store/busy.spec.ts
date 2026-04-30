@@ -1,4 +1,4 @@
-import { createBusyStore } from "@/renderer/store/busy.js";
+import { createBusyStore } from "@/renderer/store/busy";
 
 describe("store/busy", () => {
   it("should ignore unmatched release calls", () => {

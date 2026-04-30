@@ -1,5 +1,5 @@
-import { CommentBehavior, SearchCommentFormat } from "@/common/settings/comment.js";
-import { normalizeSfen } from "@/common/usi/sfen.js";
+import { CommentBehavior, SearchCommentFormat } from "@/common/settings/comment";
+import { normalizeSfen } from "@/common/usi/sfen";
 import {
   Color,
   InitialPositionSFEN,
@@ -14,8 +14,8 @@ import {
   specialMove,
   exportKI2,
 } from "tsshogi";
-import { SCORE_MATE_INFINITE } from "@/common/game/usi.js";
-import { RecordManager, SearchInfoSenderType } from "@/renderer/store/record.js";
+import { SCORE_MATE_INFINITE } from "@/common/game/usi";
+import { RecordManager, SearchInfoSenderType } from "@/renderer/store/record";
 
 const sampleKIF = `
 手合割：平手

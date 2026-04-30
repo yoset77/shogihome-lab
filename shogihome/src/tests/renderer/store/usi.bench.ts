@@ -1,5 +1,5 @@
-import { USIInfoCommand } from "@/common/game/usi.js";
-import { USIPlayerMonitor } from "@/renderer/store/usi.js";
+import { USIInfoCommand } from "@/common/game/usi";
+import { USIPlayerMonitor } from "@/renderer/store/usi";
 import { bench } from "vitest";
 
 function pv(s: string): string[] {

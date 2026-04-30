@@ -1,7 +1,7 @@
-import { USIInfoCommand } from "@/common/game/usi.js";
+import { USIInfoCommand } from "@/common/game/usi";
 import { Color, ImmutablePosition, Move, Position, formatMove } from "tsshogi";
-import { isActiveUSIPlayerSession } from "@/renderer/players/usi.js";
-import { isActiveLanPlayerSession } from "@/renderer/players/lan_player.js";
+import { isActiveUSIPlayerSession } from "@/renderer/players/usi";
+import { isActiveLanPlayerSession } from "@/renderer/players/lan_player";
 import { formatDisplayPV } from "@/renderer/helpers/pv";
 
 export type USIInfo = {

@@ -1,4 +1,4 @@
-import { shogiPlaygroundURL } from "@/common/links/mogproject.js";
+import { shogiPlaygroundURL } from "@/common/links/mogproject";
 import { Record, RecordMetadataKey } from "tsshogi";
 
 describe("mogproject", () => {

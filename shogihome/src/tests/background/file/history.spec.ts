@@ -6,15 +6,15 @@ import {
   getHistory,
   loadBackup,
   saveBackup,
-} from "@/server/file/history.js";
-import { getUserDataPath } from "@/server/proc/path.js";
+} from "@/server/file/history";
+import { getUserDataPath } from "@/server/proc/path";
 import {
   BackupEntryV2,
   HistoryClass,
   RecordFileHistory,
   UserFileEntry,
-} from "@/common/file/history.js";
-import { getTempPathForTesting } from "@/tests/helpers/temp.js";
+} from "@/common/file/history";
+import { getTempPathForTesting } from "@/tests/helpers/temp";
 
 vi.mock("@/server/proc/path.js");
 

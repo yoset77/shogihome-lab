@@ -1,10 +1,10 @@
-import { AnalysisManager } from "@/renderer/store/analysis.js";
-import { RecordManager } from "@/renderer/store/record.js";
-import { analysisSettings as baseAnalysisSettings } from "@/tests/mock/analysis.js";
-import { USIPlayer } from "@/renderer/players/usi.js";
-import { LanPlayer } from "@/renderer/players/lan_player.js";
+import { AnalysisManager } from "@/renderer/store/analysis";
+import { RecordManager } from "@/renderer/store/record";
+import { analysisSettings as baseAnalysisSettings } from "@/tests/mock/analysis";
+import { USIPlayer } from "@/renderer/players/usi";
+import { LanPlayer } from "@/renderer/players/lan_player";
 import { MockedClass } from "vitest";
-import { CommentBehavior } from "@/common/settings/comment.js";
+import { CommentBehavior } from "@/common/settings/comment";
 
 vi.mock("@/renderer/players/usi.js");
 vi.mock("@/renderer/players/lan_player.js");

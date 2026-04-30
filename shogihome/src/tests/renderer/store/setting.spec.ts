@@ -1,12 +1,12 @@
-import api, { API } from "@/renderer/ipc/api.js";
+import api, { API } from "@/renderer/ipc/api";
 import {
   AnalysisDBSearchMode,
   PieceImageType,
   Tab,
   TabPaneType,
   Thema,
-} from "@/common/settings/app.js";
-import { createAppSettings } from "@/renderer/store/settings.js";
+} from "@/common/settings/app";
+import { createAppSettings } from "@/renderer/store/settings";
 import { Mocked } from "vitest";
 
 vi.mock("@/renderer/ipc/api.js");

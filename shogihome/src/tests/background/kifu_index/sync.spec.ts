@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { syncKifuDirectory, onKifuFileEvent, getSyncStatus } from "@/server/kifu_index/sync.js";
+import { syncKifuDirectory, onKifuFileEvent, getSyncStatus } from "@/server/kifu_index/sync";
 import {
   initDatabase,
   closeDatabase,
   getKifuCount,
   getKifuFileByPath,
-} from "@/server/database/kifu_index.js";
-import { clearKifuListCache } from "@/server/helpers/kifu.js";
+} from "@/server/database/kifu_index";
+import { clearKifuListCache } from "@/server/helpers/kifu";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";

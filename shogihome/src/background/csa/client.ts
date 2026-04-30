@@ -6,18 +6,18 @@ import {
   emptyCSAPlayerStates,
   CSAGameResult,
   CSASpecialMove,
-} from "@/common/game/csa.js";
-import { CSAProtocolVersion, CSAServerSettings } from "@/common/settings/csa.js";
+} from "@/common/game/csa";
+import { CSAProtocolVersion, CSAServerSettings } from "@/common/settings/csa";
 import { Socket } from "./socket.js";
-import { Logger } from "@/server/log.js";
-import { t } from "@/common/i18n/index.js";
+import { Logger } from "@/server/log";
+import { t } from "@/common/i18n/index";
 import {
   Command,
   CommandHistory,
   addCommand,
   newCommand,
   CommandType,
-} from "@/common/advanced/command.js";
+} from "@/common/advanced/command";
 
 type GameSummaryCallback = (gameSummary: CSAGameSummary) => void;
 type RejectCallback = () => void;

@@ -43,8 +43,7 @@ vi.mock("@/server/database/sqlite.js", () => sqliteMock);
 vi.mock("@/server/usi/sfen.js", () => sfenMock);
 vi.mock("@/server/kifu_index/sync.js", () => kifuIndexSyncMock);
 
-// eslint-disable-next-line no-restricted-imports
-import { app } from "../../../server.js";
+import { app } from "@/server/main";
 
 describe("Kifu search API", () => {
   beforeEach(() => {

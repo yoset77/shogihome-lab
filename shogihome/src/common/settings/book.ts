@@ -1,5 +1,5 @@
-import { detectRecordFileFormatByPath } from "@/common/file/record.js";
-import { t } from "@/common/i18n/index.js";
+import { detectRecordFileFormatByPath } from "@/common/file/record";
+import { t } from "@/common/i18n/index";
 
 export enum SourceType {
   MEMORY = "memory",

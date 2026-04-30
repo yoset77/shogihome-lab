@@ -14,10 +14,10 @@ import {
   updateBookMove,
   updateBookMoveOrder,
   initBookSession,
-} from "@/server/book/index.js";
-import { getTempPathForTesting } from "@/tests/helpers/temp.js";
-import { defaultBookImportSettings, PlayerCriteria, SourceType } from "@/common/settings/book.js";
-import { createTestAperyBookFile } from "@/tests/mock/book.js";
+} from "@/server/book/index";
+import { getTempPathForTesting } from "@/tests/helpers/temp";
+import { defaultBookImportSettings, PlayerCriteria, SourceType } from "@/common/settings/book";
+import { createTestAperyBookFile } from "@/tests/mock/book";
 
 const defaultBookSession = 1;
 

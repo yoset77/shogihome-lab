@@ -1,7 +1,7 @@
-import { t } from "@/common/i18n/index.js";
-import { licenseURL, thirdPartyLicenseURL } from "@/common/links/github.js";
-import { materialIconsGuideURL } from "@/common/links/google.js";
-import { useMessageStore } from "@/renderer/store/message.js";
+import { t } from "@/common/i18n/index";
+import { licenseURL, thirdPartyLicenseURL } from "@/common/links/github";
+import { materialIconsGuideURL } from "@/common/links/google";
+import { useMessageStore } from "@/renderer/store/message";
 
 export function openCopyright() {
   useMessageStore().enqueue({
