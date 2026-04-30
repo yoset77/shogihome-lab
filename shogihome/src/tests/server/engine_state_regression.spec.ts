@@ -62,6 +62,20 @@ describe("Engine State Regression Tests", () => {
     expect(tSession.engineHandle).toBeNull();
   });
 
+  it("should trim whitespace around websocket commands", () => {
+    tSession.engineState = EngineState.THINKING;
+    tSession.engineHandle = {
+      write: vi.fn(),
+      close: vi.fn(),
+      removeAllListeners: vi.fn(),
+    };
+
+    tSession.handleMessage("stop ");
+
+    expect(tSession.engineState).toBe(EngineState.STOPPING_SEARCH);
+    expect(tSession.engineHandle.write).toHaveBeenCalledWith("stop\n");
+  });
+
   it("should move start_engine and stop_engine out of postStopCommandQueue", () => {
     tSession.engineState = EngineState.STOPPING_SEARCH;
 

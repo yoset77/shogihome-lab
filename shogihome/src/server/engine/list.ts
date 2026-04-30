@@ -7,6 +7,30 @@ import type { EngineConfig } from "@/server/engine/types";
 
 export const engineConfigCache = new Map<string, EngineConfig>();
 
+const isStringArray = (value: unknown): value is string[] => {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+};
+
+export const toEngineConfig = (value: unknown): EngineConfig | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const engine = value as Record<string, unknown>;
+  if (typeof engine.id !== "string" || engine.id === "" || typeof engine.name !== "string") {
+    return null;
+  }
+  return {
+    id: engine.id,
+    name: engine.name,
+    type: typeof engine.type === "string" || isStringArray(engine.type) ? engine.type : undefined,
+    skipAnalysisDB: typeof engine.skipAnalysisDB === "boolean" ? engine.skipAnalysisDB : undefined,
+    analysisDBGroupId:
+      typeof engine.analysisDBGroupId === "string" ? engine.analysisDBGroupId : undefined,
+    analysisDBGroupName:
+      typeof engine.analysisDBGroupName === "string" ? engine.analysisDBGroupName : undefined,
+  };
+};
+
 export const getEngineList = (ws: WebSocket) => {
   console.log(`Fetching engine list from ${REMOTE_ENGINE_HOST}:${REMOTE_ENGINE_PORT}`);
   const socket = new net.Socket();
@@ -48,49 +72,57 @@ export const getEngineList = (ws: WebSocket) => {
   });
 
   socket.on("end", () => {
+    let payload: string | null = null;
     try {
       const engines = JSON.parse(data.trim());
       if (Array.isArray(engines)) {
         engineConfigCache.clear();
-        engines.forEach((e: EngineConfig) => {
-          if (e.id && e.name) {
-            engineConfigCache.set(e.id, {
-              id: e.id,
-              name: e.name,
-              type: e.type,
-              skipAnalysisDB: e.skipAnalysisDB,
-              analysisDBGroupId: e.analysisDBGroupId,
-              analysisDBGroupName: e.analysisDBGroupName,
-            });
+        engines.forEach((e: unknown) => {
+          const config = toEngineConfig(e);
+          if (config) {
+            engineConfigCache.set(config.id, config);
           }
         });
       }
       if (ws.readyState === WebSocket.OPEN) {
         const sanitizedEngines = Array.isArray(engines)
-          ? engines.map((e: { id: string; name: string; type?: string | string[] }) => {
+          ? engines.flatMap((e: unknown) => {
+              const config = toEngineConfig(e);
+              if (!config) return [];
+
               let types: string[] | undefined;
-              if (Array.isArray(e.type)) {
-                types = e.type;
-              } else if (typeof e.type === "string") {
-                if (e.type === "both") {
+              if (Array.isArray(config.type)) {
+                types = config.type;
+              } else if (typeof config.type === "string") {
+                if (config.type === "both") {
                   types = ["game", "research", "mate"];
                 } else {
-                  types = [e.type];
+                  types = [config.type];
                 }
               } else {
                 types = ["game", "research", "mate"];
               }
-              return {
-                id: e.id,
-                name: e.name,
-                type: types,
-              };
+              return [
+                {
+                  id: config.id,
+                  name: config.name,
+                  type: types,
+                },
+              ];
             })
           : [];
-        ws.send(JSON.stringify({ engineList: sanitizedEngines }));
+        payload = JSON.stringify({ engineList: sanitizedEngines });
       }
     } catch (e) {
       console.error("Failed to parse engine list from wrapper:", e);
+    }
+
+    if (payload && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(payload);
+      } catch (e) {
+        console.error("Failed to send engine list to client:", e);
+      }
     }
   });
 

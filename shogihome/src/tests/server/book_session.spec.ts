@@ -32,6 +32,14 @@ vi.mock("@/background/book/index.js", () => {
     closeBookSession: vi.fn((session: number) => {
       sessions.delete(session);
     }),
+    importBookMoves: vi.fn(async () => {
+      return {
+        successFileCount: 0,
+        errorFileCount: 0,
+        skippedFileCount: 0,
+        importedMoveCount: 0,
+      };
+    }),
     isBookOnTheFly: vi.fn(() => false),
     openBookAsNewSession: vi.fn(async () => {
       const session = sessionCounter++;
@@ -88,12 +96,25 @@ describe("Book Session API", () => {
     expect(bookAPI.searchBookMoves).toHaveBeenCalled();
   });
 
-  it("should return 500 error when X-Book-Session-Id header is missing", async () => {
+  it("should return 400 error when X-Book-Session-Id header is missing", async () => {
     const response = await request(app)
       .get("/api/book/search?sfen=startpos")
       .set("Host", "localhost:8140");
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(400);
+    expect(response.text).toContain("Invalid or missing X-Book-Session-Id header");
+  });
+
+  it("should reject invalid import ply ranges before importing", async () => {
+    const response = await request(app)
+      .post("/api/book/import")
+      .set("X-Book-Session-Id", "client-import")
+      .set("Host", "localhost:8140")
+      .send({ minPly: "invalid", maxPly: 100 });
+
+    expect(response.status).toBe(400);
+    expect(response.text).toContain("minPly must be a non-negative integer");
+    expect(bookAPI.importBookMoves).not.toHaveBeenCalled();
   });
 
   it("should return 400 error when batch search sfens array is too large", async () => {
@@ -133,5 +154,22 @@ describe("Book Session API", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toHaveLength(10000);
+  });
+
+  it("should return 503 when the book session limit is reached", async () => {
+    let limitResponse: request.Response | undefined;
+    for (let i = 0; i < 60; i++) {
+      const response = await request(app)
+        .get("/api/book/search?sfen=startpos")
+        .set("X-Book-Session-Id", `limit-client-${i}`)
+        .set("Host", "localhost:8140");
+      if (response.status === 503) {
+        limitResponse = response;
+        break;
+      }
+    }
+
+    expect(limitResponse?.status).toBe(503);
+    expect(limitResponse?.text).toContain("Book session limit reached");
   });
 });

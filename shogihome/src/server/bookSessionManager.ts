@@ -1,5 +1,6 @@
 import type express from "express";
 import { closeBookSession, initBookSession } from "@/background/book";
+import { HttpError } from "@/server/errors";
 
 const SESSION_ID_HEADER_REGEX = /^[a-zA-Z0-9_-]{8,128}$/;
 
@@ -13,7 +14,7 @@ class BookSessionManager {
     this.lastAccess.set(sessionId, Date.now());
     if (!this.sessions.has(sessionId)) {
       if (this.sessions.size >= this.MAX_SESSIONS) {
-        throw new Error(`Book session limit reached (${this.MAX_SESSIONS})`);
+        throw new HttpError(503, `Book session limit reached (${this.MAX_SESSIONS})`);
       }
       const id = this.nextSessionId++;
       this.sessions.set(sessionId, id);
@@ -58,7 +59,7 @@ bookCleanupInterval.unref();
 export function getBookSession(req: express.Request): number {
   const sessionId = req.header("X-Book-Session-Id");
   if (!sessionId || !SESSION_ID_HEADER_REGEX.test(sessionId)) {
-    throw new Error("Invalid or missing X-Book-Session-Id header");
+    throw new HttpError(400, "Invalid or missing X-Book-Session-Id header");
   }
   return bookSessionManager.get(sessionId);
 }

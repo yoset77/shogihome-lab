@@ -17,13 +17,32 @@ if (fs.existsSync(envPath)) {
   process.loadEnvFile(envPath);
 }
 
-export const PORT = parseInt(process.env.PORT || "8140", 10);
+export const parseIntegerConfigValue = (
+  raw: string | undefined,
+  name: string,
+  defaultValue: number,
+  min: number,
+  max: number,
+): number => {
+  if (!raw) return defaultValue;
+  const value = parseInt(raw, 10);
+  if (isNaN(value) || value < min || value > max) {
+    console.error(`Invalid ${name}: "${raw}". Using default (${defaultValue}).`);
+    return defaultValue;
+  }
+  return value;
+};
 
-let engineStopTimeout = parseInt(process.env.ENGINE_STOP_TIMEOUT_MS || "10000", 10);
-if (isNaN(engineStopTimeout) || engineStopTimeout <= 0) {
-  engineStopTimeout = 10000;
-}
-export const ENGINE_STOP_TIMEOUT_MS = Math.min(Math.max(engineStopTimeout, 1000), 600000);
+const parseIntegerEnv = (name: string, defaultValue: number, min: number, max: number): number =>
+  parseIntegerConfigValue(process.env[name], name, defaultValue, min, max);
+
+export const PORT = parseIntegerEnv("PORT", 8140, 1, 65535);
+export const ENGINE_STOP_TIMEOUT_MS = parseIntegerEnv(
+  "ENGINE_STOP_TIMEOUT_MS",
+  10000,
+  1000,
+  600000,
+);
 
 const DISABLE_AUTO_ALLOWED_ORIGINS = process.env.DISABLE_AUTO_ALLOWED_ORIGINS === "true";
 
@@ -95,7 +114,7 @@ export const ANALYSIS_DB_MIN_DEPTH = (() => {
 })();
 
 export const REMOTE_ENGINE_HOST = process.env.REMOTE_ENGINE_HOST || "localhost";
-export const REMOTE_ENGINE_PORT = parseInt(process.env.REMOTE_ENGINE_PORT || "4082", 10);
+export const REMOTE_ENGINE_PORT = parseIntegerEnv("REMOTE_ENGINE_PORT", 4082, 1, 65535);
 export const CONNECTION_PROTECTION_TIMEOUT =
-  parseInt(process.env.ENGINE_CONNECTION_PROTECTION_TIMEOUT || "60", 10) * 1000;
+  parseIntegerEnv("ENGINE_CONNECTION_PROTECTION_TIMEOUT", 60, 1, 3600) * 1000;
 export const BIND_ADDRESS = process.env.BIND_ADDRESS || "127.0.0.1";

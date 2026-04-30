@@ -282,7 +282,13 @@ app.get("/api/fetch-remote", async (req, res) => {
     return;
   }
 
-  const urlObj = new URL(targetUrl);
+  let urlObj: URL;
+  try {
+    urlObj = new URL(targetUrl);
+  } catch {
+    sendError(res, 400, "Invalid URL");
+    return;
+  }
   if (urlObj.protocol !== "http:" && urlObj.protocol !== "https:") {
     sendError(res, 400, `Unsupported protocol: ${urlObj.protocol}`);
     return;
@@ -695,12 +701,26 @@ app.post("/api/book/import", express.json(), async (req, res) => {
     sendError(res, 404, "KIFU_DIR is not configured");
     return;
   }
+  const minPly = req.body.minPly === undefined ? 0 : Number(req.body.minPly);
+  const maxPly = req.body.maxPly === undefined ? 100 : Number(req.body.maxPly);
+  if (!Number.isInteger(minPly) || minPly < 0) {
+    sendError(res, 400, "minPly must be a non-negative integer");
+    return;
+  }
+  if (!Number.isInteger(maxPly) || maxPly < 0) {
+    sendError(res, 400, "maxPly must be a non-negative integer");
+    return;
+  }
+  if (minPly > maxPly) {
+    sendError(res, 400, "minPly must be less than or equal to maxPly");
+    return;
+  }
   const settings = {
     sourceType: req.body.sourceType,
     sourceDirectory: req.body.sourceDirectory,
     sourceRecordFile: req.body.sourceRecordFile,
-    minPly: Number(req.body.minPly),
-    maxPly: Number(req.body.maxPly),
+    minPly,
+    maxPly,
     playerCriteria: req.body.playerCriteria,
     playerName: req.body.playerName,
   };
@@ -731,6 +751,10 @@ app.post("/api/book/import", express.json(), async (req, res) => {
   const bookSession = getBookSession(req);
   const summary = await importBookMoves(bookSession, settings, undefined, KIFU_DIR);
   res.json(summary);
+});
+
+app.all(/^\/api(?:\/|$)/, (req, res) => {
+  sendError(res, 404, "API endpoint not found");
 });
 
 app.use(express.static(shogiHomePath));
@@ -1282,6 +1306,7 @@ export class EngineSession {
   }
 
   private handleMessage(command: string) {
+    command = command.trim();
     if (this.isExplicitlyTerminated || this.engineState === EngineState.TERMINATING) {
       return;
     }
