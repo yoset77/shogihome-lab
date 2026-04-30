@@ -1,5 +1,4 @@
 import path from "node:path";
-import child_process from "node:child_process";
 import log4js from "log4js";
 import { getDateTimeString } from "@/common/helpers/datetime.js";
 import { isTest } from "./proc/env.js";
@@ -120,22 +119,9 @@ export function getTailCommand(logType: LogType): string {
   }
 }
 
-export function tailLogFile(logType: LogType): void {
-  const escapedCommand = getTailCommand(logType).replaceAll('"', '\\"');
-  switch (process.platform) {
-    case "win32":
-      child_process.spawn("powershell.exe", [
-        "-Command",
-        `start-process powershell '-NoExit','-Command "${escapedCommand}"'`,
-      ]);
-      break;
-    case "darwin":
-      child_process.spawn("osascript", [
-        "-e",
-        `tell app "Terminal" to do script "${escapedCommand}"`,
-        "-e",
-        `tell app "Terminal" to activate`,
-      ]);
-      break;
-  }
+// Not supported in server mode. Keep the exported API as a no-op for shared UI/CLI code.
+// Linux previously did nothing as well, and server deployments should not spawn GUI terminals.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function tailLogFile(_logType: LogType): void {
+  return;
 }

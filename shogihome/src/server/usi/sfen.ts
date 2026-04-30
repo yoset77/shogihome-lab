@@ -1,5 +1,5 @@
 import { Record, Position } from "tsshogi";
-import { hash as aperyHash } from "@/background/book/apery_zobrist.js";
+import { hash as aperyHash } from "@/server/book/apery_zobrist.js";
 import { normalizeSfen } from "@/common/usi/sfen.js";
 
 /**

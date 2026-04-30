@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getNormalizedSfenAndHash } from "@/background/usi/sfen.js";
+import { getNormalizedSfenAndHash } from "@/server/usi/sfen.js";
 
 describe("background/usi/sfen", () => {
   it("should parse 'position startpos' and return normalized sfen", () => {

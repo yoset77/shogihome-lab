@@ -1,6 +1,6 @@
 import path from "node:path";
 import { promises as fs } from "node:fs";
-import { getUserDataPath } from "@/background/proc/path.js";
+import { getUserDataPath } from "@/server/proc/path.js";
 import {
   BackupEntryV2,
   HistoryClass,
@@ -8,10 +8,10 @@ import {
   RecordFileHistoryEntry,
   getEmptyHistory,
 } from "@/common/file/history.js";
-import { getAppLogger } from "@/background/log.js";
+import { getAppLogger } from "@/server/log.js";
 import AsyncLock from "async-lock";
-import { exists } from "@/background/helpers/file.js";
-import { writeFileAtomic } from "@/background/file/atomic.js";
+import { exists } from "@/server/helpers/file.js";
+import { writeFileAtomic } from "@/server/file/atomic.js";
 import { getBlackPlayerName, getWhitePlayerName, importKIF, Record } from "tsshogi";
 import { getRecordTitleFromMetadata } from "@/common/helpers/metadata.js";
 

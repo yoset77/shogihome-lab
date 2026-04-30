@@ -7,10 +7,10 @@ vi.hoisted(() => {
 
 // eslint-disable-next-line no-restricted-imports
 import { app } from "../../../server.js";
-import * as bookAPI from "@/background/book/index.js";
+import * as bookAPI from "@/server/book/index.js";
 
 // Mock the dependencies
-vi.mock("@/background/book/index.js", () => {
+vi.mock("@/server/book/index.js", () => {
   let sessionCounter = 100;
   const sessions = new Set<number>();
 

@@ -1,5 +1,5 @@
 import type express from "express";
-import { closeBookSession, initBookSession } from "@/background/book";
+import { closeBookSession, initBookSession } from "@/server/book";
 import { HttpError } from "@/server/errors";
 
 const SESSION_ID_HEADER_REGEX = /^[a-zA-Z0-9_-]{8,128}$/;

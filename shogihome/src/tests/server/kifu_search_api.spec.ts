@@ -40,7 +40,7 @@ const kifuIndexSyncMock = vi.hoisted(() => ({
 
 vi.mock("@/server/database/kifu_index.js", () => kifuIndexMock);
 vi.mock("@/server/database/sqlite.js", () => sqliteMock);
-vi.mock("@/background/usi/sfen.js", () => sfenMock);
+vi.mock("@/server/usi/sfen.js", () => sfenMock);
 vi.mock("@/server/kifu_index/sync.js", () => kifuIndexSyncMock);
 
 // eslint-disable-next-line no-restricted-imports

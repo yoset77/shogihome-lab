@@ -1,5 +1,5 @@
 import { CSAServerSettings } from "@/common/settings/csa.js";
-import { getCSALogger } from "@/background/log.js";
+import { getCSALogger } from "@/server/log.js";
 import { Client, State } from "@/background/csa/client.js";
 import { CSASessionState } from "@/common/advanced/monitor.js";
 import { CommandHistory, CommandType, Command } from "@/common/advanced/command.js";

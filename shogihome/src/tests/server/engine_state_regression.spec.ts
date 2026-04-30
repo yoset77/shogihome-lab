@@ -1,5 +1,5 @@
-// eslint-disable-next-line no-restricted-imports
-import { EngineSession, EngineState } from "../../../server";
+import { EngineSession } from "@/server/engine/session";
+import { EngineState } from "@/server/engine/types";
 import { vi, describe, it, expect, beforeEach, type Mock } from "vitest";
 
 // Define a type that matches the internal structure of EngineSession for testing

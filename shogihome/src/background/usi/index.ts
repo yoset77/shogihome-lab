@@ -4,7 +4,7 @@ import * as uri from "@/common/uri.js";
 import { GameResult } from "@/common/game/result.js";
 import { t } from "@/common/i18n/index.js";
 import { resolveEnginePath } from "@/background/usi/path.js";
-import { getUSILogger } from "@/background/log.js";
+import { getUSILogger } from "@/server/log.js";
 import { USISessionState } from "@/common/advanced/monitor.js";
 import { CommandHistory, CommandType, Command } from "@/common/advanced/command.js";
 import { USIInfoCommand } from "@/common/game/usi.js";

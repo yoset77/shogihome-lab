@@ -1,7 +1,7 @@
 import express, { type Express } from "express";
 import events from "node:events";
 import fs from "fs";
-import { getNormalizedSfenAndHash } from "@/background/usi/sfen";
+import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
 import { resolveKifuPath } from "@/server/helpers/kifu";
 import {
   cleanupAnalysisResults,

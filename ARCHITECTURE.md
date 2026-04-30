@@ -35,10 +35,13 @@ graph LR
 | `src/server/websocket.ts` | WebSocket サーバーの生成、Origin/Host 検証、sessionId 検証、ハートビート、セッションへの接続委譲。 |
 | `src/server/engine/` | Wrapper 認証、エンジン設定キャッシュ、エンジン一覧取得、`EngineState` などのエンジン通信関連モジュール。 |
 | `src/server/engine/session.ts` | WebSocket/TCP 間の USI セッション本体。エンジン起動、状態遷移、停止キュー、解析結果DB保存を管理します。 |
-| `src/server/helpers/` | サーバー専用の棋譜ディレクトリ操作、外部棋譜取得、LAN IP 検出ヘルパー。 |
+| `src/server/book/` | Web/LAN 定跡編集 API で使う定跡ファイル読み書き、検索、インポート処理。 |
+| `src/server/helpers/` | サーバー専用の棋譜ディレクトリ操作、外部棋譜取得、LAN IP 検出、ファイル操作、rate limit ヘルパー。 |
 | `src/server/database/` | サーバー側の検討結果DBと棋譜検索インデックスDB。 |
 | `src/server/kifu_index/` | `KIFU_DIR` の棋譜インデックス作成・同期処理。 |
-| `src/server/file/history.ts` | サーバー側の棋譜履歴・バックアップ永続化。 |
+| `src/server/file/` | サーバー側の atomic write と棋譜履歴・バックアップ永続化。 |
+| `src/server/log.ts`, `src/server/settings.ts`, `src/server/proc/` | Node サーバー/CLI 共有のログ、設定ファイル、実行環境パス関連ユーティリティ。 |
+| `src/server/usi/sfen.ts` | サーバー側の SFEN 正規化と局面ハッシュ計算。 |
 | `src/renderer/store/index.ts` | **状態管理**。アプリ全体のステートを保持し、対局・検討・編集などの各マネージャー（`GameManager`, `ResearchManager` 等）を統合します。検討停止は `ResearchState.STOPPING` を経由する非同期ライフサイクルとして扱い、停止完了前に UI を `IDLE` 扱いしないようにしています。 |
 | `src/renderer/players/lan_player.ts` | **リモートプレイヤー**。USIプロトコルの同期制御（Stop待ち、コマンド送信）を実装し、通信経由でエンジンを操作する実体です。 |
 | `src/renderer/network/lan_engine.ts` | **リモートエンジン通信クライアント**。WebSocket接続とコマンド送信、エンジンリスト取得を管理。 |

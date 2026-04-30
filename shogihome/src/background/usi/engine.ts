@@ -6,7 +6,7 @@ import {
   USIHash,
   USIPonder,
 } from "@/common/settings/usi.js";
-import { Logger } from "@/background/log.js";
+import { Logger } from "@/server/log.js";
 import { USIInfoCommand, parseInfoCommand } from "@/common/game/usi.js";
 import { ChildProcess } from "./process.js";
 import {

@@ -5,7 +5,7 @@ import {
   BookLoadingOptions,
   BookMove as CommonBookMove,
 } from "@/common/book.js";
-import { getAppLogger } from "@/background/log.js";
+import { getAppLogger } from "@/server/log.js";
 import {
   arrayMoveToCommonBookMove,
   Book,
@@ -26,14 +26,14 @@ import {
   validateBookPositionOrdering,
 } from "./yaneuraou.js";
 import { BookImportSettings, PlayerCriteria, SourceType } from "@/common/settings/book.js";
-import { exists, listFiles } from "@/background/helpers/file.js";
+import { exists, listFiles } from "@/server/helpers/file.js";
 import {
   detectRecordFileFormatByPath,
   importRecordFromBuffer,
   RecordFileFormat,
 } from "@/common/file/record.js";
 import { TextDecodingRule } from "@/common/settings/app.js";
-import { loadAppSettings } from "@/background/settings.js";
+import { loadAppSettings } from "@/server/settings.js";
 import {
   Color,
   getBlackPlayerName,
@@ -50,7 +50,7 @@ import {
   searchAperyBookMovesOnTheFly,
   storeAperyBook,
 } from "./apery.js";
-import { writeStreamAtomic } from "@/background/file/atomic_stream.js";
+import { writeStreamAtomic } from "@/server/file/atomic_stream.js";
 
 type BookHandle = InMemoryBook | OnTheFlyBook;
 

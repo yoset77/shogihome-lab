@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { getLocalIpAddresses } from "@/server/helpers/ip";
+import { dataDir } from "@/server/proc/path";
 
 const hasRuntimeAssets = (basePath: string): boolean =>
   fs.existsSync(path.join(basePath, "docs", "webapp")) ||
@@ -111,7 +112,7 @@ ALLOWED_ORIGINS.forEach((origin) => {
 console.log("Allowed Origins:", ALLOWED_ORIGINS);
 
 export const shogiHomePath = path.join(getBasePath(), "docs", "webapp");
-export const dataDir = path.join(getBasePath(), "data");
+export { dataDir };
 export const KIFU_DIR = process.env.KIFU_DIR
   ? path.resolve(getBasePath(), process.env.KIFU_DIR)
   : null;

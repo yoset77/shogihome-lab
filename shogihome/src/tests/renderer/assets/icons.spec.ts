@@ -1,4 +1,4 @@
-import { exists } from "@/background/helpers/file.js";
+import { exists } from "@/server/helpers/file.js";
 import { iconSourceMap } from "@/renderer/assets/icons.js";
 
 describe("assets/icons", () => {

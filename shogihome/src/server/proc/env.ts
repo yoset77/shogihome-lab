@@ -1,7 +1,3 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-
 export function isDevelopment(): boolean {
   return process.env.npm_lifecycle_event === "serve" && !isTest();
 }
@@ -24,13 +20,4 @@ export function isPortable(): boolean {
 
 export function getPortableExeDir(): string | undefined {
   return process.env.PORTABLE_EXECUTABLE_DIR;
-}
-
-let tempPathForTesting: string;
-
-export function getTempPathForTesting(): string {
-  if (!tempPathForTesting) {
-    tempPathForTesting = fs.mkdtempSync(path.join(os.tmpdir(), "shogihome-test-"));
-  }
-  return tempPathForTesting;
 }

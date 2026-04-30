@@ -10,7 +10,7 @@ import { createHelmetMiddleware, createRateLimiter, validateHostHeader } from "@
 import { setupKifuWatcher } from "@/server/helpers/kifu";
 import * as kifuIndexDB from "@/server/database/kifu_index";
 import * as kifuIndexSync from "@/server/kifu_index/sync";
-import { writeFileAtomicSync } from "@/background/file/atomic";
+import { writeFileAtomicSync } from "@/server/file/atomic";
 import { initDatabase } from "@/server/database/sqlite";
 import { registerAnalysisRoutes } from "@/server/routes/analysis";
 import { registerBookRoutes } from "@/server/routes/book";

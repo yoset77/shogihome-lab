@@ -14,8 +14,8 @@ import {
   updateBookMove,
   updateBookMoveOrder,
   initBookSession,
-} from "@/background/book/index.js";
-import { getTempPathForTesting } from "@/background/proc/env.js";
+} from "@/server/book/index.js";
+import { getTempPathForTesting } from "@/tests/helpers/temp.js";
 import { defaultBookImportSettings, PlayerCriteria, SourceType } from "@/common/settings/book.js";
 import { createTestAperyBookFile } from "@/tests/mock/book.js";
 

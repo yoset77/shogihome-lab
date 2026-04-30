@@ -7,10 +7,10 @@ import {
   getPositionList,
   resolveKifuPath,
 } from "@/server/helpers/kifu";
-import { getNormalizedSfenAndHash } from "@/background/usi/sfen";
+import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
 import * as kifuIndexDB from "@/server/database/kifu_index";
 import * as kifuIndexSync from "@/server/kifu_index/sync";
-import { writeFileAtomic } from "@/background/file/atomic";
+import { writeFileAtomic } from "@/server/file/atomic";
 import { KIFU_DIR } from "@/server/config";
 import { sendError } from "@/server/errors";
 

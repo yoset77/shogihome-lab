@@ -1,4 +1,4 @@
-import { RateLimiter } from "@/background/helpers/limiter";
+import { RateLimiter } from "@/server/helpers/limiter";
 
 describe("limiter", () => {
   it("should limit", async () => {

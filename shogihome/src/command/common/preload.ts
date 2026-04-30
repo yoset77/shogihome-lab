@@ -1,4 +1,4 @@
-import { LogDestination, getAppLogger, setLogDestinations } from "@/background/log.js";
+import { LogDestination, getAppLogger, setLogDestinations } from "@/server/log.js";
 import {
   login as csaLogin,
   logout as csaLogout,

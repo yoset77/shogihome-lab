@@ -100,11 +100,11 @@ import { Clock } from "@/renderer/store/clock";
 import { RecordManager } from "@/renderer/store/record";
 import { CSAGameManager, loginRetryIntervalSeconds } from "@/renderer/store/csa";
 import { defaultPlayerBuilder } from "@/renderer/players/builder";
-import { getAppLogger } from "@/background/log";
+import { getAppLogger } from "@/server/log";
 import { generateRecordFileName } from "@/renderer/helpers/path";
 import { RecordFileFormat } from "@/common/file/record";
 import { ordinal } from "@/common/helpers/string";
-import { exists } from "@/background/helpers/file";
+import { exists } from "@/server/helpers/file";
 import { defaultRecordFileNameTemplate } from "@/common/file/path";
 
 // --------------------------------------------------------------------------------

@@ -14,7 +14,7 @@ import {
   IDX_USI2,
   mergeBookEntries,
 } from "./types.js";
-import { getAppLogger } from "@/background/log.js";
+import { getAppLogger } from "@/server/log.js";
 
 const YANEURAOU_BOOK_HEADER_V100 = "#YANEURAOU-DB2016 1.00";
 

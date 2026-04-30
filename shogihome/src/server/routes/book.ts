@@ -10,7 +10,7 @@ import {
   searchBookMoves,
   updateBookMove,
   updateBookMoveOrder,
-} from "@/background/book";
+} from "@/server/book";
 import { closeBookSessionForRequest, getBookSession } from "@/server/bookSessionManager";
 import { KIFU_DIR, ONTHEFLY_THRESHOLD_MB } from "@/server/config";
 import { sendError } from "@/server/errors";

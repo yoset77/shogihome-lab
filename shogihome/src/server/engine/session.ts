@@ -1,7 +1,7 @@
 import net from "net";
 import readline from "readline";
 import { WebSocket } from "ws";
-import { getNormalizedSfenAndHash } from "@/background/usi/sfen";
+import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
 import { saveAnalysisResults } from "@/server/database/sqlite";
 import { parseInfoCommand, type USIInfoCommand } from "@/common/game/usi";
 import {
