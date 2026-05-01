@@ -236,4 +236,29 @@ describe("LanEngine", () => {
 
     expect(scheduleReconnectSpy).toHaveBeenCalled();
   });
+
+  it("should send stop_engine before disconnecting a connected engine", async () => {
+    const engine = new LanEngine("test-session");
+    const connectPromise = engine.connect();
+    mockWs.readyState = 1;
+    mockWs.onopen?.();
+    await connectPromise;
+
+    await engine.terminateEngine();
+
+    expect(mockWs.send).toHaveBeenCalledWith("stop_engine");
+    expect(mockWs.close).toHaveBeenCalled();
+  });
+
+  it("should reconnect to send stop_engine for explicit termination", async () => {
+    const engine = new LanEngine("test-session");
+
+    const terminatePromise = engine.terminateEngine();
+    mockWs.readyState = 1;
+    mockWs.onopen?.();
+    await terminatePromise;
+
+    expect(mockWs.send).toHaveBeenCalledWith("stop_engine");
+    expect(mockWs.close).toHaveBeenCalled();
+  });
 });

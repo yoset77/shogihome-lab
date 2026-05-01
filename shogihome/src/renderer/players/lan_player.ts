@@ -48,6 +48,7 @@ export class LanPlayer implements Player {
   private stopPromiseResolver: (() => void) | null = null;
   private stopPromiseRejector: ((err: Error) => void) | null = null;
   private stopPromise: Promise<void> | null = null;
+  private stopExpectedSfen: string | null = null;
   private stopPromiseTimeoutId: number | null = null;
   private readyReplayTimeoutId: number | null = null;
   private _multiPV: number = 1;
@@ -179,7 +180,8 @@ export class LanPlayer implements Player {
     handler: SearchHandler,
   ): Promise<void> {
     return this.lock.acquire("search", async () => {
-      const isNewSfen = this.currentSfen !== usi;
+      const previousSfen = this.currentSfen;
+      const isNewSfen = previousSfen !== usi;
       this.clearHandlers();
       this.handler = handler;
       this.position = position;
@@ -187,11 +189,11 @@ export class LanPlayer implements Player {
       if (isNewSfen) {
         this.clearPendingInfo();
       }
-      if (await this.searchBook()) {
+      if (await this.searchBook(previousSfen)) {
         return;
       }
       if (this.isThinking) {
-        await this.stopAndWait();
+        await this.stopAndWait(previousSfen);
       }
       this.lanEngine.sendCommand(usi); // "position ..."
 
@@ -221,15 +223,16 @@ export class LanPlayer implements Player {
 
   async startResearch(position: ImmutablePosition, usi: string): Promise<void> {
     return this.lock.acquire("search", async () => {
+      const previousSfen = this.currentSfen;
       this.clearHandlers();
       this.position = position.clone();
       this.currentSfen = usi;
       this.clearPendingInfo();
-      if (await this.searchBook()) {
+      if (await this.searchBook(previousSfen)) {
         return;
       }
       if (this.isThinking) {
-        await this.stopAndWait();
+        await this.stopAndWait(previousSfen);
       }
       this.lanEngine.sendCommand(usi);
       this.lanEngine.sendCommand("go infinite");
@@ -254,13 +257,14 @@ export class LanPlayer implements Player {
     handler: MateHandler,
   ): Promise<void> {
     return this.lock.acquire("search", async () => {
+      const previousSfen = this.currentSfen;
       this.clearHandlers();
       this.mateHandler = handler;
       this.position = position.clone();
       this.currentSfen = usi;
       this.clearPendingInfo();
       if (this.isThinking) {
-        await this.stopAndWait();
+        await this.stopAndWait(previousSfen);
       }
       this.lanEngine.sendCommand(usi);
       this.lanEngine.sendCommand("go mate" + (maxSeconds ? ` ${maxSeconds * 1000}` : " infinite"));
@@ -296,13 +300,15 @@ export class LanPlayer implements Player {
           await this.stopAndWait();
         }
       } finally {
-        this.lanEngine.stopEngine();
-        this.lanEngine.disconnect();
-        this.unsubscribeStatus?.();
-        this.unsubscribeStatus = undefined;
-        delete lanPlayers[this._sessionID];
-        if (this.bookSessionID) {
-          api.closeBook(this.bookSessionID);
+        try {
+          await this.lanEngine.terminateEngine();
+        } finally {
+          this.unsubscribeStatus?.();
+          this.unsubscribeStatus = undefined;
+          delete lanPlayers[this._sessionID];
+          if (this.bookSessionID) {
+            api.closeBook(this.bookSessionID);
+          }
         }
       }
     });
@@ -319,7 +325,7 @@ export class LanPlayer implements Player {
     }
   }
 
-  private async searchBook(): Promise<boolean> {
+  private async searchBook(stopSfen?: string): Promise<boolean> {
     if (!this.bookSessionID || !this.position) {
       return false;
     }
@@ -339,7 +345,7 @@ export class LanPlayer implements Player {
     }
     // 思考中の場合は停止
     if (this.isThinking) {
-      await this.stopAndWait();
+      await this.stopAndWait(stopSfen);
     }
     return searchBookMovesForPlayer(
       this._sessionID,
@@ -371,11 +377,12 @@ export class LanPlayer implements Player {
     this.mateHandler = undefined;
   }
 
-  private async stopAndWait(): Promise<void> {
+  private async stopAndWait(expectedSfen: string = this.currentSfen): Promise<void> {
     if (this.stopPromise) {
       return this.stopPromise;
     }
 
+    this.stopExpectedSfen = expectedSfen || null;
     this.stopPromise = new Promise((resolve, reject) => {
       this.stopPromiseResolver = resolve;
       this.stopPromiseRejector = reject;
@@ -416,10 +423,13 @@ export class LanPlayer implements Player {
         const infoStr = data.info as string;
         if (infoStr.startsWith("bestmove")) {
           this.clearReadyReplayTimeout();
-          if (this.stopPromiseResolver || data.sfen === this.currentSfen) {
+          const isStopAck = this.isStopAcknowledgement(data.sfen);
+          if (isStopAck || data.sfen === this.currentSfen) {
             this.isThinking = false;
           }
-          this.resolveStopPromise();
+          if (isStopAck) {
+            this.resolveStopPromise();
+          }
 
           if (data.sfen === this.currentSfen) {
             this.flushInfo();
@@ -452,10 +462,13 @@ export class LanPlayer implements Player {
           }
         } else if (infoStr.startsWith("checkmate") && this.position) {
           this.clearReadyReplayTimeout();
-          if (this.stopPromiseResolver || data.sfen === this.currentSfen) {
+          const isStopAck = this.isStopAcknowledgement(data.sfen);
+          if (isStopAck || data.sfen === this.currentSfen) {
             this.isThinking = false;
           }
-          this.resolveStopPromise();
+          if (isStopAck) {
+            this.resolveStopPromise();
+          }
 
           if (data.sfen !== this.currentSfen) {
             this.clearPendingInfo();
@@ -630,6 +643,7 @@ export class LanPlayer implements Player {
     this.stopPromiseResolver = null;
     this.stopPromiseRejector = null;
     this.stopPromise = null;
+    this.stopExpectedSfen = null;
     this.clearStopPromiseTimeout();
     resolver?.();
   }
@@ -639,8 +653,19 @@ export class LanPlayer implements Player {
     this.stopPromiseResolver = null;
     this.stopPromiseRejector = null;
     this.stopPromise = null;
+    this.stopExpectedSfen = null;
     this.clearStopPromiseTimeout();
     rejector?.(error);
+  }
+
+  private isStopAcknowledgement(sfen: unknown): boolean {
+    if (!this.stopPromiseResolver) {
+      return false;
+    }
+    if (!this.stopExpectedSfen || typeof sfen !== "string") {
+      return true;
+    }
+    return sfen === this.stopExpectedSfen;
   }
 
   private scheduleReadyReplayTimeout() {

@@ -296,6 +296,20 @@ export class LanEngine {
     this.setStatus("disconnected");
   }
 
+  async terminateEngine(): Promise<void> {
+    this.clearReconnect();
+    try {
+      if (!this.isConnected()) {
+        await this.connect();
+      }
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send("stop_engine");
+      }
+    } finally {
+      this.disconnect();
+    }
+  }
+
   sendCommand(command: string) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
