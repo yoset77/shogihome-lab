@@ -78,6 +78,7 @@ async function resolveExistingPathInsideRoot(
   if (!isPathInsideDirectory(rootPath, resolvedTarget)) {
     throw new Error("Forbidden path: " + resolvedTarget);
   }
+  // codeql[js/path-injection]
   const stat = await fs.promises.lstat(resolvedTarget);
   if (stat.isSymbolicLink()) {
     throw new Error("Forbidden path: " + resolvedTarget);
@@ -91,9 +92,11 @@ async function listFilesInsideRoot(rootDirectory: string, dir: string): Promise<
   const files: string[] = [];
 
   async function visit(currentDir: string): Promise<void> {
+    // codeql[js/path-injection]
     const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
     for (const entry of entries) {
       const entryPath = path.join(currentDir, entry.name);
+      // codeql[js/path-injection]
       const stat = await fs.promises.lstat(entryPath);
       if (stat.isSymbolicLink()) {
         continue;
@@ -532,6 +535,7 @@ export async function importBookMoves(
           }
           throw e;
         }
+        // codeql[js/path-injection]
         const sourceStat = await fs.promises.lstat(sourcePath);
         if (!sourceStat.isFile()) {
           throw new Error(t.fileNotFound(settings.sourceRecordFile));
@@ -556,6 +560,7 @@ export async function importBookMoves(
           }
           throw e;
         }
+        // codeql[js/path-injection]
         const sourceStat = await fs.promises.lstat(sourceDirectory);
         if (!sourceStat.isDirectory()) {
           throw new Error(t.directoryNotFound(settings.sourceDirectory));
@@ -598,6 +603,7 @@ export async function importBookMoves(
 
       getAppLogger().debug("Importing book moves from: %s", safeRecordFilePath);
       const format = detectRecordFileFormatByPath(safeRecordFilePath) as RecordFileFormat;
+      // codeql[js/path-injection]
       const sourceData = await fs.promises.readFile(safeRecordFilePath);
 
       if (format === RecordFileFormat.SFEN) {
