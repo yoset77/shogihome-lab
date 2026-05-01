@@ -1,6 +1,7 @@
 import { EngineSession } from "@/server/engine/session";
 import { EngineState } from "@/server/engine/types";
 import { vi, describe, it, expect, beforeEach, type Mock } from "vitest";
+import { PassThrough } from "stream";
 
 // Define a type that matches the internal structure of EngineSession for testing
 type TestableEngineSession = {
@@ -11,8 +12,11 @@ type TestableEngineSession = {
     removeAllListeners: Mock<() => void>;
   } | null;
   postStopCommandQueue: string[];
+  messageBuffer: { data: unknown; createdAt: number }[];
   handleMessage(command: string): void;
   onEngineClose(): void;
+  sendToClient(data: unknown): void;
+  setupEngineHandlers(stream: NodeJS.ReadableStream): void;
 };
 
 interface MockExtendedWebSocket {
@@ -39,6 +43,7 @@ describe("Engine State Regression Tests", () => {
     session = new EngineSession("test-session");
     tSession = session as unknown as TestableEngineSession;
     session.attach(mockWs as unknown as Parameters<EngineSession["attach"]>[0]);
+    mockWs.send.mockClear();
   });
 
   it("should handle stop_engine immediately during STOPPING_SEARCH", async () => {
@@ -98,5 +103,55 @@ describe("Engine State Regression Tests", () => {
     // Verification: State should be STOPPED and ID cleared
     expect(tSession.engineState).toBe(EngineState.STOPPED);
     expect((tSession as unknown as { currentEngineId: string | null }).currentEngineId).toBeNull();
+  });
+
+  it("should not replay go before a newer queued position after stop", async () => {
+    const stream = new PassThrough();
+    tSession.engineState = EngineState.STOPPING_SEARCH;
+    tSession.engineHandle = {
+      write: vi.fn(),
+      close: vi.fn(),
+      removeAllListeners: vi.fn(),
+    };
+    tSession.postStopCommandQueue.push(
+      "position startpos moves 7g7f",
+      "go infinite",
+      "position startpos moves 2g2f",
+    );
+    tSession.setupEngineHandlers(stream);
+
+    stream.write("bestmove 7g7f\n");
+
+    await vi.waitFor(() => {
+      expect(tSession.engineState).toBe(EngineState.READY);
+    });
+    expect(tSession.engineHandle.write).toHaveBeenCalledTimes(1);
+    expect(tSession.engineHandle.write).toHaveBeenCalledWith("position startpos moves 2g2f\n");
+  });
+
+  it("should not send late bestmove while terminating", async () => {
+    const stream = new PassThrough();
+    tSession.engineState = EngineState.TERMINATING;
+    tSession.engineHandle = {
+      write: vi.fn(),
+      close: vi.fn(),
+      removeAllListeners: vi.fn(),
+    };
+    tSession.setupEngineHandlers(stream);
+
+    stream.write("bestmove 7g7f\n");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockWs.send).not.toHaveBeenCalledWith(expect.stringContaining("bestmove"));
+  });
+
+  it("should cap disconnected message buffer size", () => {
+    (tSession as unknown as { ws: null }).ws = null;
+
+    for (let i = 0; i < 80; i++) {
+      tSession.sendToClient({ info: `debug line ${i}` });
+    }
+
+    expect(tSession.messageBuffer.length).toBeLessThanOrEqual(50);
   });
 });

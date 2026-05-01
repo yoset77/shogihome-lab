@@ -20,6 +20,19 @@ import {
   type ExtendedWebSocket,
 } from "@/server/engine/types";
 
+const findLast = (
+  commands: string[],
+  predicate: (command: string) => boolean,
+): { command: string; index: number } | undefined => {
+  for (let index = commands.length - 1; index >= 0; index--) {
+    const command = commands[index];
+    if (predicate(command)) {
+      return { command, index };
+    }
+  }
+  return undefined;
+};
+
 export class EngineSession {
   private currentEngineId: string | null = null;
   private currentEngineConfig: EngineConfig | null = null;
@@ -38,6 +51,7 @@ export class EngineSession {
   private lastInfos = new Map<number, USIInfoCommand>();
 
   private readonly MAX_QUEUE_SIZE = 100;
+  private readonly MAX_BUFFERED_MESSAGES = 50;
 
   constructor(
     public readonly sessionId: string,
@@ -197,6 +211,16 @@ export class EngineSession {
         }
       }
       this.messageBuffer.push({ data, createdAt });
+      while (this.messageBuffer.length > this.MAX_BUFFERED_MESSAGES) {
+        const removableInfoIndex = this.messageBuffer.findIndex(
+          (m) =>
+            typeof m.data === "object" &&
+            m.data !== null &&
+            "info" in m.data &&
+            (m.data as { info: string }).info.startsWith("info"),
+        );
+        this.messageBuffer.splice(removableInfoIndex >= 0 ? removableInfoIndex : 0, 1);
+      }
     }
   }
 
@@ -302,6 +326,51 @@ export class EngineSession {
     }
   }
 
+  private collectPostStopCommands(): string[] {
+    const startIndex = this.postStopCommandQueue.lastIndexOf("usinewgame");
+    const commands = this.postStopCommandQueue.slice(startIndex >= 0 ? startIndex : 0);
+    const result: string[] = [];
+
+    const latestMultiPV = findLast(commands, (cmd) => cmd.startsWith("setoption name MultiPV"));
+    const latestGameover = findLast(commands, (cmd) => cmd.startsWith("gameover"));
+    const latestPosition = findLast(commands, (cmd) => cmd.startsWith("position"));
+    const latestGo = findLast(commands, (cmd) => cmd.startsWith("go"));
+
+    if (startIndex >= 0) {
+      result.push("usinewgame");
+    }
+    if (latestMultiPV) {
+      result.push(latestMultiPV.command);
+    }
+    if (latestGameover) {
+      result.push(latestGameover.command);
+    }
+    if (latestPosition) {
+      result.push(latestPosition.command);
+    }
+    if (latestGo && (!latestPosition || latestGo.index > latestPosition.index)) {
+      result.push(latestGo.command);
+    }
+
+    const knownCommands = new Set(result);
+    const knownKinds = new Set([
+      "setoption name MultiPV",
+      "gameover",
+      "position",
+      "go",
+      "usinewgame",
+    ]);
+    for (const command of commands) {
+      const known =
+        knownKinds.has(command) || [...knownKinds].some((kind) => command.startsWith(kind));
+      if (!known && !knownCommands.has(command)) {
+        result.push(command);
+        knownCommands.add(command);
+      }
+    }
+    return result;
+  }
+
   private onEngineClose() {
     if (
       this.engineState === EngineState.STOPPED ||
@@ -355,6 +424,10 @@ export class EngineSession {
         return;
       }
 
+      if (this.engineState === EngineState.TERMINATING) {
+        return;
+      }
+
       this.sendToClient({ sfen: this.pendingGoSfen, info: line });
 
       if (line.startsWith("bestmove") || line.startsWith("checkmate")) {
@@ -391,50 +464,13 @@ export class EngineSession {
         }
         this.lastInfos.clear();
 
-        if (this.engineState === EngineState.TERMINATING) {
-          return;
-        }
-
         if (this.engineState === EngineState.STOPPING_SEARCH) {
           if (this.stopTimeout) {
             clearTimeout(this.stopTimeout);
             this.stopTimeout = null;
           }
 
-          // Filter and collect commands to replay.
-          // Resend all commands after the last usinewgame in order,
-          // keeping only the latest 1 of each same type.
-          const commandsToRun: string[] = [];
-          const seenKinds = new Set<string>();
-
-          for (let i = this.postStopCommandQueue.length - 1; i >= 0; i--) {
-            const cmd = this.postStopCommandQueue[i];
-
-            let kind = "";
-            if (cmd.startsWith("setoption name MultiPV")) {
-              kind = "setoption:multipv";
-            } else if (cmd.startsWith("position")) {
-              kind = "position";
-            } else if (cmd.startsWith("go")) {
-              kind = "go";
-            } else if (cmd.startsWith("gameover")) {
-              kind = "gameover";
-            } else if (cmd === "usinewgame") {
-              kind = "usinewgame";
-            } else {
-              kind = `other:${cmd}`;
-            }
-
-            if (!seenKinds.has(kind)) {
-              seenKinds.add(kind);
-              commandsToRun.unshift(cmd);
-            }
-
-            if (kind === "usinewgame") {
-              break;
-            }
-          }
-
+          const commandsToRun = this.collectPostStopCommands();
           this.postStopCommandQueue.length = 0;
           this.engineState = EngineState.READY;
           this.sendState();

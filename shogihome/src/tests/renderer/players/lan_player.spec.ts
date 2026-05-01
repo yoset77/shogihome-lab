@@ -59,6 +59,7 @@ describe("LanPlayer", () => {
       return Promise.resolve();
     });
     (LanEngine.prototype.setOption as Mock).mockResolvedValue(undefined);
+    (LanEngine.prototype.terminateEngine as Mock).mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -628,5 +629,32 @@ describe("LanPlayer", () => {
     // Both should have finished, but sequentially.
     // We verify currentSfen is the second one.
     expect((player as unknown as { currentSfen: string }).currentSfen).toBe(usi2);
+  });
+
+  it("should not resolve stop wait with bestmove from unrelated SFEN", async () => {
+    (LanEngine.prototype.sendCommand as Mock).mockImplementation(() => Promise.resolve());
+
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine");
+    await launchPlayer(player);
+
+    const usi1 = "position startpos moves 7g7f";
+    const usi2 = "position startpos moves 2g2f";
+    const record1 = Record.newByUSI(usi1) as Record;
+    const record2 = Record.newByUSI(usi2) as Record;
+
+    await player.startResearch(record1.position, usi1);
+    const secondSearch = player.startResearch(record2.position, usi2);
+    await vi.advanceTimersByTimeAsync(100);
+
+    sendMsg({ sfen: "position startpos moves 3g3f", info: "bestmove 8c8d" });
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(LanEngine.prototype.sendCommand).not.toHaveBeenCalledWith(usi2);
+
+    sendMsg({ sfen: usi1, info: "bestmove 3c3d" });
+    await vi.advanceTimersByTimeAsync(100);
+    await secondSearch;
+
+    expect(LanEngine.prototype.sendCommand).toHaveBeenCalledWith(usi2);
   });
 });
