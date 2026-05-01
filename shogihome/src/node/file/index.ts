@@ -10,19 +10,12 @@ export async function exists(path: string): Promise<boolean> {
   }
 }
 
-/**
- * 指定したディレクトリ以下のファイル名を再帰的に列挙する。
- * @param dir 検索を開始するディレクトリのパス。
- * @param maxDepth 再帰する深さ。0の場合は直下のファイルのみを返す。
- */
 export async function listFiles(dir: string, maxDepth: number): Promise<string[]> {
   const files: string[] = [];
   const fdir = await fs.readdir(dir);
   for (const file of fdir) {
     const fullPath = path.join(dir, file);
-    // NOTE:
-    //   lstatSync (statSync ではなく) を使わないとシンボリックリンクも対象になっていしまい危険。
-    //   Windows のショートカットは ".lnk" が付いたファイルとして扱われる。
+    // Use lstat so symbolic links are not traversed as directories.
     const stat = await fs.lstat(fullPath);
     if (stat.isFile()) {
       files.push(fullPath);

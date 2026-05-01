@@ -4,7 +4,7 @@ import * as uri from "@/common/uri";
 import { GameResult } from "@/common/game/result";
 import { t } from "@/common/i18n/index";
 import { resolveEnginePath } from "@/background/usi/path";
-import { getUSILogger } from "@/server/log";
+import { getUSILogger } from "@/node/log";
 import { USISessionState } from "@/common/advanced/monitor";
 import { CommandHistory, CommandType, Command } from "@/common/advanced/command";
 import { USIInfoCommand } from "@/common/game/usi";

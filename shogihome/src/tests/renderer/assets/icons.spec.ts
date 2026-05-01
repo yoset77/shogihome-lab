@@ -1,4 +1,4 @@
-import { exists } from "@/server/helpers/file";
+import { exists } from "@/node/file";
 import { iconSourceMap } from "@/renderer/assets/icons";
 
 describe("assets/icons", () => {

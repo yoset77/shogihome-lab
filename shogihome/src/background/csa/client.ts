@@ -9,7 +9,7 @@ import {
 } from "@/common/game/csa";
 import { CSAProtocolVersion, CSAServerSettings } from "@/common/settings/csa";
 import { Socket } from "./socket.js";
-import { Logger } from "@/server/log";
+import { Logger } from "@/node/log";
 import { t } from "@/common/i18n/index";
 import {
   Command,

@@ -1,4 +1,4 @@
-import { getTailCommand, tailLogFile } from "@/server/log";
+import { getTailCommand, tailLogFile } from "@/node/log";
 import { LogType } from "@/common/log";
 
 describe("log", () => {

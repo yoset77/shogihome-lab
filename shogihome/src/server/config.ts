@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { getLocalIpAddresses } from "@/server/helpers/ip";
-import { dataDir } from "@/server/proc/path";
+import { dataDir } from "@/node/proc/path";
 
 const hasRuntimeAssets = (basePath: string): boolean =>
   fs.existsSync(path.join(basePath, "docs", "webapp")) ||

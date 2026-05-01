@@ -1,11 +1,11 @@
 import path from "node:path";
 import fs from "node:fs";
-import { getUserDataPath } from "@/server/proc/path";
+import { getUserDataPath } from "@/node/proc/path";
 import { loadAppSettings } from "@/server/settings";
 import { defaultAppSettings } from "@/common/settings/app";
 import { getTempPathForTesting } from "@/tests/helpers/temp";
 
-vi.mock("@/server/proc/path.js");
+vi.mock("@/node/proc/path.js");
 
 const mockUserDataPath = path.join(getTempPathForTesting(), "userData");
 

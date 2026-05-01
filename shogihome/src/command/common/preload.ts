@@ -1,4 +1,4 @@
-import { LogDestination, getAppLogger, setLogDestinations } from "@/server/log";
+import { LogDestination, getAppLogger, setLogDestinations } from "@/node/log";
 import {
   login as csaLogin,
   logout as csaLogout,

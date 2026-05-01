@@ -7,7 +7,7 @@ import {
   loadBackup,
   saveBackup,
 } from "@/server/file/history";
-import { getUserDataPath } from "@/server/proc/path";
+import { getUserDataPath } from "@/node/proc/path";
 import {
   BackupEntryV2,
   HistoryClass,
@@ -16,7 +16,7 @@ import {
 } from "@/common/file/history";
 import { getTempPathForTesting } from "@/tests/helpers/temp";
 
-vi.mock("@/server/proc/path.js");
+vi.mock("@/node/proc/path.js");
 
 const mockUserDataPath = path.join(getTempPathForTesting(), "userData");
 const historyPath = path.join(mockUserDataPath, "record_file_history.json");
