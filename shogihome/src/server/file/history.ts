@@ -10,7 +10,6 @@ import {
 } from "@/common/file/history";
 import { getAppLogger } from "@/node/log";
 import AsyncLock from "async-lock";
-import { exists } from "@/node/file";
 import { writeFileAtomic } from "@/server/file/atomic";
 import { getBlackPlayerName, getWhitePlayerName, importKIF, Record } from "tsshogi";
 import { getRecordTitleFromMetadata } from "@/common/helpers/metadata";
@@ -32,14 +31,14 @@ const lock = new AsyncLock();
 export async function getHistoryWithoutLock(): Promise<RecordFileHistory> {
   try {
     const historyPath = getHistoryPath();
-    if (!(await exists(historyPath))) {
-      return { entries: [] };
-    }
     return {
       ...getEmptyHistory(),
       ...JSON.parse(await fs.readFile(historyPath, "utf8")),
     };
   } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+      return { entries: [] };
+    }
     getAppLogger().warn(`failed to load history: ${e}`);
     return { entries: [] };
   }

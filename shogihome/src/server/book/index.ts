@@ -22,7 +22,6 @@ import {
   validateBookPositionOrdering,
 } from "./yaneuraou.js";
 import { BookImportSettings, PlayerCriteria, SourceType } from "@/common/settings/book";
-import { exists, listFiles } from "@/node/file";
 import {
   detectRecordFileFormatByPath,
   importRecordFromBuffer,
@@ -64,6 +63,52 @@ type OnTheFlyBook = Book & {
   saved: boolean;
   busy: boolean;
 };
+
+function isPathInsideDirectory(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+async function resolveExistingPathInsideRoot(
+  rootDirectory: string,
+  targetPath: string,
+): Promise<string> {
+  const rootPath = await fs.promises.realpath(rootDirectory);
+  const targetRealPath = await fs.promises.realpath(path.resolve(targetPath));
+  if (!isPathInsideDirectory(rootPath, targetRealPath)) {
+    throw new Error("Forbidden path: " + targetRealPath);
+  }
+  return targetRealPath;
+}
+
+async function listFilesInsideRoot(rootDirectory: string, dir: string): Promise<string[]> {
+  const rootPath = await fs.promises.realpath(rootDirectory);
+  const dirPath = await resolveExistingPathInsideRoot(rootPath, dir);
+  const files: string[] = [];
+
+  async function visit(currentDir: string): Promise<void> {
+    const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryPath = path.join(currentDir, entry.name);
+      const stat = await fs.promises.lstat(entryPath);
+      if (stat.isSymbolicLink()) {
+        continue;
+      }
+      const realEntryPath = await fs.promises.realpath(entryPath);
+      if (!isPathInsideDirectory(rootPath, realEntryPath)) {
+        continue;
+      }
+      if (stat.isFile()) {
+        files.push(realEntryPath);
+      } else if (stat.isDirectory()) {
+        await visit(realEntryPath);
+      }
+    }
+  }
+
+  await visit(dirPath);
+  return files;
+}
 
 // マージ済みのエントリーを取得する。
 async function retrieveMergedEntry(book: BookHandle, sfen: string): Promise<BookEntry | undefined> {
@@ -471,20 +516,23 @@ export async function importBookMoves(
           throw new Error("unknown file format: " + settings.sourceRecordFile);
         }
 
-        // UNCONDITIONAL SANITIZATION
-        const fileResolved = path.resolve(settings.sourceRecordFile);
-        const fileRoot = path.resolve(rootDirectory);
-        if (
-          !fileResolved.startsWith(fileRoot.endsWith(path.sep) ? fileRoot : fileRoot + path.sep) &&
-          fileResolved !== fileRoot
-        ) {
-          throw new Error("Forbidden path: " + fileResolved);
+        let sourcePath: string;
+        try {
+          sourcePath = await resolveExistingPathInsideRoot(
+            rootDirectory,
+            settings.sourceRecordFile,
+          );
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+            throw new Error(t.fileNotFound(settings.sourceRecordFile));
+          }
+          throw e;
         }
-
-        if (!(await exists(settings.sourceRecordFile))) {
+        const sourceStat = await fs.promises.lstat(sourcePath);
+        if (!sourceStat.isFile()) {
           throw new Error(t.fileNotFound(settings.sourceRecordFile));
         }
-        paths = [settings.sourceRecordFile];
+        paths = [sourcePath];
         break;
       }
       case SourceType.DIRECTORY: {
@@ -492,20 +540,23 @@ export async function importBookMoves(
           throw new Error("source directory is not set");
         }
 
-        // UNCONDITIONAL SANITIZATION
-        const dirResolved = path.resolve(settings.sourceDirectory);
-        const dirRoot = path.resolve(rootDirectory);
-        if (
-          !dirResolved.startsWith(dirRoot.endsWith(path.sep) ? dirRoot : dirRoot + path.sep) &&
-          dirResolved !== dirRoot
-        ) {
-          throw new Error("Forbidden path: " + dirResolved);
+        let sourceDirectory: string;
+        try {
+          sourceDirectory = await resolveExistingPathInsideRoot(
+            rootDirectory,
+            settings.sourceDirectory,
+          );
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+            throw new Error(t.directoryNotFound(settings.sourceDirectory));
+          }
+          throw e;
         }
-
-        if (!(await exists(settings.sourceDirectory))) {
+        const sourceStat = await fs.promises.lstat(sourceDirectory);
+        if (!sourceStat.isDirectory()) {
           throw new Error(t.directoryNotFound(settings.sourceDirectory));
         }
-        paths = await listFiles(settings.sourceDirectory, Infinity);
+        paths = await listFilesInsideRoot(rootDirectory, sourceDirectory);
         paths = paths.filter(detectRecordFileFormatByPath);
         break;
       }
@@ -532,24 +583,22 @@ export async function importBookMoves(
           break;
       }
 
-      const absolutePath = path.resolve(recordFilePath);
-      const normalizedRoot = path.resolve(rootDirectory);
-      const rootWithSep = normalizedRoot.endsWith(path.sep)
-        ? normalizedRoot
-        : normalizedRoot + path.sep;
-      if (!absolutePath.startsWith(rootWithSep) && absolutePath !== normalizedRoot) {
-        getAppLogger().error("Forbidden path in importBookMoves: %s", absolutePath);
+      let safeRecordFilePath: string;
+      try {
+        safeRecordFilePath = await resolveExistingPathInsideRoot(rootDirectory, recordFilePath);
+      } catch {
+        getAppLogger().error("Forbidden path in importBookMoves: %s", recordFilePath);
         errorFileCount++;
         continue;
       }
 
-      getAppLogger().debug("Importing book moves from: %s", absolutePath);
-      const format = detectRecordFileFormatByPath(absolutePath) as RecordFileFormat;
-      const sourceData = await fs.promises.readFile(absolutePath);
+      getAppLogger().debug("Importing book moves from: %s", safeRecordFilePath);
+      const format = detectRecordFileFormatByPath(safeRecordFilePath) as RecordFileFormat;
+      const sourceData = await fs.promises.readFile(safeRecordFilePath);
 
       if (format === RecordFileFormat.SFEN) {
         if (settings.playerCriteria === PlayerCriteria.FILTER_BY_NAME && settings.playerName) {
-          getAppLogger().debug("Ignoring SFEN file: %s", absolutePath);
+          getAppLogger().debug("Ignoring SFEN file: %s", safeRecordFilePath);
           skippedFileCount++;
           continue; // skip SFEN files when filtering by player name
         }
@@ -576,12 +625,12 @@ export async function importBookMoves(
         } else if (invalidLine) {
           getAppLogger().debug(
             "Invalid lines found in SFEN file: %s: [%s]",
-            absolutePath,
+            safeRecordFilePath,
             invalidLine,
           );
           errorFileCount++;
         } else {
-          getAppLogger().debug("No valid lines found in SFEN file: %s", absolutePath);
+          getAppLogger().debug("No valid lines found in SFEN file: %s", safeRecordFilePath);
           skippedFileCount++;
         }
         continue;
@@ -591,7 +640,11 @@ export async function importBookMoves(
         autoDetect: appSettings.textDecodingRule === TextDecodingRule.AUTO_DETECT,
       });
       if (record instanceof Error) {
-        getAppLogger().debug("Failed to import book moves from: %s: %s", absolutePath, record);
+        getAppLogger().debug(
+          "Failed to import book moves from: %s: %s",
+          safeRecordFilePath,
+          record,
+        );
         errorFileCount++;
         continue;
       }

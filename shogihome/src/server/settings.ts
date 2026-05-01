@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { AppSettings, defaultAppSettings, normalizeAppSettings } from "@/common/settings/app";
-import { exists } from "@/node/file";
 import { getUserDataPath } from "@/node/proc/path";
 
 function getUserDir() {
@@ -34,8 +33,12 @@ function loadAppSettingsFromMemory(json: string): AppSettings {
 
 export async function loadAppSettings(): Promise<AppSettings> {
   const p = getAppSettingsPath();
-  if (!(await exists(p))) {
-    return getDefaultAppSettings();
+  try {
+    return loadAppSettingsFromMemory(await fs.promises.readFile(p, "utf8"));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+      return getDefaultAppSettings();
+    }
+    throw e;
   }
-  return loadAppSettingsFromMemory(await fs.promises.readFile(p, "utf8"));
 }
