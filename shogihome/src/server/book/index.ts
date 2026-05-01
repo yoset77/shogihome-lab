@@ -73,16 +73,20 @@ async function resolveExistingPathInsideRoot(
   rootDirectory: string,
   targetPath: string,
 ): Promise<string> {
-  const rootPath = await fs.promises.realpath(rootDirectory);
-  const targetRealPath = await fs.promises.realpath(path.resolve(targetPath));
-  if (!isPathInsideDirectory(rootPath, targetRealPath)) {
-    throw new Error("Forbidden path: " + targetRealPath);
+  const rootPath = path.resolve(rootDirectory);
+  const resolvedTarget = path.resolve(targetPath);
+  if (!isPathInsideDirectory(rootPath, resolvedTarget)) {
+    throw new Error("Forbidden path: " + resolvedTarget);
   }
-  return targetRealPath;
+  const stat = await fs.promises.lstat(resolvedTarget);
+  if (stat.isSymbolicLink()) {
+    throw new Error("Forbidden path: " + resolvedTarget);
+  }
+  return resolvedTarget;
 }
 
 async function listFilesInsideRoot(rootDirectory: string, dir: string): Promise<string[]> {
-  const rootPath = await fs.promises.realpath(rootDirectory);
+  const rootPath = path.resolve(rootDirectory);
   const dirPath = await resolveExistingPathInsideRoot(rootPath, dir);
   const files: string[] = [];
 
@@ -94,14 +98,14 @@ async function listFilesInsideRoot(rootDirectory: string, dir: string): Promise<
       if (stat.isSymbolicLink()) {
         continue;
       }
-      const realEntryPath = await fs.promises.realpath(entryPath);
-      if (!isPathInsideDirectory(rootPath, realEntryPath)) {
+      const resolvedEntryPath = path.resolve(entryPath);
+      if (!isPathInsideDirectory(rootPath, resolvedEntryPath)) {
         continue;
       }
       if (stat.isFile()) {
-        files.push(realEntryPath);
+        files.push(resolvedEntryPath);
       } else if (stat.isDirectory()) {
-        await visit(realEntryPath);
+        await visit(resolvedEntryPath);
       }
     }
   }
