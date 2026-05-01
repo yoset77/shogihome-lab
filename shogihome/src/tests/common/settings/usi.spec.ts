@@ -13,8 +13,8 @@ import {
   getUSIEngineThreads,
   getUSIEngineMultiPV,
   getUSIEngineStochasticPonder,
-} from "@/common/settings/usi.js";
-import { testUSIEngine } from "@/tests/mock/usi.js";
+} from "@/common/settings/usi";
+import { testUSIEngine } from "@/tests/mock/usi";
 
 describe("settings/usi", () => {
   it("getUSIEngineOptionCurrentValue", () => {

@@ -1,4 +1,4 @@
-import { kyokumenpediaURL } from "@/common/links/kyokumenpedia.js";
+import { kyokumenpediaURL } from "@/common/links/kyokumenpedia";
 import { Position } from "tsshogi";
 
 describe("kyokumenpedia", () => {

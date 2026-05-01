@@ -1,6 +1,6 @@
 import { ImmutablePosition, Move } from "tsshogi";
 import { Player, SearchHandler } from "./player.js";
-import { TimeStates } from "@/common/game/time.js";
+import { TimeStates } from "@/common/game/time";
 
 export class HumanPlayer implements Player {
   private searchHandler?: SearchHandler;

@@ -4,7 +4,7 @@ import {
   defaultAppSettings,
   PieceImageType,
   AnalysisDBSearchMode,
-} from "@/common/settings/app.js";
+} from "@/common/settings/app";
 
 describe("settings/app", () => {
   it("normalize", () => {

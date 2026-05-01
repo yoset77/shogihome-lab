@@ -1,4 +1,4 @@
-import { LogDestination, getAppLogger, setLogDestinations } from "@/background/log.js";
+import { LogDestination, getAppLogger, setLogDestinations } from "@/node/log";
 import {
   login as csaLogin,
   logout as csaLogout,
@@ -8,7 +8,7 @@ import {
   win as csaWin,
   stop as csaStop,
   setHandlers as setCSAHandlers,
-} from "@/background/csa/index.js";
+} from "@/background/csa/index";
 import {
   ready as usiReady,
   setOption as usiSetOption,
@@ -22,14 +22,14 @@ import {
   stop as usiStop,
   gameover as usiGameover,
   quit as usiQuit,
-} from "@/background/usi/index.js";
-import { GameResult } from "@/common/game/result.js";
-import { LogLevel, LogType } from "@/common/log.js";
-import { USIEngine } from "@/common/settings/usi.js";
-import { Bridge } from "@/renderer/ipc/bridge.js";
-import { BookLoadingMode } from "@/common/book.js";
-import { KifuSearchResult, KifuListEntry } from "@/common/file/record.js";
-import { Language, setLanguage } from "@/common/i18n/index.js";
+} from "@/background/usi/index";
+import { GameResult } from "@/common/game/result";
+import { LogLevel, LogType } from "@/common/log";
+import { USIEngine } from "@/common/settings/usi";
+import { Bridge } from "@/renderer/ipc/bridge";
+import { BookLoadingMode } from "@/common/book";
+import { KifuSearchResult, KifuListEntry } from "@/common/file/record";
+import { Language, setLanguage } from "@/common/i18n/index";
 
 const bridge: Bridge = {
   // Core

@@ -9,7 +9,7 @@ import {
   Move,
 } from "tsshogi";
 import { useErrorStore } from "./error.js";
-import { isMobileWebApp, isNative } from "@/renderer/ipc/api.js";
+import { isMobileWebApp, isNative } from "@/renderer/ipc/api";
 
 const mobileRecordStorageKey = "mobile:record";
 const mobilePlyStorageKey = "mobile:ply";

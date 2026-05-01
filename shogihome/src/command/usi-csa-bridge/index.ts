@@ -100,11 +100,10 @@ import { Clock } from "@/renderer/store/clock";
 import { RecordManager } from "@/renderer/store/record";
 import { CSAGameManager, loginRetryIntervalSeconds } from "@/renderer/store/csa";
 import { defaultPlayerBuilder } from "@/renderer/players/builder";
-import { getAppLogger } from "@/background/log";
+import { getAppLogger } from "@/node/log";
 import { generateRecordFileName } from "@/renderer/helpers/path";
 import { RecordFileFormat } from "@/common/file/record";
 import { ordinal } from "@/common/helpers/string";
-import { exists } from "@/background/helpers/file";
 import { defaultRecordFileNameTemplate } from "@/common/file/path";
 
 // --------------------------------------------------------------------------------
@@ -142,9 +141,9 @@ async function main() {
   cliSettings.repeat = repeat() || cliSettings.repeat;
 
   // USIエンジンが見つからない場合は、設定ファイルからの相対パスとみなして探します。
-  if (configFilePath && !(await exists(cliSettings.usi.path))) {
+  if (configFilePath && !fs.existsSync(cliSettings.usi.path)) {
     const relativePath = path.resolve(path.dirname(configFilePath), cliSettings.usi.path);
-    if (!(await exists(relativePath))) {
+    if (!fs.existsSync(relativePath)) {
       getAppLogger().error(`usi engine is not found: ${cliSettings.usi.path}`);
       process.exit(1);
     }

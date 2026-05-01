@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import net from "net";
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { killTree } from "./helpers/process";
 
 const SERVER_PORT = 8200 + Math.floor(Math.random() * 1000);

@@ -14,10 +14,10 @@ import {
   updateBookMove,
   updateBookMoveOrder,
   initBookSession,
-} from "@/background/book/index.js";
-import { getTempPathForTesting } from "@/background/proc/env.js";
-import { defaultBookImportSettings, PlayerCriteria, SourceType } from "@/common/settings/book.js";
-import { createTestAperyBookFile } from "@/tests/mock/book.js";
+} from "@/server/book/index";
+import { getTempPathForTesting } from "@/tests/helpers/temp";
+import { defaultBookImportSettings, PlayerCriteria, SourceType } from "@/common/settings/book";
+import { createTestAperyBookFile } from "@/tests/mock/book";
 
 const defaultBookSession = 1;
 
@@ -517,6 +517,52 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
         }
       });
     }
+
+    it("rejects a file outside the import root", async () => {
+      const root = path.join(tmpdir, "import-root");
+      const outsideFile = path.join(tmpdir, "outside.ki2");
+      fs.mkdirSync(root, { recursive: true });
+      fs.writeFileSync(outsideFile, "dummy");
+
+      await expect(
+        importBookMoves(
+          defaultBookSession,
+          {
+            ...defaultBookImportSettings(),
+            sourceType: SourceType.FILE,
+            sourceRecordFile: outsideFile,
+          },
+          undefined,
+          root,
+        ),
+      ).rejects.toThrow("Forbidden path");
+    });
+
+    it("rejects a symlinked file outside the import root", async () => {
+      const root = path.join(tmpdir, "import-root-symlink");
+      const outsideFile = path.join(tmpdir, "outside-symlink.ki2");
+      const linkFile = path.join(root, "link.ki2");
+      fs.mkdirSync(root, { recursive: true });
+      fs.writeFileSync(outsideFile, "dummy");
+      try {
+        fs.symlinkSync(outsideFile, linkFile);
+      } catch {
+        return;
+      }
+
+      await expect(
+        importBookMoves(
+          defaultBookSession,
+          {
+            ...defaultBookImportSettings(),
+            sourceType: SourceType.FILE,
+            sourceRecordFile: linkFile,
+          },
+          undefined,
+          root,
+        ),
+      ).rejects.toThrow("Forbidden path");
+    });
   });
 
   describe("merge", () => {

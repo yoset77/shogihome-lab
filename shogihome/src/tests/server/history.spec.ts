@@ -10,7 +10,7 @@ import {
   UserFileEntry,
   BackupEntryV2,
   HistoryClass,
-} from "@/common/file/history.js";
+} from "@/common/file/history";
 
 const SERVER_PORT = 8100 + Math.floor(Math.random() * 1000);
 const SERVER_URL = `http://localhost:${SERVER_PORT}`;

@@ -1,8 +1,8 @@
-import * as uri from "@/common/uri.js";
+import * as uri from "@/common/uri";
 import { PlayerSettings, defaultPlayerSettings, validatePlayerSettings } from "./player.js";
-import { t } from "@/common/i18n/index.js";
+import { t } from "@/common/i18n/index";
 import { USIEngineForCLI, exportUSIEnginesForCLI, importUSIEnginesForCLI } from "./usi.js";
-import { RecordFileFormat } from "@/common/file/record.js";
+import { RecordFileFormat } from "@/common/file/record";
 import { AppSettings } from "./app.js";
 import ejpn from "encoding-japanese";
 const [base64Decode, base64Encode] = [ejpn.base64Decode, ejpn.base64Encode];

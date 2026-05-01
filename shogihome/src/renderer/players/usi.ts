@@ -1,5 +1,5 @@
-import api from "@/renderer/ipc/api.js";
-import { parseUSIPV, USIInfoCommand } from "@/common/game/usi.js";
+import api from "@/renderer/ipc/api";
+import { parseUSIPV, USIInfoCommand } from "@/common/game/usi";
 import {
   getUSIEngineMultiPV,
   getUSIEnginePonder,
@@ -8,11 +8,11 @@ import {
   USIEngine,
   USIEngineLaunchOptions,
   USIMultiPV,
-} from "@/common/settings/usi.js";
+} from "@/common/settings/usi";
 import { Color, ImmutablePosition, Move, Position } from "tsshogi";
 import { Player, SearchInfo, SearchHandler, MateHandler } from "./player.js";
-import { GameResult } from "@/common/game/result.js";
-import { TimeStates } from "@/common/game/time.js";
+import { GameResult } from "@/common/game/result";
+import { TimeStates } from "@/common/game/time";
 import { searchBookMovesForPlayer } from "./book_search.js";
 import { triggerOnStartSearch, dispatchUSIInfoUpdate } from "./usi_events.js";
 

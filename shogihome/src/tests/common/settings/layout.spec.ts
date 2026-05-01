@@ -7,7 +7,7 @@ import {
   LayoutProfileList,
   removeCustomLayoutProfile,
   serializeLayoutProfile,
-} from "@/common/settings/layout.js";
+} from "@/common/settings/layout";
 
 describe("common/settings/layout", () => {
   it("appendCustomLayout", () => {

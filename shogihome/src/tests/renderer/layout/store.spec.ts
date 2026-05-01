@@ -1,5 +1,5 @@
-import api, { API } from "@/renderer/ipc/api.js";
-import { Store } from "@/renderer/layout/store.js";
+import api, { API } from "@/renderer/ipc/api";
+import { Store } from "@/renderer/layout/store";
 import { Mocked } from "vitest";
 
 vi.mock("@/renderer/ipc/api.js");

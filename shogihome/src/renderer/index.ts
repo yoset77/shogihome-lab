@@ -5,9 +5,9 @@ import "./css/control.css";
 import "./css/dialog.css";
 import { createApp, watch } from "vue";
 import App from "@/renderer/App.vue";
-import api, { appInfo, isMobileWebApp, isNative } from "@/renderer/ipc/api.js";
-import { setup as setupIPC } from "@/renderer/ipc/setup.js";
-import { useStore } from "@/renderer/store/index.js";
+import api, { appInfo, isMobileWebApp, isNative } from "@/renderer/ipc/api";
+import { setup as setupIPC } from "@/renderer/ipc/setup";
+import { useStore } from "@/renderer/store/index";
 import {
   BarController,
   BarElement,
@@ -20,9 +20,9 @@ import {
   ScatterController,
   Tooltip,
 } from "chart.js";
-import { LogLevel } from "@/common/log.js";
+import { LogLevel } from "@/common/log";
 import { useAppSettings } from "./store/settings.js";
-import { setLanguage, t } from "@/common/i18n/index.js";
+import { setLanguage, t } from "@/common/i18n/index";
 import { default as dayjs } from "dayjs";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import * as _en from "dayjs/locale/en";
@@ -31,8 +31,8 @@ import * as _ja from "dayjs/locale/ja";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import * as _zh_tw from "dayjs/locale/zh-tw";
 import relativeTime from "dayjs/plugin/relativeTime";
-import { useErrorStore } from "@/renderer/store/error.js";
-import { UIMode } from "@/common/settings/app.js";
+import { useErrorStore } from "@/renderer/store/error";
+import { UIMode } from "@/common/settings/app";
 // eslint-disable-next-line import/no-unresolved
 import { registerSW } from "virtual:pwa-register";
 

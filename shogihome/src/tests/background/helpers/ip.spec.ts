@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getLocalIpAddresses } from "@/background/helpers/ip";
+import { getLocalIpAddresses } from "@/server/helpers/ip";
 import os from "os";
 
 // Helper to create mock NetworkInterfaces

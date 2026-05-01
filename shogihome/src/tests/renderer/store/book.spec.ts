@@ -1,8 +1,8 @@
-import api, { API } from "@/renderer/ipc/api.js";
-import { defaultAppSettings } from "@/common/settings/app.js";
-import { BookMove } from "@/common/book.js";
-import { BookStore } from "@/renderer/store/book.js";
-import { useAppSettings } from "@/renderer/store/settings.js";
+import api, { API } from "@/renderer/ipc/api";
+import { defaultAppSettings } from "@/common/settings/app";
+import { BookMove } from "@/common/book";
+import { BookStore } from "@/renderer/store/book";
+import { useAppSettings } from "@/renderer/store/settings";
 import { Record } from "tsshogi";
 import { Mocked } from "vitest";
 

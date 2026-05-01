@@ -82,6 +82,18 @@ describe("API: /api/fetch-remote", () => {
     expect(status).toBe(400);
   });
 
+  it("should return 400 for invalid URLs", async () => {
+    const { status, data } = await fetchApi("/api/fetch-remote?url=not-a-valid-url");
+    expect(status).toBe(400);
+    expect(data).toContain("Invalid URL");
+  });
+
+  it("should return 404 for unknown API endpoints", async () => {
+    const { status, data } = await fetchApi("/api/does-not-exist");
+    expect(status).toBe(404);
+    expect(data).toContain("API endpoint not found");
+  });
+
   it("should return 403 if the domain is not allowed", async () => {
     const { status, data } = await fetchApi("/api/fetch-remote?url=http://malicious.com/kifu.csa");
     expect(status).toBe(403);

@@ -2,8 +2,8 @@ import {
   ResearchSettings,
   normalizeResearchSettings,
   validateResearchSettings,
-} from "@/common/settings/research.js";
-import * as uri from "@/common/uri.js";
+} from "@/common/settings/research";
+import * as uri from "@/common/uri";
 
 describe("settings/research", () => {
   it("normalize", () => {

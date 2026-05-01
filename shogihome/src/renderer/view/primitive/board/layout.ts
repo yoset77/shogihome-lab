@@ -1,4 +1,4 @@
-import { RectSize } from "@/common/assets/geometry.js";
+import { RectSize } from "@/common/assets/geometry";
 import { PieceType } from "tsshogi";
 
 export type Frame = {

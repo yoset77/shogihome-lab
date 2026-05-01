@@ -18,8 +18,8 @@ import {
   Record,
 } from "tsshogi";
 import { Player, SearchHandler } from "./player.js";
-import { TimeStates } from "@/common/game/time.js";
-import * as uri from "@/common/uri.js";
+import { TimeStates } from "@/common/game/time";
+import * as uri from "@/common/uri";
 
 const pieceValues: { [key in PieceType]: number } = {
   [PieceType.PAWN]: 100,

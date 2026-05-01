@@ -1,18 +1,14 @@
-import api from "@/renderer/ipc/api.js";
+import api from "@/renderer/ipc/api";
 import {
   CSAGameResult,
   CSAGameSummary,
   CSAPlayerStates,
   CSASpecialMove,
   emptyCSAGameSummary,
-} from "@/common/game/csa.js";
-import { defaultPlayerBuilder, PlayerBuilder } from "@/renderer/players/builder.js";
-import { Player, SearchInfo } from "@/renderer/players/player.js";
-import {
-  CSAGameSettings,
-  CSAProtocolVersion,
-  defaultCSAGameSettings,
-} from "@/common/settings/csa.js";
+} from "@/common/game/csa";
+import { defaultPlayerBuilder, PlayerBuilder } from "@/renderer/players/builder";
+import { Player, SearchInfo } from "@/renderer/players/player";
+import { CSAGameSettings, CSAProtocolVersion, defaultCSAGameSettings } from "@/common/settings/csa";
 import {
   Color,
   RecordFormatType,
@@ -22,12 +18,12 @@ import {
   SpecialMoveType,
 } from "tsshogi";
 import { Clock } from "./clock.js";
-import { CommentBehavior } from "@/common/settings/comment.js";
+import { CommentBehavior } from "@/common/settings/comment";
 import { RecordManager, SearchInfoSenderType } from "./record.js";
-import { t } from "@/common/i18n/index.js";
-import { GameResult } from "@/common/game/result.js";
-import { USIPlayer } from "@/renderer/players/usi.js";
-import { TimeStates } from "@/common/game/time.js";
+import { t } from "@/common/i18n/index";
+import { GameResult } from "@/common/game/result";
+import { USIPlayer } from "@/renderer/players/usi";
+import { TimeStates } from "@/common/game/time";
 import { useAppSettings } from "./settings.js";
 
 export const loginRetryIntervalSeconds = 10;

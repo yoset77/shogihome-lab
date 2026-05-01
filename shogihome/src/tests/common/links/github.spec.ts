@@ -1,4 +1,4 @@
-import { mobileWebAppURL, webAppURL } from "@/common/links/github.js";
+import { mobileWebAppURL, webAppURL } from "@/common/links/github";
 import { Record, RecordMetadataKey } from "tsshogi";
 
 describe("github", () => {

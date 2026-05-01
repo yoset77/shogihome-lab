@@ -70,6 +70,42 @@ export default defineConfigWithVueTs([
               from: "./src/background",
               target: "./src/common",
             },
+            {
+              from: "./src/node",
+              target: "./src/renderer",
+            },
+            {
+              from: "./src/node",
+              target: "./src/common",
+            },
+            {
+              from: "./src/renderer",
+              target: "./src/node",
+            },
+            {
+              from: "./src/background",
+              target: "./src/node",
+            },
+            {
+              from: "./src/command",
+              target: "./src/node",
+            },
+            {
+              from: "./src/server",
+              target: "./src/node",
+            },
+            {
+              from: "./src/renderer",
+              target: "./src/server",
+            },
+            {
+              from: "./src/background",
+              target: "./src/server",
+            },
+            {
+              from: "./src/command",
+              target: "./src/server",
+            },
           ],
         },
       ],

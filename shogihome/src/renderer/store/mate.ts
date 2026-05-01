@@ -1,6 +1,6 @@
-import { MateSearchSettings } from "@/common/settings/mate.js";
-import { USIPlayer } from "@/renderer/players/usi.js";
-import { LanPlayer } from "@/renderer/players/lan_player.js";
+import { MateSearchSettings } from "@/common/settings/mate";
+import { USIPlayer } from "@/renderer/players/usi";
+import { LanPlayer } from "@/renderer/players/lan_player";
 import { useAppSettings } from "./settings.js";
 import { ImmutableRecord, Move } from "tsshogi";
 

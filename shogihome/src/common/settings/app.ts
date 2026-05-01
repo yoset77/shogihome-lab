@@ -1,7 +1,7 @@
-import { Language, t } from "@/common/i18n/index.js";
-import { LogLevel, LogType } from "@/common/log.js";
-import { RecordFileFormat } from "@/common/file/record.js";
-import { defaultRecordFileNameTemplate } from "@/common/file/path.js";
+import { Language, t } from "@/common/i18n/index";
+import { LogLevel, LogType } from "@/common/log";
+import { RecordFileFormat } from "@/common/file/record";
+import { defaultRecordFileNameTemplate } from "@/common/file/path";
 import { BoardLayoutType, EvaluationChartType } from "./layout.js";
 import { SearchCommentFormat } from "./comment.js";
 

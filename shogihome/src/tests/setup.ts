@@ -1,4 +1,4 @@
-import { getTempPathForTesting } from "@/background/proc/env.js";
+import { getTempPathForTesting } from "@/tests/helpers/temp";
 import fs from "node:fs";
 
 afterAll(() => {

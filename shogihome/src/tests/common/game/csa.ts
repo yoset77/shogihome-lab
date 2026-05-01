@@ -1,4 +1,4 @@
-import { isOfficialFloodgateGameName, isValidFloodgatePassword } from "@/common/game/csa.js";
+import { isOfficialFloodgateGameName, isValidFloodgatePassword } from "@/common/game/csa";
 
 describe("game/csa", () => {
   it("isOfficialFloodgateGameName", () => {

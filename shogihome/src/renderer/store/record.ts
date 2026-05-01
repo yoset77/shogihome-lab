@@ -1,5 +1,5 @@
-import { getDateString, getDateTimeString } from "@/common/helpers/datetime.js";
-import { TimeLimitSettings } from "@/common/settings/game.js";
+import { getDateString, getDateTimeString } from "@/common/helpers/datetime";
+import { TimeLimitSettings } from "@/common/settings/game";
 import {
   detectRecordFormat,
   DoMoveOption,
@@ -34,20 +34,20 @@ import {
   ImmutableNode,
 } from "tsshogi";
 import { getSituationText } from "./score.js";
-import { CommentBehavior, SearchCommentFormat } from "@/common/settings/comment.js";
-import { t, localizeError } from "@/common/i18n/index.js";
+import { CommentBehavior, SearchCommentFormat } from "@/common/settings/comment";
+import { t, localizeError } from "@/common/i18n/index";
 import {
   ExportOptions,
   ExportResult,
   detectRecordFileFormatByPath,
   exportRecordAsBuffer,
   importRecordFromBuffer,
-} from "@/common/file/record.js";
-import { SCORE_MATE_INFINITE } from "@/common/game/usi.js";
-import { normalizeSfen } from "@/common/usi/sfen.js";
-import api from "@/renderer/ipc/api.js";
-import { LogLevel } from "@/common/log.js";
-import { secondsToMMSS } from "@/common/helpers/time.js";
+} from "@/common/file/record";
+import { SCORE_MATE_INFINITE } from "@/common/game/usi";
+import { normalizeSfen } from "@/common/usi/sfen";
+import api from "@/renderer/ipc/api";
+import { LogLevel } from "@/common/log";
+import { secondsToMMSS } from "@/common/helpers/time";
 
 export enum SearchInfoSenderType {
   PLAYER,

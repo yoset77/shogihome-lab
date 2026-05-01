@@ -1,4 +1,4 @@
-import { ArgumentsParser } from "@/command/common/arguments.js";
+import { ArgumentsParser } from "@/command/common/arguments";
 import process from "node:process";
 
 vi.mock("process");

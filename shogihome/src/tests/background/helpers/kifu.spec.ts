@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { getKifuList, resolveKifuPath, clearKifuListCache } from "@/background/helpers/kifu";
+import { getKifuList, resolveKifuPath, clearKifuListCache } from "@/server/helpers/kifu";
 import fs from "fs";
 import path from "path";
 import os from "os";

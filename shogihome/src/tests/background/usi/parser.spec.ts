@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseInfoCommand, SCORE_MATE_INFINITE } from "@/common/game/usi.js";
+import { parseInfoCommand, SCORE_MATE_INFINITE } from "@/common/game/usi";
 
 describe("common/game/usi", () => {
   it("should parse info command with depth, time, nodes, score cp, and pv", () => {

@@ -1,5 +1,5 @@
-// eslint-disable-next-line no-restricted-imports
-import { EngineSession, EngineState } from "../../../server";
+import { EngineSession } from "@/server/engine/session";
+import { EngineState } from "@/server/engine/types";
 import { vi, describe, it, expect, beforeEach, type Mock } from "vitest";
 
 // Define a type that matches the internal structure of EngineSession for testing
@@ -60,6 +60,20 @@ describe("Engine State Regression Tests", () => {
     // Verification: State should be STOPPED
     expect(tSession.engineState).toBe(EngineState.STOPPED);
     expect(tSession.engineHandle).toBeNull();
+  });
+
+  it("should trim whitespace around websocket commands", () => {
+    tSession.engineState = EngineState.THINKING;
+    tSession.engineHandle = {
+      write: vi.fn(),
+      close: vi.fn(),
+      removeAllListeners: vi.fn(),
+    };
+
+    tSession.handleMessage("stop ");
+
+    expect(tSession.engineState).toBe(EngineState.STOPPING_SEARCH);
+    expect(tSession.engineHandle.write).toHaveBeenCalledWith("stop\n");
   });
 
   it("should move start_engine and stop_engine out of postStopCommandQueue", () => {

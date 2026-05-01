@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeSfen } from "@/common/usi/sfen.js";
+import { normalizeSfen } from "@/common/usi/sfen";
 
 describe("common/usi/sfen", () => {
   describe("normalizeSfen", () => {

@@ -1,5 +1,5 @@
-import { MateSearchSettings } from "@/common/settings/mate.js";
-import { USIEngine } from "@/common/settings/usi.js";
+import { MateSearchSettings } from "@/common/settings/mate";
+import { USIEngine } from "@/common/settings/usi";
 
 const engine: USIEngine = {
   uri: "es://usi/test-engine",

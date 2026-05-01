@@ -1,12 +1,12 @@
-import { ResearchSettings, defaultResearchSettings } from "@/common/settings/research.js";
-import { USIPlayer } from "@/renderer/players/usi.js";
-import { LanPlayer } from "@/renderer/players/lan_player.js";
-import { SearchInfo } from "@/renderer/players/player.js";
+import { ResearchSettings, defaultResearchSettings } from "@/common/settings/research";
+import { USIPlayer } from "@/renderer/players/usi";
+import { LanPlayer } from "@/renderer/players/lan_player";
+import { SearchInfo } from "@/renderer/players/player";
 import { ImmutableRecord } from "tsshogi";
-import { MultiPV, USIEngine, USIMultiPV } from "@/common/settings/usi.js";
+import { MultiPV, USIEngine, USIMultiPV } from "@/common/settings/usi";
 import { SearchInfoSenderType } from "./record.js";
 import { useAppSettings } from "./settings.js";
-import { Lazy } from "@/renderer/helpers/lazy.js";
+import { Lazy } from "@/renderer/helpers/lazy";
 
 function cloneUSIEngineOptions(options: USIEngine["options"]): USIEngine["options"] {
   return Object.fromEntries(

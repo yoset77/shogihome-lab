@@ -38,13 +38,12 @@ const kifuIndexSyncMock = vi.hoisted(() => ({
   onKifuFileEvent: vi.fn(),
 }));
 
-vi.mock("@/background/database/kifu_index.js", () => kifuIndexMock);
-vi.mock("@/background/database/sqlite.js", () => sqliteMock);
-vi.mock("@/background/usi/sfen.js", () => sfenMock);
-vi.mock("@/background/kifu_index/sync.js", () => kifuIndexSyncMock);
+vi.mock("@/server/database/kifu_index.js", () => kifuIndexMock);
+vi.mock("@/server/database/sqlite.js", () => sqliteMock);
+vi.mock("@/server/usi/sfen.js", () => sfenMock);
+vi.mock("@/server/kifu_index/sync.js", () => kifuIndexSyncMock);
 
-// eslint-disable-next-line no-restricted-imports
-import { app } from "../../../server.js";
+import { app } from "@/server/main";
 
 describe("Kifu search API", () => {
   beforeEach(() => {

@@ -1,7 +1,7 @@
 import { shallowMount } from "@vue/test-utils";
 import EngineAnalyticsElement from "@/renderer/view/tab/EngineAnalyticsElement.vue";
 import { USIInfo, USIPlayerMonitor } from "@/renderer/store/usi";
-import { AppState, ResearchState } from "@/common/control/state.js";
+import { AppState, ResearchState } from "@/common/control/state";
 import { reactive } from "vue";
 import { Color } from "tsshogi";
 

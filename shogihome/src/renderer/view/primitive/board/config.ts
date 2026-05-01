@@ -1,13 +1,13 @@
-import { RectSize } from "@/common/assets/geometry.js";
-import { getPieceImageAssetName, pieceAssetTypes } from "@/common/assets/pieces.js";
+import { RectSize } from "@/common/assets/geometry";
+import { getPieceImageAssetName, pieceAssetTypes } from "@/common/assets/pieces";
 import {
   BoardImageType,
   BoardLabelType,
   KingPieceType,
   PieceStandImageType,
   PromotionSelectorStyle,
-} from "@/common/settings/app.js";
-import preloadImage from "@/renderer/assets/preload.js";
+} from "@/common/settings/app";
+import preloadImage from "@/renderer/assets/preload";
 import { Color, PieceType } from "tsshogi";
 
 type PieceImages = {

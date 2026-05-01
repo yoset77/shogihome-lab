@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import * as log4js from "log4js";
-import { EngineProcess, GameResult } from "@/background/usi/engine.js";
-import { ChildProcess } from "@/background/usi/process.js";
+import { EngineProcess, GameResult } from "@/background/usi/engine";
+import { ChildProcess } from "@/background/usi/process";
 import { MockedClass } from "vitest";
 
 vi.mock("@/background/usi/process.js");

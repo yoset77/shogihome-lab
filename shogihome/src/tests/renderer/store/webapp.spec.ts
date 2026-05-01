@@ -1,4 +1,4 @@
-import { createStore } from "@/renderer/store/index.js";
+import { createStore } from "@/renderer/store/index";
 import {
   exportJKFString,
   importJKFString,
