@@ -261,4 +261,45 @@ describe("LanEngine", () => {
     expect(mockWs.send).toHaveBeenCalledWith("stop_engine");
     expect(mockWs.close).toHaveBeenCalled();
   });
+
+  it("should wait for an existing connecting socket before explicit termination", async () => {
+    const engine = new LanEngine("test-session");
+    const connectPromise = engine.connect();
+    connectPromise.catch(() => {});
+
+    const terminatePromise = engine.terminateEngine();
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(mockWs.send).not.toHaveBeenCalledWith("stop_engine");
+
+    mockWs.readyState = 1;
+    mockWs.onopen?.();
+    await terminatePromise;
+    await connectPromise;
+
+    expect(mockWs.send).toHaveBeenCalledWith("stop_engine");
+    expect(mockWs.close).toHaveBeenCalled();
+  });
+
+  it("should cap explicit termination reconnect wait at 3 seconds", async () => {
+    const engine = new LanEngine("test-session");
+    const terminatePromise = engine.terminateEngine();
+
+    await vi.advanceTimersByTimeAsync(3000);
+    await terminatePromise;
+
+    expect(mockWs.send).not.toHaveBeenCalledWith("stop_engine");
+    expect(mockWs.close).toHaveBeenCalled();
+  });
+
+  it("should cap explicit termination wait if connect does not set a socket", async () => {
+    const engine = new LanEngine("test-session");
+    vi.spyOn(engine, "connect").mockImplementation(() => new Promise(() => {}));
+
+    const terminatePromise = engine.terminateEngine();
+    await vi.advanceTimersByTimeAsync(3000);
+    await terminatePromise;
+
+    expect(mockWs.send).not.toHaveBeenCalledWith("stop_engine");
+  });
 });
