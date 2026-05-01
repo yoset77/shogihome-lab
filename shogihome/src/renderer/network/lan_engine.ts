@@ -10,6 +10,12 @@ export interface LanEngineInfo {
 export type LanEngineStatus = "disconnected" | "connecting" | "connected";
 
 const ENGINE_LIST_CACHE_TTL_MS = 30_000;
+const TERMINATE_CONNECT_TIMEOUT_MS = 3_000;
+
+const timeout = (timeoutMs: number, message: string): Promise<never> =>
+  new Promise((_, reject) => {
+    window.setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
 
 export class LanEngine {
   private ws: WebSocket | null = null;
@@ -296,15 +302,78 @@ export class LanEngine {
     this.setStatus("disconnected");
   }
 
+  private waitForSocketOpen(ws: WebSocket, timeoutMs: number): Promise<void> {
+    if (ws.readyState === WebSocket.OPEN) {
+      return Promise.resolve();
+    }
+    if (ws.readyState !== WebSocket.CONNECTING) {
+      return Promise.reject(new Error("WebSocket is not connecting"));
+    }
+
+    return new Promise((resolve, reject) => {
+      const previousOnOpen = ws.onopen;
+      const previousOnError = ws.onerror;
+      const previousOnClose = ws.onclose;
+      const timeoutId = window.setTimeout(() => {
+        cleanup();
+        reject(new Error("WebSocket termination connection timeout"));
+      }, timeoutMs);
+
+      const cleanup = () => {
+        window.clearTimeout(timeoutId);
+        if (ws.onopen === handleOpen) ws.onopen = previousOnOpen;
+        if (ws.onerror === handleError) ws.onerror = previousOnError;
+        if (ws.onclose === handleClose) ws.onclose = previousOnClose;
+      };
+
+      const handleOpen = (event: Event) => {
+        previousOnOpen?.call(ws, event);
+        cleanup();
+        resolve();
+      };
+
+      const handleError = (event: Event) => {
+        previousOnError?.call(ws, event);
+        cleanup();
+        reject(new Error("WebSocket termination connection error"));
+      };
+
+      const handleClose = (event: CloseEvent) => {
+        previousOnClose?.call(ws, event);
+        cleanup();
+        reject(new Error("WebSocket termination connection closed"));
+      };
+
+      ws.onopen = handleOpen;
+      ws.onerror = handleError;
+      ws.onclose = handleClose;
+    });
+  }
+
   async terminateEngine(): Promise<void> {
     this.clearReconnect();
     try {
-      if (!this.isConnected()) {
-        await this.connect();
+      if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
+        await this.waitForSocketOpen(this.ws, TERMINATE_CONNECT_TIMEOUT_MS);
+      } else if (!this.isConnected()) {
+        const connectPromise = this.connect();
+        connectPromise.catch(() => {
+          // terminateEngine uses a shorter timeout below.
+        });
+        if (this.ws) {
+          await this.waitForSocketOpen(this.ws, TERMINATE_CONNECT_TIMEOUT_MS);
+        } else {
+          await Promise.race([
+            connectPromise,
+            timeout(TERMINATE_CONNECT_TIMEOUT_MS, "WebSocket termination fallback timeout"),
+          ]);
+        }
       }
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.ws.send("stop_engine");
       }
+    } catch (e) {
+      console.warn("Failed to send stop_engine before disconnect:", e);
     } finally {
       this.disconnect();
     }
