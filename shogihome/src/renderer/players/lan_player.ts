@@ -90,6 +90,8 @@ export class LanPlayer implements Player {
     this.unsubscribeStatus = this.lanEngine.subscribeStatus((status) => {
       if (status === "disconnected") {
         this.handleTransportDisconnect();
+      } else if (status === "connected") {
+        this.handleTransportReconnect();
       }
     });
   }
@@ -386,10 +388,8 @@ export class LanPlayer implements Player {
     this.stopPromise = new Promise((resolve, reject) => {
       this.stopPromiseResolver = resolve;
       this.stopPromiseRejector = reject;
-      this.stopPromiseTimeoutId = window.setTimeout(() => {
-        this.rejectStopPromise(new Error("Timed out waiting for stop acknowledgement"));
-      }, STOP_WAIT_TIMEOUT_MS);
       this.lanEngine.sendCommand("stop");
+      this.startStopPromiseTimeoutIfConnected();
     });
 
     return this.stopPromise;
@@ -621,7 +621,28 @@ export class LanPlayer implements Player {
 
   private handleTransportDisconnect() {
     this.clearReadyReplayTimeout();
+    this.clearStopPromiseTimeout();
     console.log("Transport disconnected. Waiting for reconnection...");
+  }
+
+  private handleTransportReconnect() {
+    if (!this.stopPromiseResolver) {
+      return;
+    }
+    this.lanEngine.sendCommand("stop");
+    this.startStopPromiseTimeoutIfConnected();
+  }
+
+  private startStopPromiseTimeoutIfConnected() {
+    if (!this.stopPromiseResolver || this.stopPromiseTimeoutId !== null) {
+      return;
+    }
+    if (!this.lanEngine.isConnected()) {
+      return;
+    }
+    this.stopPromiseTimeoutId = window.setTimeout(() => {
+      this.rejectStopPromise(new Error("Timed out waiting for stop acknowledgement"));
+    }, STOP_WAIT_TIMEOUT_MS);
   }
 
   private clearStopPromiseTimeout() {

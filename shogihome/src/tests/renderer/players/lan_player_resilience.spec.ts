@@ -92,11 +92,16 @@ describe("LanPlayer resilience", () => {
 
     // It should still be pending
     let resolved = false;
+    let rejected = false;
     stopPromise.then(() => {
       resolved = true;
     });
-    await vi.advanceTimersByTimeAsync(1000);
+    stopPromise.catch(() => {
+      rejected = true;
+    });
+    await vi.advanceTimersByTimeAsync(16000);
     expect(resolved).toBe(false);
+    expect(rejected).toBe(false);
 
     // Now simulate reconnection and stopped state frame
     updateStatus("connected");
@@ -111,6 +116,35 @@ describe("LanPlayer resilience", () => {
     await vi.advanceTimersByTimeAsync(100);
 
     await expect(stopPromise).resolves.toBeUndefined();
+  });
+
+  it("should pause stop acknowledgement timeout while disconnected and restart it after reconnect", async () => {
+    (LanEngine.prototype.isConnected as Mock).mockReturnValue(false);
+    const player = new LanPlayer("research_main", "test-engine", "Test Engine");
+    await launchPlayer(player);
+
+    const usi = "position startpos";
+    const record = Record.newByUSI(usi) as Record;
+    await player.startResearch(record.position, usi);
+
+    const stopPromise = player.stop();
+    let rejected = false;
+    stopPromise.catch(() => {
+      rejected = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(16000);
+    expect(rejected).toBe(false);
+
+    (LanEngine.prototype.isConnected as Mock).mockReturnValue(true);
+    updateStatus("connected");
+
+    await vi.advanceTimersByTimeAsync(14999);
+    expect(rejected).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(stopPromise).rejects.toThrow("Timed out waiting for stop acknowledgement");
+    expect(rejected).toBe(true);
   });
 
   it("should fail a stale ready state if bestmove replay never arrives", async () => {
