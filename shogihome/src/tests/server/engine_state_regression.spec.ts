@@ -13,6 +13,7 @@ type TestableEngineSession = {
   } | null;
   postStopCommandQueue: string[];
   messageBuffer: { data: unknown; createdAt: number }[];
+  handleDisconnect(socket: MockExtendedWebSocket): void;
   handleMessage(command: string): void;
   onEngineClose(): void;
   sendToClient(data: unknown): void;
@@ -153,5 +154,50 @@ describe("Engine State Regression Tests", () => {
     }
 
     expect(tSession.messageBuffer.length).toBeLessThanOrEqual(50);
+  });
+
+  it("should keep the engine alive when reconnecting after multiple position updates", async () => {
+    const stream = new PassThrough();
+    const engineHandle = {
+      write: vi.fn(),
+      close: vi.fn(() => tSession.onEngineClose()),
+      removeAllListeners: vi.fn(),
+    };
+    tSession.engineState = EngineState.THINKING;
+    tSession.engineHandle = engineHandle;
+    tSession.setupEngineHandlers(stream);
+
+    tSession.handleDisconnect(mockWs);
+
+    expect(engineHandle.close).not.toHaveBeenCalled();
+    expect(tSession.engineState).toBe(EngineState.THINKING);
+
+    const reconnectedWs: MockExtendedWebSocket = {
+      send: vi.fn(),
+      terminate: vi.fn(),
+      close: vi.fn(),
+      on: vi.fn(),
+      readyState: 1,
+    };
+    session.attach(reconnectedWs as unknown as Parameters<EngineSession["attach"]>[0]);
+
+    tSession.handleMessage("position startpos moves 7g7f");
+    tSession.handleMessage("go infinite");
+    tSession.handleMessage("position startpos moves 2g2f");
+    tSession.handleMessage("go infinite");
+
+    expect(engineHandle.close).not.toHaveBeenCalled();
+    expect(engineHandle.write).toHaveBeenCalledWith("stop\n");
+    expect(tSession.engineState).toBe(EngineState.STOPPING_SEARCH);
+
+    stream.write("bestmove resign\n");
+
+    await vi.waitFor(() => {
+      expect(tSession.engineState).toBe(EngineState.THINKING);
+    });
+    expect(engineHandle.close).not.toHaveBeenCalled();
+    expect(engineHandle.write).toHaveBeenCalledWith("position startpos moves 2g2f\n");
+    expect(engineHandle.write).toHaveBeenCalledWith("go infinite\n");
+    expect(engineHandle.write).not.toHaveBeenCalledWith("position startpos moves 7g7f\n");
   });
 });
