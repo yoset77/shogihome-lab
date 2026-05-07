@@ -58,7 +58,7 @@
     "encoding-japanese": "^2.0.0",
     "escape-html": "^1.0.3",
     "express": "^5.0.1",
-    "express-rate-limit": "^8.2.1",
+    "express-rate-limit": "^8.5.1",
     "helmet": "^8.1.0",
     "html-to-image": "^1.11.13",
     "jimp": "^1.6.1",
