@@ -46,9 +46,6 @@
     "server:build": "node scripts/build-server.mjs",
     "server:exe": "npm run server:build && node scripts/build-sea.mjs"
   },
-  "overrides": {
-    "serialize-javascript": "7.0.3"
-  },
   "dependencies": {
     "@github/hotkey": "^3.1.0",
     "async-lock": "^1.4.0",
