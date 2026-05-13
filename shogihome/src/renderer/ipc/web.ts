@@ -18,7 +18,7 @@ import { emptyLayoutProfileList } from "@/common/settings/layout";
 import * as uri from "@/common/uri";
 import { normalizePath } from "@/common/helpers/path";
 import { KifuSearchResult, KifuListEntry } from "@/common/file/record";
-import { convert } from "encoding-japanese";
+import { decodeText } from "@/common/helpers/encode";
 import { toJpeg, toPng } from "html-to-image";
 import dayjs from "dayjs";
 import { Rect } from "@/common/assets/geometry";
@@ -321,7 +321,7 @@ export const webAPI: Bridge = {
     if (path.startsWith(uri.ES_TEMP_FILE_PREFIX)) {
       const data = fileCache.get(path);
       if (data) {
-        const kif = convert(new Uint8Array(data), { to: "UNICODE", type: "string" });
+        const kif = decodeText(new Uint8Array(data), { autoDetect: true });
         this.saveRecordFileBackup(kif);
       }
       return;
