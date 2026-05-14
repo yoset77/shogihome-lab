@@ -1,6 +1,7 @@
 import fs from "node:fs";
-import { PassThrough } from "node:stream";
+import { PassThrough, Writable } from "node:stream";
 import { loadSbkBook, storeSbkBook } from "@/server/book/sbk";
+import { SBook } from "@/server/book/proto/sbk";
 
 describe("background/book/sbk", () => {
   const testCases = [
@@ -27,4 +28,53 @@ describe("background/book/sbk", () => {
       expect(outputHex).toBe(expectedHex);
     });
   }
+
+  it("skips invalid SBK moves", () => {
+    const data = SBook.encode({
+      Author: "",
+      Description: "",
+      BookStates: [
+        {
+          Id: 0,
+          BoardKey: 0n,
+          HandKey: 0,
+          Games: 0,
+          WonBlack: 0,
+          WonWhite: 0,
+          Position: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+          Comment: "",
+          Moves: [
+            {
+              Move: (7 << 12) | (6 << 8), // piece type is zero and must be rejected.
+              Evaluation: 0,
+              Weight: 1,
+              NextStateId: -1,
+            },
+          ],
+          Evals: [],
+        },
+      ],
+    }).finish();
+
+    const book = loadSbkBook(data);
+    const entry = book.entries.get(
+      "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+    );
+    expect(entry?.moves).toHaveLength(0);
+  });
+
+  it("rejects stream errors while storing", async () => {
+    class FailingWritable extends Writable {
+      override _write(
+        _chunk: Buffer,
+        _encoding: BufferEncoding,
+        callback: (error?: Error | null) => void,
+      ): void {
+        callback(new Error("disk full"));
+      }
+    }
+
+    const book = loadSbkBook(fs.readFileSync("src/tests/testdata/book/shogihome01.sbk"));
+    await expect(storeSbkBook(book, new FailingWritable())).rejects.toThrow("disk full");
+  });
 });
