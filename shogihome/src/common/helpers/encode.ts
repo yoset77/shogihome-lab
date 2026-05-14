@@ -57,5 +57,13 @@ export function decodeText(data: Uint8Array, option?: DecodeOption): string {
 }
 
 export function detectTextEncoding(data: Uint8Array, defaultEncoding?: Encoding): Encoding {
-  return detect(data) || defaultEncoding || "UTF8";
+  const detected = detect(data);
+  // encoding-japanese returns "UNICODE" or "BINARY" when detection is ambiguous or
+  // the byte sequence contains characters outside the detected encoding's range
+  // (e.g. CP932 extension characters like はしご高 U+9AD9 = 0xFB 0xFC).
+  // Treat these as detection failure and fall back to the caller-supplied hint.
+  if (!detected || detected === "UNICODE" || detected === "BINARY") {
+    return defaultEncoding || "UTF8";
+  }
+  return detected;
 }
