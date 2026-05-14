@@ -1,10 +1,9 @@
 import https from "node:https";
 import http from "node:http";
 import { getAppLogger } from "@/node/log";
-import ejpn from "encoding-japanese";
+import { decodeText } from "@/common/helpers/encode";
 import { RateLimiter, WindowRule } from "@/server/helpers/limiter";
 import { isTest } from "@/node/proc/env";
-const convert = ejpn.convert;
 
 const domainLimiter = new Map<string, RateLimiter>();
 domainLimiter.set(
@@ -118,7 +117,7 @@ export async function fetch(url: string): Promise<string> {
           if (settled) return;
           settled = true;
           const concat = Buffer.concat(data);
-          const decoded = convert(concat, { type: "string", to: "UNICODE" });
+          const decoded = decodeText(concat, { autoDetect: true });
           resolve(decoded);
         })
         .on("error", (e) => {
