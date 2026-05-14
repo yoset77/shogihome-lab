@@ -6,6 +6,7 @@
         :position="store.record.position"
         :moves="bookStore.moves"
         :path="bookStore.path"
+        :format="bookStore.format"
         :playable="store.isMovableByUser"
         :editable="bookEditable"
         @play="playBookMove"
@@ -31,6 +32,8 @@
         :depth="editingData.depth"
         :count="editingData.count"
         :comment="editingData.comment"
+        :evaluation="editingData.evaluation"
+        :format="bookStore.format"
         @ok="onEditBookMove"
         @cancel="onCancelEditBookMove"
       />

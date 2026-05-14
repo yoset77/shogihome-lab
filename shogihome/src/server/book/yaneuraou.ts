@@ -98,6 +98,7 @@ function parseLine(line: string): Line {
         columns[3] === DEPTH_NONE || columns[3] === "" ? undefined : parseInt(columns[3], 10), // depth
         columns[4] ? parseInt(columns[4], 10) : undefined, // counts
         commentIndex < line.length ? line.slice(commentIndex).replace(/^(#|\/\/)/, "") : "", // comment
+        undefined, // evaluation (SBK only)
       ],
     };
   }

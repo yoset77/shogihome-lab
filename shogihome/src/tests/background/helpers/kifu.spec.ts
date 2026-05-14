@@ -92,6 +92,7 @@ describe("background/helpers/kifu", () => {
     // Supported Book DB extension
     const bookPath = "book.db";
     expect(resolveKifuPath(tempDir, bookPath)).toBe(path.resolve(tempDir, bookPath));
+    expect(resolveKifuPath(tempDir, "book.sbk")).toBe(path.resolve(tempDir, "book.sbk"));
 
     // Valid Directory path
     const subdirPath = "subdir";

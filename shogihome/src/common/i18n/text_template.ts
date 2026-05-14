@@ -531,12 +531,18 @@ export type Texts = {
   dubious: string;
   mistake: string;
   blunder: string;
+  forced: string;
+  goodMove: string;
   inaccuracyThreshold: string;
   dubiousThreshold: string;
   mistakeThreshold: string;
   blunderThreshold: string;
   maxPVLength: string;
   commentFormat: string;
+  moveEvaluation: string;
+  yane2016BookFile: string;
+  shogiGUIBookFile: string;
+  aperyBookFile: string;
   gothic: string;
   mincho: string;
   appVersion: string;

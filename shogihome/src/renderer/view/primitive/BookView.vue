@@ -14,11 +14,11 @@
             <td v-show="playable" class="menu">{{ t.play }}</td>
             <td v-show="editable" class="menu">{{ t.edit }}</td>
             <td v-show="editable" class="menu">{{ t.remove }}</td>
-            <td class="number">{{ t.score }}</td>
-            <td class="number">{{ t.depth }}</td>
+            <td v-if="props.format !== 'sbk'" class="number">{{ t.score }}</td>
+            <td v-if="props.format === 'yane2016'" class="number">{{ t.depth }}</td>
             <td class="number">{{ t.freq }}</td>
             <td class="number"></td>
-            <td class="text">{{ t.comments }}</td>
+            <td v-if="props.format !== 'apery'" class="text">{{ t.comments }}</td>
           </tr>
         </thead>
         <tbody>
@@ -56,10 +56,10 @@
                 <Icon :icon="IconType.TRASH" />
               </button>
             </td>
-            <td class="number">
+            <td v-if="props.format !== 'sbk'" class="number">
               <span>{{ entry.score }}</span>
             </td>
-            <td class="number">
+            <td v-if="props.format === 'yane2016'" class="number">
               <span>{{ entry.depth }}</span>
             </td>
             <td class="number">
@@ -68,7 +68,13 @@
             <td class="number small">
               <span v-if="entry.percentage !== undefined">({{ entry.percentage }}%)</span>
             </td>
-            <td class="text">
+            <td v-if="props.format !== 'apery'" class="text">
+              <span
+                v-if="entry.evaluationLabel"
+                class="in-comment-label"
+                :class="entry.evaluationClass"
+                >{{ entry.evaluationLabel }}</span
+              >
               <span v-if="entry.repetition" class="in-comment-label">{{ t.repetition }}</span>
               <span>{{ entry.comment }}</span>
             </td>
@@ -80,7 +86,7 @@
 </template>
 
 <script setup lang="ts">
-import { BookMoveEx } from "@/common/book";
+import { BookFormat, BookMoveEx, SbkMoveEvaluation } from "@/common/book";
 import { formatMove, ImmutablePosition, Move } from "tsshogi";
 import { computed, onUpdated, PropType, ref } from "vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
@@ -124,6 +130,11 @@ const props = defineProps({
     required: false,
     default: undefined,
   },
+  format: {
+    type: String as PropType<BookFormat>,
+    required: false,
+    default: "yane2016",
+  },
 });
 
 const emit = defineEmits<{
@@ -132,6 +143,20 @@ const emit = defineEmits<{
   remove: [move: Move];
   order: [move: Move, order: number];
 }>();
+
+const evaluationLabels: Partial<Record<number, string>> = {
+  [SbkMoveEvaluation.Forced]: t.forced,
+  [SbkMoveEvaluation.Good]: t.goodMove,
+  [SbkMoveEvaluation.Bad]: t.dubious,
+  [SbkMoveEvaluation.Blunder]: t.mistake,
+};
+
+const evaluationClasses: Partial<Record<number, string>> = {
+  [SbkMoveEvaluation.Forced]: "evaluation-forced",
+  [SbkMoveEvaluation.Good]: "evaluation-good",
+  [SbkMoveEvaluation.Bad]: "evaluation-bad",
+  [SbkMoveEvaluation.Blunder]: "evaluation-blunder",
+};
 
 const moveList = computed(() => {
   const list = [];
@@ -142,6 +167,8 @@ const moveList = computed(() => {
   for (const entry of props.moves) {
     const move = props.position.createMoveByUSI(entry.usi);
     if (move !== null) {
+      const evaluationLabel = entry.evaluation && evaluationLabels[entry.evaluation];
+      const evaluationClass = entry.evaluation ? evaluationClasses[entry.evaluation] : undefined;
       list.push({
         move,
         usi: entry.usi,
@@ -153,6 +180,8 @@ const moveList = computed(() => {
             ? Math.round((entry.count / totalCount) * 100)
             : undefined,
         comment: entry.comment,
+        evaluationLabel,
+        evaluationClass,
         repetition: entry.repetition,
       });
     }
@@ -250,5 +279,25 @@ button > .icon {
   box-sizing: border-box;
   border: 1px solid var(--text-separator-color);
   border-radius: 5px;
+}
+.evaluation-forced {
+  color: #fff;
+  background-color: #1976d2;
+  border-color: #004a94;
+}
+.evaluation-good {
+  color: #fff;
+  background-color: #388e3c;
+  border-color: #116d16;
+}
+.evaluation-bad {
+  color: #fff;
+  background-color: #cf6800;
+  border-color: #bc5e00;
+}
+.evaluation-blunder {
+  color: #fff;
+  background-color: #d32f2f;
+  border-color: #b00e0e;
 }
 </style>

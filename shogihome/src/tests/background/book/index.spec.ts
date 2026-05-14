@@ -15,9 +15,12 @@ import {
   updateBookMoveOrder,
   initBookSession,
 } from "@/server/book/index";
+import { loadSbkBook } from "@/server/book/sbk";
 import { getTempPathForTesting } from "@/tests/helpers/temp";
 import { defaultBookImportSettings, PlayerCriteria, SourceType } from "@/common/settings/book";
 import { createTestAperyBookFile } from "@/tests/mock/book";
+import { SbkMoveEvaluation } from "@/common/book";
+import { IDX_EVALUATION, IDX_USI } from "@/server/book/types";
 
 const defaultBookSession = 1;
 
@@ -183,6 +186,35 @@ describe("background/book", () => {
           }
         });
       }
+    });
+
+    describe("shogihome01.sbk", () => {
+      it("always uses in-memory mode and keeps SBK move evaluation", async () => {
+        const mode = await openBook(defaultBookSession, "src/tests/testdata/book/shogihome01.sbk", {
+          forceOnTheFly: true,
+        });
+        expect(mode).toBe("in-memory");
+        expect(getBookFormat(defaultBookSession)).toBe("sbk");
+
+        const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+        const moves = await searchBookMoves(defaultBookSession, sfen);
+        expect(moves.length).toBeGreaterThan(0);
+
+        const target = moves[0];
+        await updateBookMove(defaultBookSession, sfen, {
+          ...target,
+          evaluation: SbkMoveEvaluation.Good,
+          count: (target.count || 0) + 1,
+        });
+
+        const tempFilePath = path.join(tmpdir, "evaluation-test.sbk");
+        await saveBook(defaultBookSession, tempFilePath);
+        const saved = loadSbkBook(fs.readFileSync(tempFilePath));
+        const savedMove = saved.entries
+          .get(sfen)
+          ?.moves.find((move) => move[IDX_USI] === target.usi);
+        expect(savedMove?.[IDX_EVALUATION]).toBe(SbkMoveEvaluation.Good);
+      });
     });
 
     it("newSession", async () => {
