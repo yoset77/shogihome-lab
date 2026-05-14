@@ -247,8 +247,15 @@ export async function storeSbkBook(book: SbkBook, output: Writable): Promise<voi
   const CHUNK_SIZE = 64 * 1024;
   const pendingChunks: Uint8Array[] = [];
   let pendingSize = 0;
+  let streamError: Error | undefined;
+  output.on("error", (error: Error) => {
+    streamError = error;
+  });
 
   async function waitForDrain() {
+    if (streamError) {
+      throw streamError;
+    }
     await new Promise<void>((resolve, reject) => {
       const cleanup = () => {
         output.off("drain", onDrain);
@@ -256,9 +263,14 @@ export async function storeSbkBook(book: SbkBook, output: Writable): Promise<voi
       };
       const onDrain = () => {
         cleanup();
-        resolve();
+        if (streamError) {
+          reject(streamError);
+        } else {
+          resolve();
+        }
       };
       const onError = (error: Error) => {
+        streamError = error;
         cleanup();
         reject(error);
       };
@@ -268,6 +280,9 @@ export async function storeSbkBook(book: SbkBook, output: Writable): Promise<voi
   }
 
   async function flush() {
+    if (streamError) {
+      throw streamError;
+    }
     if (pendingChunks.length === 0) {
       return;
     }
@@ -276,6 +291,9 @@ export async function storeSbkBook(book: SbkBook, output: Writable): Promise<voi
     pendingSize = 0;
     if (!output.write(combined)) {
       await waitForDrain();
+    }
+    if (streamError) {
+      throw streamError;
     }
   }
 

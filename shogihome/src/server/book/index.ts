@@ -417,17 +417,18 @@ export function clearBook(session: number, format?: BookFormat): void {
 export async function searchBookMoves(session: number, sfen: string): Promise<CommonBookMove[]> {
   const book = getBook(session);
   const entry = await retrieveMergedEntry(book, sfen);
-  return entry ? entry.moves : [];
+  return entry ? entry.moves.map((move) => ({ ...move })) : [];
 }
 
 function updateBookEntry(entry: BookEntry, move: CommonBookMove): void {
+  const bookMove = { ...move };
   for (let i = 0; i < entry.moves.length; i++) {
     if (entry.moves[i].usi === move.usi) {
-      entry.moves[i] = move;
+      entry.moves[i] = bookMove;
       return;
     }
   }
-  entry.moves.push(move);
+  entry.moves.push(bookMove);
 }
 
 export async function updateBookMove(session: number, sfen: string, move: CommonBookMove) {
@@ -444,7 +445,7 @@ export async function updateBookMove(session: number, sfen: string, move: Common
       book.entries.set(sfen, {
         type: "normal",
         comment: "",
-        moves: [move],
+        moves: [{ ...move }],
         minPly: 0,
       });
     }
@@ -466,7 +467,7 @@ export async function updateBookMove(session: number, sfen: string, move: Common
       book.entries.set(hash, {
         type: "normal",
         comment: "",
-        moves: [sanitizedMove],
+        moves: [{ ...sanitizedMove }],
         minPly: 0,
       });
     }

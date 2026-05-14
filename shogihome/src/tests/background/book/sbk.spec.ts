@@ -77,4 +77,33 @@ describe("background/book/sbk", () => {
     const book = loadSbkBook(fs.readFileSync("src/tests/testdata/book/shogihome01.sbk"));
     await expect(storeSbkBook(book, new FailingWritable())).rejects.toThrow("disk full");
   });
+
+  it("rejects stream errors emitted before waiting for drain", async () => {
+    class EarlyErrorWritable extends Writable {
+      override write(
+        _chunk: Uint8Array | string,
+        _encoding?: BufferEncoding | ((error?: Error | null) => void),
+        _callback?: (error?: Error | null) => void,
+      ): boolean {
+        void _chunk;
+        void _encoding;
+        void _callback;
+        this.emit("error", new Error("early write failure"));
+        return false;
+      }
+
+      override _write(
+        _chunk: Buffer,
+        _encoding: BufferEncoding,
+        callback: (error?: Error | null) => void,
+      ): void {
+        callback();
+      }
+    }
+
+    const book = loadSbkBook(fs.readFileSync("src/tests/testdata/book/shogihome01.sbk"));
+    await expect(storeSbkBook(book, new EarlyErrorWritable())).rejects.toThrow(
+      "early write failure",
+    );
+  });
 });

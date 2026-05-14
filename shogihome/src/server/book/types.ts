@@ -48,6 +48,7 @@ export type BookEntry = {
 
 export type BookEntryType = "normal" | "patch";
 
+// Keep the server-side move shape aligned with the API payload intentionally.
 export type BookMove = CommonBookMove;
 
 export function mergeBookEntries(
