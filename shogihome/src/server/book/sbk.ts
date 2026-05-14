@@ -8,15 +8,7 @@ import {
   SBookState,
   SBook,
 } from "./proto/sbk.js";
-import {
-  BookEntry,
-  BookMove,
-  IDX_COUNT,
-  IDX_EVALUATION,
-  IDX_USI,
-  SbkBook,
-  SbkEval,
-} from "./types.js";
+import { BookEntry, BookMove, SbkBook, SbkEval } from "./types.js";
 import { fromSbkMove, toSbkMove } from "./sbk_move.js";
 import { SbkMoveEvaluation } from "@/common/book.js";
 
@@ -70,15 +62,12 @@ export function loadSbkBook(data: Buffer | Uint8Array): SbkBook {
         return [];
       }
       return [
-        [
-          move.usi,
-          undefined,
-          undefined,
-          undefined,
-          m.Weight || undefined,
-          "",
-          toBookMoveEvaluation(m.Evaluation),
-        ],
+        {
+          usi: move.usi,
+          count: m.Weight || undefined,
+          comment: "",
+          evaluation: toBookMoveEvaluation(m.Evaluation),
+        },
       ];
     });
 
@@ -210,7 +199,7 @@ export async function storeSbkBook(book: SbkBook, output: Writable): Promise<voi
       }
       const bookMove = frame.bookMoves[frame.index];
       frame.index++;
-      const move = pos.createMoveByUSI(bookMove[IDX_USI]);
+      const move = pos.createMoveByUSI(bookMove.usi);
       if (!move || !pos.doMove(move, { ignoreValidation: true })) {
         continue;
       }
@@ -314,8 +303,8 @@ export async function storeSbkBook(book: SbkBook, output: Writable): Promise<voi
     const edges = sfenToEdges.get(sfen) ?? [];
     const sbkMoves: SBookMoveProto[] = edges.map(([bookMove, move, nextSfen]) => ({
       Move: move,
-      Evaluation: bookMove[IDX_EVALUATION] || SBookMoveEvaluation.None,
-      Weight: bookMove[IDX_COUNT] ?? 0,
+      Evaluation: bookMove.evaluation || SBookMoveEvaluation.None,
+      Weight: bookMove.count ?? 0,
       NextStateId: sfenToId.get(nextSfen) ?? -1, // 存在しない局面に対して BookConv は -1 を出力している
     }));
 

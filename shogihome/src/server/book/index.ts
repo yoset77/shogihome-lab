@@ -2,18 +2,7 @@ import fs, { ReadStream } from "node:fs";
 import path from "node:path";
 import { BookImportSummary, BookLoadingOptions, BookMove as CommonBookMove } from "@/common/book";
 import { getAppLogger } from "@/node/log";
-import {
-  arrayMoveToCommonBookMove,
-  Book,
-  BookEntry,
-  BookFormat,
-  BookMove as InternalBookMove,
-  commonBookMoveToArray,
-  IDX_COUNT,
-  IDX_SCORE,
-  IDX_USI,
-  mergeBookEntries,
-} from "./types.js";
+import { Book, BookEntry, BookFormat, BookMove, mergeBookEntries } from "./types.js";
 import {
   loadYaneuraOuBook,
   mergeYaneuraOuBook,
@@ -428,17 +417,17 @@ export function clearBook(session: number, format?: BookFormat): void {
 export async function searchBookMoves(session: number, sfen: string): Promise<CommonBookMove[]> {
   const book = getBook(session);
   const entry = await retrieveMergedEntry(book, sfen);
-  return entry ? entry.moves.map(arrayMoveToCommonBookMove) : [];
+  return entry ? entry.moves : [];
 }
 
 function updateBookEntry(entry: BookEntry, move: CommonBookMove): void {
   for (let i = 0; i < entry.moves.length; i++) {
-    if (entry.moves[i][IDX_USI] === move.usi) {
-      entry.moves[i] = commonBookMoveToArray(move);
+    if (entry.moves[i].usi === move.usi) {
+      entry.moves[i] = move;
       return;
     }
   }
-  entry.moves.push(commonBookMoveToArray(move));
+  entry.moves.push(move);
 }
 
 export async function updateBookMove(session: number, sfen: string, move: CommonBookMove) {
@@ -455,7 +444,7 @@ export async function updateBookMove(session: number, sfen: string, move: Common
       book.entries.set(sfen, {
         type: "normal",
         comment: "",
-        moves: [commonBookMoveToArray(move)],
+        moves: [move],
         minPly: 0,
       });
     }
@@ -477,7 +466,7 @@ export async function updateBookMove(session: number, sfen: string, move: Common
       book.entries.set(hash, {
         type: "normal",
         comment: "",
-        moves: [commonBookMoveToArray(sanitizedMove)],
+        moves: [sanitizedMove],
         minPly: 0,
       });
     }
@@ -494,7 +483,7 @@ export async function removeBookMove(session: number, sfen: string, usi: string)
   if (!entry) {
     return;
   }
-  entry.moves = entry.moves.filter((move) => move[IDX_USI] !== usi);
+  entry.moves = entry.moves.filter((move) => move.usi !== usi);
   storeEntry(book, sfen, entry);
 }
 
@@ -512,11 +501,11 @@ export async function updateBookMoveOrder(
   if (!entry) {
     return;
   }
-  const move = entry.moves.find((move) => move[IDX_USI] === usi);
+  const move = entry.moves.find((move) => move.usi === usi);
   if (!move) {
     return;
   }
-  entry.moves = entry.moves.filter((move) => move[IDX_USI] !== usi);
+  entry.moves = entry.moves.filter((move) => move.usi !== usi);
   entry.moves.splice(order, 0, move);
   storeEntry(book, sfen, entry);
 }
@@ -816,22 +805,22 @@ export async function importBookMoves(
         minPly: 0,
       };
 
-      const currentMovesMap = new Map<string, InternalBookMove>();
+      const currentMovesMap = new Map<string, BookMove>();
       for (const move of entry.moves) {
-        currentMovesMap.set(move[IDX_USI], move);
+        currentMovesMap.set(move.usi, move);
       }
 
       for (const [usi, count] of movesMap.entries()) {
         const existing = currentMovesMap.get(usi);
         if (existing) {
           duplicateCount += count;
-          existing[IDX_COUNT] = (existing[IDX_COUNT] || 0) + count;
+          existing.count = (existing.count || 0) + count;
         } else {
           entryCount++;
           duplicateCount += count - 1;
-          const newMove = commonBookMoveToArray({ usi, comment: "", count });
+          const newMove: BookMove = { usi, comment: "", count };
           if (book.format === "apery") {
-            newMove[IDX_SCORE] = 0;
+            newMove.score = 0;
             // usi2, depth, and comment are already undefined/empty in newMove
           }
           currentMovesMap.set(usi, newMove);
@@ -846,7 +835,7 @@ export async function importBookMoves(
       }
 
       entry.moves = Array.from(currentMovesMap.values());
-      entry.moves.sort((a, b) => (b[IDX_COUNT] || 0) - (a[IDX_COUNT] || 0));
+      entry.moves.sort((a, b) => (b.count || 0) - (a.count || 0));
       storeEntry(book, sfen, entry);
     }
 

@@ -20,7 +20,6 @@ import { getTempPathForTesting } from "@/tests/helpers/temp";
 import { defaultBookImportSettings, PlayerCriteria, SourceType } from "@/common/settings/book";
 import { createTestAperyBookFile } from "@/tests/mock/book";
 import { SbkMoveEvaluation } from "@/common/book";
-import { IDX_EVALUATION, IDX_USI } from "@/server/book/types";
 
 const defaultBookSession = 1;
 
@@ -210,10 +209,8 @@ describe("background/book", () => {
         const tempFilePath = path.join(tmpdir, "evaluation-test.sbk");
         await saveBook(defaultBookSession, tempFilePath);
         const saved = loadSbkBook(fs.readFileSync(tempFilePath));
-        const savedMove = saved.entries
-          .get(sfen)
-          ?.moves.find((move) => move[IDX_USI] === target.usi);
-        expect(savedMove?.[IDX_EVALUATION]).toBe(SbkMoveEvaluation.Good);
+        const savedMove = saved.entries.get(sfen)?.moves.find((move) => move.usi === target.usi);
+        expect(savedMove?.evaluation).toBe(SbkMoveEvaluation.Good);
       });
 
       it("rejects oversized SBK files", async () => {
