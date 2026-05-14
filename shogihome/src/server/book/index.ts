@@ -67,6 +67,8 @@ type OnTheFlyBook = Book & {
   busy: boolean;
 };
 
+const MAX_SBK_BOOK_SIZE_BYTES = 128 * 1024 * 1024;
+
 function isPathInsideDirectory(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
@@ -268,6 +270,9 @@ async function openBookInMemory(session: number, path: string, size: number): Pr
         book = await loadYaneuraOuBook(file);
         break;
       case "sbk": {
+        if (size > MAX_SBK_BOOK_SIZE_BYTES) {
+          throw new Error(`SBK file too large: ${size} bytes`);
+        }
         const data = await fs.promises.readFile(path);
         book = loadSbkBook(data);
         break;

@@ -215,6 +215,19 @@ describe("background/book", () => {
           ?.moves.find((move) => move[IDX_USI] === target.usi);
         expect(savedMove?.[IDX_EVALUATION]).toBe(SbkMoveEvaluation.Good);
       });
+
+      it("rejects oversized SBK files", async () => {
+        const tempFilePath = path.join(tmpdir, "oversized.sbk");
+        const file = fs.openSync(tempFilePath, "w");
+        try {
+          fs.ftruncateSync(file, 128 * 1024 * 1024 + 1);
+        } finally {
+          fs.closeSync(file);
+        }
+        await expect(openBook(defaultBookSession, tempFilePath)).rejects.toThrow(
+          "SBK file too large",
+        );
+      });
     });
 
     it("newSession", async () => {

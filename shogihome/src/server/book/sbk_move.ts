@@ -43,7 +43,11 @@ function sbkPieceValue(pt: PieceType, color: Color): number {
   return (pieceTypeToSbkIndex[pt] ?? 0) | (color === Color.WHITE ? 0x10 : 0);
 }
 
-export function fromSbkMove(pos: ImmutablePosition, value: number): Move {
+function isValidSquare(file: number, rank: number): boolean {
+  return file >= 1 && file <= 9 && rank >= 1 && rank <= 9;
+}
+
+export function fromSbkMove(pos: ImmutablePosition, value: number): Move | undefined {
   const fromDan = value & 0xf;
   const fromSuji = (value >>> 4) & 0xf;
   const toDan = (value >>> 8) & 0xf;
@@ -52,10 +56,16 @@ export function fromSbkMove(pos: ImmutablePosition, value: number): Move {
   const piece = (value >>> 24) & 0x1f;
 
   const pt = sbkPieceTypeMap[piece & 0x0f];
+  if (pt === undefined || !isValidSquare(toSuji, toDan)) {
+    return undefined;
+  }
   const to = new Square(toSuji, toDan);
 
   if (fromDan === 0 && fromSuji === 0) {
     return new Move(pt, to, false, pos.color, pt, null);
+  }
+  if (!isValidSquare(fromSuji, fromDan)) {
+    return undefined;
   }
 
   const from = new Square(fromSuji, fromDan);
