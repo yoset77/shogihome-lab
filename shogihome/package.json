@@ -47,6 +47,7 @@
     "server:exe": "npm run server:build && node scripts/build-sea.mjs"
   },
   "dependencies": {
+    "@bufbuild/protobuf": "^2.12.0",
     "@github/hotkey": "^3.1.0",
     "async-lock": "^1.4.0",
     "chart.js": "^4.0.1",

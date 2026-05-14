@@ -36,6 +36,8 @@ import {
   ImmutableNode,
   Move,
   Record,
+  reverseColor,
+  SpecialMoveType,
 } from "tsshogi";
 import { t } from "@/common/i18n/index";
 import { hash as aperyHash } from "./apery_zobrist.js";
@@ -46,6 +48,7 @@ import {
   storeAperyBook,
 } from "./apery.js";
 import { writeStreamAtomic } from "@/server/file/atomic_stream";
+import { loadSbkBook, storeSbkBook } from "./sbk.js";
 
 type BookHandle = InMemoryBook | OnTheFlyBook;
 
@@ -136,14 +139,15 @@ async function retrieveMergedEntry(book: BookHandle, sfen: string): Promise<Book
       const base = await searchAperyBookMovesOnTheFly(sfen, book.file, book.size);
       return mergeBookEntries(base, entry);
     }
+    case "sbk":
+      return book.entries.get(sfen);
   }
 }
-
-// メモリ上のエントリーを取得する。返されたエントリーを更新した場合に book に反映されることを保証する。
 
 function storeEntry(book: BookHandle, sfen: string, entry: BookEntry): void {
   switch (book.format) {
     case "yane2016":
+    case "sbk":
       book.entries.set(sfen, entry);
       break;
     case "apery":
@@ -153,7 +157,25 @@ function storeEntry(book: BookHandle, sfen: string, entry: BookEntry): void {
   book.saved = false;
 }
 
-function emptyBook(): BookHandle {
+function emptyBook(format: BookFormat = "yane2016"): BookHandle {
+  if (format === "apery") {
+    return {
+      type: "in-memory",
+      format: "apery",
+      entries: new Map<bigint, BookEntry>(),
+      saved: true,
+      busy: false,
+    };
+  }
+  if (format === "sbk") {
+    return {
+      type: "in-memory",
+      format: "sbk",
+      entries: new Map<string, BookEntry>(),
+      saved: true,
+      busy: false,
+    };
+  }
   return {
     type: "in-memory",
     format: "yane2016",
@@ -189,13 +211,22 @@ export function getBookFormat(session: number): BookFormat {
   return book.format;
 }
 
-function getFormatByPath(path: string): "yane2016" | "apery" {
-  return path.endsWith(".db") ? "yane2016" : "apery";
+function getFormatByPath(path: string): BookFormat {
+  if (path.endsWith(".db")) {
+    return "yane2016";
+  }
+  if (path.endsWith(".sbk")) {
+    return "sbk";
+  }
+  return "apery";
 }
 
 async function openBookOnTheFly(session: number, path: string, size: number): Promise<void> {
   getAppLogger().info("Loading book on-the-fly: path=%s size=%d", path, size);
   const format = getFormatByPath(path);
+  if (format === "sbk") {
+    throw new Error("SBK format does not support on-the-fly loading");
+  }
   const file = await fs.promises.open(path, "r");
   try {
     if (
@@ -236,6 +267,11 @@ async function openBookInMemory(session: number, path: string, size: number): Pr
         file = fs.createReadStream(path, { encoding: "utf-8", highWaterMark: 1024 * 1024 });
         book = await loadYaneuraOuBook(file);
         break;
+      case "sbk": {
+        const data = await fs.promises.readFile(path);
+        book = loadSbkBook(data);
+        break;
+      }
       case "apery":
         file = fs.createReadStream(path, { highWaterMark: 1024 * 1024 });
         book = await loadAperyBook(file);
@@ -264,8 +300,10 @@ export async function openBook(
 
   const size = stat.size;
   if (
-    options?.forceOnTheFly ||
-    (options?.onTheFlyThresholdMB !== undefined && size > options.onTheFlyThresholdMB * 1024 * 1024)
+    getFormatByPath(path) !== "sbk" &&
+    (options?.forceOnTheFly ||
+      (options?.onTheFlyThresholdMB !== undefined &&
+        size > options.onTheFlyThresholdMB * 1024 * 1024))
   ) {
     await openBookOnTheFly(session, path, size);
     return "on-the-fly";
@@ -349,6 +387,15 @@ export async function saveBook(session: number, filePath: string) {
               await mergeAperyBook(input, book, file);
             }
             break;
+          case "sbk":
+            if (!filePath.endsWith(".sbk")) {
+              throw new Error("Invalid file extension: " + filePath);
+            }
+            if (book.type !== "in-memory") {
+              throw new Error("SBK format does not support on-the-fly loading");
+            }
+            await storeSbkBook(book, file);
+            break;
         }
       },
       {
@@ -362,7 +409,7 @@ export async function saveBook(session: number, filePath: string) {
   }
 }
 
-export function clearBook(session: number): void {
+export function clearBook(session: number, format?: BookFormat): void {
   const book = bookFiles.get(session);
   if (!book) {
     return;
@@ -370,7 +417,7 @@ export function clearBook(session: number): void {
   if (book.type === "on-the-fly") {
     book.file.close();
   }
-  bookFiles.set(session, emptyBook());
+  bookFiles.set(session, emptyBook(format));
 }
 
 export async function searchBookMoves(session: number, sfen: string): Promise<CommonBookMove[]> {
@@ -395,7 +442,7 @@ export async function updateBookMove(session: number, sfen: string, move: Common
     throw new Error(t.processingPleaseWait);
   }
   const entry = await retrieveMergedEntry(book, sfen);
-  if (book.format === "yane2016") {
+  if (book.format === "yane2016" || book.format === "sbk") {
     if (entry) {
       updateBookEntry(entry, move);
       book.entries.set(sfen, entry);
@@ -416,6 +463,7 @@ export async function updateBookMove(session: number, sfen: string, move: Common
     };
     delete sanitizedMove.usi2; // not supported
     delete sanitizedMove.depth; // not supported
+    delete sanitizedMove.evaluation; // not supported
     const hash = aperyHash(sfen);
     if (entry) {
       updateBookEntry(entry, sanitizedMove);
@@ -468,6 +516,30 @@ export async function updateBookMoveOrder(
   storeEntry(book, sfen, entry);
 }
 
+function getRecordWinner(node: ImmutableNode): Color | undefined {
+  let lastNode = node;
+  while (lastNode.next) {
+    lastNode = lastNode.next;
+  }
+  const lastMove = lastNode.move;
+  if (lastMove instanceof Move) {
+    return undefined;
+  }
+  switch (lastMove.type) {
+    case SpecialMoveType.FOUL_WIN:
+    case SpecialMoveType.ENTERING_OF_KING:
+      return lastNode.nextColor;
+    case SpecialMoveType.RESIGN:
+    case SpecialMoveType.MATE:
+    case SpecialMoveType.TIMEOUT:
+    case SpecialMoveType.FOUL_LOSE:
+    case SpecialMoveType.TRY:
+      return reverseColor(lastNode.nextColor);
+    default:
+      return undefined;
+  }
+}
+
 export async function importBookMoves(
   session: number,
   settings: BookImportSettings,
@@ -490,7 +562,8 @@ export async function importBookMoves(
   let skippedFileCount = 0;
 
   const pendingMoves = new Map<string, Map<string, number>>();
-  function importMove(node: ImmutableNode, sfen: string) {
+  const pendingStats = new Map<string, { games: number; wonBlack: number; wonWhite: number }>();
+  function importMove(node: ImmutableNode, sfen: string, winner?: Color) {
     if (!(node.move instanceof Move)) {
       return;
     }
@@ -507,6 +580,17 @@ export async function importBookMoves(
       pendingMoves.set(sfen, moves);
     }
     moves.set(usi, (moves.get(usi) || 0) + 1);
+
+    if (book.format === "sbk") {
+      const stats = pendingStats.get(sfen) || { games: 0, wonBlack: 0, wonWhite: 0 };
+      stats.games++;
+      if (winner === Color.BLACK) {
+        stats.wonBlack++;
+      } else if (winner === Color.WHITE) {
+        stats.wonWhite++;
+      }
+      pendingStats.set(sfen, stats);
+    }
   }
 
   book.busy = true;
@@ -623,10 +707,16 @@ export async function importBookMoves(
             continue;
           }
           hasValidLines = true;
+          let winner: Color | undefined;
+          let lastPly = Infinity;
           record.forEach((node) => {
+            if (node.ply <= lastPly) {
+              winner = getRecordWinner(node);
+            }
+            lastPly = node.ply;
             const prev = node.prev;
             if (prev && targetColorSet[prev.nextColor]) {
-              importMove(node, prev.sfen);
+              importMove(node, prev.sfen, winner);
             }
           });
         }
@@ -679,10 +769,11 @@ export async function importBookMoves(
         }
       }
 
+      const winner = getRecordWinner(record.current);
       record.forEach((node) => {
         const prev = node.prev;
         if (prev && targetColorSet[prev.nextColor]) {
-          importMove(node, prev.sfen);
+          importMove(node, prev.sfen, winner);
         }
       });
       successFileCount++;
@@ -740,6 +831,13 @@ export async function importBookMoves(
           }
           currentMovesMap.set(usi, newMove);
         }
+      }
+
+      const stats = pendingStats.get(sfen);
+      if (stats) {
+        entry.games = (entry.games || 0) + stats.games;
+        entry.wonBlack = (entry.wonBlack || 0) + stats.wonBlack;
+        entry.wonWhite = (entry.wonWhite || 0) + stats.wonWhite;
       }
 
       entry.moves = Array.from(currentMovesMap.values());

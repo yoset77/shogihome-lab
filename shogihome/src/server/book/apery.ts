@@ -39,7 +39,7 @@ function decodeEntry(binary: Buffer, offset: number = 0): { hash: bigint; bookMo
   const usi = fromAperyMove(move);
   return {
     hash,
-    bookMove: [usi, undefined, score, undefined, count, ""],
+    bookMove: [usi, undefined, score, undefined, count, "", undefined],
   };
 }
 

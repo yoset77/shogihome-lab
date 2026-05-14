@@ -1,4 +1,4 @@
-import { BookLoadingMode, BookMove, BookMoveEx } from "@/common/book";
+import { BookFormat, BookLoadingMode, BookMove, BookMoveEx } from "@/common/book";
 import { reactive, UnwrapNestedRefs } from "vue";
 import api from "@/renderer/ipc/api";
 import { useErrorStore } from "./error.js";
@@ -12,8 +12,30 @@ import { ImmutableRecord } from "tsshogi";
 import { flippedSFEN, flippedUSIMove } from "@/common/helpers/sfen";
 import { Lazy } from "@/renderer/helpers/lazy";
 
+function getBookFormatByPath(path: string): BookFormat {
+  if (path.endsWith(".bin")) {
+    return "apery";
+  }
+  if (path.endsWith(".sbk")) {
+    return "sbk";
+  }
+  return "yane2016";
+}
+
+function getBookExtension(format: BookFormat): string {
+  switch (format) {
+    case "apery":
+      return ".bin";
+    case "sbk":
+      return ".sbk";
+    default:
+      return ".db";
+  }
+}
+
 export class BookStore {
   private _mode: BookLoadingMode = "in-memory";
+  private _format: BookFormat = "yane2016";
   private _path: string | undefined;
   private _moves: BookMoveEx[] = [];
   private _lazy = new Lazy();
@@ -30,6 +52,10 @@ export class BookStore {
 
   get mode(): BookLoadingMode {
     return this._mode;
+  }
+
+  get format(): BookFormat {
+    return this._format;
   }
 
   get path(): string | undefined {
@@ -89,6 +115,7 @@ export class BookStore {
           .clearBook()
           .then(() => {
             this._mode = "in-memory";
+            this._format = "yane2016";
             this._path = undefined;
             return this.reloadBookMoves();
           })
@@ -129,6 +156,7 @@ export class BookStore {
         onTheFlyThresholdMB: useAppSettings().bookOnTheFlyThresholdMB,
       });
       this._mode = mode;
+      this._format = getBookFormatByPath(path);
       this._path = path;
       await this.reloadBookMoves();
     } catch (e) {
@@ -159,7 +187,7 @@ export class BookStore {
     useBusyState().retain();
     const defaultPath = this._path?.startsWith("server://")
       ? this._path.substring(9)
-      : "new_book.db";
+      : "new_book" + getBookExtension(this._format);
     api
       .showSaveBookDialog(defaultPath)
       .then(async (path) => {
@@ -184,7 +212,7 @@ export class BookStore {
     useBusyState().retain();
     const defaultPath = this._path?.startsWith("server://")
       ? this._path.substring(9)
-      : "new_book.db";
+      : "new_book" + getBookExtension(this._format);
     api
       .showSaveBookDialog(defaultPath)
       .then(async (path) => {

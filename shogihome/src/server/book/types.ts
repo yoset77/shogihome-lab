@@ -1,8 +1,12 @@
-import { BookMove as CommonBookMove } from "@/common/book";
+import {
+  BookFormatApery,
+  BookFormatSbk,
+  BookFormatYane2016,
+  BookMove as CommonBookMove,
+  SbkMoveEvaluation,
+} from "@/common/book";
 
-export type BookFormatYane2016 = "yane2016";
-export type BookFormatApery = "apery";
-export type BookFormat = BookFormatYane2016 | BookFormatApery;
+export type BookFormat = BookFormatYane2016 | BookFormatApery | BookFormatSbk;
 
 export type YaneBook = {
   format: BookFormatYane2016;
@@ -14,13 +18,33 @@ export type AperyBook = {
   entries: Map<bigint, BookEntry>;
 };
 
-export type Book = YaneBook | AperyBook;
+export type SbkBook = {
+  format: BookFormatSbk;
+  entries: Map<string, BookEntry>;
+  sbkAuthor?: string;
+  sbkDescription?: string;
+};
+
+export type Book = YaneBook | AperyBook | SbkBook;
+
+export type SbkEval = {
+  EvaluationValue: number;
+  Depth: number;
+  SelDepth: number;
+  Nodes: bigint;
+  Variation?: string;
+  EngineName?: string;
+};
 
 export type BookEntry = {
   type: BookEntryType;
   comment: string; // 局面に対するコメント
   moves: BookMove[]; // この局面に対する定跡手
   minPly: number; // 初期局面からの手数
+  games?: number; // 対局数 (SBK)
+  wonBlack?: number; // 先手勝ち数 (SBK)
+  wonWhite?: number; // 後手勝ち数 (SBK)
+  sbkEvals?: SbkEval[]; // エンジン解析結果 (SBK)
 };
 
 export type BookEntryType = "normal" | "patch";
@@ -32,6 +56,7 @@ export type BookMove = [
   depth: number | undefined,
   count: number | undefined,
   comment: string,
+  evaluation: SbkMoveEvaluation | undefined,
 ];
 
 export const IDX_USI = 0;
@@ -40,6 +65,7 @@ export const IDX_SCORE = 2;
 export const IDX_DEPTH = 3;
 export const IDX_COUNT = 4;
 export const IDX_COMMENTS = 5;
+export const IDX_EVALUATION = 6;
 
 export function arrayMoveToCommonBookMove(move: BookMove): CommonBookMove {
   return {
@@ -49,11 +75,12 @@ export function arrayMoveToCommonBookMove(move: BookMove): CommonBookMove {
     depth: move[IDX_DEPTH],
     count: move[IDX_COUNT],
     comment: move[IDX_COMMENTS],
+    evaluation: move[IDX_EVALUATION],
   };
 }
 
 export function commonBookMoveToArray(move: CommonBookMove): BookMove {
-  return [move.usi, move.usi2, move.score, move.depth, move.count, move.comment];
+  return [move.usi, move.usi2, move.score, move.depth, move.count, move.comment, move.evaluation];
 }
 
 export function mergeBookEntries(
@@ -94,6 +121,7 @@ export function mergeBookEntries(
         p[IDX_DEPTH] !== undefined ? p[IDX_DEPTH] : move[IDX_DEPTH],
         p[IDX_COUNT] !== undefined ? p[IDX_COUNT] + (move[IDX_COUNT] || 0) : move[IDX_COUNT],
         p[IDX_COMMENTS] || move[IDX_COMMENTS],
+        p[IDX_EVALUATION] !== undefined ? p[IDX_EVALUATION] : move[IDX_EVALUATION],
       ] as BookMove;
     }
     return move;
@@ -109,5 +137,18 @@ export function mergeBookEntries(
     comment: patch.comment || base.comment,
     moves,
     minPly: Math.min(base.minPly, patch.minPly),
+    games:
+      base.games !== undefined || patch.games !== undefined
+        ? (base.games || 0) + (patch.games || 0)
+        : undefined,
+    wonBlack:
+      base.wonBlack !== undefined || patch.wonBlack !== undefined
+        ? (base.wonBlack || 0) + (patch.wonBlack || 0)
+        : undefined,
+    wonWhite:
+      base.wonWhite !== undefined || patch.wonWhite !== undefined
+        ? (base.wonWhite || 0) + (patch.wonWhite || 0)
+        : undefined,
+    sbkEvals: patch.sbkEvals || base.sbkEvals,
   };
 }

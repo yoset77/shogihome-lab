@@ -16,6 +16,7 @@
         style="flex: 1; min-height: 0"
         :position="store.record.position"
         :moves="bookStore.moves"
+        :format="bookStore.format"
         :playable="store.isMovableByUser"
         :editable="bookEditable"
         @play="onPlayBookMove"
@@ -30,6 +31,8 @@
         :depth="editingData.depth"
         :count="editingData.count"
         :comment="editingData.comment"
+        :evaluation="editingData.evaluation"
+        :format="bookStore.format"
         @ok="onEditBookMove"
         @cancel="onCancelEditBookMove"
       />
