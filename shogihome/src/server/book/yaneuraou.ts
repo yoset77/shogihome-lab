@@ -2,18 +2,7 @@ import fs from "node:fs";
 import readline from "node:readline";
 import events from "node:events";
 import { Readable, Writable } from "node:stream";
-import {
-  YaneBook,
-  BookEntry,
-  BookMove,
-  IDX_COMMENTS,
-  IDX_COUNT,
-  IDX_DEPTH,
-  IDX_SCORE,
-  IDX_USI,
-  IDX_USI2,
-  mergeBookEntries,
-} from "./types.js";
+import { YaneBook, BookEntry, BookMove, mergeBookEntries } from "./types.js";
 import { getAppLogger } from "@/node/log";
 
 const YANEURAOU_BOOK_HEADER_V100 = "#YANEURAOU-DB2016 1.00";
@@ -90,16 +79,18 @@ function parseLine(line: string): Line {
     }
     return {
       type: "move",
-      move: [
-        columns[0], // usi
-        columns[1] === MOVE_NONE ? undefined : columns[1], // usi2
+      move: {
+        usi: columns[0],
+        usi2: columns[1] === MOVE_NONE ? undefined : columns[1],
         // ShogiHome v1.20.0 は score と depth の省略時に空文字を出力する実装なので空文字も判定に含める。
-        columns[2] === SCORE_NONE || columns[2] === "" ? undefined : parseInt(columns[2], 10), // score
-        columns[3] === DEPTH_NONE || columns[3] === "" ? undefined : parseInt(columns[3], 10), // depth
-        columns[4] ? parseInt(columns[4], 10) : undefined, // counts
-        commentIndex < line.length ? line.slice(commentIndex).replace(/^(#|\/\/)/, "") : "", // comment
-        undefined, // evaluation (SBK only)
-      ],
+        score:
+          columns[2] === SCORE_NONE || columns[2] === "" ? undefined : parseInt(columns[2], 10),
+        depth:
+          columns[3] === DEPTH_NONE || columns[3] === "" ? undefined : parseInt(columns[3], 10),
+        count: columns[4] ? parseInt(columns[4], 10) : undefined,
+        comment:
+          commentIndex < line.length ? line.slice(commentIndex).replace(/^(#|\/\/)/, "") : "",
+      },
     };
   }
 
@@ -133,7 +124,7 @@ async function load(input: Readable, nextEntry: (sfen: string, entry: BookEntry)
             } else {
               const moves = current[1].moves;
               const move = moves[moves.length - 1];
-              move[IDX_COMMENTS] = appendCommentLine(move[IDX_COMMENTS], parsed.comment);
+              move.comment = appendCommentLine(move.comment, parsed.comment);
             }
           }
           break;
@@ -184,18 +175,18 @@ async function writeEntry(output: Writable, sfen: string, entry: BookEntry) {
   }
   for (const move of entry.moves) {
     buffer +=
-      move[IDX_USI] +
+      move.usi +
       " " +
-      (move[IDX_USI2] || MOVE_NONE) +
+      (move.usi2 || MOVE_NONE) +
       " " +
-      (move[IDX_SCORE] != undefined ? move[IDX_SCORE].toFixed(0) : SCORE_NONE) +
+      (move.score != undefined ? move.score.toFixed(0) : SCORE_NONE) +
       " " +
-      (move[IDX_DEPTH] != undefined ? move[IDX_DEPTH].toFixed(0) : DEPTH_NONE) +
+      (move.depth != undefined ? move.depth.toFixed(0) : DEPTH_NONE) +
       " " +
-      (move[IDX_COUNT] != undefined ? move[IDX_COUNT].toFixed(0) : "") +
+      (move.count != undefined ? move.count.toFixed(0) : "") +
       "\n";
-    if (move[IDX_COMMENTS]) {
-      for (const commentLine of move[IDX_COMMENTS].split("\n")) {
+    if (move.comment) {
+      for (const commentLine of move.comment.split("\n")) {
         buffer += CommentMarker1 + commentLine + "\n";
       }
     }
