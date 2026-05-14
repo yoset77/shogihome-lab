@@ -355,6 +355,11 @@ const props = defineProps({
     type: Boolean,
     required: false,
   },
+  enableDragAndDrop: {
+    type: Boolean,
+    required: false,
+    default: true,
+  },
   blackPlayerName: {
     type: String,
     required: false,
@@ -471,6 +476,7 @@ const beginDragFromSquare = (
   rank: number,
   pointerId: number,
 ) => {
+  if (!props.enableDragAndDrop) return;
   if (!props.allowMove && !props.allowEdit) return;
   if (state.reservedMove) return;
   const square = new Square(file, rank);
@@ -495,6 +501,7 @@ const beginDragFromHand = (
   type: PieceType,
   pointerId: number,
 ) => {
+  if (!props.enableDragAndDrop) return;
   if (!props.allowMove && !props.allowEdit) return;
   if (state.reservedMove) return;
   if (props.position.hand(color).count(type) === 0) return;
