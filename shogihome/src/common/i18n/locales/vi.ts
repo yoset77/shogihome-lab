@@ -250,6 +250,7 @@ export const vi: Texts = {
   centeredHorizontal: "水平・中央寄せ", // TODO: Translate
   promoteFirstVertical: "垂直・成優先", // TODO: Translate
   promoteFirstHorizontal: "水平・成優先", // TODO: Translate
+  enableDragAndDrop: "駒のドラッグ操作", // TODO: Translate
   showFileAndRank: "Hiện hàng và cột",
   showLeftControls: "Hiện điều khiển bên trái",
   showRightControls: "Hiện điều khiển bên phải",

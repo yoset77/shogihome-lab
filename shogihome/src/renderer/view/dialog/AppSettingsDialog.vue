@@ -298,6 +298,11 @@
             ]"
           />
         </div>
+        <!-- ドラッグ＆ドロップ -->
+        <div class="form-item">
+          <div class="form-item-label-wide">{{ t.enableDragAndDrop }}</div>
+          <ToggleButton v-model:value="update.enableDragAndDrop" />
+        </div>
         <!-- 段・筋の表示 -->
         <div class="form-item">
           <div class="form-item-label-wide">
@@ -980,6 +985,7 @@ const update = ref({
   pieceStandOpacity: Math.round(org.pieceStandOpacity * 100),
   recordOpacity: Math.round(org.recordOpacity * 100),
   promotionSelectorStyle: org.promotionSelectorStyle,
+  enableDragAndDrop: org.enableDragAndDrop,
   boardLabelType: org.boardLabelType,
   leftSideControlType: org.leftSideControlType,
   rightSideControlType: org.rightSideControlType,

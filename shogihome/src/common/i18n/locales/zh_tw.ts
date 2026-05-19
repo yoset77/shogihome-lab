@@ -247,6 +247,7 @@ export const zh_tw: Texts = {
   centeredHorizontal: "水平・中央寄せ", // TODO: Translate
   promoteFirstVertical: "垂直・成優先", // TODO: Translate
   promoteFirstHorizontal: "水平・成優先", // TODO: Translate
+  enableDragAndDrop: "駒のドラッグ操作", // TODO: Translate
   showFileAndRank: "顯示段・筋",
   showLeftControls: "顯示左側操作按鈕",
   showRightControls: "顯示右側操作按鈕",
