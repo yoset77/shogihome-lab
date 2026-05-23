@@ -9,6 +9,7 @@ permissions:
   contents: write
   id-token: write
   attestations: write
+  artifact-metadata: write
 
 jobs:
   build-and-release:
@@ -111,7 +112,7 @@ jobs:
           Compress-Archive -Path "$pkgName" -DestinationPath "$pkgName.zip"
 
       - name: Attest Build Provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest@v4
         with:
           subject-path: shogihome-lab-*.zip
 
