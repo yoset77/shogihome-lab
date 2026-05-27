@@ -40,6 +40,7 @@ import { writeStreamAtomic } from "@/server/file/atomic_stream";
 import {
   loadSbkBook,
   loadSbkBookOnTheFly,
+  MAX_SBK_BOOK_SIZE_BYTES,
   searchSbkBookEntryOnTheFly,
   storeSbkBook,
 } from "./sbk.js";
@@ -60,8 +61,6 @@ type OnTheFlyBook = Book & {
   saved: boolean;
   busy: boolean;
 };
-
-const MAX_SBK_BOOK_SIZE_BYTES = 128 * 1024 * 1024;
 
 function isPathInsideDirectory(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
@@ -318,11 +317,10 @@ export async function openBook(
   const format = getFormatByPath(path);
   const thresholdMB =
     format === "sbk" ? options?.sbkOnTheFlyThresholdMB : options?.onTheFlyThresholdMB;
-  if (
-    options?.forceOnTheFly ||
-    (thresholdMB !== undefined && size > thresholdMB * 1024 * 1024) ||
-    (format === "sbk" && size > MAX_SBK_BOOK_SIZE_BYTES)
-  ) {
+  if (format === "sbk" && size > MAX_SBK_BOOK_SIZE_BYTES) {
+    throw new Error(`SBK file too large: ${size} bytes`);
+  }
+  if (options?.forceOnTheFly || (thresholdMB !== undefined && size > thresholdMB * 1024 * 1024)) {
     await openBookOnTheFly(session, path, size);
     return "on-the-fly";
   } else {
@@ -438,11 +436,57 @@ export function clearBook(session: number, format?: BookFormat): void {
 export async function searchBookMoves(session: number, sfen: string): Promise<CommonBookMove[]> {
   const book = getBook(session);
   const entry = await retrieveMergedEntry(book, sfen);
-  return entry ? entry.moves.map((move) => ({ ...move })) : [];
+  return entry ? entry.moves.map(internalBookMoveToCommon) : [];
+}
+
+function internalBookMoveToCommon(move: BookMove): CommonBookMove {
+  const commonMove: CommonBookMove = {
+    usi: move.usi,
+    comment: move.comment,
+  };
+  if (move.usi2 !== undefined) {
+    commonMove.usi2 = move.usi2;
+  }
+  if (move.score !== undefined) {
+    commonMove.score = move.score;
+  }
+  if (move.depth !== undefined) {
+    commonMove.depth = move.depth;
+  }
+  if (move.count !== undefined) {
+    commonMove.count = move.count;
+  }
+  if (move.evaluation !== undefined) {
+    commonMove.evaluation = move.evaluation;
+  }
+  return commonMove;
+}
+
+function commonBookMoveToInternal(move: CommonBookMove): BookMove {
+  const bookMove: BookMove = {
+    usi: move.usi,
+    comment: move.comment,
+  };
+  if (move.usi2 !== undefined) {
+    bookMove.usi2 = move.usi2;
+  }
+  if (move.score !== undefined) {
+    bookMove.score = move.score;
+  }
+  if (move.depth !== undefined) {
+    bookMove.depth = move.depth;
+  }
+  if (move.count !== undefined) {
+    bookMove.count = move.count;
+  }
+  if (move.evaluation !== undefined) {
+    bookMove.evaluation = move.evaluation;
+  }
+  return bookMove;
 }
 
 function updateBookEntry(entry: BookEntry, move: CommonBookMove): void {
-  const bookMove = { ...move };
+  const bookMove = commonBookMoveToInternal(move);
   for (let i = 0; i < entry.moves.length; i++) {
     if (entry.moves[i].usi === move.usi) {
       entry.moves[i] = bookMove;
@@ -450,6 +494,22 @@ function updateBookEntry(entry: BookEntry, move: CommonBookMove): void {
     }
   }
   entry.moves.push(bookMove);
+}
+
+function sanitizedAperyBookMove(move: CommonBookMove): BookMove {
+  const bookMove: BookMove = {
+    usi: move.usi,
+    comment: move.comment,
+    score: 0,
+    count: 0,
+  };
+  if (move.score !== undefined) {
+    bookMove.score = move.score;
+  }
+  if (move.count !== undefined) {
+    bookMove.count = move.count;
+  }
+  return bookMove;
 }
 
 export async function updateBookMove(session: number, sfen: string, move: CommonBookMove) {
@@ -466,20 +526,12 @@ export async function updateBookMove(session: number, sfen: string, move: Common
       book.entries.set(sfen, {
         type: "normal",
         comment: "",
-        moves: [{ ...move }],
+        moves: [commonBookMoveToInternal(move)],
         minPly: 0,
       });
     }
   } else {
-    const sanitizedMove = {
-      score: 0, // required for Apery book
-      count: 0, // required for Apery book
-      ...move,
-      comment: "", // not supported
-    };
-    delete sanitizedMove.usi2; // not supported
-    delete sanitizedMove.depth; // not supported
-    delete sanitizedMove.evaluation; // not supported
+    const sanitizedMove = sanitizedAperyBookMove({ ...move, comment: "" });
     const hash = aperyHash(sfen);
     if (entry) {
       updateBookEntry(entry, sanitizedMove);
@@ -488,7 +540,7 @@ export async function updateBookMove(session: number, sfen: string, move: Common
       book.entries.set(hash, {
         type: "normal",
         comment: "",
-        moves: [{ ...sanitizedMove }],
+        moves: [sanitizedMove],
         minPly: 0,
       });
     }

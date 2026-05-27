@@ -1,4 +1,9 @@
-import { packedSfenToSfen, sfenToPackedSfen } from "@/server/book/packed_sfen";
+import {
+  packedSfenToSfen,
+  positionToPackedSfen,
+  sfenToPackedSfen,
+} from "@/server/book/packed_sfen";
+import { Position } from "tsshogi";
 
 describe("background/book/packed_sfen", () => {
   const sfens = [
@@ -12,6 +17,16 @@ describe("background/book/packed_sfen", () => {
       expect(packedSfenToSfen(sfenToPackedSfen(sfen))).toBe(sfen.replace(/\s+\d+$/, " 1"));
     });
   }
+
+  it("matches Position-based packing", () => {
+    for (const sfen of sfens) {
+      const pos = Position.newBySFEN(sfen);
+      if (!pos) {
+        throw new Error(`Invalid test SFEN: ${sfen}`);
+      }
+      expect(Array.from(positionToPackedSfen(pos))).toEqual(Array.from(sfenToPackedSfen(sfen)));
+    }
+  });
 
   it("rejects malformed SFEN", () => {
     expect(() => sfenToPackedSfen("invalid")).toThrow("Invalid SFEN");
