@@ -315,11 +315,13 @@ export async function openBook(
   }
 
   const size = stat.size;
+  const format = getFormatByPath(path);
+  const thresholdMB =
+    format === "sbk" ? options?.sbkOnTheFlyThresholdMB : options?.onTheFlyThresholdMB;
   if (
     options?.forceOnTheFly ||
-    (options?.onTheFlyThresholdMB !== undefined &&
-      size > options.onTheFlyThresholdMB * 1024 * 1024) ||
-    (getFormatByPath(path) === "sbk" && size > MAX_SBK_BOOK_SIZE_BYTES)
+    (thresholdMB !== undefined && size > thresholdMB * 1024 * 1024) ||
+    (format === "sbk" && size > MAX_SBK_BOOK_SIZE_BYTES)
   ) {
     await openBookOnTheFly(session, path, size);
     return "on-the-fly";

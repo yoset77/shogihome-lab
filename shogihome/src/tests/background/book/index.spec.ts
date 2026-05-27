@@ -213,6 +213,24 @@ describe("background/book", () => {
         expect(savedMove?.evaluation).toBe(SbkMoveEvaluation.Good);
       });
 
+      it("uses the SBK-specific threshold instead of the generic threshold", async () => {
+        await expect(
+          openBook(defaultBookSession, "src/tests/testdata/book/shogihome01.sbk", {
+            onTheFlyThresholdMB: 0.000001,
+            sbkOnTheFlyThresholdMB: 256,
+          }),
+        ).resolves.toBe("in-memory");
+
+        clearBook(defaultBookSession);
+
+        await expect(
+          openBook(defaultBookSession, "src/tests/testdata/book/shogihome01.sbk", {
+            onTheFlyThresholdMB: 256,
+            sbkOnTheFlyThresholdMB: 0.000001,
+          }),
+        ).resolves.toBe("on-the-fly");
+      });
+
       it("uses SBK on-the-fly mode above the in-memory guard even with a higher threshold", async () => {
         const tempFilePath = path.join(tmpdir, "large-valid.sbk");
         fs.copyFileSync("src/tests/testdata/book/shogihome01.sbk", tempFilePath);

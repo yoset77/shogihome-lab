@@ -12,7 +12,7 @@ import {
   updateBookMoveOrder,
 } from "@/server/book";
 import { closeBookSessionForRequest, getBookSession } from "@/server/bookSessionManager";
-import { KIFU_DIR, ONTHEFLY_THRESHOLD_MB } from "@/server/config";
+import { KIFU_DIR, ONTHEFLY_THRESHOLD_MB, SBK_ONTHEFLY_THRESHOLD_MB } from "@/server/config";
 import { sendError } from "@/server/errors";
 
 export const registerBookRoutes = (app: Express) => {
@@ -40,6 +40,7 @@ export const registerBookRoutes = (app: Express) => {
     const options = {
       forceOnTheFly: req.body?.forceOnTheFly === true,
       onTheFlyThresholdMB: ONTHEFLY_THRESHOLD_MB,
+      sbkOnTheFlyThresholdMB: SBK_ONTHEFLY_THRESHOLD_MB,
     };
     const mode = await openBook(bookSession, fullPath, options);
     res.json({ mode });
