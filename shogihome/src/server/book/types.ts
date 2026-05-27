@@ -22,9 +22,18 @@ export type SbkBook = {
   entries: Map<string, BookEntry>;
   sbkAuthor?: string;
   sbkDescription?: string;
+  sbkIndex?: SbkOnTheFlyLUT;
+  rawData?: Uint8Array;
 };
 
 export type Book = YaneBook | AperyBook | SbkBook;
+
+export type SbkOnTheFlyLUT = {
+  table: Uint32Array;
+  rowCount: number;
+  firstNonZeroRow: number;
+  indexToOffset: Uint32Array;
+};
 
 export type SbkEval = {
   EvaluationValue: number;
