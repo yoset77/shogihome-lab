@@ -119,11 +119,11 @@ export const KIFU_DIR = process.env.KIFU_DIR
 
 export const ONTHEFLY_THRESHOLD_MB = (() => {
   const raw = process.env.ONTHEFLY_THRESHOLD_MB;
-  if (!raw) return 256;
+  if (!raw) return 128;
   const val = parseInt(raw, 10);
   if (isNaN(val) || val <= 0) {
-    console.error(`Invalid ONTHEFLY_THRESHOLD_MB: "${raw}". Using default (256 MB).`);
-    return 256;
+    console.error(`Invalid ONTHEFLY_THRESHOLD_MB: "${raw}". Using default (128 MB).`);
+    return 128;
   }
   return val;
 })();

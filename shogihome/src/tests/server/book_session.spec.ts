@@ -7,6 +7,7 @@ vi.hoisted(() => {
 
 import { app } from "@/server/main";
 import * as bookAPI from "@/server/book/index";
+import { ONTHEFLY_THRESHOLD_MB } from "@/server/config";
 
 // Mock the dependencies
 vi.mock("@/server/book/index.js", () => {
@@ -93,6 +94,21 @@ describe("Book Session API", () => {
 
     expect(response.status).toBe(200);
     expect(bookAPI.searchBookMoves).toHaveBeenCalled();
+  });
+
+  it("should ignore client-provided on-the-fly threshold", async () => {
+    await request(app)
+      .post("/api/book/open?path=test1.db")
+      .set("X-Book-Session-Id", "client-threshold")
+      .set("Host", "localhost:8140")
+      .send({ onTheFlyThresholdMB: 1, forceOnTheFly: false });
+
+    const call = vi.mocked(bookAPI.openBook).mock.calls[0];
+    expect(call[2]).toEqual({
+      forceOnTheFly: false,
+      onTheFlyThresholdMB: ONTHEFLY_THRESHOLD_MB,
+    });
+    expect(call[2]?.onTheFlyThresholdMB).not.toBe(1);
   });
 
   it("should return 400 error when X-Book-Session-Id header is missing", async () => {
