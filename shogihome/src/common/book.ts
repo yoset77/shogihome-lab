@@ -27,6 +27,7 @@ export type BookMove = {
 
 export type BookLoadingOptions = {
   onTheFlyThresholdMB?: number; // On-the-fly に切り替える閾値(MebiBytes)
+  sbkOnTheFlyThresholdMB?: number; // SBK を On-the-fly に切り替える閾値(MebiBytes)
   forceOnTheFly?: boolean; // 強制的に On-the-fly モードにする
 };
 

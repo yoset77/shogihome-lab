@@ -117,16 +117,19 @@ export const KIFU_DIR = process.env.KIFU_DIR
   ? path.resolve(getBasePath(), process.env.KIFU_DIR)
   : null;
 
-export const ONTHEFLY_THRESHOLD_MB = (() => {
-  const raw = process.env.ONTHEFLY_THRESHOLD_MB;
-  if (!raw) return 128;
+const parseOnTheFlyThresholdMB = (name: string, defaultValue: number): number => {
+  const raw = process.env[name];
+  if (!raw) return defaultValue;
   const val = parseInt(raw, 10);
   if (isNaN(val) || val <= 0) {
-    console.error(`Invalid ONTHEFLY_THRESHOLD_MB: "${raw}". Using default (128 MB).`);
-    return 128;
+    console.error(`Invalid ${name}: "${raw}". Using default (${defaultValue} MB).`);
+    return defaultValue;
   }
   return val;
-})();
+};
+
+export const ONTHEFLY_THRESHOLD_MB = parseOnTheFlyThresholdMB("ONTHEFLY_THRESHOLD_MB", 128);
+export const SBK_ONTHEFLY_THRESHOLD_MB = parseOnTheFlyThresholdMB("SBK_ONTHEFLY_THRESHOLD_MB", 32);
 
 export const ANALYSIS_DB_MIN_DEPTH = (() => {
   const raw = process.env.ANALYSIS_DB_MIN_DEPTH;

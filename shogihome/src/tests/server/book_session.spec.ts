@@ -7,7 +7,7 @@ vi.hoisted(() => {
 
 import { app } from "@/server/main";
 import * as bookAPI from "@/server/book/index";
-import { ONTHEFLY_THRESHOLD_MB } from "@/server/config";
+import { ONTHEFLY_THRESHOLD_MB, SBK_ONTHEFLY_THRESHOLD_MB } from "@/server/config";
 
 // Mock the dependencies
 vi.mock("@/server/book/index.js", () => {
@@ -107,8 +107,10 @@ describe("Book Session API", () => {
     expect(call[2]).toEqual({
       forceOnTheFly: false,
       onTheFlyThresholdMB: ONTHEFLY_THRESHOLD_MB,
+      sbkOnTheFlyThresholdMB: SBK_ONTHEFLY_THRESHOLD_MB,
     });
     expect(call[2]?.onTheFlyThresholdMB).not.toBe(1);
+    expect(call[2]?.sbkOnTheFlyThresholdMB).toBe(32);
   });
 
   it("should return 400 error when X-Book-Session-Id header is missing", async () => {
