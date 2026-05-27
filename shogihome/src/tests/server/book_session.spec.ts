@@ -110,7 +110,7 @@ describe("Book Session API", () => {
       sbkOnTheFlyThresholdMB: SBK_ONTHEFLY_THRESHOLD_MB,
     });
     expect(call[2]?.onTheFlyThresholdMB).not.toBe(1);
-    expect(call[2]?.sbkOnTheFlyThresholdMB).toBe(32);
+    expect(call[2]?.sbkOnTheFlyThresholdMB).toBe(SBK_ONTHEFLY_THRESHOLD_MB);
   });
 
   it("should return 400 error when X-Book-Session-Id header is missing", async () => {

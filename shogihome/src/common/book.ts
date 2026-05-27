@@ -22,7 +22,6 @@ export type BookMove = {
   count?: number; // 出現回数
   comment: string; // コメント
   evaluation?: SbkMoveEvaluation; // 指し手の評価 (SBK)
-  sbkId?: number; // SBK transition target state ID
 };
 
 export type BookLoadingOptions = {

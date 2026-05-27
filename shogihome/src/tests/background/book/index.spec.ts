@@ -198,6 +198,7 @@ describe("background/book", () => {
         const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
         const moves = await searchBookMoves(defaultBookSession, sfen);
         expect(moves.length).toBeGreaterThan(0);
+        expect(moves.some((move) => "sbkId" in move)).toBe(false);
 
         const target = moves[0];
         await updateBookMove(defaultBookSession, sfen, {
@@ -231,19 +232,20 @@ describe("background/book", () => {
         ).resolves.toBe("on-the-fly");
       });
 
-      it("uses SBK on-the-fly mode above the in-memory guard even with a higher threshold", async () => {
-        const tempFilePath = path.join(tmpdir, "large-valid.sbk");
+      it("rejects SBK files above the absolute raw-data guard", async () => {
+        const tempFilePath = path.join(tmpdir, "oversized.sbk");
         fs.copyFileSync("src/tests/testdata/book/shogihome01.sbk", tempFilePath);
         const file = fs.openSync(tempFilePath, "a");
         try {
-          fs.ftruncateSync(file, 128 * 1024 * 1024 + 1);
+          fs.ftruncateSync(file, 512 * 1024 * 1024 + 1);
         } finally {
           fs.closeSync(file);
         }
-        const mode = await openBook(defaultBookSession, tempFilePath, {
-          onTheFlyThresholdMB: 256,
-        });
-        expect(mode).toBe("on-the-fly");
+        await expect(
+          openBook(defaultBookSession, tempFilePath, {
+            sbkOnTheFlyThresholdMB: 0.000001,
+          }),
+        ).rejects.toThrow("SBK file too large");
       });
     });
 

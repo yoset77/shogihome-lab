@@ -163,7 +163,7 @@ graph LR
 ### 定跡DB管理 (Book DB Management - Web/LAN)
 サーバー側の `KIFU_DIR` 内にある定跡ファイル (.db, .bin, .sbk) をブラウザから利用・編集する機能です。
 - **対応形式**: YaneuraOu 形式 (`.db`)、Apery 形式 (`.bin`)、ShogiGUI/SBK 形式 (`.sbk`) をサポートします。
-- **読み込み**: サーバーサイドで実行され、巨大な `.db`/`.bin` ファイルに対してはオンザフライ検索を行うことで、クライアント側のリソース消費を抑えています。SBK は protobuf ベースのバイナリ形式で、一定サイズを超える場合は Packed SFEN の索引を構築し、必要な局面だけをデコードする on-the-fly モードで扱います。Web/LAN API ではクライアントから送信された閾値を信用せず、`.db`/`.bin` は `.env` の `ONTHEFLY_THRESHOLD_MB`、`.sbk` は `SBK_ONTHEFLY_THRESHOLD_MB` をサーバー側で適用します。
+- **読み込み**: サーバーサイドで実行され、巨大な `.db`/`.bin` ファイルに対してはオンザフライ検索を行うことで、クライアント側のリソース消費を抑えています。SBK は protobuf ベースのバイナリ形式で、一定サイズを超える場合は Packed SFEN の索引を構築し、必要な局面だけをデコードする on-the-fly モードで扱います。現行の SBK on-the-fly は元ファイルの raw data を保持するため、`SBK_ONTHEFLY_THRESHOLD_MB` とは別に 512MiB の絶対上限を設けています。Web/LAN API ではクライアントから送信された閾値を信用せず、`.db`/`.bin` は `.env` の `ONTHEFLY_THRESHOLD_MB`、`.sbk` は `SBK_ONTHEFLY_THRESHOLD_MB` をサーバー側で適用します。
 - **編集機能**: 定跡手の追加、削除、評価値/出現回数/SBK 指し手評価の更新、表示順の変更がブラウザから可能です。**「指し手追加」ダイアログにおける設定（インポート条件など）はブラウザの `localStorage` に保持されます。**
 - **インポート**: サーバー上の特定の棋譜ファイルから定跡データをインポートする機能をサポートしています。
 - **セキュリティ**: 棋譜管理と同様、`resolveKifuPath` によるパスバリデーションにより、安全なファイル操作を保証しています。

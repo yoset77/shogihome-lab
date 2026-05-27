@@ -33,6 +33,7 @@ export type SbkOnTheFlyLUT = {
   rowCount: number;
   firstNonZeroRow: number;
   indexToOffset: Uint32Array;
+  stateIds: Set<number>;
 };
 
 export type SbkEval = {
@@ -57,8 +58,9 @@ export type BookEntry = {
 
 export type BookEntryType = "normal" | "patch";
 
-// Keep the server-side move shape aligned with the API payload intentionally.
-export type BookMove = CommonBookMove;
+export type BookMove = CommonBookMove & {
+  sbkId?: number; // SBK transition target state ID
+};
 
 export function mergeBookEntries(
   base: BookEntry | undefined,
