@@ -1,5 +1,5 @@
-from unittest.mock import mock_open, patch
 import json
+from unittest.mock import mock_open, patch
 
 from config_editor import Api
 
@@ -7,13 +7,22 @@ from config_editor import Api
 def test_api_save_valid_data():
     api = Api()
     # List type
-    valid_data = [{"id": "test-engine", "name": "Test Engine", "path": "path/to/engine", "type": ["game", "research"], "options": {"MultiPV": 1}}]
+    valid_data = [
+        {
+            "id": "test-engine",
+            "name": "Test Engine",
+            "path": "path/to/engine",
+            "type": ["game", "research"],
+            "options": {"MultiPV": 1},
+        }
+    ]
 
     with patch("config_editor.ENGINES_JSON_PATH", "/fake/path/engines.json"):
         with patch("builtins.open", mock_open()) as mocked_file:
             result = api.save(valid_data)
             assert result == {"status": "ok"}
             mocked_file.assert_called_once_with("/fake/path/engines.json", "w", encoding="utf-8")
+
 
 def test_api_save_backward_compatibility():
     api = Api()
@@ -24,11 +33,12 @@ def test_api_save_backward_compatibility():
         with patch("builtins.open", mock_open()) as mocked_file:
             result = api.save(input_data)
             assert result == {"status": "ok"}
-            
+
             # Get the written content by joining all write calls
             written_content = "".join(call.args[0] for call in mocked_file().write.call_args_list)
             written_json = json.loads(written_content)
             assert written_json[0]["type"] == ["game", "research", "mate"]
+
 
 def test_api_save_invalid_root_type():
     api = Api()
@@ -72,12 +82,14 @@ def test_api_save_invalid_type_enum():
     assert "error" in result
     assert "Invalid type 'invalid'" in result["error"]
 
+
 def test_api_save_invalid_type_both_in_list():
     api = Api()
     invalid_data = [{"id": "id", "name": "Name", "path": "path", "type": ["both"]}]
     result = api.save(invalid_data)
     assert "error" in result
     assert "Invalid type 'both'" in result["error"]
+
 
 def test_api_save_invalid_options_type():
     api = Api()

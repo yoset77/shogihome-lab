@@ -1,7 +1,9 @@
 import asyncio
+
 import pytest
-from unittest.mock import MagicMock
+
 from engine_wrapper import pipe_stream
+
 
 class MockWriter:
     def __init__(self):
@@ -17,6 +19,7 @@ class MockWriter:
     def close(self):
         self.closed = True
 
+
 @pytest.mark.asyncio
 async def test_pipe_stream_utf8():
     # "こんにちは" in UTF-8
@@ -24,11 +27,12 @@ async def test_pipe_stream_utf8():
     reader = asyncio.StreamReader()
     reader.feed_data(utf8_bytes)
     reader.feed_eof()
-    
+
     writer = MockWriter()
     await pipe_stream(reader, writer, "[Test]")
-    
+
     assert writer.data.decode("utf-8") == "こんにちは\n"
+
 
 @pytest.mark.asyncio
 async def test_pipe_stream_cp932():
@@ -37,12 +41,13 @@ async def test_pipe_stream_cp932():
     reader = asyncio.StreamReader()
     reader.feed_data(cp932_bytes)
     reader.feed_eof()
-    
+
     writer = MockWriter()
     await pipe_stream(reader, writer, "[Test]")
-    
+
     # Should be converted to UTF-8
     assert writer.data.decode("utf-8") == "こんにちは\n"
+
 
 @pytest.mark.asyncio
 async def test_pipe_stream_mixed_mojibake():
@@ -52,11 +57,12 @@ async def test_pipe_stream_mixed_mojibake():
     reader = asyncio.StreamReader()
     reader.feed_data(cp932_bytes)
     reader.feed_eof()
-    
+
     writer = MockWriter()
     await pipe_stream(reader, writer, "[Test]")
-    
+
     assert writer.data.decode("utf-8") == "日本語\n"
+
 
 @pytest.mark.asyncio
 async def test_pipe_stream_invalid_bytes():
@@ -66,10 +72,10 @@ async def test_pipe_stream_invalid_bytes():
     reader = asyncio.StreamReader()
     reader.feed_data(invalid_bytes)
     reader.feed_eof()
-    
+
     writer = MockWriter()
     await pipe_stream(reader, writer, "[Test]")
-    
+
     # Should not crash. The exact replacement char depends on the decoder's implementation.
     decoded = writer.data.decode("utf-8")
     assert len(decoded) > 0
