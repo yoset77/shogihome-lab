@@ -225,19 +225,19 @@ export class EngineSession {
   }
 
   private sendError(message: string) {
-    let safeMessage = message;
-    if (message.includes("WRAPPER_ERROR:")) {
+    const safeMessage = (() => {
+      if (!message.includes("WRAPPER_ERROR:")) {
+        return message.startsWith("error: ") ? message : `error: ${message}`;
+      }
       console.error(`Internal Wrapper Error: ${message}`);
       if (message.includes("Engine executable not found")) {
-        safeMessage = "error: Engine executable not found.";
-      } else if (message.includes("Engine path for type")) {
-        safeMessage = "error: Engine path configuration error.";
-      } else {
-        safeMessage = "error: Internal server error.";
+        return "error: Engine executable not found.";
       }
-    } else {
-      safeMessage = message.startsWith("error: ") ? message : `error: ${message}`;
-    }
+      if (message.includes("Engine path for type")) {
+        return "error: Engine path configuration error.";
+      }
+      return "error: Internal server error.";
+    })();
     this.sendToClient({ error: safeMessage });
   }
 

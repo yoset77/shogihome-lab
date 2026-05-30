@@ -71,6 +71,7 @@
     "yaml": "^2.5.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/async-lock": "^1.4.0",
     "@types/encoding-japanese": "^2.0.1",
     "@types/escape-html": "^1.0.4",
@@ -92,10 +93,11 @@
     "ajv-keywords": "^5.1.0",
     "depcheck": "^1.4.7",
     "esbuild": "^0.28.0",
-    "eslint": "^9.21.0",
+    "eslint": "^10.4.1",
     "eslint-config-prettier": "^10.0.2",
-    "eslint-import-resolver-typescript": "^3.8.3",
-    "eslint-plugin-import": "^2.31.0",
+    "eslint-import-resolver-node": "^0.3.9",
+    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-plugin-import-x": "^4.16.2",
     "eslint-plugin-vue": "^10.9.1",
     "globals": "^17.6.0",
     "jsdom": "^29.1.1",

@@ -1174,28 +1174,20 @@ class Store {
     }
 
     const diff = Math.abs(userIndex - correctIndex);
-    let message = "";
-    if (diff === 0) {
-      message = t.correct;
-    } else if (diff === 1) {
-      message = t.almostCorrect;
-    } else {
-      message = t.incorrect;
-    }
-
-    message += `\n${t.winRate(Math.round(myEval * 100))}`;
+    const messages = [diff === 0 ? t.correct : diff === 1 ? t.almostCorrect : t.incorrect];
+    messages.push(t.winRate(Math.round(myEval * 100)));
 
     // Show the correct move without playing it
     const correctMove = this.record.position.createMoveByUSI(this._puzzle.correct_move);
     if (correctMove) {
       const moveText = (turn === Color.BLACK ? "▲" : "△") + formatKIFMove(correctMove);
-      message += `\n${t.referenceBestMove}: ${moveText}`;
+      messages.push(`${t.referenceBestMove}: ${moveText}`);
     }
 
     if (this._puzzle.info) {
-      message += `\n${this._puzzle.info}`;
+      messages.push(this._puzzle.info);
     }
-    useMessageStore().enqueue({ text: message });
+    useMessageStore().enqueue({ text: messages.join("\n") });
 
     // Save to history if correct
     if (diff === 0) {
@@ -1841,7 +1833,7 @@ class Store {
         this.garbledNotified = true;
       }
     } catch (e) {
-      throw new Error(`${t.failedToSaveRecord}: ${e}`);
+      throw new Error(`${t.failedToSaveRecord}: ${e}`, { cause: e });
     }
   }
 

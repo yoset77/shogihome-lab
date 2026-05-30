@@ -683,7 +683,7 @@ export async function importBookMoves(
           );
         } catch (e) {
           if ((e as NodeJS.ErrnoException).code === "ENOENT") {
-            throw new Error(t.fileNotFound(settings.sourceRecordFile));
+            throw new Error(t.fileNotFound(settings.sourceRecordFile), { cause: e });
           }
           throw e;
         }
@@ -708,7 +708,7 @@ export async function importBookMoves(
           );
         } catch (e) {
           if ((e as NodeJS.ErrnoException).code === "ENOENT") {
-            throw new Error(t.directoryNotFound(settings.sourceDirectory));
+            throw new Error(t.directoryNotFound(settings.sourceDirectory), { cause: e });
           }
           throw e;
         }
