@@ -7,7 +7,7 @@ import prettierConfig from "eslint-config-prettier";
 import pluginVue from "eslint-plugin-vue";
 import { defineConfigWithVueTs, vueTsConfigs } from "@vue/eslint-config-typescript";
 import vuePrettierConfig from "@vue/eslint-config-prettier";
-import importPlugin from "eslint-plugin-import";
+import { flatConfigs as importXFlatConfigs } from "eslint-plugin-import-x";
 
 export default defineConfigWithVueTs([
   {
@@ -17,22 +17,22 @@ export default defineConfigWithVueTs([
   ...tseslint.configs.recommended,
   ...pluginVue.configs["flat/recommended"],
   vueTsConfigs.recommended,
-  importPlugin.flatConfigs.recommended,
+  importXFlatConfigs.recommended,
   {
     files: ["**/*.{ts,mts,cts,tsx,vue}"],
-    ...importPlugin.flatConfigs.typescript,
+    ...importXFlatConfigs.typescript,
     settings: {
-      "import/resolver": {
+      "import-x/resolver": {
         typescript: true,
       },
-      "import/ignore": ["node_modules"],
-      "import/core-modules": ["typescript-eslint"],
+      "import-x/ignore": ["node_modules"],
+      "import-x/core-modules": ["typescript-eslint"],
     },
   },
   {
     files: ["eslint.config.*"],
     rules: {
-      "import/no-unresolved": "off",
+      "import-x/no-unresolved": "off",
     },
   },
   {
@@ -49,8 +49,8 @@ export default defineConfigWithVueTs([
       "no-restricted-imports": ["error", { patterns: ["../"] }],
       "no-irregular-whitespace": "off",
       "vue/multi-word-component-names": "off",
-      "import/no-cycle": "warn",
-      "import/no-restricted-paths": [
+      "import-x/no-cycle": "warn",
+      "import-x/no-restricted-paths": [
         "error",
         {
           zones: [

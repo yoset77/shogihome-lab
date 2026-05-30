@@ -466,6 +466,9 @@ export class LanEngine {
       } catch (e) {
         throw new Error(
           `Failed to connect while fetching engine list: ${e instanceof Error ? e.message : String(e)}`,
+          {
+            cause: e,
+          },
         );
       }
     }

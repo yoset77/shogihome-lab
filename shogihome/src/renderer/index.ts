@@ -33,7 +33,7 @@ import * as _zh_tw from "dayjs/locale/zh-tw";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { useErrorStore } from "@/renderer/store/error";
 import { UIMode } from "@/common/settings/app";
-// eslint-disable-next-line import/no-unresolved
+// eslint-disable-next-line import-x/no-unresolved
 import { registerSW } from "virtual:pwa-register";
 
 api.log(LogLevel.INFO, `start renderer process: APP_VERSION=${appInfo.appVersion}`);

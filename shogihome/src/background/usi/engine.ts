@@ -488,8 +488,8 @@ export class EngineProcess {
     this.send(this.reservedGoCommand.position);
 
     // go command
-    let mainOption = "";
-    let timeOptions = "";
+    let mainOption: string;
+    let timeOptions: string;
     if (this.reservedGoCommand.ponder) {
       mainOption = "ponder";
       timeOptions = buildPonderTimeOptions(this.reservedGoCommand.timeState);
@@ -498,6 +498,7 @@ export class EngineProcess {
       const mateLimit = this.reservedGoCommand.mateLimit;
       timeOptions = mateLimit ? Math.floor(mateLimit).toFixed(0) : "infinite";
     } else {
+      mainOption = "";
       timeOptions = buildTimeOptions(this.reservedGoCommand.timeState);
     }
     this.send("go" + (mainOption ? " " + mainOption : "") + (timeOptions ? " " + timeOptions : ""));
