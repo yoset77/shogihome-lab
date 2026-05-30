@@ -124,7 +124,6 @@ import api from "@/renderer/ipc/api";
 import { LogLevel } from "@/common/log";
 import { toString } from "@/common/helpers/string";
 import { Lazy } from "@/renderer/helpers/lazy";
-// @ts-expect-error: splitpanes types are outdated
 import { Splitpanes, Pane } from "splitpanes";
 import "splitpanes/dist/splitpanes.css";
 import { IconType } from "@/renderer/assets/icons";
