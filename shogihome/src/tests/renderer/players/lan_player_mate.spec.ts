@@ -44,7 +44,9 @@ describe("LanPlayer Mate Search", () => {
       isConnected: vi.fn().mockReturnValue(true),
       setOption: vi.fn(),
     };
-    (LanEngine as Mock).mockImplementation(() => mockLanEngine);
+    (LanEngine as Mock).mockImplementation(function () {
+      return mockLanEngine;
+    });
   });
 
   function sendMsg(msg: unknown) {

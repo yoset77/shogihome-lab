@@ -1,4 +1,4 @@
-/// <reference types="vitest" />
+/// <reference types="vitest/config" />
 import { resolve } from "node:path";
 import fs from "node:fs";
 import { defineConfig } from "vite";
@@ -42,16 +42,7 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     setupFiles: ["./src/tests/setup.ts"],
-    poolOptions: {
-      forks: {
-        execArgv:
-          parseInt(process.versions.node.split(".")[0], 10) >= 25 ? ["--no-webstorage"] : [],
-      },
-      threads: {
-        execArgv:
-          parseInt(process.versions.node.split(".")[0], 10) >= 25 ? ["--no-webstorage"] : [],
-      },
-    },
+    execArgv: parseInt(process.versions.node.split(".")[0], 10) >= 25 ? ["--no-webstorage"] : [],
     coverage: {
       exclude: [
         "docs",

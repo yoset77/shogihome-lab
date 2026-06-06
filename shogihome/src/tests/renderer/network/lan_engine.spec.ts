@@ -27,7 +27,9 @@ describe("LanEngine", () => {
       onmessage: null,
     };
     // Mock WebSocket globally
-    const MockWS = vi.fn().mockImplementation(() => mockWs);
+    const MockWS = vi.fn().mockImplementation(function () {
+      return mockWs;
+    });
     Object.assign(MockWS, {
       CONNECTING: 0,
       OPEN: 1,
@@ -76,7 +78,7 @@ describe("LanEngine", () => {
   it("should not destroy new connection when stale timeout fires", async () => {
     let mockWs2: MockWebSocket | undefined;
     let callCount = 0;
-    const MockWS = vi.fn().mockImplementation(() => {
+    const MockWS = vi.fn().mockImplementation(function () {
       callCount++;
       if (callCount === 1) return mockWs; // ws1（タイムアウトする接続）
       mockWs2 = {
