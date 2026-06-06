@@ -56,7 +56,9 @@ vi.mock("@/renderer/store/research.js", () => {
     isSessionExists: vi.fn().mockReturnValue(false),
   };
   return {
-    ResearchManager: vi.fn().mockImplementation(() => mock),
+    ResearchManager: vi.fn().mockImplementation(function () {
+      return mock;
+    }),
   };
 });
 
