@@ -32,10 +32,24 @@
               />
             </div>
           </div>
-          <!-- Shuffle Toggle -->
-          <div v-show="settings.startPosition === 'list'" class="form-item">
-            <div class="form-item-label">{{ t.shuffle }}</div>
-            <ToggleButton v-model:value="settings.startPositionListShuffle" />
+          <div v-show="settings.startPosition === 'list'" class="form-item list-options">
+            <div class="list-option">
+              <ToggleButton v-model:value="settings.startPositionListShuffle" />
+              <div class="form-item-small-label">{{ t.shuffle }}</div>
+            </div>
+            <div class="list-option">
+              <ToggleButton v-model:value="settings.startPositionListPlyEnabled" />
+              <div class="form-item-small-label">{{ t.plyPrefix }}</div>
+              <input
+                v-model.number="settings.startPositionListPly"
+                class="number small"
+                type="number"
+                min="1"
+                step="1"
+                :disabled="!settings.startPositionListPlyEnabled"
+              />
+              <div class="form-item-small-label">{{ t.plySuffix }}</div>
+            </div>
           </div>
         </div>
 
@@ -173,6 +187,8 @@ const settings = reactive({
   startPosition: InitialPositionType.STANDARD as InitialPositionType | "current" | "list",
   startPositionListFile: "",
   startPositionListShuffle: false,
+  startPositionListPlyEnabled: false,
+  startPositionListPly: 1,
   maxMoves: 1000,
   repeat: 1,
   swapPlayers: false,
@@ -233,6 +249,8 @@ onMounted(async () => {
     settings.startPosition = saved.startPosition;
     settings.startPositionListFile = saved.startPositionListFile || "";
     settings.startPositionListShuffle = saved.startPositionListOrder === "shuffle";
+    settings.startPositionListPlyEnabled = saved.startPositionListPly !== undefined;
+    settings.startPositionListPly = saved.startPositionListPly ?? 1;
     settings.maxMoves = saved.maxMoves || 1000;
     settings.repeat = saved.repeat || 1;
     settings.swapPlayers = saved.swapPlayers || false;
@@ -306,6 +324,9 @@ const onStart = async () => {
     startPositionListOrder: settings.startPositionListShuffle
       ? ("shuffle" as const)
       : ("sequential" as const),
+    startPositionListPly: settings.startPositionListPlyEnabled
+      ? settings.startPositionListPly
+      : undefined,
     maxMoves: settings.maxMoves,
     repeat: settings.repeat,
     swapPlayers: settings.swapPlayers,
@@ -395,6 +416,18 @@ const onStart = async () => {
   line-height: 1.2;
   text-align: left;
 }
+.form-item-small-label {
+  font-size: 0.85em;
+  margin: 0 4px;
+}
+.list-options {
+  justify-content: flex-start;
+  gap: 32px;
+}
+.list-option {
+  display: flex;
+  align-items: center;
+}
 .form-item-value.full-width {
   flex: 1;
   margin-left: 10px;
@@ -403,6 +436,9 @@ const onStart = async () => {
 input.number {
   text-align: right;
   width: 80px;
+}
+input.number.small {
+  width: 60px;
 }
 .selector-container {
   padding: 5px;
