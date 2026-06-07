@@ -232,6 +232,7 @@ export type Texts = {
   singleKanjiWoodPiece: string;
   singleKanjiGothicPiece: string;
   singleKanjiDarkPiece: string;
+  twoKanjiPiece: string;
   singleKanjiGothicDarkPiece: string;
   imageHasMarginsRemoveForLargerDisplay: string;
   backgroundImage: string;
