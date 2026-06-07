@@ -39,6 +39,7 @@ export type GameSettings = {
   startPosition: GameStartPositionType; // v1.21.0 から undefined を廃止
   startPositionListFile: string;
   startPositionListOrder: "sequential" | "shuffle";
+  startPositionListPly?: number;
   enableEngineTimeout: boolean;
   humanIsFront: boolean;
   enableComment: boolean;
@@ -125,6 +126,12 @@ export function validateGameSettings(gameSettings: GameSettings): Error | undefi
     gameSettings.black.uri === uri.ES_HUMAN || gameSettings.white.uri === uri.ES_HUMAN;
   if (containsHuman && gameSettings.repeat > 1) {
     return new Error(t.repeatsMustBeOneIfHumanPlayerIncluded);
+  }
+  if (
+    gameSettings.startPositionListPly !== undefined &&
+    (!Number.isInteger(gameSettings.startPositionListPly) || gameSettings.startPositionListPly < 1)
+  ) {
+    return new Error("Start position list ply must be a positive integer.");
   }
   return;
 }

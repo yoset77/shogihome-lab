@@ -216,6 +216,19 @@
           <div v-show="gameSettings.startPosition === 'list'" class="form-item">
             <ToggleButton v-model:value="startPositionListShuffle" :label="t.shuffle" />
           </div>
+          <div v-show="gameSettings.startPosition === 'list'" class="form-item">
+            <ToggleButton v-model:value="startPositionListPlyEnabled" />
+            <div class="form-item-small-label">{{ t.plyPrefix }}</div>
+            <input
+              v-model.number="startPositionListPly"
+              class="number small"
+              type="number"
+              min="1"
+              step="1"
+              :disabled="!startPositionListPlyEnabled"
+            />
+            <div class="form-item-small-label">{{ t.plySuffix }}</div>
+          </div>
           <div class="form-item">
             <div class="form-item-label">{{ t.maxMoves }}</div>
             <input v-model.number="gameSettings.maxMoves" class="number" type="number" min="1" />
@@ -328,6 +341,8 @@ const whiteByoyomi = ref(0);
 const whiteIncrement = ref(0);
 const setDifferentTime = ref(false);
 const startPositionListShuffle = ref(false);
+const startPositionListPlyEnabled = ref(false);
+const startPositionListPly = ref(1);
 const gameSettings = ref(defaultGameSettings());
 const engines = ref(new USIEngines());
 const blackPlayerURI = ref("");
@@ -390,6 +405,8 @@ onMounted(async () => {
     whiteIncrement.value = whiteTimeLimit.increment;
     setDifferentTime.value = !!gameSettings.value.whiteTimeLimit;
     startPositionListShuffle.value = gameSettings.value.startPositionListOrder === "shuffle";
+    startPositionListPlyEnabled.value = gameSettings.value.startPositionListPly !== undefined;
+    startPositionListPly.value = gameSettings.value.startPositionListPly ?? 1;
 
     if (lanStore.status.value === "disconnected") {
       try {
@@ -459,6 +476,9 @@ const onStart = () => {
       increment: increment.value,
     },
     startPositionListOrder: startPositionListShuffle.value ? "shuffle" : "sequential",
+    startPositionListPly: startPositionListPlyEnabled.value
+      ? startPositionListPly.value
+      : undefined,
   };
   if (setDifferentTime.value) {
     newSettings.whiteTimeLimit = {
