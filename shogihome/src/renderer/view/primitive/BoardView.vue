@@ -252,12 +252,15 @@ type DragState = {
   active: boolean; // ゴースト表示中
   pointerId: number | null;
   source: Square | Piece | null;
+  externalSource: "pieceBox" | null;
   pieceImagePath: string | null;
   ghostX: number;
   ghostY: number;
   startX: number;
   startY: number;
 };
+
+const pieceBoxSelectionActive = ref(false);
 
 const props = defineProps({
   layoutType: {
@@ -360,6 +363,23 @@ const props = defineProps({
     required: false,
     default: true,
   },
+  externalDrag: {
+    type: Object as PropType<{
+      piece: Piece;
+      pieceImagePath: string;
+      pointerId: number;
+      clientX: number;
+      clientY: number;
+      source: "pieceBox";
+    } | null>,
+    required: false,
+    default: null,
+  },
+  pieceBoxSelection: {
+    type: String as PropType<PieceType | null>,
+    required: false,
+    default: null,
+  },
   blackPlayerName: {
     type: String,
     required: false,
@@ -406,6 +426,11 @@ const emit = defineEmits<{
   resize: [size: RectSize];
   move: [move: Move];
   edit: [change: PositionChange];
+  pieceBoxDrop: [pieceType: PieceType, to: Square | Color];
+  dropOutside: [source: Square | Piece, clientX: number, clientY: number];
+  externalDragEnd: [];
+  pieceBoxSelectionEnd: [];
+  editSelectionChange: [source: Square | Piece | null];
 }>();
 
 const state = reactive({
@@ -423,6 +448,7 @@ const drag = reactive<DragState>({
   active: false,
   pointerId: null,
   source: null,
+  externalSource: null,
   pieceImagePath: null,
   ghostX: 0,
   ghostY: 0,
@@ -435,6 +461,7 @@ const resetDrag = () => {
   drag.active = false;
   drag.pointerId = null;
   drag.source = null;
+  drag.externalSource = null;
   drag.pieceImagePath = null;
   document.body.style.cursor = "";
 };
@@ -451,6 +478,41 @@ watch(
   () => {
     resetState();
     resetDrag();
+    pieceBoxSelectionActive.value = false;
+    emit("editSelectionChange", null);
+  },
+);
+
+watch(
+  () => props.pieceBoxSelection,
+  (pieceType) => {
+    if (!pieceType || !props.allowEdit) {
+      if (pieceBoxSelectionActive.value) {
+        resetState();
+        pieceBoxSelectionActive.value = false;
+      }
+      return;
+    }
+    resetState();
+    state.pointer = new Piece(props.position.color, pieceType);
+    pieceBoxSelectionActive.value = true;
+  },
+);
+
+watch(
+  () => props.externalDrag,
+  (ext) => {
+    if (!ext || !props.enableDragAndDrop) return;
+    if (drag.pending || drag.active) return;
+    drag.pending = true;
+    drag.pointerId = ext.pointerId;
+    drag.source = ext.piece;
+    drag.externalSource = ext.source;
+    drag.pieceImagePath = ext.pieceImagePath;
+    drag.startX = ext.clientX;
+    drag.startY = ext.clientY;
+    drag.ghostX = ext.clientX;
+    drag.ghostY = ext.clientY;
   },
 );
 
@@ -592,6 +654,28 @@ const completeDrop = (clientX: number, clientY: number) => {
   if (!drag.active) return;
   const source = drag.source;
   const square = getSquareFromClientPoint(clientX, clientY);
+  if (drag.externalSource === "pieceBox") {
+    let dropped = false;
+    if (source instanceof Piece) {
+      if (square) {
+        emit("pieceBoxDrop", source.type, square);
+        dropped = true;
+      } else {
+        const color = getHandColorFromClientPoint(clientX, clientY);
+        if (color !== null) {
+          emit("pieceBoxDrop", source.type, color);
+          dropped = true;
+        }
+      }
+    }
+    if (!dropped) {
+      emit("pieceBoxSelectionEnd");
+      pieceBoxSelectionActive.value = false;
+    }
+    resetState();
+    dragCompletedFlag = true;
+    return;
+  }
   if (square && source) {
     // ドロップ先に駒がある場合に clickSquare() を呼ぶとキャンセルと同時にその駒を選択してしまうため有効な移動かどうかを先に判定する。
     const moveFrom = source instanceof Square ? source : (source as Piece).type;
@@ -609,6 +693,9 @@ const completeDrop = (clientX: number, clientY: number) => {
     const color = getHandColorFromClientPoint(clientX, clientY);
     if (color !== null) {
       clickHandArea(color);
+    } else if (source) {
+      emit("dropOutside", source, clientX, clientY);
+      resetState();
     } else {
       resetState();
     }
@@ -633,18 +720,26 @@ const onGlobalPointerMove = (e: PointerEvent) => {
 
 const onGlobalPointerUp = (e: PointerEvent) => {
   if (e.pointerId !== drag.pointerId) return;
+  const external = drag.externalSource !== null;
   if (drag.active) {
     completeDrop(e.clientX, e.clientY);
   }
   resetDrag();
+  if (external) {
+    emit("externalDragEnd");
+  }
 };
 
 const onGlobalPointerCancel = (e: PointerEvent) => {
   if (e.pointerId !== drag.pointerId) return;
+  const external = drag.externalSource !== null;
   if (drag.active) {
     resetState();
   }
   resetDrag();
+  if (external) {
+    emit("externalDragEnd");
+  }
 };
 
 // 盤上マス：pointerdown
@@ -681,12 +776,25 @@ const clickFrame = () => {
     dragCompletedFlag = false;
     return;
   }
+  if (pieceBoxSelectionActive.value) {
+    emit("pieceBoxSelectionEnd");
+    pieceBoxSelectionActive.value = false;
+  }
   resetState();
+  emit("editSelectionChange", null);
 };
 
 const updatePointer = (newPointer: Square | Piece, empty: boolean, color: Color | undefined) => {
   const prevPointer = state.pointer;
   resetState();
+  emit("editSelectionChange", null);
+  if (prevPointer && pieceBoxSelectionActive.value && prevPointer instanceof Piece) {
+    const editTo = newPointer instanceof Square ? newPointer : newPointer.color;
+    emit("pieceBoxDrop", prevPointer.type, editTo);
+    emit("pieceBoxSelectionEnd");
+    pieceBoxSelectionActive.value = false;
+    return;
+  }
   if (
     newPointer instanceof Square &&
     prevPointer instanceof Square &&
@@ -743,6 +851,7 @@ const updatePointer = (newPointer: Square | Piece, empty: boolean, color: Color 
     return;
   }
   state.pointer = newPointer;
+  emit("editSelectionChange", newPointer);
 };
 
 const clickSquare = (file: number, rank: number) => {
