@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -41,12 +43,12 @@ jobs:
         working-directory: shogihome
         run: npm ci
 
-      - name: Build Webapp and Server
+      - name: Build Webapp and Server Runtime
         working-directory: shogihome
         # npm run build now includes license generation and copying to webapp
         run: |
           npm run build
-          npm run server:exe
+          npm run server:runtime
 
       # --- Engine Wrapper Build ---
       - name: Install Python dependencies
@@ -85,7 +87,7 @@ jobs:
 
           # 1. Server & Webapp
           New-Item -ItemType Directory -Path "$pkgName/shogihome" -Force
-          Copy-Item "shogihome/dist/bin/shogihome-server.exe" -Destination "$pkgName/shogihome/"
+          Copy-Item -Path "shogihome/dist/bin/*" -Destination "$pkgName/shogihome/" -Recurse
           Copy-Item -Path "shogihome/docs/webapp" -Destination "$pkgName/shogihome/docs/webapp" -Recurse
           Copy-Item "shogihome/.env.example" -Destination "$pkgName/shogihome/.env"
 

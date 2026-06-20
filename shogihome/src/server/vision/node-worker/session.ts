@@ -1,7 +1,7 @@
 import * as ort from "onnxruntime-web";
 import path from "node:path";
 import fs from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const sessions = new Map<string, ort.InferenceSession>();
 let wasmConfigured = false;
@@ -24,8 +24,13 @@ const configureWasm = (): void => {
   ].filter((candidate): candidate is string => Boolean(candidate));
 
   for (const dir of candidates) {
-    if (fs.existsSync(path.join(dir, "ort-wasm-simd-threaded.wasm"))) {
-      ort.env.wasm.wasmPaths = dir + "/";
+    const mjsPath = path.join(dir, "ort-wasm-simd-threaded.mjs");
+    const wasmPath = path.join(dir, "ort-wasm-simd-threaded.wasm");
+    if (fs.existsSync(mjsPath) && fs.existsSync(wasmPath)) {
+      ort.env.wasm.wasmPaths = {
+        mjs: pathToFileURL(mjsPath).href,
+        wasm: pathToFileURL(wasmPath).href,
+      };
       return;
     }
   }

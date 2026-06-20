@@ -44,7 +44,8 @@
     "usi-csa-bridge:install": "npm run usi-csa-bridge:build && npm install -g ./dist/command/usi-csa-bridge",
     "server:start": "tsx server.ts",
     "server:build": "node scripts/build-server.mjs",
-    "server:exe": "npm run server:build && node scripts/build-sea.mjs"
+    "server:runtime": "npm run server:build && node scripts/build-server-runtime.mjs",
+    "server:exe": "npm run server:runtime"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.12.0",
@@ -60,6 +61,7 @@
     "helmet": "^8.2.0",
     "html-to-image": "^1.11.13",
     "jimp": "^1.6.1",
+    "onnxruntime-web": "^1.26.0",
     "log4js": "^6.9.1",
     "proper-lockfile": "^4.1.2",
     "semver": "^7.8.2",
@@ -102,7 +104,6 @@
     "globals": "^17.6.0",
     "jsdom": "^29.1.1",
     "license-checker": "^25.0.1",
-    "postject": "^1.0.0-alpha.6",
     "prettier": "^3.8.3",
     "supertest": "^7.2.2",
     "tsc-alias": "^1.8.17",
