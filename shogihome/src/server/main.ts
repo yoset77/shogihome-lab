@@ -18,6 +18,7 @@ import { registerFetchRemoteRoute } from "@/server/routes/fetchRemote";
 import { registerHistoryRoutes } from "@/server/routes/history";
 import { registerKifuRoutes } from "@/server/routes/kifu";
 import { registerStaticRoutes } from "@/server/routes/static";
+import { registerVisionRoutes } from "@/server/routes/vision";
 import { createEngineWebSocketServer } from "@/server/websocket";
 
 export const app = express();
@@ -80,6 +81,7 @@ registerFetchRemoteRoute(app);
 registerHistoryRoutes(app);
 registerAnalysisRoutes(app);
 registerBookRoutes(app);
+registerVisionRoutes(app);
 registerStaticRoutes(app);
 
 const sessionManager = new SessionManager<EngineSession>(

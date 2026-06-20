@@ -148,3 +148,6 @@ export const CONNECTION_PROTECTION_TIMEOUT =
   parseIntegerEnv("ENGINE_CONNECTION_PROTECTION_TIMEOUT", 60, 1, 3600) * 1000;
 export const ALLOWED_FETCH_DOMAINS = parseAllowedFetchDomains(process.env.ALLOWED_FETCH_DOMAINS);
 export const BIND_ADDRESS = process.env.BIND_ADDRESS || "127.0.0.1";
+export const VISION_ENABLED = process.env.VISION_ENABLED === "true";
+export const VISION_MAX_IMAGE_MB = parseIntegerEnv("VISION_MAX_IMAGE_MB", 8, 1, 64);
+export const VISION_TIMEOUT_MS = parseIntegerEnv("VISION_TIMEOUT_MS", 15000, 1000, 120000);
