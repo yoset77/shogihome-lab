@@ -24,6 +24,8 @@ export enum AppState {
   BOOK_SELECT_DIALOG = "bookSelectDialog",
   DUPLICATE_POSITIONS_DIALOG = "duplicatePositionsDialog",
   SEARCH_DUPLICATE_POSITIONS_DIALOG = "searchDuplicatePositionsDialog",
+  VISION_SCAN_DIALOG = "visionScanDialog",
+  VISION_POSITION_EDIT_DIALOG = "visionPositionEditDialog",
   ELAPSED_TIME_CHART_DIALOG = "elapsedTimeChartDialog",
   PUZZLE = "puzzle",
 }

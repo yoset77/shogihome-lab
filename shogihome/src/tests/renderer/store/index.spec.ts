@@ -1121,6 +1121,32 @@ describe("store/index", () => {
     });
   });
 
+  describe("vision scan", () => {
+    it("keeps the scan viewpoint for the position edit dialog", () => {
+      const store = createStore();
+      const sfen = "9/9/9/9/9/9/9/9/9 w - 1";
+
+      store.showVisionScanDialog();
+      store.showVisionPositionEditDialog(sfen, "white", "mate");
+
+      expect(store.appState).toBe(AppState.VISION_POSITION_EDIT_DIALOG);
+      expect(store.visionPositionEditSFEN).toBe(sfen);
+      expect(store.visionPositionEditViewpoint).toBe("white");
+      expect(store.visionPositionEditType).toBe("mate");
+    });
+
+    it("returns to normal after importing from the position edit dialog", () => {
+      const store = createStore();
+      const sfen = "9/9/9/9/9/9/9/9/9 w - 1";
+
+      store.showVisionScanDialog();
+      store.showVisionPositionEditDialog(sfen, "black", "game");
+      store.importVisionSFEN(sfen);
+
+      expect(store.appState).toBe(AppState.NORMAL);
+    });
+  });
+
   describe("showPasteDialog nested support", () => {
     it("should save current state and restore it after closing", async () => {
       const store = createStore();

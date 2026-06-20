@@ -75,6 +75,7 @@ import { clearURLParams, loadRecordForWebApp, saveRecordForWebApp } from "./weba
 import { useBookStore } from "./book.js";
 import { CommentBehavior } from "@/common/settings/comment";
 import { Attachment, ListItem } from "@/common/message";
+import type { VisionPositionType, VisionViewpoint } from "@/common/vision/types";
 
 const puzzleHistoryKey = "shogihome-puzzle-history";
 const puzzleHistoryExpirationDays = 28;
@@ -228,6 +229,9 @@ class Store {
   private _researchState = ResearchState.IDLE;
   private researchManager = new ResearchManager();
   private _duplicatePositionsSFEN = "";
+  private _visionPositionEditSFEN = "";
+  private _visionPositionEditViewpoint: VisionViewpoint = "black";
+  private _visionPositionEditType: VisionPositionType = "game";
   private isForceStopping = false;
   private _puzzle: Puzzle | null = null;
   private _reactive: UnwrapNestedRefs<Store>;
@@ -396,6 +400,18 @@ class Store {
 
   get duplicatePositionsSFEN(): string {
     return this._duplicatePositionsSFEN;
+  }
+
+  get visionPositionEditSFEN(): string {
+    return this._visionPositionEditSFEN;
+  }
+
+  get visionPositionEditViewpoint(): VisionViewpoint {
+    return this._visionPositionEditViewpoint;
+  }
+
+  get visionPositionEditType(): VisionPositionType {
+    return this._visionPositionEditType;
   }
 
   get inCommentPVs(): Move[][] {
@@ -611,6 +627,41 @@ class Store {
     }
   }
 
+  showVisionScanDialog(): void {
+    if (this.appState === AppState.NORMAL || this.appState === AppState.POSITION_EDITING) {
+      this._lastAppState = this.appState;
+      this._appState = AppState.VISION_SCAN_DIALOG;
+    }
+  }
+
+  showVisionPositionEditDialog(
+    sfen: string,
+    viewpoint: VisionViewpoint,
+    positionType: VisionPositionType,
+  ): void {
+    if (this.appState === AppState.VISION_SCAN_DIALOG) {
+      this._visionPositionEditSFEN = sfen;
+      this._visionPositionEditViewpoint = viewpoint;
+      this._visionPositionEditType = positionType;
+      this._appState = AppState.VISION_POSITION_EDIT_DIALOG;
+    }
+  }
+
+  importVisionSFEN(sfen: string): void {
+    if (
+      this.appState !== AppState.VISION_SCAN_DIALOG &&
+      this.appState !== AppState.VISION_POSITION_EDIT_DIALOG
+    ) {
+      return;
+    }
+    if (!this.recordManager.resetBySFEN(sfen)) {
+      useErrorStore().add(new Error(t.failedToParseSFEN));
+      return;
+    }
+    this._appState = AppState.NORMAL;
+    this._lastAppState = AppState.NORMAL;
+  }
+
   showBookSelectDialog(): void {
     if (
       this.appState === AppState.NORMAL ||
@@ -679,6 +730,8 @@ class Store {
       this.appState === AppState.BOOK_SELECT_DIALOG ||
       this.appState === AppState.DUPLICATE_POSITIONS_DIALOG ||
       this.appState === AppState.SEARCH_DUPLICATE_POSITIONS_DIALOG ||
+      this.appState === AppState.VISION_SCAN_DIALOG ||
+      this.appState === AppState.VISION_POSITION_EDIT_DIALOG ||
       this.appState === AppState.ELAPSED_TIME_CHART_DIALOG
     ) {
       const nextState = this._lastAppState;

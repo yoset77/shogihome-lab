@@ -117,6 +117,10 @@
           <Icon :icon="IconType.GRID" />
           <div class="label">{{ t.positionImage }}</div>
         </button>
+        <button :disabled="!states.visionScan" @click="onVisionScan">
+          <Icon :icon="IconType.GRID" />
+          <div class="label">{{ t.importBoardImage }}</div>
+        </button>
         <button v-if="isNative()" :disabled="!states.batchConversion" @click="onBatchConversion">
           <Icon :icon="IconType.BATCH" />
           <div class="label">{{ t.batchConversion }}</div>
@@ -400,6 +404,10 @@ const onExportImage = () => {
   store.showExportBoardImageDialog();
   emit("close");
 };
+const onVisionScan = () => {
+  store.showVisionScanDialog();
+  emit("close");
+};
 const onOpenAutoSaveDirectory = () => {
   api.openExplorer(appSettings.autoSaveDirectory);
   emit("close");
@@ -480,6 +488,7 @@ const states = computed(() => {
     batchConversion: store.appState === AppState.NORMAL,
     analysisDBManager: store.appState === AppState.NORMAL,
     exportImage: store.appState === AppState.NORMAL,
+    visionScan: store.appState === AppState.NORMAL || store.appState === AppState.POSITION_EDITING,
     paste: store.appState === AppState.NORMAL,
   };
 });

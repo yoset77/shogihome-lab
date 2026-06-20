@@ -42,6 +42,13 @@
     <SearchDuplicatePositionsDialog
       v-if="store.appState === AppState.SEARCH_DUPLICATE_POSITIONS_DIALOG"
     />
+    <VisionScanDialog v-if="store.appState === AppState.VISION_SCAN_DIALOG" />
+    <VisionPositionEditDialog
+      v-if="store.appState === AppState.VISION_POSITION_EDIT_DIALOG"
+      :initial-sfen="store.visionPositionEditSFEN"
+      :initial-viewpoint="store.visionPositionEditViewpoint"
+      :initial-position-type="store.visionPositionEditType"
+    />
     <PieceSetChangeDialog v-if="store.appState === AppState.PIECE_SET_CHANGE_DIALOG" />
     <ResearchDialog v-if="store.researchState === ResearchState.STARTUP_DIALOG" />
     <CSAGameReadyDialog
@@ -133,6 +140,8 @@ import ServerKifuDialog from "./view/dialog/ServerKifuDialog.vue";
 import BookSelectDialog from "./view/dialog/BookSelectDialog.vue";
 import DuplicatePositionsDialog from "./view/dialog/DuplicatePositionsDialog.vue";
 import SearchDuplicatePositionsDialog from "./view/dialog/SearchDuplicatePositionsDialog.vue";
+import VisionScanDialog from "./view/dialog/VisionScanDialog.vue";
+import VisionPositionEditDialog from "./view/dialog/VisionPositionEditDialog.vue";
 import { useBusyState } from "./store/busy";
 import { useMessageStore } from "./store/message";
 import { useErrorStore } from "./store/error";
