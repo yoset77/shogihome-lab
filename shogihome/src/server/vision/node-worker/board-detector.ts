@@ -308,7 +308,10 @@ export const extractCornersFromMask = (
   imageW: number,
   imageH: number,
 ): [Point, Point, Point, Point] | null => {
-  const boundary = extractBoundary(mask, imageW, imageH);
+  const componentMask = largestConnectedComponentMask(mask, imageW, imageH);
+  if (componentMask === null) return null;
+
+  const boundary = extractBoundary(componentMask, imageW, imageH);
   if (boundary.length < 4) return null;
 
   const hull = convexHull(boundary);
@@ -334,6 +337,62 @@ export const extractCornersFromMask = (
 
   // Fallback to the minimum-area enclosing rectangle, matching Python's cv2.minAreaRect.
   return orderQuadrilateral(minAreaRectCorners(hull)) as [Point, Point, Point, Point];
+};
+
+const largestConnectedComponentMask = (
+  mask: Uint8Array,
+  imageW: number,
+  imageH: number,
+): Uint8Array | null => {
+  const visited = new Uint8Array(mask.length);
+  let bestComponent: number[] = [];
+  let positivePixels = 0;
+
+  for (let start = 0; start < mask.length; start++) {
+    if (mask[start] === 0) continue;
+    positivePixels++;
+    if (visited[start] !== 0) continue;
+
+    const component: number[] = [];
+    const stack = [start];
+    visited[start] = 1;
+
+    while (stack.length > 0) {
+      const idx = stack.pop();
+      if (idx === undefined) break;
+      component.push(idx);
+
+      const x = idx % imageW;
+      const y = Math.floor(idx / imageW);
+      for (let dy = -1; dy <= 1; dy++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= imageH) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx;
+          if (nx < 0 || nx >= imageW) continue;
+
+          const next = ny * imageW + nx;
+          if (mask[next] === 0 || visited[next] !== 0) continue;
+          visited[next] = 1;
+          stack.push(next);
+        }
+      }
+    }
+
+    if (component.length > bestComponent.length) {
+      bestComponent = component;
+    }
+  }
+
+  if (positivePixels === 0) return null;
+  if (bestComponent.length === positivePixels) return mask;
+
+  const filtered = new Uint8Array(mask.length);
+  for (const idx of bestComponent) {
+    filtered[idx] = 1;
+  }
+  return filtered;
 };
 
 const douglasPeuckerClosed = (points: Point[], epsilon: number): Point[] => {

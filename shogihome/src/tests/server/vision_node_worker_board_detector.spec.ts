@@ -52,6 +52,34 @@ describe("Node vision worker board detector", () => {
     expect(sorted[3]).toEqual([x2 - 1, y2 - 1]);
   });
 
+  it("extractCornersFromMask ignores disconnected noise outside the main component", () => {
+    const width = 100;
+    const height = 100;
+    const mask = new Uint8Array(width * height);
+    const x1 = 30;
+    const y1 = 35;
+    const x2 = 70;
+    const y2 = 65;
+    for (let y = y1; y < y2; y++) {
+      for (let x = x1; x < x2; x++) {
+        mask[y * width + x] = 1;
+      }
+    }
+    mask[0] = 1;
+    mask[width - 1] = 1;
+    mask[(height - 1) * width] = 1;
+    mask[height * width - 1] = 1;
+
+    const corners = extractCornersFromMask(mask, width, height);
+
+    expect(corners).not.toBeNull();
+    const sorted = corners!.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    expect(sorted[0]).toEqual([x1, y1]);
+    expect(sorted[1]).toEqual([x1, y2 - 1]);
+    expect(sorted[2]).toEqual([x2 - 1, y1]);
+    expect(sorted[3]).toEqual([x2 - 1, y2 - 1]);
+  });
+
   it("extractCornersFromMask includes boundary pixels on image edges", () => {
     const width = 100;
     const height = 100;
