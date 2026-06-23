@@ -193,10 +193,20 @@ export const warpPerspective = (
   h: number[],
   outW: number,
   outH: number,
+  borderValue?: [number, number, number],
 ): RawImage => {
   const srcW = image.width;
   const srcH = image.height;
   const dst = new Uint8Array(outW * outH * 4);
+
+  if (borderValue) {
+    for (let i = 0; i < dst.length; i += 4) {
+      dst[i] = borderValue[0];
+      dst[i + 1] = borderValue[1];
+      dst[i + 2] = borderValue[2];
+      dst[i + 3] = 255;
+    }
+  }
 
   const invH = invertMatrix3x3(h);
 
@@ -359,4 +369,65 @@ export const xywh2xyxy = (boxes: Float32Array[]): Float32Array[] => {
     out[3] = b[1] + b[3] / 2;
     return out;
   });
+};
+
+// Matches ShogiVision PhotoInventoryRegions._rectified_region_size.
+export const rectifiedRegionSize = (
+  corners: [Point, Point, Point, Point],
+  normalizedPolygon: Point[],
+): [number, number] => {
+  const [c0, c1, c2, c3] = corners;
+  const top = Math.hypot(c1[0] - c0[0], c1[1] - c0[1]);
+  const bottom = Math.hypot(c2[0] - c3[0], c2[1] - c3[1]);
+  const right = Math.hypot(c2[0] - c1[0], c2[1] - c1[1]);
+  const left = Math.hypot(c3[0] - c0[0], c3[1] - c0[1]);
+  const cellPx = Math.max(1.0, (top + bottom + right + left) / 4 / 9);
+
+  let xMin = Infinity;
+  let xMax = -Infinity;
+  let yMin = Infinity;
+  let yMax = -Infinity;
+  for (const [x, y] of normalizedPolygon) {
+    if (x < xMin) xMin = x;
+    if (x > xMax) xMax = x;
+    if (y < yMin) yMin = y;
+    if (y > yMax) yMax = y;
+  }
+
+  const width = Math.max(1, Math.round((xMax - xMin) * 9 * cellPx));
+  const height = Math.max(1, Math.round((yMax - yMin) * 9 * cellPx));
+  return [width, height];
+};
+
+// Matches ShogiVision PhotoInventoryRegions._image_border_color (RGB average, truncated toward zero).
+export const imageMeanColor = (image: RawImage): [number, number, number] => {
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  const pixels = image.width * image.height;
+  for (let i = 0; i < image.data.length; i += 4) {
+    r += image.data[i];
+    g += image.data[i + 1];
+    b += image.data[i + 2];
+  }
+  return [Math.trunc(r / pixels), Math.trunc(g / pixels), Math.trunc(b / pixels)];
+};
+
+// Matches ShogiVision PhotoInventoryRegions._warp_polygon_region.
+export const warpPolygonRegion = (
+  image: RawImage,
+  polygon: Point[],
+  outW: number,
+  outH: number,
+  borderValue: [number, number, number],
+): RawImage => {
+  const src: Point[] = polygon.map(([x, y]) => [Math.round(x), Math.round(y)]);
+  const dst: Point[] = [
+    [0, 0],
+    [outW - 1, 0],
+    [outW - 1, outH - 1],
+    [0, outH - 1],
+  ];
+  const h = getPerspectiveTransform(src, dst);
+  return warpPerspective(image, h, outW, outH, borderValue);
 };

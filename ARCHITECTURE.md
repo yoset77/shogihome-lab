@@ -89,9 +89,9 @@ graph LR
 | `board-detector.ts` | `board_segmenter.onnx` を使って盤面の四隅を推定します。 Douglas-Peucker による 4 点近似に失敗した場合は最小外接矩形（`minAreaRect` 相当）にフォールバックします。 |
 | `board-splitter.ts` | 盤面の透視変換と 9x9 セル分割を行います。 |
 | `recognizer.ts` | `mixed.onnx` で 81 マスの駒種・向きを分類します。 |
-| `hand-detector.ts` | `hand_piece_detector.onnx` で持ち駒を検出します。 |
+| `hand-detector.ts` | `hand_piece_detector.onnx` で持ち駒を検出します。前処理として射影変換（rectify）で持ち駒領域を長方形化します。領域サイズは盤4辺の平均長から求めたセルピクセル幅基準、ボーダー色は入力画像の平均色で埋めます。 |
 | `postprocess.ts` | 認識セルから SFEN と候補を組み立て、駒数制約・二歩・行き所のない駒を検証します。 |
-| `geometry.ts` | Letterbox 前処理、YOLO 出力の正規化、NMS、透視変換、画像リサンプリングなどの幾何処理を提供します。 |
+| `geometry.ts` | Letterbox 前処理、YOLO 出力の正規化、NMS、透視変換、画像リサンプリング、持ち駒領域の rectify（`rectifiedRegionSize` / `warpPolygonRegion` / `imageMeanColor`）などの幾何処理を提供します。 |
 | `session.ts` | `onnxruntime-web` (wasm) を使って ONNX モデルを読み込み・キャッシュします。配布物には通常 wasm backend で必要な `ort-wasm-simd-threaded.mjs` と `ort-wasm-simd-threaded.wasm` のみをコピーします。 |
 | `image-io.ts` | Jimp を使った画像読み込みとリサイズを行います。 |
 | `types.ts` | Node worker 内部の型定義。 |

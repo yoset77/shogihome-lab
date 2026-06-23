@@ -1,6 +1,13 @@
 import type { Point, RawImage, HandOwnerCounts } from "./types.js";
 import { loadSession, createTensor } from "./session.js";
-import { createYoloOutputView, getPerspectiveTransform, nms } from "./geometry.js";
+import {
+  createYoloOutputView,
+  getPerspectiveTransform,
+  nms,
+  rectifiedRegionSize,
+  warpPolygonRegion,
+  imageMeanColor,
+} from "./geometry.js";
 import path from "node:path";
 
 const HAND_PIECE_CHARS = ["P", "L", "N", "S", "G", "B", "R"];
@@ -55,13 +62,14 @@ export const buildHandRegions = (
     },
   ];
 
+  const borderValue = imageMeanColor(image);
   const regions: HandRegion[] = [];
   for (const spec of specs) {
-    const projected = spec.polygon.map((p) => projectPoint(p, transform));
-    const crop = cropBoundingRegion(image, projected);
-    if (crop) {
-      regions.push({ owner: spec.owner, placement: spec.placement, image: crop });
-    }
+    const polygon = spec.polygon.map((p) => projectPoint(p, transform));
+    const [w, h] = rectifiedRegionSize(corners, spec.polygon);
+    if (w < 10 || h < 10) continue;
+    const warped = warpPolygonRegion(image, polygon, w, h, borderValue);
+    regions.push({ owner: spec.owner, placement: spec.placement, image: warped });
   }
   return regions;
 };
@@ -69,35 +77,6 @@ export const buildHandRegions = (
 const projectPoint = (p: Point, h: number[]): Point => {
   const w = h[6] * p[0] + h[7] * p[1] + h[8];
   return [(h[0] * p[0] + h[1] * p[1] + h[2]) / w, (h[3] * p[0] + h[4] * p[1] + h[5]) / w];
-};
-
-const cropBoundingRegion = (image: RawImage, polygon: Point[]): RawImage | null => {
-  const rounded = polygon.map(([x, y]): Point => [Math.round(x), Math.round(y)]);
-  const xs = rounded.map((p) => p[0]);
-  const ys = rounded.map((p) => p[1]);
-  const minX = Math.max(0, Math.floor(Math.min(...xs)));
-  const minY = Math.max(0, Math.floor(Math.min(...ys)));
-  const maxX = Math.min(image.width, Math.floor(Math.max(...xs)) + 1);
-  const maxY = Math.min(image.height, Math.floor(Math.max(...ys)) + 1);
-
-  if (maxX <= minX || maxY <= minY) return null;
-
-  const w = maxX - minX;
-  const h = maxY - minY;
-  const dst = new Uint8Array(w * h * 4);
-
-  for (let y = minY; y < maxY; y++) {
-    for (let x = minX; x < maxX; x++) {
-      const srcIdx = (y * image.width + x) * 4;
-      const dstIdx = ((y - minY) * w + (x - minX)) * 4;
-      dst[dstIdx] = image.data[srcIdx];
-      dst[dstIdx + 1] = image.data[srcIdx + 1];
-      dst[dstIdx + 2] = image.data[srcIdx + 2];
-      dst[dstIdx + 3] = image.data[srcIdx + 3];
-    }
-  }
-
-  return { width: w, height: h, data: dst };
 };
 
 export const detectHandPieces = async (
