@@ -985,7 +985,7 @@ const blackHand = computed(() => {
   return handLayoutBuilder.value.build(
     props.position.hand(Color.BLACK),
     Color.BLACK,
-    state.pointer,
+    pieceBoxSelectionActive.value ? null : state.pointer,
     dragSourceType,
   );
 });
@@ -998,7 +998,7 @@ const whiteHand = computed(() => {
   return handLayoutBuilder.value.build(
     props.position.hand(Color.WHITE),
     Color.WHITE,
-    state.pointer,
+    pieceBoxSelectionActive.value ? null : state.pointer,
     dragSourceType,
   );
 });

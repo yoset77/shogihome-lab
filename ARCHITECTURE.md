@@ -189,7 +189,7 @@ graph LR
 - **中継処理**: サーバーがリクエストを代行。本家共通モジュールによる文字コード判定とレート制限を継承。
 - **セキュリティ**: `.env` で許可されたドメイン（SSRF 対策）かつ 10MB 以下のファイルに制限。
 
-### 盤面画像取り込み (Vision Scan API)
+### 盤面画像スキャン (Vision Scan API)
 カメラや画像ファイルから単一画像の盤面を読み取り、局面候補として SFEN を返すためのバックエンド境界です。
 - **有効化**: Webサーバー側の `.env.example` では `VISION_ENABLED=true` が既定で設定されており、`POST /api/vision/scan` が有効になります。無効化する場合は `.env` で `VISION_ENABLED` を `true` 以外に設定、または削除します。
 - **入力**: `image/jpeg`, `image/png` の raw body を受け付けます。最大サイズは `VISION_MAX_IMAGE_MB`（デフォルト 8MB）です。

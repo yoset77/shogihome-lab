@@ -269,6 +269,7 @@ export const vi: Texts = {
   promoteFirstVertical: "垂直・成優先", // TODO: Translate
   promoteFirstHorizontal: "水平・成優先", // TODO: Translate
   enableDragAndDrop: "駒のドラッグ操作", // TODO: Translate
+  enableVisionCameraAutoOpen: "スキャン時にカメラを自動起動", // TODO: Translate
   showFileAndRank: "Hiện hàng và cột",
   showLeftControls: "Hiện điều khiển bên trái",
   showRightControls: "Hiện điều khiển bên phải",

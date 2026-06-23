@@ -268,6 +268,7 @@ export type Texts = {
   promoteFirstVertical: string;
   promoteFirstHorizontal: string;
   enableDragAndDrop: string;
+  enableVisionCameraAutoOpen: string;
   showFileAndRank: string;
   showLeftControls: string;
   showRightControls: string;

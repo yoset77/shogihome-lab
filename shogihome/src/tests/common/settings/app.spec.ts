@@ -23,6 +23,14 @@ describe("settings/app", () => {
     expect(result.analysisDBSearchMode).toBe(AnalysisDBSearchMode.EXCEPT_GAMES);
   });
 
+  it("normalize/enableVisionCameraAutoOpen", () => {
+    const result = normalizeAppSettings({
+      ...defaultAppSettings(),
+      enableVisionCameraAutoOpen: undefined as unknown as boolean,
+    });
+    expect(result.enableVisionCameraAutoOpen).toBe(false);
+  });
+
   it("pieceImageBaseURL", () => {
     expect(
       getPieceImageURLTemplate({

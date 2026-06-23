@@ -32,12 +32,12 @@
 
       <div class="scan-options">
         <div class="form-item">
-          <div class="form-item-label-wide">{{ t.visionSideToMove }}</div>
-          <HorizontalSelector v-model:value="sideToMove" :items="sideToMoveItems" />
-        </div>
-        <div class="form-item">
           <div class="form-item-label-wide">{{ t.visionBoardViewpoint }}</div>
           <HorizontalSelector v-model:value="viewpoint" :items="viewpointItems" />
+        </div>
+        <div class="form-item">
+          <div class="form-item-label-wide">{{ t.visionSideToMove }}</div>
+          <HorizontalSelector v-model:value="sideToMove" :items="sideToMoveItems" />
         </div>
         <div class="form-item">
           <div class="form-item-label-wide">{{ t.visionPositionType }}</div>
@@ -58,7 +58,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { Color } from "tsshogi";
 import { t } from "@/common/i18n";
 import type { VisionPositionType, VisionTurn, VisionViewpoint } from "@/common/vision/types";
@@ -70,10 +70,12 @@ import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue
 import { useBusyState } from "@/renderer/store/busy";
 import { useErrorStore } from "@/renderer/store/error";
 import { useStore } from "@/renderer/store";
+import { useAppSettings } from "@/renderer/store/settings";
 import { scanPositionImage } from "@/renderer/vision/api";
 import { compressImageForVision } from "@/renderer/helpers/image";
 
 const store = useStore();
+const appSettings = useAppSettings();
 const busyState = useBusyState();
 const imageBlob = ref<Blob>();
 const previewUrl = ref("");
@@ -160,6 +162,12 @@ const revokePreviewUrl = () => {
     previewUrl.value = "";
   }
 };
+
+onMounted(() => {
+  if (appSettings.enableVisionCameraAutoOpen) {
+    isCameraOpen.value = true;
+  }
+});
 
 onBeforeUnmount(() => {
   revokePreviewUrl();

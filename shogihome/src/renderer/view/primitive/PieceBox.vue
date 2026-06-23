@@ -6,7 +6,11 @@
         v-for="pieceType in pieceTypes"
         :key="pieceType"
         class="piece-box-item"
-        :class="{ empty: getCount(pieceType) === 0, draggable: getCount(pieceType) > 0 }"
+        :class="{
+          empty: getCount(pieceType) === 0,
+          draggable: getCount(pieceType) > 0,
+          selected: selection === pieceType,
+        }"
         @pointerdown="onPointerDown($event, pieceType)"
       >
         <img :src="getPieceImagePath(pieceType)" :alt="pieceType" draggable="false" />
@@ -32,6 +36,7 @@ import { getPieceImageAssetName } from "@/common/assets/pieces";
 const props = defineProps<{
   position: Position;
   acceptTapDrop?: boolean;
+  selection?: PieceType | null;
 }>();
 
 const emit = defineEmits<{
@@ -113,8 +118,8 @@ defineExpose({ containsPoint });
 .piece-box {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px;
+  gap: 4px;
+  padding: 4px;
   background: var(--main-bg-color);
   border: 1px solid var(--main-color);
 }
@@ -128,7 +133,7 @@ defineExpose({ containsPoint });
 .piece-box-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 4px;
   justify-content: center;
 }
 
@@ -136,8 +141,8 @@ defineExpose({ containsPoint });
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 4px;
+  gap: 2px;
+  padding: 2px;
   min-width: 48px;
   touch-action: none;
 }
@@ -150,9 +155,18 @@ defineExpose({ containsPoint });
   cursor: grab;
 }
 
+.piece-box-item.selected {
+  background-color: var(--main-color);
+  border-radius: 4px;
+}
+
+.piece-box-item.selected .piece-count {
+  color: var(--control-button-color);
+}
+
 .piece-box-item img {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
 }
 
 .piece-count {

@@ -141,6 +141,9 @@ class AppSettingsStore {
   get enableDragAndDrop(): boolean {
     return this.merged.enableDragAndDrop;
   }
+  get enableVisionCameraAutoOpen(): boolean {
+    return this.merged.enableVisionCameraAutoOpen;
+  }
   get tabPaneType(): TabPaneType {
     return this.merged.tabPaneType;
   }

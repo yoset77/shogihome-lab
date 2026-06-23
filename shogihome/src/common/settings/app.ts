@@ -216,6 +216,7 @@ export type AppSettings = {
   // Board View
   boardFlipping: boolean;
   enableDragAndDrop: boolean;
+  enableVisionCameraAutoOpen: boolean;
 
   // Tab View
   tabPaneType: TabPaneType;
@@ -389,6 +390,7 @@ export function defaultAppSettings(opt?: {
     recordShortcutKeys: RecordShortcutKeys.VERTICAL,
     boardFlipping: false,
     enableDragAndDrop: true,
+    enableVisionCameraAutoOpen: false,
     tabPaneType: TabPaneType.DOUBLE_V2,
     tab: Tab.RECORD_INFO,
     tab2: Tab.CHART,
@@ -496,6 +498,9 @@ export function normalizeAppSettings(
   }
   if (!settings.analysisDBSearchMode) {
     result.analysisDBSearchMode = AnalysisDBSearchMode.EXCEPT_GAMES;
+  }
+  if (settings.enableVisionCameraAutoOpen === undefined) {
+    result.enableVisionCameraAutoOpen = false;
   }
   // 旧バージョンではフォントの太さは設定項目になく、明朝体とゴシック体で違っていた。
   if (!settings.positionImageFontWeight) {

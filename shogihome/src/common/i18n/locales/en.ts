@@ -270,6 +270,7 @@ export const en: Texts = {
   promoteFirstVertical: "Promote First Vertical",
   promoteFirstHorizontal: "Promote First Horizontal",
   enableDragAndDrop: "Drag & Drop",
+  enableVisionCameraAutoOpen: "Open camera immediately on board image import",
   showFileAndRank: "Show File & Rank",
   showLeftControls: "Show Left Controls",
   showRightControls: "Show Right Controls",

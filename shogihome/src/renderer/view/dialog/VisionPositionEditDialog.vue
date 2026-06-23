@@ -54,6 +54,7 @@
             ref="pieceBoxRef"
             :position="position"
             :accept-tap-drop="editSelection !== null"
+            :selection="pieceBoxSelection"
             @dragstart="onPieceBoxDragStart"
             @tap-drop="onPieceBoxTapDrop"
           />
