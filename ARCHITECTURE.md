@@ -4,19 +4,20 @@
 
 ## 1. アーキテクチャ概要
 
-システムは以下の3つのコンポーネントで構成されています。
+システムは以下の3つの主要コンポーネントで構成されています。
 
 ```mermaid
 graph LR
     A["Browser (Frontend)"] -- "WebSocket (ws)" --> B["Middle Server (Node.js)"]
     B -- "TCP Socket (run <id>)" --> C["Engine Wrapper"]
     C -- "Stdin/Stdout" --> D["USI Engine (YaneuraOu, etc.)"]
+    B -- "Worker process (image scan)" --> E["Vision Backend (Node.js)"]
 ```
 
 1.  **Frontend (`shogihome/src`)**: Vue.js 3 + TypeScript。ユーザーインターフェース。複数エンジンからID指定で起動可能。
 2.  **Middle Server (`shogihome/server.ts`, `shogihome/src/server/`)**: Node.js。
     - `server.ts` は起動互換性のための薄いエントリポイントです。
-    - 実装本体は `src/server/` に分割され、Express API、セキュリティ設定、WebSocket/TCPブリッジ、USIセッション管理を構成します。`start_engine <id>` コマンドを Wrapper の `run <id>` へ変換。
+    - 実装本体は `src/server/` に分割され、Express API、セキュリティ設定、WebSocket/TCPブリッジ、USIセッション管理、Vision backend を構成します。`start_engine <id>` コマンドを Wrapper の `run <id>` へ変換。
 3.  **Engine Wrapper (`engine-wrapper/`)**: Python。
     - `engines.json` に基づき、指定されたIDのエンジンプロセスを起動・中継。
 
@@ -29,6 +30,7 @@ graph LR
 | `server.ts` | **サーバー起動エントリ**。既存テスト・起動コマンドとの互換性を保つため、`src/server/main.ts` の公開 API を再exportし、直接実行時にサーバーを起動します。 |
 | `src/server/` | **中核サーバー実装**。Express アプリ構築、HTTP API、静的配信、WebSocket 接続、エンジン中継ロジックを保持します。 |
 | `src/server/routes/` | **HTTP API ルート定義**。棋譜、定跡、検討結果DB、履歴、外部棋譜取得、静的配信を責務別に登録します。 |
+| `src/server/routes/vision.ts` | **Vision API**。画像を受け取り、Vision worker を呼び出して SFEN 候補を返します。 |
 | `src/server/config.ts` | `.env` 読み込み、基準パス、ポート、許可 Origin/Host、KIFU_DIR、エンジン接続先などのサーバー設定。 |
 | `src/server/security.ts` | Host ヘッダー検証、CSP/Helmet、rate limit などの HTTP/WebSocket 共通セキュリティ設定。 |
 | `src/server/bookSessionManager.ts` | Web/LAN 定跡編集用のセッション ID と内部 book session の対応、上限管理、期限切れクリーンアップ。 |
@@ -42,6 +44,8 @@ graph LR
 | `src/server/file/` | サーバー側の atomic write と棋譜履歴・バックアップ永続化。 |
 | `src/server/settings.ts` | サーバー/CLI で使う ShogiHome 設定ファイルの読み書き。 |
 | `src/server/usi/sfen.ts` | サーバー側の SFEN 正規化と局面ハッシュ計算。 |
+| `src/server/vision/` | 画像認識バックエンドの Node.js worker と呼び出しアダプタ。レスポンスの形と SFEN 妥当性を検証します。 |
+| `src/common/vision/` | Vision API の共有型定義。 |
 | `src/node/` | **Node 実行環境共有ユーティリティ**。server、command、旧 background から共有されるログ、実行環境パスを保持します。ブラウザー向け renderer/common からは参照しません。 |
 | `src/renderer/store/index.ts` | **状態管理**。アプリ全体のステートを保持し、対局・検討・編集などの各マネージャー（`GameManager`, `ResearchManager` 等）を統合します。検討停止は `ResearchState.STOPPING` を経由する非同期ライフサイクルとして扱い、停止完了前に UI を `IDLE` 扱いしないようにしています。 |
 | `src/renderer/players/lan_player.ts` | **リモートプレイヤー**。USIプロトコルの同期制御（Stop待ち、コマンド送信）を実装し、通信経由でエンジンを操作する実体です。 |
@@ -70,7 +74,37 @@ graph LR
 | `engines.json.example` | 開発者向け設定例。 |
 | `.env` | 環境設定 (Git管理対象外)。ポート番号等を設定. 原本として `.env.example` を参照。 |
 
-### C. Release Assets (`assets/release/`)
+### C. Vision Backend (`shogihome/src/server/vision/`)
+
+本番・開発ともに Node.js 実装を標準とします。ONNX モデルは `shogihome/src/server/vision/models/` に同梱され、ビルド時に `dist/server/models/` およびリリースパッケージへコピーされます。
+
+### C-1. Vision Backend Node Worker (`shogihome/src/server/vision/node-worker/`)
+
+**本番運用の標準 Vision backend です**。リリースビルドでは `shogihome-server.exe` という名前の通常 Node.js runtime と `dist/server/server.js` を同梱し、同じ runtime で worker を起動します。`.env` に `VISION_ENABLED=true` のみ設定すれば有効化できます。開発時は `npm run server:build` により `dist/server/node-worker/worker.js` が生成され、未ビルド時はソースを `tsx` 経由で直接起動できます。
+
+| パス | 説明 |
+| :--- | :--- |
+| `worker.ts` | **Node.js 版 Vision backend worker**。stdin/stdout の JSON Lines で `scan` リクエストを処理し、SFEN 候補 JSON を返します。 |
+| `pipeline.ts` | 画像読み込み、盤面検出、透視変換、セル分割、駒認識、持ち駒認識、後処理を接続するスキャン本体。 |
+| `board-detector.ts` | `board_segmenter.onnx` を使って盤面の四隅を推定します。 Douglas-Peucker による 4 点近似に失敗した場合は最小外接矩形（`minAreaRect` 相当）にフォールバックします。 |
+| `board-splitter.ts` | 盤面の透視変換と 9x9 セル分割を行います。 |
+| `recognizer.ts` | `mixed.onnx` で 81 マスの駒種・向きを分類します。 |
+| `hand-detector.ts` | `hand_piece_detector.onnx` で持ち駒を検出します。前処理として射影変換（rectify）で持ち駒領域を長方形化します。領域サイズは盤4辺の平均長から求めたセルピクセル幅基準、ボーダー色は入力画像の平均色で埋めます。 |
+| `postprocess.ts` | 認識セルから SFEN と候補を組み立て、駒数制約・二歩・行き所のない駒を検証します。 |
+| `geometry.ts` | Letterbox 前処理、YOLO 出力の正規化、NMS、透視変換、画像リサンプリング、持ち駒領域の rectify（`rectifiedRegionSize` / `warpPolygonRegion` / `imageMeanColor`）などの幾何処理を提供します。 |
+| `session.ts` | `onnxruntime-web` (wasm) を使って ONNX モデルを読み込み・キャッシュします。配布物には通常 wasm backend で必要な `ort-wasm-simd-threaded.mjs` と `ort-wasm-simd-threaded.wasm` のみをコピーします。 |
+| `image-io.ts` | Jimp を使った画像読み込みとリサイズを行います。 |
+| `types.ts` | Node worker 内部の型定義。 |
+
+### C-2. Vision Backend Models (`shogihome/src/server/vision/models/`)
+
+| パス | 説明 |
+| :--- | :--- |
+| `board_segmenter.onnx` | 盤面領域検出用 YOLO モデル。 |
+| `mixed.onnx` | 81 マスの駒種・向き分類モデル。 |
+| `hand_piece_detector.onnx` | 持ち駒検出用 YOLO モデル。 |
+
+### D. Release Assets (`assets/release/`)
 
 | パス | 説明 |
 | :--- | :--- |
@@ -154,6 +188,18 @@ graph LR
 ブラウザ版の CORS 制限を回避し、外部サイト（Floodgate や WCSC 等）から棋譜を取得する機能です。
 - **中継処理**: サーバーがリクエストを代行。本家共通モジュールによる文字コード判定とレート制限を継承。
 - **セキュリティ**: `.env` で許可されたドメイン（SSRF 対策）かつ 10MB 以下のファイルに制限。
+
+### 盤面画像スキャン (Vision Scan API)
+カメラや画像ファイルから単一画像の盤面を読み取り、局面候補として SFEN を返すためのバックエンド境界です。
+- **有効化**: Webサーバー側の `.env.example` では `VISION_ENABLED=true` が既定で設定されており、`POST /api/vision/scan` が有効になります。無効化する場合は `.env` で `VISION_ENABLED` を `true` 以外に設定、または削除します。
+- **入力**: フロントエンドは選択・撮影された画像を短辺 960px 以下の JPEG（quality 0.8）へ再エンコードし、EXIF/GPS などのメタデータを送信しません。API は `image/jpeg`, `image/png` の raw body を受け付けます。最大サイズは `VISION_MAX_IMAGE_MB`（デフォルト 8MB）です。
+- **外部プロセス境界**: Node.js サーバーは画像を一時ファイルへ保存し、Vision backend worker を常駐プロセスとして起動します。本番では `npm run server:runtime` で生成された `shogihome-server.exe` が `dist/server/server.js` を実行し、同じ Node.js runtime で `dist/server/node-worker/worker.js` を起動します。Docker でも同じ `dist/server` 配置を使います。開発時は `dist/server/node-worker/worker.js` が優先され、未ビルドの場合は `src/server/vision/node-worker/worker.ts` を `tsx` 経由で起動します。モデルディレクトリは worker スクリプトからの相対パス `../models` で解決されます。通信は stdin/stdout の JSON Lines で、リクエストには `imagePath`、`sideToMove`、`maxCandidates` を含めます。`viewpoint` は worker へ渡さず、Node.js 側で SFEN と warning square を反転します。
+- **ONNX 推論**: Vision backend は `board_segmenter.onnx` で盤面領域検出、`mixed.onnx` で 81 マスの駒種・向き分類、`hand_piece_detector.onnx` で持ち駒検出を実行します。
+- **持ち駒認識**: 盤面四隅検出結果から持ち駒台 ROI を推定し、持ち駒数・駒種を検出して SFEN の持ち駒フィールドに反映します。持ち駒検出結果は盤面候補探索の駒数制約にも反映されます。
+- **後処理**: 駒種ごとの上限数、二歩、行き所のない駒を常時検証します。玉数（先後各1枚）は hard 制約ではなく `KING_COUNT_INVALID` warning として返します。盤上＋持ち駒の合計が40枚でない場合は `TOTAL_PIECE_COUNT_INVALID`、各駒種が上限を超える場合は `PIECE_COUNT_INVALID` を warning として返します。旧 `--strict-piece-count` モードは廃止し、少なすぎる駒による hard filter は行いません。ビームサーチでは bounded selection を使い、全件 sort のコストを抑えています。
+- **レスポンス検証**: サーバーは Vision backend の JSON 形状を検証し、返却された `sfen` と候補 SFEN が `tsshogi` で読み込めることを確認します。不正な応答やタイムアウトは `502` として扱い、HTTP body には固定文言のみを返します。詳細な worker エラーはサーバーログへ記録します。HTTP API の安定契約は `sfen`、`confidence`、`candidates`、`warnings`、`preview` であり、worker 内部の `board` payload は API レスポンスから除外します。
+- **責務分離**: ShogiVision 由来の発想（四隅検出、透視変換、81マス分類、top-k候補、後処理）は Vision backend 側に閉じ込め、Middle Server は安全なプロセス呼び出しと SFEN 検証に限定します。USI エンジン中継を担う `engine-wrapper/` には画像認識処理を混ぜません。
+- **フロントエンド確認**: 画像だけでは手番や盤面の向き、局面種別（実戦/詰将棋）は確定できないため、`VisionScanDialog.vue` で `sideToMove`、`viewpoint`、`positionType` を明示指定します。スキャン中にダイアログを閉じた場合は fetch を abort し、30秒応答がない場合もタイムアウトとして中断します。読み取り結果は `VisionPositionEditDialog.vue` で確認・修正し、確定後は通常モードへ戻ります。詰将棋として取り込む場合は、編集ダイアログを開く時点で玉以外の未使用駒を後手持ち駒へ一度だけ補充します。
 
 ### 統合履歴・バックアップ管理 (Integrated History & Backup Management)
 デバイスやセッションを跨いで履歴とバックアップを共有・永続化する機能です。

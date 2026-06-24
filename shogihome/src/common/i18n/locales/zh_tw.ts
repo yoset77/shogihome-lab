@@ -14,6 +14,23 @@ export const zh_tw: Texts = {
   openAutoSaveDirectory: "打開自動保存目錄",
   exportPositionDiagram: "輸出局面圖",
   positionImage: "局面圖",
+  importBoardImage: "Import Board Image",
+  selectImageFile: "選擇檔案",
+  takePhoto: "拍照",
+  cameraCaptureFailed: "相機拍照失敗。",
+  noImageSelected: "No image selected.",
+  scanning: "Scanning...",
+  importPosition: "Import Position",
+  visionSideToMove: "手番",
+  visionBoardViewpoint: "棋盤方向",
+  visionViewpointBlack: "先手側在下方",
+  visionViewpointWhite: "後手側在下方",
+  visionPositionType: "局面種類",
+  visionPositionTypeGame: "實戰",
+  visionPositionTypeMate: "詰將棋",
+  pieceBox: "駒箱",
+  correctPieceCount: "補正為40枚",
+  pieceCountExceeded: "駒數超過規定枚數",
   batchConversion: "棋譜大量轉換",
   recordFileBatchConversion: "棋譜大量轉換",
   close: "關閉",
@@ -249,6 +266,7 @@ export const zh_tw: Texts = {
   promoteFirstVertical: "垂直・成優先", // TODO: Translate
   promoteFirstHorizontal: "水平・成優先", // TODO: Translate
   enableDragAndDrop: "駒のドラッグ操作", // TODO: Translate
+  enableVisionCameraAutoOpen: "スキャン時にカメラを自動起動", // TODO: Translate
   showFileAndRank: "顯示段・筋",
   showLeftControls: "顯示左側操作按鈕",
   showRightControls: "顯示右側操作按鈕",

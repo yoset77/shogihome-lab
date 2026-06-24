@@ -33,7 +33,7 @@ export const createHelmetMiddleware = () =>
         ],
         scriptSrc: ["'self'"],
         styleSrc: ["'self'"],
-        imgSrc: ["'self'", "data:"],
+        imgSrc: ["'self'", "data:", "blob:"],
       },
     },
     hsts: false,

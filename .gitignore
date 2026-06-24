@@ -8,6 +8,11 @@ records
 logs
 __pycache__
 .venv
+.pytest_cache
+.ruff_cache
+*.onnx
+!shogihome/src/server/vision/models/*.onnx
+tmp/
 
 # local env files
 .env

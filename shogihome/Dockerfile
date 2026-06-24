@@ -39,11 +39,11 @@ USER node
 # Builderステージからビルド済みファイル一式をコピー
 # - ビルド済みのフロントエンド資産 (docs/webapp)
 COPY --from=builder --chown=node:node /app/docs/webapp ./docs/webapp
-# - esbuildでビルドされたサーバーJS (依存関係はすべてバンドル済み)
-COPY --from=builder --chown=node:node /app/dist/server/server.js ./server.js
+# - esbuildでビルドされたサーバーJSとVision worker/model/wasm assets
+COPY --from=builder --chown=node:node /app/dist/server ./dist/server
 
 # ポート8140を公開
 EXPOSE 8140
 
-# コンテナ起動時にサーバーを実行 (依存ライブラリ不要の単一JSをnodeで実行)
-CMD [ "node", "server.js" ]
+# コンテナ起動時にサーバーを実行
+CMD [ "node", "dist/server/server.js" ]

@@ -14,6 +14,23 @@ export const vi: Texts = {
   openAutoSaveDirectory: "Mở thư mục lưu tự động",
   exportPositionDiagram: "Xuất ảnh thế cờ",
   positionImage: "Ảnh thế cờ",
+  importBoardImage: "Import Board Image",
+  selectImageFile: "Chọn tệp",
+  takePhoto: "Chụp ảnh",
+  cameraCaptureFailed: "Không thể chụp ảnh từ camera.",
+  noImageSelected: "No image selected.",
+  scanning: "Scanning...",
+  importPosition: "Import Position",
+  visionSideToMove: "Lượt đi",
+  visionBoardViewpoint: "Hướng bàn cờ",
+  visionViewpointBlack: "Bên tiên ở dưới",
+  visionViewpointWhite: "Bên hậu ở dưới",
+  visionPositionType: "Loại thế cờ",
+  visionPositionTypeGame: "Ván đấu",
+  visionPositionTypeMate: "Tsume shogi",
+  pieceBox: "Hộp quân",
+  correctPieceCount: "Sửa thành 40 quân",
+  pieceCountExceeded: "Số quân vượt quá giới hạn",
   batchConversion: "Chuyển đổi số lượng lớn",
   recordFileBatchConversion: "Chuyển đổi kỳ phổ số lượng lớn",
   close: "Đóng",
@@ -252,6 +269,7 @@ export const vi: Texts = {
   promoteFirstVertical: "垂直・成優先", // TODO: Translate
   promoteFirstHorizontal: "水平・成優先", // TODO: Translate
   enableDragAndDrop: "駒のドラッグ操作", // TODO: Translate
+  enableVisionCameraAutoOpen: "スキャン時にカメラを自動起動", // TODO: Translate
   showFileAndRank: "Hiện hàng và cột",
   showLeftControls: "Hiện điều khiển bên trái",
   showRightControls: "Hiện điều khiển bên phải",

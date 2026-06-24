@@ -43,6 +43,13 @@ function checkPackageJson(packageJsonPath: string) {
         }
         break;
 
+      // protobufjs is a dependency of onnxruntime-web
+      case "protobufjs":
+        if (scripts?.postinstall !== "node scripts/postinstall") {
+          throw new Error(`Package ${name}@${version} has unexpected postinstall scripts`);
+        }
+        break;
+
       // Other packages should not have postinstall scripts
       default:
         if (scripts?.postinstall) {

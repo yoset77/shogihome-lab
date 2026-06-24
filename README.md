@@ -34,6 +34,7 @@ PC上のUSI将棋エンジンをスマートフォンやタブレットからWeb
 - **思考結果データベース:** 検討・対局時の評価値や読み筋をサーバー側（SQLite）に自動蓄積します。思考結果は、別の棋譜やデバイスでその局面を表示した際にも即座に参照できます。
 - **サーバー側棋譜・定跡管理:** サーバー上の特定のディレクトリにある棋譜・定跡ファイルを、スマホやタブレットから閲覧・編集することができます。棋譜ファイルは、局面やヘッダー情報で検索することも可能です。
 - **次の一手問題:** SFEN形式の局面データをJSONファイルとして配置することで、アプリ上で次の一手問題を出題・解答できます。
+- **盤面画像スキャン:** 盤面を撮影して、画像認識によりアプリ内に局面を取り込むことができます。
 
 ---
 
@@ -63,6 +64,7 @@ PC上のUSI将棋エンジンをスマートフォンやタブレットからWeb
 #### 前提条件
 - **Node.js:** v24以上
 - **Python:** 3.10以上
+- **Git LFS:** 画像認識モデルの取得に必要
 
 #### 1. インストール
 
@@ -179,8 +181,9 @@ graph LR
 
 ## Acknowledgements
 
-ShogiHome Lab は、[Kubo Ryosuke (sunfish-shogi)](https://github.com/sunfish-shogi) 氏によって開発された [ShogiHome](https://github.com/sunfish-shogi/shogihome) をベースにしたハードフォークです。  
-オリジナルの作者に深く感謝いたします。
+- ShogiHome Lab は、[Kubo Ryosuke (sunfish-shogi)](https://github.com/sunfish-shogi) 氏によって開発された [ShogiHome](https://github.com/sunfish-shogi/shogihome) をベースにしたハードフォークです。
+  オリジナルの作者に深く感謝いたします。
+- `shogihome/src/server/vision/models` のモデルの学習には [ShogiVision](https://github.com/Limuranius/ShogiVision) を使用しています。また、推論パイプラインの実装を参考にしています。
 
 ---
 

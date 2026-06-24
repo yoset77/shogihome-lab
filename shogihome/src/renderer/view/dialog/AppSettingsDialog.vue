@@ -304,6 +304,11 @@
           <div class="form-item-label-wide">{{ t.enableDragAndDrop }}</div>
           <ToggleButton v-model:value="update.enableDragAndDrop" />
         </div>
+        <!-- スキャン時にカメラを自動起動 -->
+        <div class="form-item">
+          <div class="form-item-label-wide">{{ t.enableVisionCameraAutoOpen }}</div>
+          <ToggleButton v-model:value="update.enableVisionCameraAutoOpen" />
+        </div>
         <!-- 段・筋の表示 -->
         <div class="form-item">
           <div class="form-item-label-wide">
@@ -987,6 +992,7 @@ const update = ref({
   recordOpacity: Math.round(org.recordOpacity * 100),
   promotionSelectorStyle: org.promotionSelectorStyle,
   enableDragAndDrop: org.enableDragAndDrop,
+  enableVisionCameraAutoOpen: org.enableVisionCameraAutoOpen,
   boardLabelType: org.boardLabelType,
   leftSideControlType: org.leftSideControlType,
   rightSideControlType: org.rightSideControlType,

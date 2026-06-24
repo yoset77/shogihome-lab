@@ -7,6 +7,7 @@ def test_is_bundled(tmp_path, monkeypatch):
     # tmp_path/
     #   shogihome/
     #     shogihome-server.exe
+    #     dist/server/server.js
     #   wrapper/
     #     python/
     wrapper_dir = tmp_path / "wrapper"
@@ -14,6 +15,7 @@ def test_is_bundled(tmp_path, monkeypatch):
     shogihome_dir = tmp_path / "shogihome"
     shogihome_dir.mkdir()
     shogihome_exe = shogihome_dir / "shogihome-server.exe"
+    server_entry = shogihome_dir / "dist" / "server" / "server.js"
 
     monkeypatch.setattr("common.BASE_DIR", wrapper_dir)
 
@@ -24,8 +26,13 @@ def test_is_bundled(tmp_path, monkeypatch):
     (wrapper_dir / "python").mkdir()
     assert is_bundled() is False
 
-    # 両方揃えば True
+    # shogihome-server.exe があっても、server.js がない場合は False
     shogihome_exe.touch()
+    assert is_bundled() is False
+
+    # 必要なファイルがすべて揃えば True
+    server_entry.parent.mkdir(parents=True)
+    server_entry.touch()
     assert is_bundled() is True
 
 

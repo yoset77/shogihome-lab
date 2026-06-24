@@ -11,6 +11,9 @@
         <button @click="isInitialPositionMenuVisible = true">
           <Icon :icon="IconType.REFRESH" />
         </button>
+        <button @click="store.showPieceSetChangeDialog()">
+          <Icon :icon="IconType.EQUALIZER" />
+        </button>
         <button @click="store.endPositionEditing()">
           <Icon :icon="IconType.CHECK" />
         </button>

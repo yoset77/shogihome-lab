@@ -3,7 +3,7 @@ name: Release Build
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write
@@ -18,18 +18,20 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 26
-          cache: 'npm'
+          cache: "npm"
           cache-dependency-path: shogihome/package-lock.json
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13.11'
+          python-version: "3.13.11"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -41,12 +43,12 @@ jobs:
         working-directory: shogihome
         run: npm ci
 
-      - name: Build Webapp and Server
+      - name: Build Webapp and Server Runtime
         working-directory: shogihome
         # npm run build now includes license generation and copying to webapp
         run: |
           npm run build
-          npm run server:exe
+          npm run server:runtime
 
       # --- Engine Wrapper Build ---
       - name: Install Python dependencies
@@ -73,8 +75,13 @@ jobs:
       # --- Packaging ---
       - name: Create Release Package
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $tagName = "${{ github.ref_name }}"
+          $tagName = $env:RELEASE_TAG
+          if ($tagName -notmatch '^v[0-9A-Za-z._-]+$') {
+              throw "Invalid release tag: $tagName"
+          }
           $pkgName = "shogihome-lab-$tagName"
           New-Item -ItemType Directory -Path $pkgName -Force
 
@@ -85,14 +92,14 @@ jobs:
 
           # 1. Server & Webapp
           New-Item -ItemType Directory -Path "$pkgName/shogihome" -Force
-          Copy-Item "shogihome/dist/bin/shogihome-server.exe" -Destination "$pkgName/shogihome/"
+          Copy-Item -Path "shogihome/dist/bin/*" -Destination "$pkgName/shogihome/" -Recurse
           Copy-Item -Path "shogihome/docs/webapp" -Destination "$pkgName/shogihome/docs/webapp" -Recurse
           Copy-Item "shogihome/.env.example" -Destination "$pkgName/shogihome/.env"
 
           # 2. Engine Wrapper & Embedded Python
           New-Item -ItemType Directory -Path "$pkgName/engine-wrapper" -Force
           Copy-Item -Path "engine-wrapper/python" -Destination "$pkgName/engine-wrapper/python" -Recurse
-          
+
           # Explicitly copy required scripts
           @("launcher.py", "engine_wrapper.py", "config_editor.py", "common.py") | ForEach-Object {
               Copy-Item "engine-wrapper/$_" -Destination "$pkgName/engine-wrapper/"
@@ -101,7 +108,7 @@ jobs:
           Copy-Item "engine-wrapper/engines.json.default" -Destination "$pkgName/engine-wrapper/engines.json"
           Copy-Item "engine-wrapper/.env.example" -Destination "$pkgName/engine-wrapper/.env"
           Copy-Item "engine-wrapper/config_editor.html" -Destination "$pkgName/engine-wrapper/"
-          
+
           # Wrapper Licenses
           New-Item -ItemType Directory -Path "$pkgName/engine-wrapper/licenses" -Force
           if (Test-Path "engine-wrapper/licenses") {
@@ -122,5 +129,5 @@ jobs:
         with:
           files: shogihome-lab-*.zip
           draft: true
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           generate_release_notes: true

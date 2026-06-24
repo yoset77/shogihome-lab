@@ -45,6 +45,7 @@ if IS_BUNDLED:
     WRAPPER_ENV_PATH = WRAPPER_DIR / ".env"
 
     SERVER_EXE = SHOGIHOME_DIR / "shogihome-server.exe"
+    SERVER_ENTRY = SHOGIHOME_DIR / "dist" / "server" / "server.js"
     # In bundled environment, we run .py scripts using python.exe
     WRAPPER_PY = WRAPPER_DIR / "engine_wrapper.py"
     CONFIG_PY = WRAPPER_DIR / "config_editor.py"
@@ -377,7 +378,7 @@ class LauncherApp(ctk.CTk):
                 # Start Server
                 try:
                     if IS_BUNDLED:
-                        server_cmd = [str(SERVER_EXE)]
+                        server_cmd = [str(SERVER_EXE), str(SERVER_ENTRY)]
                         cwd = SERVER_EXE.parent
                     else:
                         server_cmd = ["npm", "run", "server:start"]
