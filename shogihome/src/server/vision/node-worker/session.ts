@@ -14,8 +14,9 @@ const configureWasm = (): void => {
 
   const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
+  const envWasmPath = process.env.ORT_WASM_PATH;
   const candidates = [
-    process.env.ORT_WASM_PATH,
+    envWasmPath,
     path.resolve(moduleDir, "..", "ort-wasm"),
     path.resolve(moduleDir, "ort-wasm"),
     path.resolve(process.cwd(), "dist", "server", "ort-wasm"),
@@ -32,6 +33,9 @@ const configureWasm = (): void => {
         wasm: pathToFileURL(wasmPath).href,
       };
       return;
+    }
+    if (dir === envWasmPath) {
+      console.warn(`ORT_WASM_PATH "${envWasmPath}" not found, falling back`);
     }
   }
 };

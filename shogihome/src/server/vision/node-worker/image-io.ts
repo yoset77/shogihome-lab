@@ -1,6 +1,9 @@
 import { Jimp } from "jimp";
 import type { RawImage } from "./types.js";
 
+const MAX_IMAGE_DIMENSION = 4096;
+const MAX_IMAGE_PIXELS = 4096 * 4096;
+
 export const loadImage = async (imagePath: string): Promise<RawImage> => {
   const image = await Jimp.read(imagePath);
   const width = image.width;
@@ -8,6 +11,13 @@ export const loadImage = async (imagePath: string): Promise<RawImage> => {
 
   if (width < 32 || height < 32) {
     throw new Error("image is too small");
+  }
+  if (
+    width > MAX_IMAGE_DIMENSION ||
+    height > MAX_IMAGE_DIMENSION ||
+    width * height > MAX_IMAGE_PIXELS
+  ) {
+    throw new Error("image is too large");
   }
 
   const data = new Uint8Array(image.bitmap.data);

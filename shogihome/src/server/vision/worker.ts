@@ -21,6 +21,7 @@ type PendingRequest = {
   resolve: (value: VisionScanResponse) => void;
   reject: (reason: Error) => void;
   timer: NodeJS.Timeout;
+  child: ChildProcessWithoutNullStreams;
 };
 
 const STDOUT_BUFFER_LIMIT = 16 * 1024 * 1024;
@@ -48,10 +49,11 @@ export class VisionWorkerClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        this.stop();
+        this.stop(child);
+        this.rejectAll(new Error("vision worker stopped"), child);
         reject(new Error("vision worker timed out"));
       }, VISION_TIMEOUT_MS);
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { resolve, reject, timer, child });
       child.stdin.write(`${JSON.stringify(envelope)}\n`, (error) => {
         if (!error) {
           return;
@@ -78,25 +80,28 @@ export class VisionWorkerClient {
     this.stderrBuffer = "";
 
     child.stdout.setEncoding("utf-8");
-    child.stdout.on("data", (chunk: string) => this.handleStdout(chunk));
+    child.stdout.on("data", (chunk: string) => this.handleStdout(chunk, child));
     child.stderr.setEncoding("utf-8");
     child.stderr.on("data", (chunk: string) => {
+      if (this.child !== child) return;
       this.stderrBuffer = `${this.stderrBuffer}${chunk}`.slice(-4096);
     });
-    child.on("error", (error) => this.rejectAll(error));
+    child.on("error", (error) => this.rejectAll(error, child));
     child.on("close", (code) => {
+      if (this.child !== child) return;
       const message = this.stderrBuffer.trim() || `vision worker exited with code ${code}`;
       this.child = undefined;
-      this.rejectAll(new Error(message));
+      this.rejectAll(new Error(message), child);
     });
     return child;
   }
 
-  private handleStdout(chunk: string): void {
+  private handleStdout(chunk: string, child: ChildProcessWithoutNullStreams): void {
+    if (this.child !== child) return;
     this.stdoutBuffer += chunk;
     if (this.stdoutBuffer.length > STDOUT_BUFFER_LIMIT) {
-      this.rejectAll(new Error("vision worker stdout overflow"));
-      this.stop();
+      this.rejectAll(new Error("vision worker stdout overflow"), child);
+      this.stop(child);
       return;
     }
 
@@ -108,28 +113,30 @@ export class VisionWorkerClient {
       const line = this.stdoutBuffer.slice(0, newlineIndex).trim();
       this.stdoutBuffer = this.stdoutBuffer.slice(newlineIndex + 1);
       if (line) {
-        this.handleLine(line);
+        this.handleLine(line, child);
       }
     }
   }
 
-  private handleLine(line: string): void {
+  private handleLine(line: string, child: ChildProcessWithoutNullStreams): void {
     let data: unknown;
     try {
       data = JSON.parse(line);
     } catch {
-      this.rejectAll(new Error("vision worker returned invalid JSON"));
-      this.stop();
+      this.rejectAll(new Error("vision worker returned invalid JSON"), child);
+      this.stop(child);
       return;
     }
     if (typeof data !== "object" || data === null || !("id" in data)) {
-      this.rejectAll(new Error("vision worker returned an invalid envelope"));
-      this.stop();
+      this.rejectAll(new Error("vision worker returned an invalid envelope"), child);
+      this.stop(child);
       return;
     }
     const id = Number((data as { id: unknown }).id);
     const pending = this.pending.get(id);
     if (!pending) {
+      this.rejectAll(new Error("vision worker returned an unknown response id"), child);
+      this.stop(child);
       return;
     }
     clearTimeout(pending.timer);
@@ -147,19 +154,22 @@ export class VisionWorkerClient {
     }
   }
 
-  private rejectAll(error: Error): void {
-    for (const pending of this.pending.values()) {
+  private rejectAll(error: Error, child?: ChildProcessWithoutNullStreams): void {
+    for (const [id, pending] of this.pending.entries()) {
+      if (child && pending.child !== child) continue;
       clearTimeout(pending.timer);
       pending.reject(error);
+      this.pending.delete(id);
     }
-    this.pending.clear();
   }
 
-  private stop(): void {
-    if (this.child && !this.child.killed) {
-      this.child.kill("SIGKILL");
+  private stop(child = this.child): void {
+    if (child && !child.killed) {
+      child.kill("SIGKILL");
     }
-    this.child = undefined;
+    if (this.child === child) {
+      this.child = undefined;
+    }
   }
 }
 

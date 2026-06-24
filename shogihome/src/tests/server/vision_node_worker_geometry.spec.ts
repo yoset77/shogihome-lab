@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nms, normalizeYoloOutput, warpPerspective } from "@/server/vision/node-worker/geometry";
+import { removePerspective } from "@/server/vision/node-worker/board-splitter";
 
 describe("Node vision worker geometry utilities", () => {
   it("decodes channel-major YOLO outputs as anchor rows", () => {
@@ -53,5 +54,30 @@ describe("Node vision worker geometry utilities", () => {
     );
 
     expect(Array.from(warped.data)).toEqual(Array.from(data));
+  });
+
+  it("fills board perspective pixels outside the source with a neutral border", () => {
+    const width = 4;
+    const height = 4;
+    const data = new Uint8Array(width * height * 4);
+    for (let i = 0; i < width * height; i++) {
+      data[i * 4] = 10;
+      data[i * 4 + 1] = 20;
+      data[i * 4 + 2] = 30;
+      data[i * 4 + 3] = 255;
+    }
+
+    const warped = removePerspective(
+      { width, height, data },
+      [
+        [5, 0],
+        [8, 0],
+        [8, 3],
+        [5, 3],
+      ],
+      4,
+    );
+
+    expect(Array.from(warped.data.slice(0, 4))).toEqual([114, 114, 114, 255]);
   });
 });

@@ -2,6 +2,7 @@ import type { Point, RawImage } from "./types.js";
 import { getPerspectiveTransform, warpPerspective } from "./geometry.js";
 
 const BOARD_SIZE = 900;
+const BORDER_VALUE: [number, number, number] = [114, 114, 114];
 
 export const removePerspective = (
   image: RawImage,
@@ -18,7 +19,7 @@ export const removePerspective = (
   ];
 
   const h = getPerspectiveTransform(src, dst);
-  return warpPerspective(image, h, boardSize, boardSize);
+  return warpPerspective(image, h, boardSize, boardSize, BORDER_VALUE);
 };
 
 export const splitCells = (boardImage: RawImage): RawImage[][] => {

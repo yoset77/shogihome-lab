@@ -4,6 +4,25 @@ import type { VisionScanResponse } from "@/common/vision/types";
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
+const isVisionWarning = (value: unknown): boolean => {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.code === "string" &&
+    typeof value.message === "string" &&
+    (value.square === undefined || typeof value.square === "string")
+  );
+};
+
+const isVisionCandidate = (value: unknown): boolean => {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.sfen === "string" &&
+    typeof value.score === "number" &&
+    Array.isArray(value.violations) &&
+    value.violations.every(isVisionWarning)
+  );
+};
+
 export const parseVisionScanResponse = (value: unknown): VisionScanResponse => {
   if (!isVisionScanResponse(value)) {
     throw new Error("vision worker returned an invalid response shape");
@@ -28,6 +47,8 @@ const isVisionScanResponse = (value: unknown): value is VisionScanResponse => {
     typeof value.sfen === "string" &&
     typeof value.confidence === "number" &&
     Array.isArray(value.candidates) &&
-    Array.isArray(value.warnings)
+    value.candidates.every(isVisionCandidate) &&
+    Array.isArray(value.warnings) &&
+    value.warnings.every(isVisionWarning)
   );
 };

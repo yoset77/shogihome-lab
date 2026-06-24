@@ -10,6 +10,8 @@ type WorkerVisionScanResponse = VisionScanResponse & {
   board?: unknown;
 };
 
+const RANK_CODE_SUM = "a".charCodeAt(0) + "i".charCodeAt(0);
+
 export const transformVisionResponse = (
   response: WorkerVisionScanResponse,
   sideToMove: VisionTurn,
@@ -65,5 +67,5 @@ const flipSquare = (square: string): string => {
   if (rankCode < 97 || rankCode > 105) {
     return `${flippedFile}${rank}`;
   }
-  return `${flippedFile}${String.fromCharCode(202 - rankCode)}`;
+  return `${flippedFile}${String.fromCharCode(RANK_CODE_SUM - rankCode)}`;
 };

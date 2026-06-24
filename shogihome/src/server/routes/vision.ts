@@ -38,6 +38,13 @@ const parseMaxCandidates = (value: unknown): number => {
 export const registerVisionRoutes = (app: Express) => {
   app.post(
     "/api/vision/scan",
+    (_req, res, next) => {
+      if (!VISION_ENABLED) {
+        sendError(res, 404, "vision backend is disabled");
+        return;
+      }
+      next();
+    },
     express.raw({
       limit: `${VISION_MAX_IMAGE_MB}mb`,
       type: (req) => {
@@ -46,11 +53,6 @@ export const registerVisionRoutes = (app: Express) => {
       },
     }),
     async (req, res) => {
-      if (!VISION_ENABLED) {
-        sendError(res, 404, "vision backend is disabled");
-        return;
-      }
-
       const contentType = req.headers["content-type"]?.split(";")[0].trim().toLowerCase();
       const extension = contentType ? SUPPORTED_IMAGE_TYPES.get(contentType) : undefined;
       if (!extension) {
