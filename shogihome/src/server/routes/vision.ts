@@ -78,8 +78,8 @@ export const registerVisionRoutes = (app: Express) => {
         }
         res.json(result);
       } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        sendError(res, 502, message);
+        console.warn("vision backend failed:", e);
+        sendError(res, 502, "vision backend failed");
       }
     },
   );

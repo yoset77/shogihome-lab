@@ -4,6 +4,7 @@ export async function scanPositionImage(
   image: Blob,
   sideToMove: VisionTurn,
   viewpoint: VisionViewpoint,
+  signal?: AbortSignal,
 ): Promise<VisionScanResponse> {
   const contentType = normalizeImageType(image.type);
   const params = new URLSearchParams({
@@ -17,6 +18,7 @@ export async function scanPositionImage(
       "Content-Type": contentType,
     },
     body: image,
+    signal,
   });
   if (!response.ok) {
     throw new Error(await response.text());

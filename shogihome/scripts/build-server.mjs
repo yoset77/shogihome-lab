@@ -78,6 +78,7 @@ function copyVisionModels() {
   if (!fs.existsSync(sourceDir)) {
     throw new Error(`Vision models not found: ${sourceDir}`);
   }
+  fs.rmSync(targetDir, { recursive: true, force: true });
   fs.mkdirSync(targetDir, { recursive: true });
   for (const fileName of fs.readdirSync(sourceDir)) {
     if (fileName.endsWith(".onnx")) {

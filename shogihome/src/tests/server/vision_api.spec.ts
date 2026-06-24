@@ -75,7 +75,8 @@ describe("Vision scan API", () => {
       .send(PNG_BYTES);
 
     expect(response.status).toBe(502);
-    expect(response.text).toContain("invalid sfen");
+    expect(response.text).toContain("vision backend failed");
+    expect(response.text).not.toContain("invalid sfen");
   });
 
   it("returns wrapper timeout as a bad gateway error", async () => {
@@ -86,6 +87,7 @@ describe("Vision scan API", () => {
       .send(PNG_BYTES);
 
     expect(response.status).toBe(502);
-    expect(response.text).toContain("timed out");
+    expect(response.text).toContain("vision backend failed");
+    expect(response.text).not.toContain("timed out");
   });
 });

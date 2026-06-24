@@ -8,8 +8,7 @@
  * { imageOrientation: "from-image" } when available, and fall back to a
  * plain Image element for older browsers.
  *
- * JPEG/PNG images that are already small enough (short side <= 960px) are
- * returned without re-encoding.
+ * The image is always re-encoded so metadata such as EXIF/GPS is not uploaded.
  */
 
 const TARGET_SHORT_SIDE = 960;
@@ -28,69 +27,66 @@ function isSupportedImageType(type: string): boolean {
   return SUPPORTED_TYPES.has(type);
 }
 
-export function compressImageForVision(blob: Blob): Promise<Blob> {
+export async function compressImageForVision(blob: Blob): Promise<Blob> {
   const startTime = performance.now();
 
-  return new Promise((resolve, reject) => {
-    if (!isSupportedImageType(blob.type)) {
-      reject(new Error(`Unsupported image type: ${blob.type}`));
-      return;
+  if (!isSupportedImageType(blob.type)) {
+    throw new Error(`Unsupported image type: ${blob.type}`);
+  }
+
+  if (typeof createImageBitmap !== "function") {
+    return loadImageFallback(blob);
+  }
+
+  try {
+    const bitmap = await createImageBitmap(blob, { imageOrientation: "from-image" });
+    const width = bitmap.width;
+    const height = bitmap.height;
+    const shortSide = Math.min(width, height);
+
+    if (shortSide <= TARGET_SHORT_SIDE) {
+      try {
+        const result = await encodeJpegFromBitmap(bitmap, JPEG_QUALITY);
+        logTiming("re-encode", startTime);
+        return result;
+      } finally {
+        bitmap.close();
+      }
     }
 
-    if (typeof createImageBitmap !== "function") {
-      loadImageFallback(blob, resolve, reject);
-      return;
-    }
+    const scale = TARGET_SHORT_SIDE / shortSide;
+    const newWidth = Math.round(width * scale);
+    const newHeight = Math.round(height * scale);
 
-    createImageBitmap(blob, { imageOrientation: "from-image" })
-      .then((bitmap) => {
-        const width = bitmap.width;
-        const height = bitmap.height;
-        const shortSide = Math.min(width, height);
-
-        // Fast path: already small enough, return the original blob.
-        if (shortSide <= TARGET_SHORT_SIDE) {
-          bitmap.close();
-          logTiming("fast path (skip compress)", startTime);
-          resolve(blob);
-          return;
-        }
-
-        const scale = TARGET_SHORT_SIDE / shortSide;
-        const newWidth = Math.round(width * scale);
-        const newHeight = Math.round(height * scale);
-
-        // Resize during decode to avoid keeping a full-resolution bitmap.
-        createImageBitmap(bitmap, {
-          resizeWidth: newWidth,
-          resizeHeight: newHeight,
-          resizeQuality: "medium",
-        })
-          .then((resizedBitmap) => {
-            bitmap.close();
-            encodeJpegFromBitmap(resizedBitmap, JPEG_QUALITY)
-              .then((result) => {
-                resizedBitmap.close();
-                logTiming("resize during decode", startTime);
-                resolve(result);
-              })
-              .catch(reject);
-          })
-          .catch(() => {
-            // Fallback: scale the full-resolution bitmap using canvas.
-            encodeJpegFromBitmapWithSize(bitmap, newWidth, newHeight)
-              .then((result) => {
-                bitmap.close();
-                logTiming("canvas fallback", startTime);
-                resolve(result);
-              })
-              .catch(reject);
-          });
-      })
-      .catch(() => {
-        loadImageFallback(blob, resolve, reject);
+    let resizedBitmap: ImageBitmap | undefined;
+    try {
+      // Resize during decode to avoid keeping a full-resolution bitmap.
+      resizedBitmap = await createImageBitmap(bitmap, {
+        resizeWidth: newWidth,
+        resizeHeight: newHeight,
+        resizeQuality: "medium",
       });
-  });
+    } catch {
+      try {
+        const result = await encodeJpegFromBitmapWithSize(bitmap, newWidth, newHeight);
+        logTiming("canvas fallback", startTime);
+        return result;
+      } finally {
+        bitmap.close();
+      }
+    }
+
+    try {
+      bitmap.close();
+      const result = await encodeJpegFromBitmap(resizedBitmap, JPEG_QUALITY);
+      logTiming("resize during decode", startTime);
+      return result;
+    } finally {
+      resizedBitmap.close();
+    }
+  } catch {
+    return loadImageFallback(blob);
+  }
 }
 
 function encodeJpegFromBitmap(bitmap: ImageBitmap, quality: number): Promise<Blob> {
@@ -130,59 +126,57 @@ function encodeJpegFromBitmapWithSize(
   });
 }
 
-function loadImageFallback(
-  blob: Blob,
-  resolve: (blob: Blob) => void,
-  reject: (error: Error) => void,
-): void {
-  const img = new Image();
-  const url = URL.createObjectURL(blob);
+function loadImageFallback(blob: Blob): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
 
-  img.onload = () => {
-    URL.revokeObjectURL(url);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
 
-    const targetShortSide = TARGET_SHORT_SIDE;
-    const width = img.naturalWidth;
-    const height = img.naturalHeight;
-    const shortSide = Math.min(width, height);
+      const targetShortSide = TARGET_SHORT_SIDE;
+      const width = img.naturalWidth;
+      const height = img.naturalHeight;
+      const shortSide = Math.min(width, height);
 
-    let newWidth = width;
-    let newHeight = height;
-    if (shortSide > targetShortSide) {
-      const scale = targetShortSide / shortSide;
-      newWidth = Math.round(width * scale);
-      newHeight = Math.round(height * scale);
-    }
+      let newWidth = width;
+      let newHeight = height;
+      if (shortSide > targetShortSide) {
+        const scale = targetShortSide / shortSide;
+        newWidth = Math.round(width * scale);
+        newHeight = Math.round(height * scale);
+      }
 
-    const canvas = document.createElement("canvas");
-    canvas.width = newWidth;
-    canvas.height = newHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      reject(new Error("Failed to get 2d context"));
-      return;
-    }
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "medium";
-    ctx.drawImage(img, 0, 0, newWidth, newHeight);
+      const canvas = document.createElement("canvas");
+      canvas.width = newWidth;
+      canvas.height = newHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("Failed to get 2d context"));
+        return;
+      }
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "medium";
+      ctx.drawImage(img, 0, 0, newWidth, newHeight);
 
-    canvas.toBlob(
-      (result) => {
-        if (result) {
-          resolve(result);
-        } else {
-          reject(new Error("Canvas toBlob returned null"));
-        }
-      },
-      "image/jpeg",
-      JPEG_QUALITY,
-    );
-  };
+      canvas.toBlob(
+        (result) => {
+          if (result) {
+            resolve(result);
+          } else {
+            reject(new Error("Canvas toBlob returned null"));
+          }
+        },
+        "image/jpeg",
+        JPEG_QUALITY,
+      );
+    };
 
-  img.onerror = () => {
-    URL.revokeObjectURL(url);
-    reject(new Error("Failed to load image"));
-  };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Failed to load image"));
+    };
 
-  img.src = url;
+    img.src = url;
+  });
 }

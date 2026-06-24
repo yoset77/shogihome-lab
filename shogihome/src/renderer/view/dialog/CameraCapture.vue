@@ -33,10 +33,16 @@ const stream = ref<MediaStream>();
 const ready = ref(false);
 const error = ref<string | undefined>();
 const errorMessage = ref("");
+let disposed = false;
 
 onMounted(async () => {
   try {
-    stream.value = await getCameraStream();
+    const cameraStream = await getCameraStream();
+    if (disposed) {
+      stopCameraStream(cameraStream);
+      return;
+    }
+    stream.value = cameraStream;
     if (videoRef.value) {
       videoRef.value.srcObject = stream.value;
       videoRef.value.onloadedmetadata = () => {
@@ -44,6 +50,9 @@ onMounted(async () => {
       };
     }
   } catch (e) {
+    if (disposed) {
+      return;
+    }
     error.value = String(e);
     errorMessage.value = t.cameraCaptureFailed;
   }
@@ -76,6 +85,7 @@ const stop = () => {
 };
 
 onBeforeUnmount(() => {
+  disposed = true;
   stop();
 });
 </script>

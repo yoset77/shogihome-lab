@@ -192,14 +192,14 @@ graph LR
 ### 盤面画像スキャン (Vision Scan API)
 カメラや画像ファイルから単一画像の盤面を読み取り、局面候補として SFEN を返すためのバックエンド境界です。
 - **有効化**: Webサーバー側の `.env.example` では `VISION_ENABLED=true` が既定で設定されており、`POST /api/vision/scan` が有効になります。無効化する場合は `.env` で `VISION_ENABLED` を `true` 以外に設定、または削除します。
-- **入力**: `image/jpeg`, `image/png` の raw body を受け付けます。最大サイズは `VISION_MAX_IMAGE_MB`（デフォルト 8MB）です。
+- **入力**: フロントエンドは選択・撮影された画像を短辺 960px 以下の JPEG（quality 0.8）へ再エンコードし、EXIF/GPS などのメタデータを送信しません。API は `image/jpeg`, `image/png` の raw body を受け付けます。最大サイズは `VISION_MAX_IMAGE_MB`（デフォルト 8MB）です。
 - **外部プロセス境界**: Node.js サーバーは画像を一時ファイルへ保存し、Vision backend worker を常駐プロセスとして起動します。本番では `npm run server:runtime` で生成された `shogihome-server.exe` が `dist/server/server.js` を実行し、同じ Node.js runtime で `dist/server/node-worker/worker.js` を起動します。Docker でも同じ `dist/server` 配置を使います。開発時は `dist/server/node-worker/worker.js` が優先され、未ビルドの場合は `src/server/vision/node-worker/worker.ts` を `tsx` 経由で起動します。モデルディレクトリは worker スクリプトからの相対パス `../models` で解決されます。通信は stdin/stdout の JSON Lines で、リクエストには `imagePath`、`sideToMove`、`maxCandidates` を含めます。`viewpoint` は worker へ渡さず、Node.js 側で SFEN と warning square を反転します。
 - **ONNX 推論**: Vision backend は `board_segmenter.onnx` で盤面領域検出、`mixed.onnx` で 81 マスの駒種・向き分類、`hand_piece_detector.onnx` で持ち駒検出を実行します。
 - **持ち駒認識**: 盤面四隅検出結果から持ち駒台 ROI を推定し、持ち駒数・駒種を検出して SFEN の持ち駒フィールドに反映します。持ち駒検出結果は盤面候補探索の駒数制約にも反映されます。
 - **後処理**: 駒種ごとの上限数、二歩、行き所のない駒を常時検証します。玉数（先後各1枚）は hard 制約ではなく `KING_COUNT_INVALID` warning として返します。盤上＋持ち駒の合計が40枚でない場合は `TOTAL_PIECE_COUNT_INVALID`、各駒種が上限を超える場合は `PIECE_COUNT_INVALID` を warning として返します。旧 `--strict-piece-count` モードは廃止し、少なすぎる駒による hard filter は行いません。ビームサーチでは bounded selection を使い、全件 sort のコストを抑えています。
-- **レスポンス検証**: サーバーは Vision backend の JSON 形状を検証し、返却された `sfen` と候補 SFEN が `tsshogi` で読み込めることを確認します。不正な応答やタイムアウトは `502` として扱います。HTTP API の安定契約は `sfen`、`confidence`、`candidates`、`warnings`、`preview` であり、worker 内部の `board` payload は API レスポンスから除外します。
+- **レスポンス検証**: サーバーは Vision backend の JSON 形状を検証し、返却された `sfen` と候補 SFEN が `tsshogi` で読み込めることを確認します。不正な応答やタイムアウトは `502` として扱い、HTTP body には固定文言のみを返します。詳細な worker エラーはサーバーログへ記録します。HTTP API の安定契約は `sfen`、`confidence`、`candidates`、`warnings`、`preview` であり、worker 内部の `board` payload は API レスポンスから除外します。
 - **責務分離**: ShogiVision 由来の発想（四隅検出、透視変換、81マス分類、top-k候補、後処理）は Vision backend 側に閉じ込め、Middle Server は安全なプロセス呼び出しと SFEN 検証に限定します。USI エンジン中継を担う `engine-wrapper/` には画像認識処理を混ぜません。
-- **フロントエンド確認**: 画像だけでは手番や盤面の向き、局面種別（実戦/詰将棋）は確定できないため、`VisionScanDialog.vue` で `sideToMove`、`viewpoint`、`positionType` を明示指定します。読み取り結果は `VisionPositionEditDialog.vue` で確認・修正し、確定後は通常モードへ戻ります。詰将棋として取り込む場合は、編集ダイアログを開く時点で玉以外の未使用駒を後手持ち駒へ一度だけ補充します。
+- **フロントエンド確認**: 画像だけでは手番や盤面の向き、局面種別（実戦/詰将棋）は確定できないため、`VisionScanDialog.vue` で `sideToMove`、`viewpoint`、`positionType` を明示指定します。スキャン中にダイアログを閉じた場合は fetch を abort し、30秒応答がない場合もタイムアウトとして中断します。読み取り結果は `VisionPositionEditDialog.vue` で確認・修正し、確定後は通常モードへ戻ります。詰将棋として取り込む場合は、編集ダイアログを開く時点で玉以外の未使用駒を後手持ち駒へ一度だけ補充します。
 
 ### 統合履歴・バックアップ管理 (Integrated History & Backup Management)
 デバイスやセッションを跨いで履歴とバックアップを共有・永続化する機能です。

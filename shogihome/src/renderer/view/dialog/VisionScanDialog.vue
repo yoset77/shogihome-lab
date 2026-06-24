@@ -74,6 +74,8 @@ import { useAppSettings } from "@/renderer/store/settings";
 import { scanPositionImage } from "@/renderer/vision/api";
 import { compressImageForVision } from "@/renderer/helpers/image";
 
+const SCAN_TIMEOUT_MS = 30000;
+
 const store = useStore();
 const appSettings = useAppSettings();
 const busyState = useBusyState();
@@ -82,6 +84,9 @@ const previewUrl = ref("");
 const scanning = ref(false);
 const isCameraOpen = ref(false);
 const fileInputRef = ref<HTMLInputElement>();
+let scanAbortController: AbortController | undefined;
+let scanTimeout: ReturnType<typeof setTimeout> | undefined;
+let scanTimedOut = false;
 const sideToMove = ref<VisionTurn>(store.record.position.color === Color.BLACK ? "black" : "white");
 const viewpoint = ref<VisionViewpoint>("black");
 const positionType = ref<VisionPositionType>("game");
@@ -100,6 +105,7 @@ const positionTypeItems = computed(() => [
 ]);
 
 const onClose = () => {
+  abortScan();
   revokePreviewUrl();
   store.destroyModalDialog();
 };
@@ -139,12 +145,30 @@ const scan = async () => {
   }
   scanning.value = true;
   busyState.retain();
+  scanAbortController = new AbortController();
+  scanTimedOut = false;
+  scanTimeout = setTimeout(() => {
+    scanTimedOut = true;
+    scanAbortController?.abort();
+  }, SCAN_TIMEOUT_MS);
   try {
-    const result = await scanPositionImage(imageBlob.value, sideToMove.value, viewpoint.value);
+    const result = await scanPositionImage(
+      imageBlob.value,
+      sideToMove.value,
+      viewpoint.value,
+      scanAbortController.signal,
+    );
     store.showVisionPositionEditDialog(result.sfen, viewpoint.value, positionType.value);
   } catch (e) {
-    useErrorStore().add(e);
+    if (scanTimedOut) {
+      useErrorStore().add(new Error(t.timeout));
+    } else if (!isAbortError(e)) {
+      useErrorStore().add(e);
+    }
   } finally {
+    clearScanTimeout();
+    scanAbortController = undefined;
+    scanTimedOut = false;
     busyState.release();
     scanning.value = false;
   }
@@ -163,6 +187,22 @@ const revokePreviewUrl = () => {
   }
 };
 
+const abortScan = () => {
+  scanAbortController?.abort();
+  clearScanTimeout();
+};
+
+const clearScanTimeout = () => {
+  if (scanTimeout) {
+    clearTimeout(scanTimeout);
+    scanTimeout = undefined;
+  }
+};
+
+const isAbortError = (error: unknown): boolean => {
+  return error instanceof DOMException && error.name === "AbortError";
+};
+
 onMounted(() => {
   if (appSettings.enableVisionCameraAutoOpen) {
     isCameraOpen.value = true;
@@ -170,6 +210,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  abortScan();
   revokePreviewUrl();
 });
 </script>

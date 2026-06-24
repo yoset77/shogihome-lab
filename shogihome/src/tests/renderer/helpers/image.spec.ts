@@ -70,17 +70,31 @@ describe("renderer/helpers/image", () => {
     expect(global.createImageBitmap).not.toHaveBeenCalled();
   });
 
-  it("fast path: returns the original blob when the image is already small enough", async () => {
+  it("re-encodes small images instead of returning the original blob", async () => {
+    const originalCreateElement = document.createElement.bind(document);
     const blob = new Blob(["png"], { type: "image/png" });
     const bitmap = createMockBitmap(800, 600);
     global.createImageBitmap = vi.fn(async () => bitmap) as unknown as typeof createImageBitmap;
+    const mockCreateElement = vi
+      .spyOn(document, "createElement")
+      .mockImplementation((tagName: string) => {
+        if (tagName === "canvas") {
+          return createMockCanvas();
+        }
+        return originalCreateElement(tagName);
+      });
 
     const result = await compressImageForVision(blob);
 
-    expect(result).toBe(blob);
+    expect(result).not.toBe(blob);
+    expect(result.type).toBe("image/jpeg");
     expect(bitmap.close).toHaveBeenCalled();
     expect(global.createImageBitmap).toHaveBeenCalledWith(blob, { imageOrientation: "from-image" });
-    expect(mockCanvas.toBlob).not.toHaveBeenCalled();
+    expect(mockCanvas.width).toBe(800);
+    expect(mockCanvas.height).toBe(600);
+    expect(mockCanvas.toBlob).toHaveBeenCalledWith(expect.any(Function), "image/jpeg", 0.8);
+
+    mockCreateElement.mockRestore();
   });
 
   it("resize path: uses createImageBitmap resize options for large images", async () => {
