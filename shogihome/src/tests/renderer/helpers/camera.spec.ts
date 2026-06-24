@@ -36,8 +36,8 @@ describe("renderer/helpers/camera", () => {
       expect(mockGetUserMedia).toHaveBeenCalledWith({
         video: {
           facingMode: "environment",
-          width: { ideal: 1920 },
-          height: { ideal: 1920 },
+          width: { ideal: 1280 },
+          height: { ideal: 1280 },
         },
       });
     });
@@ -117,9 +117,9 @@ describe("renderer/helpers/camera", () => {
 
       const result = await captureVideoFrame(video);
 
-      expect(mockCanvas.width).toBe(1920);
-      expect(mockCanvas.height).toBe(1080);
-      expect(mockCtx.drawImage).toHaveBeenCalledWith(video, 0, 0);
+      expect(mockCanvas.width).toBe(1707);
+      expect(mockCanvas.height).toBe(960);
+      expect(mockCtx.drawImage).toHaveBeenCalledWith(video, 0, 0, 1707, 960);
       expect(mockCanvas.toBlob).toHaveBeenCalledWith(expect.any(Function), "image/jpeg", 0.8);
       expect(result.type).toBe("image/jpeg");
 

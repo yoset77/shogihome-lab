@@ -17,6 +17,10 @@ const PIECE_LIMITS: Record<string, number> = {
   R: 2,
   K: 2,
 };
+const PIECE_BASES = ["P", "L", "N", "S", "G", "B", "R", "K"] as const;
+const PIECE_BASE_INDEX: Record<string, number> = Object.fromEntries(
+  PIECE_BASES.map((piece, index) => [piece, index]),
+);
 const PROMOTED_TO_BASE: Record<string, string> = {
   "+P": "P",
   "+L": "L",
@@ -50,8 +54,18 @@ const VIOLATION_PENALTIES: Record<string, number> = {
 
 interface BeamState {
   logLikelihood: number;
-  cells: ScoredCell[];
-  baseCounts: Record<string, number>;
+  tail: BeamNode | null;
+  baseCounts: Uint8Array;
+}
+
+interface BeamNode {
+  previous: BeamNode | null;
+  cell: ScoredCell;
+}
+
+interface UnconstrainedBeamState {
+  logLikelihood: number;
+  tail: BeamNode | null;
 }
 
 interface ScoredCell {
@@ -59,6 +73,7 @@ interface ScoredCell {
   confidence: number;
   logProb: number;
   base: string | null;
+  baseIndex: number;
   candidates: CellCandidate[];
 }
 
@@ -106,7 +121,9 @@ const buildPositionCandidates = (
   warnings: VisionWarning[];
 }> => {
   const cellOptions = precomputeScoredCells(recognized);
-  let beams: BeamState[] = [{ logLikelihood: 0, cells: [], baseCounts: {} }];
+  let beams: BeamState[] = [
+    { logLikelihood: 0, tail: null, baseCounts: new Uint8Array(PIECE_BASES.length) },
+  ];
 
   for (const options of cellOptions) {
     const expanded: BeamState[] = [];
@@ -130,7 +147,7 @@ const buildPositionCandidates = (
   }> = [];
   const seen = new Set<string>();
   for (const beam of beams) {
-    const board = toBoardFromScored(beam.cells);
+    const board = toBoardFromScored(cellsFromBeam(beam.tail));
     const boardSfen = buildBoardSfen(board);
     if (seen.has(boardSfen)) continue;
     seen.add(boardSfen);
@@ -152,16 +169,19 @@ const buildUnconstrainedCandidates = (
   warnings: VisionWarning[];
 }> => {
   const cellOptions = precomputeScoredCells(recognized);
-  let beams: Array<[number, ScoredCell[]]> = [[0, []]];
+  let beams: UnconstrainedBeamState[] = [{ logLikelihood: 0, tail: null }];
 
   for (const options of cellOptions) {
-    const expanded: Array<[number, ScoredCell[]]> = [];
-    for (const [logLikelihood, cells] of beams) {
+    const expanded: UnconstrainedBeamState[] = [];
+    for (const beam of beams) {
       for (const option of options) {
-        expanded.push([logLikelihood + option.logProb, [...cells, option]]);
+        expanded.push({
+          logLikelihood: beam.logLikelihood + option.logProb,
+          tail: { previous: beam.tail, cell: option },
+        });
       }
     }
-    beams = expanded.sort((a, b) => b[0] - a[0]).slice(0, BEAM_WIDTH);
+    beams = expanded.sort((a, b) => b.logLikelihood - a.logLikelihood).slice(0, BEAM_WIDTH);
   }
 
   const candidates: Array<{
@@ -171,14 +191,14 @@ const buildUnconstrainedCandidates = (
     warnings: VisionWarning[];
   }> = [];
   const seen = new Set<string>();
-  for (const [logLikelihood, cells] of beams) {
-    const board = toBoardFromScored(cells);
+  for (const beam of beams) {
+    const board = toBoardFromScored(cellsFromBeam(beam.tail));
     const boardSfen = buildBoardSfen(board);
     if (seen.has(boardSfen)) continue;
     seen.add(boardSfen);
     const warnings = validateBoard(board, turn);
-    const confidence = scoreFromLogLikelihood(logLikelihood);
-    const score = penalizedScore(logLikelihood, warnings);
+    const confidence = scoreFromLogLikelihood(beam.logLikelihood);
+    const score = penalizedScore(beam.logLikelihood, warnings);
     candidates.push({ recognized: board, confidence, score, warnings });
   }
   return candidates.sort((a, b) => b.score - a.score).slice(0, MAX_POSITION_CANDIDATES);
@@ -193,6 +213,7 @@ const precomputeScoredCells = (recognized: RecognizedCell[][]): ScoredCell[][] =
         confidence: opt.confidence,
         logProb: Math.log(Math.max(MIN_PROBABILITY, Math.min(1.0, opt.confidence))),
         base: opt.piece !== null ? basePiece(opt.piece) : null,
+        baseIndex: opt.piece !== null ? (PIECE_BASE_INDEX[basePiece(opt.piece)] ?? -1) : -1,
         candidates: opt.candidates,
       }));
     }),
@@ -216,16 +237,25 @@ const appendConstrainedOption = (
   option: ScoredCell,
   limits: Record<string, number>,
 ): BeamState | null => {
-  const baseCounts = { ...beam.baseCounts };
-  if (option.base !== null) {
-    baseCounts[option.base] = (baseCounts[option.base] ?? 0) + 1;
-    if (baseCounts[option.base] > (limits[option.base] ?? 0)) return null;
+  const baseCounts = new Uint8Array(beam.baseCounts);
+  if (option.baseIndex >= 0) {
+    baseCounts[option.baseIndex]++;
+    if (baseCounts[option.baseIndex] > (limits[option.base ?? ""] ?? 0)) return null;
   }
   return {
     logLikelihood: beam.logLikelihood + option.logProb,
-    cells: [...beam.cells, option],
+    tail: { previous: beam.tail, cell: option },
     baseCounts,
   };
+};
+
+const cellsFromBeam = (tail: BeamNode | null): ScoredCell[] => {
+  const cells: ScoredCell[] = [];
+  for (let node = tail; node !== null; node = node.previous) {
+    cells.push(node.cell);
+  }
+  cells.reverse();
+  return cells;
 };
 
 const toBoardFromScored = (cells: ScoredCell[]): RecognizedCell[][] => {
