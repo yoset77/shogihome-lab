@@ -72,6 +72,13 @@ jobs:
           if (-not $csc) { throw "csc.exe not found. Cannot build Shim." }
           & $csc /target:winexe /out:ShogiHomeLab.exe /r:System.Windows.Forms.dll "assets\release\shim.cs"
 
+      - name: Write Version File
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:RELEASE_TAG.TrimStart('v')
+          Set-Content -Path "engine-wrapper/VERSION" -Value $version -NoNewline
+
       # --- Packaging ---
       - name: Create Release Package
         shell: pwsh
@@ -100,8 +107,8 @@ jobs:
           New-Item -ItemType Directory -Path "$pkgName/engine-wrapper" -Force
           Copy-Item -Path "engine-wrapper/python" -Destination "$pkgName/engine-wrapper/python" -Recurse
 
-          # Explicitly copy required scripts
-          @("launcher.py", "engine_wrapper.py", "config_editor.py", "common.py") | ForEach-Object {
+          # Explicitly copy required scripts and VERSION file
+          @("launcher.py", "engine_wrapper.py", "config_editor.py", "common.py", "i18n.py", "update_checker.py", "VERSION") | ForEach-Object {
               Copy-Item "engine-wrapper/$_" -Destination "$pkgName/engine-wrapper/"
           }
 
