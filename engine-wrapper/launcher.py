@@ -15,6 +15,7 @@ import qrcode
 from PIL import Image
 from pystray import MenuItem
 
+import i18n
 from common import (
     BASE_DIR,
     get_local_ip,
@@ -26,6 +27,7 @@ from common import (
     load_env_value,
     smart_merge_env,
 )
+from update_checker import UpdateCache, UpdateInfo, fetch_latest_release, load_current_version
 
 # --- Configuration ---
 APP_NAME = "ShogiHome Lab"
@@ -75,6 +77,16 @@ class LauncherApp(ctk.CTk):
         self.config_editor_process = None
         self.is_running = False
         self.tray_icon = None
+        self._is_quitting = False
+
+        # Update notification state
+        self.update_cache = UpdateCache.load(BASE_DIR / ".update_cache.json")
+        self.current_language = self._load_language()
+        self.update_info: UpdateInfo | None = None
+        self.update_banner = None
+        self.update_banner_label = None
+        self.update_download_btn = None
+        self.update_later_btn = None
 
         # Load initial config
         self.load_config()
@@ -90,19 +102,41 @@ class LauncherApp(ctk.CTk):
         self.header_frame = ctk.CTkFrame(self)
         self.header_frame.pack(fill="x", padx=10, pady=10)
 
-        self.title_label = ctk.CTkLabel(self.header_frame, text=APP_NAME, font=("Roboto", 20, "bold"))
+        self.title_label = ctk.CTkLabel(self.header_frame, text=APP_NAME, font=("Yu Gothic UI", 20, "bold"))
         self.title_label.pack(side="left", padx=10)
 
-        self.status_indicator = ctk.CTkLabel(self.header_frame, text="● Stopped", text_color="#757575", font=("Roboto", 14))
+        # Small language switcher. Messagebox texts are shown before the UI,
+        # so they keep their existing bilingual wording.
+        self._language_display_to_code = {
+            i18n.text("languageJa", lang=i18n.LANGUAGE_JA): i18n.LANGUAGE_JA,
+            i18n.text("languageEn", lang=i18n.LANGUAGE_EN): i18n.LANGUAGE_EN,
+        }
+        self.language_menu = ctk.CTkOptionMenu(
+            self.header_frame,
+            values=list(self._language_display_to_code.keys()),
+            width=90,
+            command=self._on_language_changed,
+        )
+        self.language_menu.set(
+            i18n.text("languageJa" if self.current_language == i18n.LANGUAGE_JA else "languageEn", lang=self.current_language)
+        )
+        self.language_menu.pack(side="left", padx=(0, 10))
+
+        self.status_indicator = ctk.CTkLabel(
+            self.header_frame,
+            text=f"● {i18n.text('statusStopped', lang=self.current_language)}",
+            text_color="#757575",
+            font=("Yu Gothic UI", 14),
+        )
         self.status_indicator.pack(side="right", padx=10)
 
         # Footer (Stop button) - Pack first to reserve bottom space
         self.btn_stop = ctk.CTkButton(
             self,
-            text="Stop & Exit",
+            text=i18n.text("stopAndExit", lang=self.current_language),
             command=self.quit_app,
             height=40,
-            font=("Roboto", 14),
+            font=("Yu Gothic UI", 14),
             fg_color="#d32f2f",
             hover_color="#b71c1c",
         )
@@ -125,10 +159,10 @@ class LauncherApp(ctk.CTk):
 
         self.btn_open = ctk.CTkButton(
             self.action_frame,
-            text="Open on PC",
+            text=i18n.text("openOnPc", lang=self.current_language),
             command=self.open_browser,
             height=60,
-            font=("Roboto", 14),
+            font=("Yu Gothic UI", 14),
             fg_color="#1161C9",
             hover_color="#124BC5",
             state="normal" if self.is_pc_access_allowed else "disabled",
@@ -137,10 +171,10 @@ class LauncherApp(ctk.CTk):
 
         self.btn_settings = ctk.CTkButton(
             self.action_frame,
-            text="Engine Settings",
+            text=i18n.text("engineSettings", lang=self.current_language),
             command=self.open_settings,
             height=60,
-            font=("Roboto", 14),
+            font=("Yu Gothic UI", 14),
             fg_color="#2083e6",
             hover_color="#1868b8",
         )
@@ -148,10 +182,10 @@ class LauncherApp(ctk.CTk):
 
         self.btn_restart = ctk.CTkButton(
             self.action_frame,
-            text="Restart Server",
+            text=i18n.text("restartServer", lang=self.current_language),
             command=self.restart_services,
             height=60,
-            font=("Roboto", 14),
+            font=("Yu Gothic UI", 14),
             fg_color="#f76b0e",
             hover_color="#f55a12",
         )
@@ -159,10 +193,10 @@ class LauncherApp(ctk.CTk):
 
         self.btn_logs = ctk.CTkButton(
             self.action_frame,
-            text="Show Logs",
+            text=i18n.text("showLogs", lang=self.current_language),
             command=self.open_log_viewer,
             height=60,
-            font=("Roboto", 14),
+            font=("Yu Gothic UI", 14),
             fg_color="#607d8b",
             hover_color="#455a64",
         )
@@ -171,6 +205,172 @@ class LauncherApp(ctk.CTk):
         # Start processes on load
         self.after(100, self.start_services)
         self.after(1000, self.check_processes)
+
+        # Check for updates (bundled packages only)
+        self.after(500, self._check_update_async)
+
+        # Apply the initial language to all UI texts.
+        self._refresh_ui_language()
+
+    def _load_language(self) -> str:
+        """Resolve the launcher UI language from cache or environment."""
+        if self.update_cache.ui_language in (i18n.LANGUAGE_JA, i18n.LANGUAGE_EN):
+            return self.update_cache.ui_language
+        env_lang = os.environ.get("SHOGIHOME_LAB_LANG")
+        if env_lang in (i18n.LANGUAGE_JA, i18n.LANGUAGE_EN):
+            return env_lang
+        return i18n.DEFAULT_LANGUAGE
+
+    def _on_language_changed(self, value: str) -> None:
+        """Handle language switch from the UI."""
+        lang = self._language_display_to_code.get(value, i18n.DEFAULT_LANGUAGE)
+        self.current_language = lang
+        self.update_cache.ui_language = lang
+        self.update_cache.save(BASE_DIR / ".update_cache.json")
+        self._refresh_ui_language()
+
+    def _check_update_async(self) -> None:
+        """Check for a newer release in the background (bundled only)."""
+        if not IS_BUNDLED:
+            return
+
+        current_version = load_current_version(BASE_DIR / "VERSION")
+        if not current_version:
+            return
+
+        def _run() -> None:
+            try:
+                update = fetch_latest_release(current_version)
+                if update is not None and not self.update_cache.is_snoozed(update.version):
+                    if self._is_quitting:
+                        return
+
+                    def _show_if_alive(u=update) -> None:
+                        try:
+                            if not self._is_quitting and self.winfo_exists():
+                                self._show_update_banner(u)
+                        except Exception:
+                            pass
+
+                    try:
+                        self.after(0, _show_if_alive)
+                    except Exception:
+                        pass
+            except Exception:
+                # Silently ignore network/API errors so startup is never blocked.
+                pass
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _show_update_banner(self, update: UpdateInfo) -> None:
+        """Display a banner announcing a newer release."""
+        if self.update_banner is not None:
+            return
+
+        self.update_info = update
+        self.update_banner = ctk.CTkFrame(
+            self,
+            fg_color=("#fff3cd", "#4a3b00"),
+            corner_radius=8,
+            border_width=1,
+            border_color=("#ffecb5", "#665500"),
+        )
+        self.update_banner.pack(after=self.header_frame, fill="x", padx=10, pady=(0, 10))
+
+        self.update_banner_label = ctk.CTkLabel(
+            self.update_banner,
+            text=i18n.text("latestVersionReleased", lang=self.current_language, version=update.tag),
+            font=("Yu Gothic UI", 12),
+            text_color=("#664d03", "#ffe066"),
+            cursor="hand2",
+            anchor="w",
+        )
+        self.update_banner_label.pack(side="left", padx=10, pady=8, fill="x", expand=True)
+        self.update_banner_label.bind("<Button-1>", lambda _event: webbrowser.open(update.url))
+
+        button_frame = ctk.CTkFrame(self.update_banner, fg_color="transparent")
+        button_frame.pack(side="right", padx=(0, 5), pady=8)
+
+        self.update_download_btn = ctk.CTkButton(
+            button_frame,
+            text=i18n.text("updateDownload", lang=self.current_language),
+            width=85,
+            command=lambda: webbrowser.open(update.url),
+        )
+        self.update_download_btn.pack(side="left", padx=(0, 5))
+
+        self.update_later_btn = ctk.CTkButton(
+            button_frame,
+            text=i18n.text("updateRemindLater", lang=self.current_language),
+            width=85,
+            fg_color=("#d6d6d6", "#4a4a4a"),
+            hover_color=("#c0c0c0", "#5a5a5a"),
+            text_color=("#3b3b3b", "#d0d0d0"),
+            command=self._snooze_update_banner,
+        )
+        self.update_later_btn.pack(side="left", padx=(0, 5))
+
+    def _refresh_update_banner(self) -> None:
+        """Refresh banner text after a language change."""
+        if self.update_banner is None or self.update_info is None:
+            return
+        self.update_banner_label.configure(
+            text=i18n.text("latestVersionReleased", lang=self.current_language, version=self.update_info.tag)
+        )
+        self.update_download_btn.configure(text=i18n.text("updateDownload", lang=self.current_language))
+        self.update_later_btn.configure(text=i18n.text("updateRemindLater", lang=self.current_language))
+
+    def _refresh_ui_language(self) -> None:
+        """Refresh all localizable UI texts after a language change."""
+        lang = self.current_language
+
+        self.btn_open.configure(text=i18n.text("openOnPc", lang=lang))
+        self.btn_restart.configure(text=i18n.text("restartServer", lang=lang))
+        self.btn_logs.configure(text=i18n.text("showLogs", lang=lang))
+        self.btn_stop.configure(text=i18n.text("stopAndExit", lang=lang))
+
+        if self.config_editor_process and self.config_editor_process.poll() is None:
+            self.btn_settings.configure(text=i18n.text("settingsRunning", lang=lang))
+        else:
+            self.btn_settings.configure(text=i18n.text("engineSettings", lang=lang))
+
+        if self.is_running:
+            self.status_indicator.configure(text=f"● {i18n.text('statusRunning', lang=lang)}")
+        else:
+            self.status_indicator.configure(text=f"● {i18n.text('statusStopped', lang=lang)}")
+
+        # Recreate the info panel so its labels use the current language.
+        self.setup_info_panel()
+        self._refresh_update_banner()
+
+        # Update the tray menu if the tray icon is running.
+        self._refresh_tray_menu()
+
+    def _refresh_tray_menu(self) -> None:
+        """Rebuild the tray context menu with the current language."""
+        if self.tray_icon is None:
+            return
+
+        lang = self.current_language
+        menu = pystray.Menu(
+            MenuItem(i18n.text("trayOpenShogiHome", lang=lang), lambda: self.open_browser()),
+            MenuItem(i18n.text("trayDashboard", lang=lang), lambda: self.show_window(), default=True),
+            MenuItem(i18n.text("traySettings", lang=lang), lambda: self.open_settings()),
+            pystray.Menu.SEPARATOR,
+            MenuItem(i18n.text("trayExit", lang=lang), lambda: self.quit_app()),
+        )
+        self.tray_icon.menu = menu
+        self.tray_icon.update_menu()
+
+    def _snooze_update_banner(self) -> None:
+        """Dismiss the banner and suppress this version for one week."""
+        if self.update_info is None:
+            return
+        self.update_cache.snooze(self.update_info.version)
+        self.update_cache.save(BASE_DIR / ".update_cache.json")
+        if self.update_banner is not None:
+            self.update_banner.destroy()
+            self.update_banner = None
 
     def load_config(self):
         """Load or reload configuration from .env files."""
@@ -231,7 +431,7 @@ class LauncherApp(ctk.CTk):
             self.lan_link = ctk.CTkLabel(
                 self.qr_frame,
                 text=lan_url,
-                font=("Roboto", 14),
+                font=("Yu Gothic UI", 14),
                 text_color=("#0d6efd", "#4dabf7"),
                 cursor="hand2",
             )
@@ -244,20 +444,19 @@ class LauncherApp(ctk.CTk):
 
             ctk.CTkLabel(
                 self.info_card,
-                text="Custom Network Active",
-                font=("Roboto", 14, "bold"),
+                text=i18n.text("customNetworkActive", lang=self.current_language),
+                font=("Yu Gothic UI", 14, "bold"),
             ).pack(pady=(15, 5), padx=20)
 
             ctk.CTkLabel(
                 self.info_card,
-                text=(
-                    f"Binding: {self.bind_address}\n"
-                    f"Auto-Origins: {'Disabled' if self.disable_auto_allowed_origins else 'Enabled'}\n\n"
-                    "Please use your manually\n"
-                    "configured URL or proxy\n"
-                    "to access from other devices."
+                text=i18n.text(
+                    "networkInfo",
+                    lang=self.current_language,
+                    bind_address=self.bind_address,
+                    auto_origins_enabled=not self.disable_auto_allowed_origins,
                 ),
-                font=("Roboto", 12),
+                font=("Yu Gothic UI", 12),
                 text_color=("#3b3b3b", "#bbbbbb"),
                 justify="center",
             ).pack(pady=(0, 15), padx=20)
@@ -280,14 +479,15 @@ class LauncherApp(ctk.CTk):
         self.is_running = running
 
         def _update():
+            lang = self.current_language
             if running:
-                self.status_indicator.configure(text="● Running", text_color="#4caf50")  # Green
+                self.status_indicator.configure(text=f"● {i18n.text('statusRunning', lang=lang)}", text_color="#4caf50")  # Green
                 if self.is_pc_access_allowed:
                     self.btn_open.configure(state="normal")
                 self.btn_restart.configure(state="normal")
                 self.btn_settings.configure(state="normal")
             else:
-                self.status_indicator.configure(text="● Stopped", text_color="#757575")  # Gray
+                self.status_indicator.configure(text=f"● {i18n.text('statusStopped', lang=lang)}", text_color="#757575")  # Gray
                 self.btn_open.configure(state="disabled")
                 self.btn_restart.configure(state="normal")
                 self.btn_settings.configure(state="normal")
@@ -302,12 +502,17 @@ class LauncherApp(ctk.CTk):
 
             if server_dead or wrapper_dead:
                 self.update_status(False)
-                self.after(0, lambda: self.status_indicator.configure(text="● Error", text_color="#f44336"))
+                self.after(
+                    0,
+                    lambda: self.status_indicator.configure(
+                        text=f"● {i18n.text('statusError', lang=self.current_language)}", text_color="#f44336"
+                    ),
+                )
 
         # Monitor config editor process
         if self.config_editor_process and self.config_editor_process.poll() is not None:
             self.config_editor_process = None
-            self.after(0, lambda: self.btn_settings.configure(text="Engine Settings"))
+            self.after(0, lambda: self.btn_settings.configure(text=i18n.text("engineSettings", lang=self.current_language)))
 
         # Schedule next check
         self.after(2000, self.check_processes)
@@ -316,7 +521,7 @@ class LauncherApp(ctk.CTk):
         if self.is_running:
             return
 
-        self.status_indicator.configure(text="⟳ Starting...", text_color="#ff9800")  # Orange
+        self.status_indicator.configure(text=f"⟳ {i18n.text('statusStarting', lang=self.current_language)}", text_color="#ff9800")  # Orange
         self.btn_restart.configure(state="disabled")
 
         threading.Thread(target=self._run_processes, daemon=True).start()
@@ -429,17 +634,29 @@ class LauncherApp(ctk.CTk):
                 wrapper_log.flush()
 
         except Exception:
-            self.after(0, lambda: self.status_indicator.configure(text="● Log Error", text_color="#f44336"))
+            self.after(
+                0,
+                lambda: self.status_indicator.configure(
+                    text=f"● {i18n.text('statusLogError', lang=self.current_language)}", text_color="#f44336"
+                ),
+            )
             return
 
         if success:
             self.update_status(True)
         else:
-            self.after(0, lambda: self.status_indicator.configure(text="● Error", text_color="#f44336"))
+            self.after(
+                0,
+                lambda: self.status_indicator.configure(
+                    text=f"● {i18n.text('statusError', lang=self.current_language)}", text_color="#f44336"
+                ),
+            )
             self.update_status(False)
 
     def stop_services(self):
-        self.after(0, lambda: self.status_indicator.configure(text="Stopping...", text_color="#f44336"))
+        self.after(
+            0, lambda: self.status_indicator.configure(text=i18n.text("statusStopping", lang=self.current_language), text_color="#f44336")
+        )
 
         if self.server_process:
             self._kill_proc_tree(self.server_process)
@@ -460,7 +677,7 @@ class LauncherApp(ctk.CTk):
     def restart_services(self):
         # Run in thread to avoid freezing UI
         def _restart():
-            self.after(0, lambda: self.btn_restart.configure(state="disabled", text="Restarting..."))
+            self.after(0, lambda: self.btn_restart.configure(state="disabled", text=i18n.text("restarting", lang=self.current_language)))
             self.stop_services()
             # Slight delay to ensure ports are freed
             time.sleep(1.0)
@@ -471,21 +688,22 @@ class LauncherApp(ctk.CTk):
             self.after(0, lambda: self.btn_open.configure(state="normal" if self.is_pc_access_allowed else "disabled"))
             # Start
             self.after(0, self.start_services)
-            self.after(0, lambda: self.btn_restart.configure(text="Restart Server"))
+            self.after(0, lambda: self.btn_restart.configure(text=i18n.text("restartServer", lang=self.current_language)))
 
         threading.Thread(target=_restart, daemon=True).start()
 
     def open_log_viewer(self):
+        lang = self.current_language
         log_window = ctk.CTkToplevel(self)
-        log_window.title("Log Viewer")
+        log_window.title(i18n.text("logViewerTitle", lang=lang))
         log_window.geometry("600x400")
         log_window.attributes("-topmost", True)
 
         tabview = ctk.CTkTabview(log_window)
         tabview.pack(fill="both", expand=True, padx=10, pady=10)
 
-        tab_server = tabview.add("Server Log")
-        tab_wrapper = tabview.add("Wrapper Log")
+        tab_server = tabview.add(i18n.text("serverLogTab", lang=lang))
+        tab_wrapper = tabview.add(i18n.text("wrapperLogTab", lang=lang))
 
         text_server = ctk.CTkTextbox(tab_server)
         text_server.pack(fill="both", expand=True)
@@ -506,7 +724,7 @@ class LauncherApp(ctk.CTk):
                         limit = 1024 * 1024  # 1MB limit for viewer
                         if size > limit:
                             f.seek(size - limit)
-                            content = "... (truncated) ...\n" + f.read()
+                            content = i18n.text("logTruncated", lang=lang) + "\n" + f.read()
                         else:
                             f.seek(0)
                             content = f.read()
@@ -514,12 +732,12 @@ class LauncherApp(ctk.CTk):
                         textbox.insert("1.0", content)
                         textbox.see("end")
                 except Exception as e:
-                    textbox.insert("end", f"\nError reading log: {e}")
+                    textbox.insert("end", f"\n{i18n.text('logReadError', lang=lang, error=e)}")
 
             _read_last_mb(log_dir / "server.log", text_server)
             _read_last_mb(log_dir / "wrapper.log", text_wrapper)
 
-        btn_refresh = ctk.CTkButton(log_window, text="Refresh", command=refresh_logs)
+        btn_refresh = ctk.CTkButton(log_window, text=i18n.text("refresh", lang=lang), command=refresh_logs)
         btn_refresh.pack(pady=10)
 
         refresh_logs()
@@ -554,7 +772,7 @@ class LauncherApp(ctk.CTk):
                 # config_editor is a GUI app, so we don't need startupinfo to hide console
             )
             # Update button text to indicate it's already running
-            self.btn_settings.configure(text="Settings Running")
+            self.btn_settings.configure(text=i18n.text("settingsRunning", lang=self.current_language))
         except Exception as e:
             print(f"Failed to start config editor: {e}")
 
@@ -564,9 +782,10 @@ class LauncherApp(ctk.CTk):
         self.after(0, self._handle_quit)
 
     def _handle_quit(self):
+        self._is_quitting = True
         try:
             # UI Feedback
-            self.btn_stop.configure(text="Stopping...", state="disabled")
+            self.btn_stop.configure(text=i18n.text("statusStopping", lang=self.current_language), state="disabled")
             self.btn_restart.configure(state="disabled")
             self.btn_open.configure(state="disabled")
             self.btn_settings.configure(state="disabled")
@@ -678,12 +897,13 @@ def setup_tray(app):
         # Create dummy icon if missing
         image = Image.new("RGB", (64, 64), color=(73, 109, 137))
 
+    lang = app.current_language
     menu = pystray.Menu(
-        MenuItem("Open ShogiHome", lambda: app.open_browser()),
-        MenuItem("Dashboard", lambda: app.show_window(), default=True),
-        MenuItem("Settings", lambda: app.open_settings()),
+        MenuItem(i18n.text("trayOpenShogiHome", lang=lang), lambda: app.open_browser()),
+        MenuItem(i18n.text("trayDashboard", lang=lang), lambda: app.show_window(), default=True),
+        MenuItem(i18n.text("traySettings", lang=lang), lambda: app.open_settings()),
         pystray.Menu.SEPARATOR,
-        MenuItem("Exit", lambda: app.quit_app()),
+        MenuItem(i18n.text("trayExit", lang=lang), lambda: app.quit_app()),
     )
 
     app.tray_icon = pystray.Icon("ShogiHome Lab", image, "ShogiHome Lab", menu)

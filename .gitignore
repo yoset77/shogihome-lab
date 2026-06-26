@@ -49,6 +49,8 @@ engine-wrapper/*.dist/
 engine-wrapper/*.build/
 engine-wrapper/*.onefile-build/
 engine-wrapper/python/
+engine-wrapper/VERSION
+engine-wrapper/.update_cache.json
 python-*.zip
 shogihome-lab-v*/
 shogihome-lab-local-dist/
