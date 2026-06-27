@@ -1,7 +1,7 @@
 /**
  * Compress an image blob for vision scanning.
  * Resizes the image so the shorter side is at most 960px,
- * then outputs a JPEG at 80% quality.
+ * then outputs a JPEG at 90% quality.
  *
  * EXIF Orientation metadata is applied before compression so the output
  * JPEG has the correct pixel orientation. We use createImageBitmap with
@@ -12,7 +12,7 @@
  */
 
 const TARGET_SHORT_SIDE = 960;
-const JPEG_QUALITY = 0.8;
+const JPEG_QUALITY = 0.9;
 const SUPPORTED_TYPES = new Set(["image/jpeg", "image/png"]);
 
 function logTiming(label: string, startTime: number): void {

@@ -120,7 +120,7 @@ describe("renderer/helpers/camera", () => {
       expect(mockCanvas.width).toBe(1707);
       expect(mockCanvas.height).toBe(960);
       expect(mockCtx.drawImage).toHaveBeenCalledWith(video, 0, 0, 1707, 960);
-      expect(mockCanvas.toBlob).toHaveBeenCalledWith(expect.any(Function), "image/jpeg", 0.8);
+      expect(mockCanvas.toBlob).toHaveBeenCalledWith(expect.any(Function), "image/jpeg", 0.9);
       expect(result.type).toBe("image/jpeg");
 
       vi.restoreAllMocks();

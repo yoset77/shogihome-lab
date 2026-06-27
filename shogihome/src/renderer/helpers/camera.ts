@@ -26,7 +26,7 @@ export function stopCameraStream(stream: MediaStream): void {
 export function captureVideoFrame(
   video: HTMLVideoElement,
   mimeType: string = "image/jpeg",
-  quality: number = 0.8,
+  quality: number = 0.9,
 ): Promise<Blob> {
   return new Promise((resolve, reject) => {
     if (!video.videoWidth || !video.videoHeight) {
