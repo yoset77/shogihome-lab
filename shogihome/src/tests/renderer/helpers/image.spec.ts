@@ -92,7 +92,7 @@ describe("renderer/helpers/image", () => {
     expect(global.createImageBitmap).toHaveBeenCalledWith(blob, { imageOrientation: "from-image" });
     expect(mockCanvas.width).toBe(800);
     expect(mockCanvas.height).toBe(600);
-    expect(mockCanvas.toBlob).toHaveBeenCalledWith(expect.any(Function), "image/jpeg", 0.8);
+    expect(mockCanvas.toBlob).toHaveBeenCalledWith(expect.any(Function), "image/jpeg", 0.9);
 
     mockCreateElement.mockRestore();
   });
@@ -138,7 +138,7 @@ describe("renderer/helpers/image", () => {
     expect(mockCtx.imageSmoothingEnabled).toBe(true);
     expect(mockCtx.imageSmoothingQuality).toBe("medium");
     expect(mockCtx.drawImage).toHaveBeenCalledWith(resizedBitmap, 0, 0, 1280, 960);
-    expect(mockCanvas.toBlob).toHaveBeenCalledWith(expect.any(Function), "image/jpeg", 0.8);
+    expect(mockCanvas.toBlob).toHaveBeenCalledWith(expect.any(Function), "image/jpeg", 0.9);
     expect(fullBitmap.close).toHaveBeenCalled();
     expect(resizedBitmap.close).toHaveBeenCalled();
 
