@@ -1,4 +1,3 @@
-import type express from "express";
 import { closeBookSession, initBookSession } from "@/server/book";
 import { HttpError } from "@/server/errors";
 
@@ -56,16 +55,14 @@ export const bookSessionManager = new BookSessionManager();
 const bookCleanupInterval = setInterval(() => bookSessionManager.cleanup(), 1000 * 60 * 10);
 bookCleanupInterval.unref();
 
-export function getBookSession(req: express.Request): number {
-  const sessionId = req.header("X-Book-Session-Id");
+export function getBookSession(sessionId: string | undefined): number {
   if (!sessionId || !SESSION_ID_HEADER_REGEX.test(sessionId)) {
     throw new HttpError(400, "Invalid or missing X-Book-Session-Id header");
   }
   return bookSessionManager.get(sessionId);
 }
 
-export function closeBookSessionForRequest(req: express.Request): void {
-  const sessionId = req.header("X-Book-Session-Id");
+export function closeBookSessionForHeader(sessionId: string | undefined): void {
   if (sessionId && SESSION_ID_HEADER_REGEX.test(sessionId)) {
     bookSessionManager.close(sessionId);
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import request from "supertest";
+import { requestApp, type TestResponse } from "./honoRequest";
 
 vi.hoisted(() => {
   process.env.KIFU_DIR = "./data";
@@ -8,6 +8,8 @@ vi.hoisted(() => {
 import { app } from "@/server/main";
 import * as bookAPI from "@/server/book/index";
 import { ONTHEFLY_THRESHOLD_MB, SBK_ONTHEFLY_THRESHOLD_MB } from "@/server/config";
+
+const host = "localhost:8140";
 
 // Mock the dependencies
 vi.mock("@/server/book/index.js", () => {
@@ -61,18 +63,18 @@ describe("Book Session API", () => {
     // We expect openBook to be called with different session IDs
 
     // First client
-    await request(app)
-      .post("/api/book/open?path=test1.db")
-      .set("X-Book-Session-Id", "client-A")
-      .set("Host", "localhost:8140")
-      .send({});
+    await requestApp(app, "POST", "/api/book/open?path=test1.db", {
+      host,
+      headers: { "X-Book-Session-Id": "client-A" },
+      json: {},
+    });
 
     // Second client
-    await request(app)
-      .post("/api/book/open?path=test2.db")
-      .set("X-Book-Session-Id", "client-B")
-      .set("Host", "localhost:8140")
-      .send({});
+    await requestApp(app, "POST", "/api/book/open?path=test2.db", {
+      host,
+      headers: { "X-Book-Session-Id": "client-B" },
+      json: {},
+    });
 
     // Check that openBook was called twice
     expect(bookAPI.openBook).toHaveBeenCalledTimes(2);
@@ -87,21 +89,21 @@ describe("Book Session API", () => {
 
   it("should initialize a new session automatically to avoid 500 error", async () => {
     // Access search without opening first
-    const response = await request(app)
-      .get("/api/book/search?sfen=startpos")
-      .set("X-Book-Session-Id", "new-client")
-      .set("Host", "localhost:8140");
+    const response = await requestApp(app, "GET", "/api/book/search?sfen=startpos", {
+      host,
+      headers: { "X-Book-Session-Id": "new-client" },
+    });
 
     expect(response.status).toBe(200);
     expect(bookAPI.searchBookMoves).toHaveBeenCalled();
   });
 
   it("should ignore client-provided on-the-fly threshold", async () => {
-    await request(app)
-      .post("/api/book/open?path=test1.db")
-      .set("X-Book-Session-Id", "client-threshold")
-      .set("Host", "localhost:8140")
-      .send({ onTheFlyThresholdMB: 1, forceOnTheFly: false });
+    await requestApp(app, "POST", "/api/book/open?path=test1.db", {
+      host,
+      headers: { "X-Book-Session-Id": "client-threshold" },
+      json: { onTheFlyThresholdMB: 1, forceOnTheFly: false },
+    });
 
     const call = vi.mocked(bookAPI.openBook).mock.calls[0];
     expect(call[2]).toEqual({
@@ -114,72 +116,70 @@ describe("Book Session API", () => {
   });
 
   it("should return 400 error when X-Book-Session-Id header is missing", async () => {
-    const response = await request(app)
-      .get("/api/book/search?sfen=startpos")
-      .set("Host", "localhost:8140");
+    const response = await requestApp(app, "GET", "/api/book/search?sfen=startpos", { host });
 
     expect(response.status).toBe(400);
-    expect(response.text).toContain("Invalid or missing X-Book-Session-Id header");
+    expect(response.textBody).toContain("Invalid or missing X-Book-Session-Id header");
   });
 
   it("should reject invalid import ply ranges before importing", async () => {
-    const response = await request(app)
-      .post("/api/book/import")
-      .set("X-Book-Session-Id", "client-import")
-      .set("Host", "localhost:8140")
-      .send({ minPly: "invalid", maxPly: 100 });
+    const response = await requestApp(app, "POST", "/api/book/import", {
+      host,
+      headers: { "X-Book-Session-Id": "client-import" },
+      json: { minPly: "invalid", maxPly: 100 },
+    });
 
     expect(response.status).toBe(400);
-    expect(response.text).toContain("minPly must be a non-negative integer");
+    expect(response.textBody).toContain("minPly must be a non-negative integer");
     expect(bookAPI.importBookMoves).not.toHaveBeenCalled();
   });
 
   it("should return 400 error when batch search sfens array is too large", async () => {
     const largeSfens = new Array(100001).fill("startpos");
-    const response = await request(app)
-      .post("/api/book/search/batch")
-      .set("X-Book-Session-Id", "client-A")
-      .set("Host", "localhost:8140")
-      .send({ sfens: largeSfens });
+    const response = await requestApp(app, "POST", "/api/book/search/batch", {
+      host,
+      headers: { "X-Book-Session-Id": "client-A" },
+      json: { sfens: largeSfens },
+    });
 
     expect(response.status).toBe(400);
-    expect(response.text).toContain("max 100000");
+    expect(response.textBody).toContain("max 100000");
   });
 
   it("should return batch search results in correct order even with worker pool", async () => {
     const sfens = Array.from({ length: 100 }, (_, i) => `sfen_at_index_${i}`);
-    const response = await request(app)
-      .post("/api/book/search/batch")
-      .set("X-Book-Session-Id", "client-A")
-      .set("Host", "localhost:8140")
-      .send({ sfens });
+    const response = await requestApp(app, "POST", "/api/book/search/batch", {
+      host,
+      headers: { "X-Book-Session-Id": "client-A" },
+      json: { sfens },
+    });
 
     expect(response.status).toBe(200);
     expect(response.body).toHaveLength(100);
-    response.body.forEach((item: { sfen: string }, i: number) => {
+    response.body.forEach((item, i) => {
       expect(item.sfen).toBe(sfens[i]);
     });
   });
 
   it("should handle large batch search up to 10000 items without error", async () => {
     const sfens = new Array(10000).fill("startpos");
-    const response = await request(app)
-      .post("/api/book/search/batch")
-      .set("X-Book-Session-Id", "client-A")
-      .set("Host", "localhost:8140")
-      .send({ sfens });
+    const response = await requestApp(app, "POST", "/api/book/search/batch", {
+      host,
+      headers: { "X-Book-Session-Id": "client-A" },
+      json: { sfens },
+    });
 
     expect(response.status).toBe(200);
     expect(response.body).toHaveLength(10000);
   });
 
   it("should return 503 when the book session limit is reached", async () => {
-    let limitResponse: request.Response | undefined;
+    let limitResponse: TestResponse | undefined;
     for (let i = 0; i < 60; i++) {
-      const response = await request(app)
-        .get("/api/book/search?sfen=startpos")
-        .set("X-Book-Session-Id", `limit-client-${i}`)
-        .set("Host", "localhost:8140");
+      const response = await requestApp(app, "GET", "/api/book/search?sfen=startpos", {
+        host,
+        headers: { "X-Book-Session-Id": `limit-client-${i}` },
+      });
       if (response.status === 503) {
         limitResponse = response;
         break;
@@ -187,6 +187,6 @@ describe("Book Session API", () => {
     }
 
     expect(limitResponse?.status).toBe(503);
-    expect(limitResponse?.text).toContain("Book session limit reached");
+    expect(limitResponse?.textBody).toContain("Book session limit reached");
   });
 });

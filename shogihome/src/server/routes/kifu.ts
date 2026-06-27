@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import type { Hono } from "hono";
 import fs from "fs";
 import { normalizePath } from "@/common/helpers/path";
 import {
@@ -13,27 +13,26 @@ import * as kifuIndexSync from "@/server/kifu_index/sync";
 import { writeFileAtomic } from "@/server/file/atomic";
 import { KIFU_DIR } from "@/server/config";
 import { sendError } from "@/server/errors";
+import { createBodyLimit, LARGE_BODY_LIMIT, type AppEnv } from "@/server/hono";
 
-export const registerKifuRoutes = (app: Express) => {
-  app.get("/api/kifu/list", async (req, res) => {
+export const registerKifuRoutes = (app: Hono<AppEnv>) => {
+  app.get("/api/kifu/list", async (c) => {
     if (!KIFU_DIR) {
-      sendError(res, 404, "KIFU_DIR is not configured");
-      return;
+      return sendError(c, 404, "KIFU_DIR is not configured");
     }
-    if (req.query.reload === "true") {
+    if (c.req.query("reload") === "true") {
       clearKifuListCache();
     }
     const list = await getKifuList(KIFU_DIR);
 
-    const dirParam = req.query.dir as string | undefined;
+    const dirParam = c.req.query("dir");
     if (
       dirParam &&
       normalizePath(dirParam)
         .split("/")
         .some((s) => s === "..")
     ) {
-      sendError(res, 400, "invalid dir");
-      return;
+      return sendError(c, 400, "invalid dir");
     }
     const entriesMap = new Map<string, { name: string; path: string; isDirectory: boolean }>();
     const currentDirNormalized = dirParam ? normalizePath(dirParam) : "";
@@ -65,21 +64,19 @@ export const registerKifuRoutes = (app: Express) => {
       return a.name.localeCompare(b.name);
     });
 
-    res.json(responseList);
+    return c.json(responseList);
   });
 
-  app.get("/api/kifu/search", async (req, res) => {
+  app.get("/api/kifu/search", async (c) => {
     if (!KIFU_DIR) {
-      sendError(res, 404, "KIFU_DIR is not configured");
-      return;
+      return sendError(c, 404, "KIFU_DIR is not configured");
     }
-    let sfen = req.query.sfen as string | undefined;
+    let sfen = c.req.query("sfen");
     let sfenHash: bigint | undefined;
     if (sfen) {
       const normalized = getNormalizedSfenAndHash(sfen);
       if (!normalized) {
-        sendError(res, 400, "Invalid sfen");
-        return;
+        return sendError(c, 400, "Invalid sfen");
       }
       sfen = normalized.sfen;
       sfenHash = normalized.hash;
@@ -87,13 +84,15 @@ export const registerKifuRoutes = (app: Express) => {
     if (!sfen) {
       sfenHash = undefined;
     }
-    const keyword = req.query.keyword as string | undefined;
-    const player1 = req.query.player1 as string | undefined;
-    const player2 = req.query.player2 as string | undefined;
-    const isStrictTurn = req.query.isStrictTurn === "true";
-    const startDate = req.query.startDate as string | undefined;
-    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
-    const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : undefined;
+    const keyword = c.req.query("keyword");
+    const player1 = c.req.query("player1");
+    const player2 = c.req.query("player2");
+    const isStrictTurn = c.req.query("isStrictTurn") === "true";
+    const startDate = c.req.query("startDate");
+    const limitParam = c.req.query("limit");
+    const offsetParam = c.req.query("offset");
+    const limit = limitParam ? parseInt(limitParam, 10) : undefined;
+    const offset = offsetParam ? parseInt(offsetParam, 10) : undefined;
 
     const results = kifuIndexDB.searchKifu({
       sfen,
@@ -106,85 +105,75 @@ export const registerKifuRoutes = (app: Express) => {
       limit,
       offset,
     });
-    res.json(results);
+    return c.json(results);
   });
 
-  app.get("/api/kifu/index/status", (req, res) => {
-    res.json(kifuIndexSync.getSyncStatus());
+  app.get("/api/kifu/index/status", (c) => {
+    return c.json(kifuIndexSync.getSyncStatus());
   });
 
-  app.get("/api/kifu/enabled", (req, res) => {
-    res.json({ enabled: !!KIFU_DIR });
+  app.get("/api/kifu/enabled", (c) => {
+    return c.json({ enabled: !!KIFU_DIR });
   });
 
-  app.get("/api/kifu/get", async (req, res) => {
+  app.get("/api/kifu/get", async (c) => {
     if (!KIFU_DIR) {
-      sendError(res, 404, "KIFU_DIR is not configured");
-      return;
+      return sendError(c, 404, "KIFU_DIR is not configured");
     }
-    const relPath = req.query.path;
+    const relPath = c.req.query("path");
     if (typeof relPath !== "string") {
-      sendError(res, 400, "path is required");
-      return;
+      return sendError(c, 400, "path is required");
     }
     const fullPath = resolveKifuPath(KIFU_DIR, relPath);
     if (!fullPath) {
-      sendError(res, 403, "forbidden");
-      return;
+      return sendError(c, 403, "forbidden");
     }
     const data = await fs.promises.readFile(fullPath);
-    res.send(data);
+    return c.body(data, 200, { "Content-Type": "application/octet-stream" });
   });
 
-  app.post("/api/kifu/save", express.raw({ limit: "10mb" }), async (req, res) => {
+  app.post("/api/kifu/save", createBodyLimit(LARGE_BODY_LIMIT), async (c) => {
     if (!KIFU_DIR) {
-      sendError(res, 404, "KIFU_DIR is not configured");
-      return;
+      return sendError(c, 404, "KIFU_DIR is not configured");
     }
-    const relPath = req.query.path;
+    const relPath = c.req.query("path");
     if (typeof relPath !== "string") {
-      sendError(res, 400, "path is required");
-      return;
+      return sendError(c, 400, "path is required");
     }
     const fullPath = resolveKifuPath(KIFU_DIR, relPath);
     if (!fullPath) {
-      sendError(res, 403, "forbidden");
-      return;
+      return sendError(c, 403, "forbidden");
     }
-    await writeFileAtomic(fullPath, req.body);
+    await writeFileAtomic(fullPath, Buffer.from(await c.req.arrayBuffer()));
     clearKifuListCache();
-    res.send("ok");
+    return c.text("ok");
   });
 
-  app.get("/api/sfen/load", async (req, res) => {
+  app.get("/api/sfen/load", async (c) => {
     if (!KIFU_DIR) {
-      sendError(res, 404, "KIFU_DIR is not configured");
-      return;
+      return sendError(c, 404, "KIFU_DIR is not configured");
     }
-    const relPath = req.query.path as string;
+    const relPath = c.req.query("path");
     if (!relPath) {
-      sendError(res, 400, "path is required");
-      return;
+      return sendError(c, 400, "path is required");
     }
     const fullPath = resolveKifuPath(KIFU_DIR, relPath);
     if (!fullPath || !fullPath.endsWith(".sfen")) {
-      sendError(res, 403, "Invalid path or unsupported file type");
-      return;
+      return sendError(c, 403, "Invalid path or unsupported file type");
     }
     const content = await fs.promises.readFile(fullPath, "utf-8");
     const lines = content
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 0 && !line.startsWith("#"));
-    res.json({ lines });
+    return c.json({ lines });
   });
 
-  app.get("/api/sfen/list", async (req, res) => {
+  app.get("/api/sfen/list", async (c) => {
     if (!KIFU_DIR) {
-      sendError(res, 404, "KIFU_DIR is not configured");
-      return;
+      return sendError(c, 404, "KIFU_DIR is not configured");
     }
     const list = await getPositionList(KIFU_DIR);
-    res.json(list);
+    return c.json(list);
   });
 };

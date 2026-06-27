@@ -1,18 +1,20 @@
-import express, { type Express } from "express";
+import { serveStatic } from "@hono/node-server/serve-static";
+import type { Hono } from "hono";
 import path from "path";
 import { shogiHomePath } from "@/server/config";
-import { errorHandler, sendError } from "@/server/errors";
+import { sendError } from "@/server/errors";
+import type { AppEnv } from "@/server/hono";
 
-export const registerStaticRoutes = (app: Express) => {
-  app.all(/^\/api(?:\/|$)/, (req, res) => {
-    sendError(res, 404, "API endpoint not found");
+export const registerStaticRoutes = (app: Hono<AppEnv>) => {
+  app.all("/api", (c) => {
+    return sendError(c, 404, "API endpoint not found");
   });
 
-  app.use(express.static(shogiHomePath));
-
-  app.get(/.*/, (req, res) => {
-    res.sendFile(path.join(shogiHomePath, "index.html"));
+  app.all("/api/*", (c) => {
+    return sendError(c, 404, "API endpoint not found");
   });
 
-  app.use(errorHandler);
+  app.use("*", serveStatic({ root: shogiHomePath }));
+
+  app.get("*", serveStatic({ path: path.join(shogiHomePath, "index.html") }));
 };

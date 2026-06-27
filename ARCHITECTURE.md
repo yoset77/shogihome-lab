@@ -17,7 +17,7 @@ graph LR
 1.  **Frontend (`shogihome/src`)**: Vue.js 3 + TypeScript。ユーザーインターフェース。複数エンジンからID指定で起動可能。
 2.  **Middle Server (`shogihome/server.ts`, `shogihome/src/server/`)**: Node.js。
     - `server.ts` は起動互換性のための薄いエントリポイントです。
-    - 実装本体は `src/server/` に分割され、Express API、セキュリティ設定、WebSocket/TCPブリッジ、USIセッション管理、Vision backend を構成します。`start_engine <id>` コマンドを Wrapper の `run <id>` へ変換。
+    - 実装本体は `src/server/` に分割され、Hono API、セキュリティ設定、WebSocket/TCPブリッジ、USIセッション管理、Vision backend を構成します。`start_engine <id>` コマンドを Wrapper の `run <id>` へ変換。
 3.  **Engine Wrapper (`engine-wrapper/`)**: Python。
     - `engines.json` に基づき、指定されたIDのエンジンプロセスを起動・中継。
 
@@ -28,11 +28,12 @@ graph LR
 | パス | 説明 |
 | :--- | :--- |
 | `server.ts` | **サーバー起動エントリ**。既存テスト・起動コマンドとの互換性を保つため、`src/server/main.ts` の公開 API を再exportし、直接実行時にサーバーを起動します。 |
-| `src/server/` | **中核サーバー実装**。Express アプリ構築、HTTP API、静的配信、WebSocket 接続、エンジン中継ロジックを保持します。 |
+| `src/server/` | **中核サーバー実装**。Hono アプリ構築、HTTP API、静的配信、WebSocket 接続、エンジン中継ロジックを保持します。 |
 | `src/server/routes/` | **HTTP API ルート定義**。棋譜、定跡、検討結果DB、履歴、外部棋譜取得、静的配信を責務別に登録します。 |
 | `src/server/routes/vision.ts` | **Vision API**。画像を受け取り、Vision worker を呼び出して SFEN 候補を返します。 |
 | `src/server/config.ts` | `.env` 読み込み、基準パス、ポート、許可 Origin/Host、KIFU_DIR、エンジン接続先などのサーバー設定。 |
-| `src/server/security.ts` | Host ヘッダー検証、CSP/Helmet、rate limit などの HTTP/WebSocket 共通セキュリティ設定。 |
+| `src/server/security.ts` | Host ヘッダー検証、Hono secure-headers による CSP、rate limit などの HTTP/WebSocket 共通セキュリティ設定。 |
+| `src/server/hono.ts` | Hono の共有型、body size limit 定数、body limit middleware factory。 |
 | `src/server/bookSessionManager.ts` | Web/LAN 定跡編集用のセッション ID と内部 book session の対応、上限管理、期限切れクリーンアップ。 |
 | `src/server/websocket.ts` | WebSocket サーバーの生成、Origin/Host 検証、sessionId 検証、ハートビート、セッションへの接続委譲。 |
 | `src/server/engine/` | Wrapper 認証、エンジン設定キャッシュ、エンジン一覧取得、`EngineState` などのエンジン通信関連モジュール。 |
@@ -170,7 +171,7 @@ graph LR
 - **有効化**: Webサーバー側の `.env` に `KIFU_DIR` を設定することで有効化されます。未設定時はUI上の関連ボタンが非表示になります。
 - **ファイル探索**: 指定されたディレクトリを再帰的にスキャンし、棋譜（`.kif`, `.kifu`, `.ki2`, `.ki2u`, `.csa`, `.jkf`）や定跡（`.db`, `.bin`, `.sbk`）、局面集（`.sfen`）を抽出します。**棋譜リストはインメモリキャッシュにより、2回目以降の取得を高速化しています。**
 - **自動同期**: **`chokidar` を使用して `KIFU_DIR` を監視しており、OS（Windows/macOS/Linux）や環境に関わらず、アプリ外でファイルが追加・削除・編集された場合も自動的にキャッシュを無効化して最新の状態を反映します。**
-- **HTTP API**: 読み書きには、Express 上に構築された専用の HTTP API (`/api/kifu/...`) を使用します。
+- **HTTP API**: 読み書きには、Hono 上に構築された専用の HTTP API (`/api/kifu/...`) を使用します。
 - **セキュリティ**: `resolveKifuPath` ヘルパーにより、Path Traversal 攻撃（`../../` 等）を厳格に防止しています。**また、許可された拡張子のみを操作対象とし、ディレクトリの深さ制限（最大10階層のサブディレクトリ）や最大ファイル読み込み数（100,000件）を設けることで、不正なファイル操作やリソースの過剰消費を防止しています。** さらに、既存ファイルや親ディレクトリの実体パス (`realpath`) を検証することで、シンボリックリンクや junction を経由したディレクトリ外アクセスも拒否します。
 - **キャッシュ管理**: **新しい棋譜の保存 (`/api/kifu/save`) 時や、外部でのファイル変更検知時に、インメモリキャッシュを自動的にクリアします。**
 - **URI スキーム**: サーバー上のファイルは `server://相対パス` という形式の URI で管理され、これに基づき `RecordManager` が保存先を自動判定します。

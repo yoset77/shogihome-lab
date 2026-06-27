@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import request from "supertest";
+import { requestApp } from "./honoRequest";
 import { visionWorkerClient } from "@/server/vision/worker";
 
 const SERVER_PORT = vi.hoisted(() => {
@@ -16,6 +16,8 @@ vi.hoisted(() => {
 
 import { app } from "@/server/main";
 
+const host = `localhost:${SERVER_PORT}`;
+
 beforeAll(() => {
   visionWorkerClient.resolveConfig = () => ({
     command: process.execPath,
@@ -29,11 +31,12 @@ const PNG_BYTES = Buffer.from([
 
 describe("Vision scan API", () => {
   it("returns a scanned SFEN from the vision wrapper", async () => {
-    const response = await request(app)
-      .post("/api/vision/scan?sideToMove=black&viewpoint=black&maxCandidates=3")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .set("Content-Type", "image/png")
-      .send(PNG_BYTES);
+    const response = await requestApp(
+      app,
+      "POST",
+      "/api/vision/scan?sideToMove=black&viewpoint=black&maxCandidates=3",
+      { host, headers: { "Content-Type": "image/png" }, body: PNG_BYTES },
+    );
 
     expect(response.status).toBe(200);
     expect(response.body.ok).toBe(true);
@@ -42,52 +45,52 @@ describe("Vision scan API", () => {
     );
     expect(response.body.warnings).toEqual([]);
     expect(response.body.board).toBeUndefined();
-    expect(response.headers["content-security-policy"]).toContain("img-src 'self' data: blob:");
+    expect(response.headers.get("content-security-policy")).toContain("img-src 'self' data: blob:");
   });
 
   it("rejects unsupported image content types", async () => {
-    const response = await request(app)
-      .post("/api/vision/scan")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .set("Content-Type", "text/plain")
-      .send("not an image");
+    const response = await requestApp(app, "POST", "/api/vision/scan", {
+      host,
+      headers: { "Content-Type": "text/plain" },
+      body: "not an image",
+    });
 
     expect(response.status).toBe(415);
-    expect(response.text).toContain("unsupported image type");
+    expect(response.textBody).toContain("unsupported image type");
   });
 
   it("rejects empty image bodies", async () => {
-    const response = await request(app)
-      .post("/api/vision/scan")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .set("Content-Type", "image/png")
-      .send(Buffer.alloc(0));
+    const response = await requestApp(app, "POST", "/api/vision/scan", {
+      host,
+      headers: { "Content-Type": "image/png" },
+      body: Buffer.alloc(0),
+    });
 
     expect(response.status).toBe(400);
-    expect(response.text).toContain("image body is required");
+    expect(response.textBody).toContain("image body is required");
   });
 
   it("rejects wrapper responses with invalid SFEN", async () => {
-    const response = await request(app)
-      .post("/api/vision/scan?maxCandidates=4")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .set("Content-Type", "image/png")
-      .send(PNG_BYTES);
+    const response = await requestApp(app, "POST", "/api/vision/scan?maxCandidates=4", {
+      host,
+      headers: { "Content-Type": "image/png" },
+      body: PNG_BYTES,
+    });
 
     expect(response.status).toBe(502);
-    expect(response.text).toContain("vision backend failed");
-    expect(response.text).not.toContain("invalid sfen");
+    expect(response.textBody).toContain("vision backend failed");
+    expect(response.textBody).not.toContain("invalid sfen");
   });
 
   it("returns wrapper timeout as a bad gateway error", async () => {
-    const response = await request(app)
-      .post("/api/vision/scan?maxCandidates=6")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .set("Content-Type", "image/png")
-      .send(PNG_BYTES);
+    const response = await requestApp(app, "POST", "/api/vision/scan?maxCandidates=6", {
+      host,
+      headers: { "Content-Type": "image/png" },
+      body: PNG_BYTES,
+    });
 
     expect(response.status).toBe(502);
-    expect(response.text).toContain("vision backend failed");
-    expect(response.text).not.toContain("timed out");
+    expect(response.textBody).toContain("vision backend failed");
+    expect(response.textBody).not.toContain("timed out");
   });
 });

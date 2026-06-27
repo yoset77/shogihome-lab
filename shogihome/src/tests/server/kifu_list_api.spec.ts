@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi, afterAll } from "vitest";
-import request from "supertest";
 import fs from "node:fs";
 import path from "node:path";
+import { requestApp } from "./honoRequest";
 
 const { SERVER_PORT, tempKifuDir } = await vi.hoisted(async () => {
   const fs = await import("node:fs");
@@ -44,6 +44,8 @@ vi.mock("@/server/kifu_index/sync.js", () => kifuIndexSyncMock);
 
 import { app } from "@/server/main";
 
+const host = `localhost:${SERVER_PORT}`;
+
 describe("API: /api/kifu/list", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -64,9 +66,7 @@ describe("API: /api/kifu/list", () => {
     fs.mkdirSync(path.join(tempKifuDir, "subdir"));
     fs.writeFileSync(path.join(tempKifuDir, "subdir", "nested.kif"), "test");
 
-    const response = await request(app)
-      .get("/api/kifu/list?reload=true")
-      .set("Host", `localhost:${SERVER_PORT}`);
+    const response = await requestApp(app, "GET", "/api/kifu/list?reload=true", { host });
 
     expect(response.status).toBe(200);
     const body = response.body;
@@ -81,10 +81,9 @@ describe("API: /api/kifu/list", () => {
     fs.mkdirSync(path.join(tempKifuDir, "level1", "level2"));
     fs.writeFileSync(path.join(tempKifuDir, "level1", "level2", "file2.kif"), "test");
 
-    const response = await request(app)
-      .get("/api/kifu/list?reload=true")
-      .query({ dir: "level1" })
-      .set("Host", `localhost:${SERVER_PORT}`);
+    const response = await requestApp(app, "GET", "/api/kifu/list?reload=true&dir=level1", {
+      host,
+    });
 
     expect(response.status).toBe(200);
     const body = response.body;
@@ -98,13 +97,15 @@ describe("API: /api/kifu/list", () => {
   });
 
   it("should return 400 for path traversal attempts", async () => {
-    const response = await request(app)
-      .get("/api/kifu/list?reload=true")
-      .query({ dir: "../secret" })
-      .set("Host", `localhost:${SERVER_PORT}`);
+    const response = await requestApp(
+      app,
+      "GET",
+      `/api/kifu/list?reload=true&dir=${encodeURIComponent("../secret")}`,
+      { host },
+    );
 
     expect(response.status).toBe(400);
-    expect(response.text).toContain("invalid dir");
+    expect(response.textBody).toContain("invalid dir");
   });
 
   it("should sort directories first then by name", async () => {
@@ -115,9 +116,7 @@ describe("API: /api/kifu/list", () => {
     fs.mkdirSync(path.join(tempKifuDir, "m_folder"));
     fs.writeFileSync(path.join(tempKifuDir, "m_folder", "dummy.kif"), "test");
 
-    const response = await request(app)
-      .get("/api/kifu/list?reload=true")
-      .set("Host", `localhost:${SERVER_PORT}`);
+    const response = await requestApp(app, "GET", "/api/kifu/list?reload=true", { host });
 
     expect(response.status).toBe(200);
     const body = response.body;
@@ -125,5 +124,15 @@ describe("API: /api/kifu/list", () => {
     expect(body[1].name).toBe("z_folder");
     expect(body[2].name).toBe("a.kif");
     expect(body[3].name).toBe("b.kif");
+  });
+
+  it("should return kifu files as binary content", async () => {
+    fs.writeFileSync(path.join(tempKifuDir, "root.kif"), "test");
+
+    const response = await requestApp(app, "GET", "/api/kifu/get?path=root.kif", { host });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/octet-stream");
+    expect(response.textBody).toBe("test");
   });
 });

@@ -1,7 +1,8 @@
 import type http from "http";
-import type express from "express";
-import helmet from "helmet";
-import rateLimit from "express-rate-limit";
+import { getConnInfo } from "@hono/node-server/conninfo";
+import { createMiddleware } from "hono/factory";
+import { secureHeaders } from "hono/secure-headers";
+import { MemoryStore, rateLimiter } from "hono-rate-limiter";
 import { ALLOWED_HOSTS, ALLOWED_ORIGINS } from "@/server/config";
 import { sendError } from "@/server/errors";
 
@@ -10,40 +11,58 @@ export const isValidHost = (req: http.IncomingMessage) => {
   return host && ALLOWED_HOSTS.has(host);
 };
 
-export const validateHostHeader: express.RequestHandler = (req, res, next) => {
-  if (!isValidHost(req)) {
-    console.warn(`Blocked HTTP request with invalid Host header: ${req.headers.host}`);
-    sendError(res, 403, "Forbidden (Invalid Host)");
-    return;
+export const validateHostHeader = createMiddleware(async (c, next) => {
+  const host = c.req.header("host");
+  if (!host || !ALLOWED_HOSTS.has(host)) {
+    console.warn(`Blocked HTTP request with invalid Host header: ${host}`);
+    return sendError(c, 403, "Forbidden (Invalid Host)");
   }
-  next();
-};
+  await next();
+});
 
-export const createHelmetMiddleware = () =>
-  helmet({
+export const createSecureHeadersMiddleware = () =>
+  secureHeaders({
     contentSecurityPolicy: {
-      useDefaults: false,
-      directives: {
-        defaultSrc: ["'self'"],
-        connectSrc: [
-          "'self'",
-          "ws:",
-          "wss:",
-          ...ALLOWED_ORIGINS.map((o) => o.replace("http", "ws").replace("https", "wss")),
-        ],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'"],
-        imgSrc: ["'self'", "data:", "blob:"],
-      },
+      defaultSrc: ["'self'"],
+      connectSrc: [
+        "'self'",
+        "ws:",
+        "wss:",
+        ...ALLOWED_ORIGINS.map((o) => o.replace("http", "ws").replace("https", "wss")),
+      ],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "blob:"],
     },
-    hsts: false,
+    strictTransportSecurity: false,
     crossOriginEmbedderPolicy: false,
     crossOriginOpenerPolicy: false,
     originAgentCluster: false,
   });
 
+const rateLimitStore = new MemoryStore();
+
+const getForwardedForClient = (value: string | undefined) =>
+  value?.split(",", 1)[0]?.trim().toLowerCase() || undefined;
+
+const getRemoteAddress = (c: Parameters<typeof getConnInfo>[0]) => {
+  try {
+    return getConnInfo(c).remote.address;
+  } catch {
+    return undefined;
+  }
+};
+
 export const createRateLimiter = () =>
-  rateLimit({
+  rateLimiter({
     windowMs: 15 * 60 * 1000,
-    max: 3000,
+    limit: 3000,
+    store: rateLimitStore,
+    keyGenerator: (c) => {
+      const remoteAddress = getRemoteAddress(c);
+      if (process.env.TRUST_PROXY === "true") {
+        return getForwardedForClient(c.req.header("x-forwarded-for")) ?? remoteAddress ?? "unknown";
+      }
+      return remoteAddress ?? "unknown";
+    },
   });

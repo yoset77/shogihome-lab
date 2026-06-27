@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import request from "supertest";
+import { requestApp } from "./honoRequest";
 
 const SERVER_PORT = vi.hoisted(() => {
   return 8200 + Math.floor(Math.random() * 100);
@@ -29,6 +29,8 @@ vi.mock("@/server/database/sqlite.js", () => sqliteMock);
 
 import { app } from "@/server/main";
 
+const host = `localhost:${SERVER_PORT}`;
+
 describe("Analysis DB API error handling", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -43,12 +45,10 @@ describe("Analysis DB API error handling", () => {
       throw new Error("stats failure");
     });
 
-    const response = await request(app)
-      .get("/api/analysis/stats")
-      .set("Host", `localhost:${SERVER_PORT}`);
+    const response = await requestApp(app, "GET", "/api/analysis/stats", { host });
 
     expect(response.status).toBe(500);
-    expect(response.text).toContain("stats failure");
+    expect(response.textBody).toContain("stats failure");
   });
 
   it("should return 500 when delete_by_engine fails", async () => {
@@ -56,13 +56,13 @@ describe("Analysis DB API error handling", () => {
       throw new Error("delete failure");
     });
 
-    const response = await request(app)
-      .post("/api/analysis/delete_by_engine")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .send({ engineId: 1 });
+    const response = await requestApp(app, "POST", "/api/analysis/delete_by_engine", {
+      host,
+      json: { engineId: 1 },
+    });
 
     expect(response.status).toBe(500);
-    expect(response.text).toContain("delete failure");
+    expect(response.textBody).toContain("delete failure");
   });
 
   it("should return 500 when cleanup fails", async () => {
@@ -70,51 +70,49 @@ describe("Analysis DB API error handling", () => {
       throw new Error("cleanup failure");
     });
 
-    const response = await request(app)
-      .post("/api/analysis/cleanup")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .send({ minDepth: 10 });
+    const response = await requestApp(app, "POST", "/api/analysis/cleanup", {
+      host,
+      json: { minDepth: 10 },
+    });
 
     expect(response.status).toBe(500);
-    expect(response.text).toContain("cleanup failure");
+    expect(response.textBody).toContain("cleanup failure");
   });
 
   it("should return 200 and data when stats retrieval succeeds", async () => {
     sqliteMock.getAnalysisDBStats.mockReturnValue([{ engineName: "test", count: 10 }]);
 
-    const response = await request(app)
-      .get("/api/analysis/stats")
-      .set("Host", `localhost:${SERVER_PORT}`);
+    const response = await requestApp(app, "GET", "/api/analysis/stats", { host });
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual([{ engineName: "test", count: 10 }]);
   });
 
   it("should return 200 when delete_by_engine succeeds", async () => {
-    const response = await request(app)
-      .post("/api/analysis/delete_by_engine")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .send({ engineId: 1 });
+    const response = await requestApp(app, "POST", "/api/analysis/delete_by_engine", {
+      host,
+      json: { engineId: 1 },
+    });
 
     expect(response.status).toBe(200);
     expect(sqliteMock.deleteAnalysisResultsByEngine).toHaveBeenCalledWith(1);
   });
 
   it("should return 200 when cleanup succeeds", async () => {
-    const response = await request(app)
-      .post("/api/analysis/cleanup")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .send({ minDepth: 10 });
+    const response = await requestApp(app, "POST", "/api/analysis/cleanup", {
+      host,
+      json: { minDepth: 10 },
+    });
 
     expect(response.status).toBe(200);
     expect(sqliteMock.cleanupAnalysisResults).toHaveBeenCalledWith(10);
   });
 
   it("should return 200 when delete succeeds", async () => {
-    const response = await request(app)
-      .post("/api/analysis/delete")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .send({ sfen: "startpos", engineId: 1, multipv: 1 });
+    const response = await requestApp(app, "POST", "/api/analysis/delete", {
+      host,
+      json: { sfen: "startpos", engineId: 1, multipv: 1 },
+    });
 
     expect(response.status).toBe(200);
     expect(sqliteMock.deleteAnalysisResult).toHaveBeenCalledWith(
@@ -126,43 +124,43 @@ describe("Analysis DB API error handling", () => {
   });
 
   it("should return 400 when delete fails due to missing sfen", async () => {
-    const response = await request(app)
-      .post("/api/analysis/delete")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .send({ engineId: 1, multipv: 1 });
+    const response = await requestApp(app, "POST", "/api/analysis/delete", {
+      host,
+      json: { engineId: 1, multipv: 1 },
+    });
 
     expect(response.status).toBe(400);
-    expect(response.text).toContain("sfen is required");
+    expect(response.textBody).toContain("sfen is required");
   });
 
   it("should return 400 when delete fails due to invalid engineId", async () => {
-    const response = await request(app)
-      .post("/api/analysis/delete")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .send({ sfen: "startpos", engineId: -1, multipv: 1 });
+    const response = await requestApp(app, "POST", "/api/analysis/delete", {
+      host,
+      json: { sfen: "startpos", engineId: -1, multipv: 1 },
+    });
 
     expect(response.status).toBe(400);
-    expect(response.text).toContain("engineId must be a positive integer");
+    expect(response.textBody).toContain("engineId must be a positive integer");
   });
 
   it("should return 400 when delete fails due to invalid multipv", async () => {
-    const response = await request(app)
-      .post("/api/analysis/delete")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .send({ sfen: "startpos", engineId: 1, multipv: 0 });
+    const response = await requestApp(app, "POST", "/api/analysis/delete", {
+      host,
+      json: { sfen: "startpos", engineId: 1, multipv: 0 },
+    });
 
     expect(response.status).toBe(400);
-    expect(response.text).toContain("multipv must be a positive integer");
+    expect(response.textBody).toContain("multipv must be a positive integer");
   });
 
   it("should return 400 when delete fails due to invalid sfen", async () => {
-    const response = await request(app)
-      .post("/api/analysis/delete")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .send({ sfen: "invalid-sfen", engineId: 1, multipv: 1 });
+    const response = await requestApp(app, "POST", "/api/analysis/delete", {
+      host,
+      json: { sfen: "invalid-sfen", engineId: 1, multipv: 1 },
+    });
 
     expect(response.status).toBe(400);
-    expect(response.text).toContain("invalid sfen");
+    expect(response.textBody).toContain("invalid sfen");
   });
 
   it("should return 500 when delete fails due to database error", async () => {
@@ -170,23 +168,23 @@ describe("Analysis DB API error handling", () => {
       throw new Error("delete database failure");
     });
 
-    const response = await request(app)
-      .post("/api/analysis/delete")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .send({ sfen: "startpos", engineId: 1, multipv: 1 });
+    const response = await requestApp(app, "POST", "/api/analysis/delete", {
+      host,
+      json: { sfen: "startpos", engineId: 1, multipv: 1 },
+    });
 
     expect(response.status).toBe(500);
-    expect(response.text).toContain("delete database failure");
+    expect(response.textBody).toContain("delete database failure");
   });
 
   it("should export analysis results to a file", async () => {
-    const response = await request(app)
-      .post("/api/analysis/export")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .send({ engineId: 1, filename: "test-export.db" });
+    const response = await requestApp(app, "POST", "/api/analysis/export", {
+      host,
+      json: { engineId: 1, filename: "test-export.db" },
+    });
 
     expect(response.status).toBe(200);
-    expect(response.text).toBe("ok");
+    expect(response.textBody).toBe("ok");
     expect(sqliteMock.exportAnalysisResultsByEngine).toHaveBeenCalledWith(1);
   });
 
@@ -201,9 +199,7 @@ describe("Analysis DB API error handling", () => {
       },
     ]);
 
-    const response = await request(app)
-      .get("/api/analysis/migrate/dry-run")
-      .set("Host", `localhost:${SERVER_PORT}`);
+    const response = await requestApp(app, "GET", "/api/analysis/migrate/dry-run", { host });
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual([
@@ -223,21 +219,17 @@ describe("Analysis DB API error handling", () => {
       throw new Error("dry-run failure");
     });
 
-    const response = await request(app)
-      .get("/api/analysis/migrate/dry-run")
-      .set("Host", `localhost:${SERVER_PORT}`);
+    const response = await requestApp(app, "GET", "/api/analysis/migrate/dry-run", { host });
 
     expect(response.status).toBe(500);
-    expect(response.text).toContain("dry-run failure");
+    expect(response.textBody).toContain("dry-run failure");
   });
 
   it("should execute migration", async () => {
-    const response = await request(app)
-      .post("/api/analysis/migrate/execute")
-      .set("Host", `localhost:${SERVER_PORT}`);
+    const response = await requestApp(app, "POST", "/api/analysis/migrate/execute", { host });
 
     expect(response.status).toBe(200);
-    expect(response.text).toBe("ok");
+    expect(response.textBody).toBe("ok");
     expect(sqliteMock.executeMigration).toHaveBeenCalledWith(expect.any(Map), expect.any(Map));
   });
 
@@ -246,11 +238,9 @@ describe("Analysis DB API error handling", () => {
       throw new Error("execution failure");
     });
 
-    const response = await request(app)
-      .post("/api/analysis/migrate/execute")
-      .set("Host", `localhost:${SERVER_PORT}`);
+    const response = await requestApp(app, "POST", "/api/analysis/migrate/execute", { host });
 
     expect(response.status).toBe(500);
-    expect(response.text).toContain("Migration failed");
+    expect(response.textBody).toContain("Migration failed");
   });
 });
