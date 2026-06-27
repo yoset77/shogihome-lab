@@ -22,6 +22,7 @@ import { decodeText } from "@/common/helpers/encode";
 import { toJpeg, toPng } from "html-to-image";
 import dayjs from "dayjs";
 import { Rect } from "@/common/assets/geometry";
+import { createHonoApiClient, parseJsonResponse } from "@/renderer/api/client";
 
 enum STORAGE_KEY {
   APP_SETTINGS = "appSetting",
@@ -39,6 +40,7 @@ const fileCache = new Map<string, ArrayBuffer>();
 import { generateSessionId } from "@/renderer/helpers/unique";
 
 const webBookSessionId = generateSessionId();
+const apiClient = createHonoApiClient({ getBookSessionId: () => webBookSessionId });
 
 async function fetchWithTimeout(
   url: string,
@@ -388,8 +390,9 @@ export const webAPI: Bridge = {
 
   // Book
   async showOpenBookDialog(): Promise<string> {
-    const response = await fetchWithTimeout("/api/kifu/enabled");
-    const json = await response.json();
+    const json = await parseJsonResponse<{ enabled: boolean }>(
+      await apiClient.api.kifu.enabled.$get(),
+    );
     if (!json.enabled) {
       throw new Error(t.thisFeatureNotAvailableOnWebApp);
     }
@@ -398,8 +401,9 @@ export const webAPI: Bridge = {
     return "server://";
   },
   async showSaveBookDialog(defaultPath: string): Promise<string> {
-    const response = await fetchWithTimeout("/api/kifu/enabled");
-    const json = await response.json();
+    const json = await parseJsonResponse<{ enabled: boolean }>(
+      await apiClient.api.kifu.enabled.$get(),
+    );
     if (!json.enabled) {
       throw new Error(t.thisFeatureNotAvailableOnWebApp);
     }
@@ -783,8 +787,9 @@ export const webAPI: Bridge = {
   // Server Kifu (LAN only)
   async isServerKifuEnabled(): Promise<boolean> {
     try {
-      const response = await fetchWithTimeout("/api/kifu/enabled");
-      const json = await response.json();
+      const json = await parseJsonResponse<{ enabled: boolean }>(
+        await apiClient.api.kifu.enabled.$get(),
+      );
       return !!json.enabled;
     } catch {
       return false;
@@ -834,25 +839,13 @@ export const webAPI: Bridge = {
     indexed: number;
     isIndexing: boolean;
   }> {
-    const response = await fetchWithTimeout("/api/kifu/index/status");
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-    return await response.json();
+    return await parseJsonResponse(await apiClient.api.kifu.index.status.$get());
   },
   async listServerBook(): Promise<string[]> {
-    const response = await fetchWithTimeout("/api/book/list");
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-    return await response.json();
+    return await parseJsonResponse(await apiClient.api.book.list.$get());
   },
   async listServerPosition(): Promise<string[]> {
-    const response = await fetchWithTimeout("/api/sfen/list");
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-    return await response.json();
+    return await parseJsonResponse(await apiClient.api.sfen.list.$get());
   },
   async loadServerKifu(path: string): Promise<string> {
     const response = await fetchWithTimeout(`/api/kifu/get?path=${encodeURIComponent(path)}`);
