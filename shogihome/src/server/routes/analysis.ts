@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import type { Hono } from "hono";
 import events from "node:events";
 import fs from "fs";
 import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
@@ -16,98 +16,95 @@ import {
 import { engineConfigCache } from "@/server/engine/list";
 import { KIFU_DIR } from "@/server/config";
 import { sendError } from "@/server/errors";
+import { createBodyLimit, DEFAULT_JSON_BODY_LIMIT, type AppEnv } from "@/server/hono";
 
-export const registerAnalysisRoutes = (app: Express) => {
-  app.get("/api/analysis", async (req, res) => {
-    const sfen = req.query.sfen;
+export const registerAnalysisRoutes = (app: Hono<AppEnv>) => {
+  app.get("/api/analysis", async (c) => {
+    const sfen = c.req.query("sfen");
     if (typeof sfen !== "string") {
-      sendError(res, 400, "sfen is required");
-      return;
+      return sendError(c, 400, "sfen is required");
     }
 
     const parsed = getNormalizedSfenAndHash(sfen);
     if (!parsed) {
-      res.json([]);
-      return;
+      return c.json([]);
     }
 
     console.log(`Analysis DB Query: sfen=${sfen} hash=${parsed.hash}`);
 
     const results = getAnalysisResults(parsed.hash, parsed.sfen);
     console.log(`Analysis DB Results: found ${results.length} records`);
-    res.json(results);
+    return c.json(results);
   });
 
-  app.get("/api/analysis/stats", async (req, res) => {
+  app.get("/api/analysis/stats", async (c) => {
     const stats = getAnalysisDBStats();
-    res.json(stats);
+    return c.json(stats);
   });
 
-  app.post("/api/analysis/delete_by_engine", express.json(), async (req, res) => {
-    const engineId = req.body.engineId;
-    if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
-      sendError(res, 400, "engineId must be a positive integer");
-      return;
-    }
-    deleteAnalysisResultsByEngine(engineId);
-    res.send("ok");
-  });
+  app.post(
+    "/api/analysis/delete_by_engine",
+    createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
+    async (c) => {
+      const body = await c.req.json<{ engineId?: unknown }>();
+      const engineId = body.engineId;
+      if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
+        return sendError(c, 400, "engineId must be a positive integer");
+      }
+      deleteAnalysisResultsByEngine(engineId);
+      return c.text("ok");
+    },
+  );
 
-  app.post("/api/analysis/cleanup", express.json(), async (req, res) => {
-    const minDepth = req.body.minDepth;
+  app.post("/api/analysis/cleanup", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
+    const body = await c.req.json<{ minDepth?: unknown }>();
+    const minDepth = body.minDepth;
     if (typeof minDepth !== "number" || !Number.isInteger(minDepth) || minDepth <= 0) {
-      sendError(res, 400, "minDepth must be a positive integer");
-      return;
+      return sendError(c, 400, "minDepth must be a positive integer");
     }
     cleanupAnalysisResults(minDepth);
-    res.send("ok");
+    return c.text("ok");
   });
 
-  app.post("/api/analysis/delete", express.json(), async (req, res) => {
-    const sfen = req.body.sfen;
-    const engineId = req.body.engineId;
-    const multipv = req.body.multipv;
+  app.post("/api/analysis/delete", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
+    const body = await c.req.json<{ sfen?: unknown; engineId?: unknown; multipv?: unknown }>();
+    const sfen = body.sfen;
+    const engineId = body.engineId;
+    const multipv = body.multipv;
     if (typeof sfen !== "string") {
-      sendError(res, 400, "sfen is required");
-      return;
+      return sendError(c, 400, "sfen is required");
     }
     if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
-      sendError(res, 400, "engineId must be a positive integer");
-      return;
+      return sendError(c, 400, "engineId must be a positive integer");
     }
     if (typeof multipv !== "number" || !Number.isInteger(multipv) || multipv < 1) {
-      sendError(res, 400, "multipv must be a positive integer");
-      return;
+      return sendError(c, 400, "multipv must be a positive integer");
     }
     const parsed = getNormalizedSfenAndHash(sfen);
     if (!parsed) {
-      sendError(res, 400, "invalid sfen");
-      return;
+      return sendError(c, 400, "invalid sfen");
     }
     deleteAnalysisResult(parsed.hash, parsed.sfen, engineId, multipv);
-    res.send("ok");
+    return c.text("ok");
   });
 
-  app.post("/api/analysis/export", express.json(), async (req, res) => {
-    const engineId = req.body.engineId;
-    const relPath = req.body.filename as string;
+  app.post("/api/analysis/export", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
+    const body = await c.req.json<{ engineId?: unknown; filename?: unknown }>();
+    const engineId = body.engineId;
+    const relPath = body.filename;
     if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
-      sendError(res, 400, "engineId must be a positive integer");
-      return;
+      return sendError(c, 400, "engineId must be a positive integer");
     }
-    if (!relPath) {
-      sendError(res, 400, "filename is required");
-      return;
+    if (typeof relPath !== "string" || !relPath) {
+      return sendError(c, 400, "filename is required");
     }
     if (!KIFU_DIR) {
-      sendError(res, 404, "KIFU_DIR is not configured");
-      return;
+      return sendError(c, 404, "KIFU_DIR is not configured");
     }
 
     const fullPath = resolveKifuPath(KIFU_DIR, relPath);
     if (!fullPath) {
-      sendError(res, 400, "invalid filename");
-      return;
+      return sendError(c, 400, "invalid filename");
     }
     const generator = exportAnalysisResultsByEngine(engineId);
     const stream = fs.createWriteStream(fullPath);
@@ -125,10 +122,10 @@ export const registerAnalysisRoutes = (app: Express) => {
       })().catch(reject);
     });
 
-    res.send("ok");
+    return c.text("ok");
   });
 
-  app.get("/api/analysis/migrate/dry-run", async (req, res) => {
+  app.get("/api/analysis/migrate/dry-run", async (c) => {
     const keyMapping = new Map<string, string>();
     const nameMapping = new Map<string, string>();
     for (const config of engineConfigCache.values()) {
@@ -138,10 +135,10 @@ export const registerAnalysisRoutes = (app: Express) => {
       }
     }
     const summary = getMigrationSummary(keyMapping, nameMapping);
-    res.json(summary);
+    return c.json(summary);
   });
 
-  app.post("/api/analysis/migrate/execute", async (req, res) => {
+  app.post("/api/analysis/migrate/execute", async (c) => {
     const keyMapping = new Map<string, string>();
     const nameMapping = new Map<string, string>();
     for (const config of engineConfigCache.values()) {
@@ -152,10 +149,10 @@ export const registerAnalysisRoutes = (app: Express) => {
     }
     try {
       executeMigration(keyMapping, nameMapping);
-      res.send("ok");
+      return c.text("ok");
     } catch (e) {
       console.error("Migration failed:", e);
-      sendError(res, 500, "Migration failed");
+      return sendError(c, 500, "Migration failed");
     }
   });
 };

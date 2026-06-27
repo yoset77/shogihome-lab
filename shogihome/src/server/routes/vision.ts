@@ -1,9 +1,10 @@
-import express, { type Express } from "express";
+import type { Hono } from "hono";
 import { Position } from "tsshogi";
 import type { VisionTurn, VisionViewpoint } from "@/common/vision/types";
 import { sendError } from "@/server/errors";
 import { VISION_ENABLED, VISION_MAX_IMAGE_MB } from "@/server/config";
 import { scanPositionImage } from "@/server/vision/command";
+import { createBodyLimit, type AppEnv } from "@/server/hono";
 
 const SUPPORTED_IMAGE_TYPES = new Map([
   ["image/jpeg", "jpg"],
@@ -35,51 +36,44 @@ const parseMaxCandidates = (value: unknown): number => {
   return parsed;
 };
 
-export const registerVisionRoutes = (app: Express) => {
+export const registerVisionRoutes = (app: Hono<AppEnv>) => {
   app.post(
     "/api/vision/scan",
-    (_req, res, next) => {
+    async (c, next) => {
       if (!VISION_ENABLED) {
-        sendError(res, 404, "vision backend is disabled");
-        return;
+        return sendError(c, 404, "vision backend is disabled");
       }
-      next();
+      const contentType = c.req.header("content-type")?.split(";")[0].trim().toLowerCase();
+      if (!contentType || !SUPPORTED_IMAGE_TYPES.has(contentType)) {
+        return sendError(c, 415, "unsupported image type");
+      }
+      await next();
     },
-    express.raw({
-      limit: `${VISION_MAX_IMAGE_MB}mb`,
-      type: (req) => {
-        const contentType = req.headers["content-type"]?.split(";")[0].trim().toLowerCase();
-        return contentType ? SUPPORTED_IMAGE_TYPES.has(contentType) : false;
-      },
-    }),
-    async (req, res) => {
-      const contentType = req.headers["content-type"]?.split(";")[0].trim().toLowerCase();
-      const extension = contentType ? SUPPORTED_IMAGE_TYPES.get(contentType) : undefined;
-      if (!extension) {
-        sendError(res, 415, "unsupported image type");
-        return;
-      }
-      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-        sendError(res, 400, "image body is required");
-        return;
+    createBodyLimit(VISION_MAX_IMAGE_MB * 1024 * 1024),
+    async (c) => {
+      const contentType = c.req.header("content-type")?.split(";")[0].trim().toLowerCase();
+      const extension = SUPPORTED_IMAGE_TYPES.get(contentType ?? "");
+      if (!extension) return sendError(c, 415, "unsupported image type");
+      const image = Buffer.from(await c.req.arrayBuffer());
+      if (image.length === 0) {
+        return sendError(c, 400, "image body is required");
       }
 
       try {
         const result = await scanPositionImage({
-          image: req.body,
+          image,
           extension,
-          sideToMove: parseTurn(req.query.sideToMove),
-          viewpoint: parseViewpoint(req.query.viewpoint),
-          maxCandidates: parseMaxCandidates(req.query.maxCandidates),
+          sideToMove: parseTurn(c.req.query("sideToMove")),
+          viewpoint: parseViewpoint(c.req.query("viewpoint")),
+          maxCandidates: parseMaxCandidates(c.req.query("maxCandidates")),
         });
         if (!Position.newBySFEN(result.sfen)) {
-          sendError(res, 502, "vision backend returned invalid sfen");
-          return;
+          return sendError(c, 502, "vision backend returned invalid sfen");
         }
-        res.json(result);
+        return c.json(result);
       } catch (e) {
         console.warn("vision backend failed:", e);
-        sendError(res, 502, "vision backend failed");
+        return sendError(c, 502, "vision backend failed");
       }
     },
   );

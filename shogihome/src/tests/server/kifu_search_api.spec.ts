@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import request from "supertest";
+import { requestApp } from "./honoRequest";
 
 const SERVER_PORT = vi.hoisted(() => {
   return 8300 + Math.floor(Math.random() * 100);
@@ -45,6 +45,8 @@ vi.mock("@/server/kifu_index/sync.js", () => kifuIndexSyncMock);
 
 import { app } from "@/server/main";
 
+const host = `localhost:${SERVER_PORT}`;
+
 describe("Kifu search API", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -54,13 +56,15 @@ describe("Kifu search API", () => {
   it("should return 400 for invalid sfen queries", async () => {
     sfenMock.getNormalizedSfenAndHash.mockReturnValue(null);
 
-    const response = await request(app)
-      .get("/api/kifu/search")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .query({ sfen: "position invalid", keyword: "test" });
+    const response = await requestApp(
+      app,
+      "GET",
+      `/api/kifu/search?sfen=${encodeURIComponent("position invalid")}&keyword=test`,
+      { host },
+    );
 
     expect(response.status).toBe(400);
-    expect(response.text).toContain("Invalid sfen");
+    expect(response.textBody).toContain("Invalid sfen");
     expect(kifuIndexMock.searchKifu).not.toHaveBeenCalled();
   });
 
@@ -70,10 +74,12 @@ describe("Kifu search API", () => {
       hash: 123n,
     });
 
-    const response = await request(app)
-      .get("/api/kifu/search")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .query({ sfen: "position startpos" });
+    const response = await requestApp(
+      app,
+      "GET",
+      `/api/kifu/search?sfen=${encodeURIComponent("position startpos")}`,
+      { host },
+    );
 
     expect(response.status).toBe(200);
     expect(kifuIndexMock.searchKifu).toHaveBeenCalledWith({
@@ -90,10 +96,12 @@ describe("Kifu search API", () => {
   });
 
   it("should pass player1, player2, and isStrictTurn to the database search", async () => {
-    const response = await request(app)
-      .get("/api/kifu/search")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .query({ player1: "Habu", player2: "Fujii", isStrictTurn: "true" });
+    const response = await requestApp(
+      app,
+      "GET",
+      "/api/kifu/search?player1=Habu&player2=Fujii&isStrictTurn=true",
+      { host },
+    );
 
     expect(response.status).toBe(200);
     expect(kifuIndexMock.searchKifu).toHaveBeenCalledWith({

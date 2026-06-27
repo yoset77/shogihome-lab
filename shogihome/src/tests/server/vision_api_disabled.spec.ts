@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import request from "supertest";
+import { requestApp } from "./honoRequest";
 
 const SERVER_PORT = vi.hoisted(() => {
   return 8300 + Math.floor(Math.random() * 100);
@@ -14,15 +14,17 @@ vi.hoisted(() => {
 
 import { app } from "@/server/main";
 
+const host = `localhost:${SERVER_PORT}`;
+
 describe("Vision scan API disabled", () => {
   it("rejects before reading the raw image body", async () => {
-    const response = await request(app)
-      .post("/api/vision/scan")
-      .set("Host", `localhost:${SERVER_PORT}`)
-      .set("Content-Type", "image/png")
-      .send(Buffer.alloc(2 * 1024 * 1024));
+    const response = await requestApp(app, "POST", "/api/vision/scan", {
+      host,
+      headers: { "Content-Type": "image/png" },
+      body: Buffer.alloc(2 * 1024 * 1024),
+    });
 
     expect(response.status).toBe(404);
-    expect(response.text).toContain("vision backend is disabled");
+    expect(response.textBody).toContain("vision backend is disabled");
   });
 });

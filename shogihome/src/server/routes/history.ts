@@ -1,35 +1,40 @@
-import express, { type Express } from "express";
+import type { Hono } from "hono";
 import { addHistory, clearHistory, getHistory, saveBackup } from "@/server/file/history";
 import { sendError } from "@/server/errors";
+import {
+  createBodyLimit,
+  DEFAULT_JSON_BODY_LIMIT,
+  LARGE_BODY_LIMIT,
+  type AppEnv,
+} from "@/server/hono";
 
-export const registerHistoryRoutes = (app: Express) => {
-  app.get("/api/history", async (req, res) => {
+export const registerHistoryRoutes = (app: Hono<AppEnv>) => {
+  app.get("/api/history", async (c) => {
     const history = await getHistory();
-    res.json(history);
+    return c.json(history);
   });
 
-  app.post("/api/history/add", express.json(), async (req, res) => {
-    const { path } = req.body;
+  app.post("/api/history/add", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
+    const body = await c.req.json<{ path?: unknown }>();
+    const { path } = body;
     if (typeof path !== "string" || !path) {
-      sendError(res, 400, "path is required");
-      return;
+      return sendError(c, 400, "path is required");
     }
     addHistory(path);
-    res.send("ok");
+    return c.text("ok");
   });
 
-  app.post("/api/history/backup", express.text({ limit: "10mb" }), async (req, res) => {
-    const kif = req.body;
+  app.post("/api/history/backup", createBodyLimit(LARGE_BODY_LIMIT), async (c) => {
+    const kif = await c.req.text();
     if (typeof kif !== "string" || !kif) {
-      sendError(res, 400, "kif text body is required");
-      return;
+      return sendError(c, 400, "kif text body is required");
     }
     await saveBackup(kif);
-    res.send("ok");
+    return c.text("ok");
   });
 
-  app.post("/api/history/clear", async (req, res) => {
+  app.post("/api/history/clear", async (c) => {
     await clearHistory();
-    res.send("ok");
+    return c.text("ok");
   });
 };

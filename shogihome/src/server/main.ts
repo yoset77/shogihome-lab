@@ -1,4 +1,5 @@
-import express from "express";
+import { getRequestListener } from "@hono/node-server";
+import { Hono } from "hono";
 import http from "http";
 import fs from "fs";
 import path from "path";
@@ -6,7 +7,13 @@ import { EngineSession } from "@/server/engine/session";
 import { SessionManager } from "@/server/engine/sessionManager";
 import { EngineState } from "@/server/engine/types";
 import { BIND_ADDRESS, dataDir, KIFU_DIR, PORT, shogiHomePath } from "@/server/config";
-import { createHelmetMiddleware, createRateLimiter, validateHostHeader } from "@/server/security";
+import { handleError } from "@/server/errors";
+import type { AppEnv } from "@/server/hono";
+import {
+  createRateLimiter,
+  createSecureHeadersMiddleware,
+  validateHostHeader,
+} from "@/server/security";
 import { setupKifuWatcher } from "@/server/helpers/kifu";
 import * as kifuIndexDB from "@/server/database/kifu_index";
 import * as kifuIndexSync from "@/server/kifu_index/sync";
@@ -21,15 +28,13 @@ import { registerStaticRoutes } from "@/server/routes/static";
 import { registerVisionRoutes } from "@/server/routes/vision";
 import { createEngineWebSocketServer } from "@/server/websocket";
 
-export const app = express();
+export const app = new Hono<AppEnv>();
 if (process.env.TRUST_PROXY === "true") {
-  app.set("trust proxy", 1);
   console.log("Trust proxy is ENABLED");
 } else {
-  app.set("trust proxy", false);
   console.log("Trust proxy is DISABLED");
 }
-const server = http.createServer(app);
+const server = http.createServer(getRequestListener(app.fetch));
 server.timeout = 900000;
 
 console.log(`Serving static files from: ${shogiHomePath}`);
@@ -72,10 +77,10 @@ const updatePuzzlesManifest = () => {
 
 export { EngineSession, EngineState };
 
-app.use(validateHostHeader);
-app.use(createHelmetMiddleware());
+app.use("*", validateHostHeader);
+app.use("*", createSecureHeadersMiddleware());
 
-app.use(createRateLimiter());
+app.use("*", createRateLimiter());
 registerKifuRoutes(app);
 registerFetchRemoteRoute(app);
 registerHistoryRoutes(app);
@@ -83,6 +88,7 @@ registerAnalysisRoutes(app);
 registerBookRoutes(app);
 registerVisionRoutes(app);
 registerStaticRoutes(app);
+app.onError(handleError);
 
 const sessionManager = new SessionManager<EngineSession>(
   (sessionId) => new EngineSession(sessionId, (id) => sessionManager.removeSession(id)),

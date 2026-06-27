@@ -1,38 +1,35 @@
-import type { Express } from "express";
+import type { Hono } from "hono";
 import { fetch as fetchRemote } from "@/server/helpers/http";
 import { sendError } from "@/server/errors";
 import { ALLOWED_FETCH_DOMAINS } from "@/server/config";
+import type { AppEnv } from "@/server/hono";
 
-export const registerFetchRemoteRoute = (app: Express) => {
-  app.get("/api/fetch-remote", async (req, res) => {
-    const targetUrl = req.query.url;
+export const registerFetchRemoteRoute = (app: Hono<AppEnv>) => {
+  app.get("/api/fetch-remote", async (c) => {
+    const targetUrl = c.req.query("url");
     if (typeof targetUrl !== "string") {
-      sendError(res, 400, "url is required");
-      return;
+      return sendError(c, 400, "url is required");
     }
 
     let urlObj: URL;
     try {
       urlObj = new URL(targetUrl);
     } catch {
-      sendError(res, 400, "Invalid URL");
-      return;
+      return sendError(c, 400, "Invalid URL");
     }
     if (urlObj.protocol !== "http:" && urlObj.protocol !== "https:") {
-      sendError(res, 400, `Unsupported protocol: ${urlObj.protocol}`);
-      return;
+      return sendError(c, 400, `Unsupported protocol: ${urlObj.protocol}`);
     }
     if (!ALLOWED_FETCH_DOMAINS.has(urlObj.hostname.toLowerCase())) {
       console.warn(`Blocked remote fetch for unauthorized domain: ${urlObj.hostname}`);
-      sendError(
-        res,
+      return sendError(
+        c,
         403,
         `Forbidden: domain ${urlObj.hostname} is not allowed by ALLOWED_FETCH_DOMAINS.`,
       );
-      return;
     }
 
     const text = await fetchRemote(urlObj.href);
-    res.type("text/plain").send(text);
+    return c.text(text);
   });
 };
