@@ -19,13 +19,13 @@ import * as kifuIndexDB from "@/server/database/kifu_index";
 import * as kifuIndexSync from "@/server/kifu_index/sync";
 import { writeFileAtomicSync } from "@/server/file/atomic";
 import { initDatabase } from "@/server/database/sqlite";
-import { registerAnalysisRoutes } from "@/server/routes/analysis";
-import { registerBookRoutes } from "@/server/routes/book";
-import { registerFetchRemoteRoute } from "@/server/routes/fetchRemote";
-import { registerHistoryRoutes } from "@/server/routes/history";
-import { registerKifuRoutes } from "@/server/routes/kifu";
+import { analysisRoutes } from "@/server/routes/analysis";
+import { bookRoutes } from "@/server/routes/book";
+import { fetchRemoteRoutes } from "@/server/routes/fetchRemote";
+import { historyRoutes } from "@/server/routes/history";
+import { kifuRoutes, sfenRoutes } from "@/server/routes/kifu";
 import { registerStaticRoutes } from "@/server/routes/static";
-import { registerVisionRoutes } from "@/server/routes/vision";
+import { visionRoutes } from "@/server/routes/vision";
 import { createEngineWebSocketServer } from "@/server/websocket";
 
 export const app = new Hono<AppEnv>();
@@ -81,12 +81,15 @@ app.use("*", validateHostHeader);
 app.use("*", createSecureHeadersMiddleware());
 
 app.use("*", createRateLimiter());
-registerKifuRoutes(app);
-registerFetchRemoteRoute(app);
-registerHistoryRoutes(app);
-registerAnalysisRoutes(app);
-registerBookRoutes(app);
-registerVisionRoutes(app);
+export const rpcRoutes = app
+  .route("/api/kifu", kifuRoutes)
+  .route("/api/sfen", sfenRoutes)
+  .route("/api/fetch-remote", fetchRemoteRoutes)
+  .route("/api/history", historyRoutes)
+  .route("/api/analysis", analysisRoutes)
+  .route("/api/book", bookRoutes)
+  .route("/api/vision", visionRoutes);
+export type AppType = typeof rpcRoutes;
 registerStaticRoutes(app);
 app.onError(handleError);
 

@@ -1,4 +1,5 @@
-import type { Hono } from "hono";
+import { Hono } from "hono";
+import { validator } from "hono/validator";
 import type { BookImportSettings } from "@/common/settings/book";
 import { getBookList, resolveKifuPath } from "@/server/helpers/kifu";
 import {
@@ -22,8 +23,11 @@ import {
   type AppEnv,
 } from "@/server/hono";
 
-export const registerBookRoutes = (app: Hono<AppEnv>) => {
-  app.post("/api/book/open", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
+const getString = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined;
+
+export const bookRoutes = new Hono<AppEnv>()
+  .post("/open", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
     if (!KIFU_DIR) {
       return sendError(c, 404, "KIFU_DIR is not configured");
     }
@@ -49,17 +53,17 @@ export const registerBookRoutes = (app: Hono<AppEnv>) => {
     };
     const mode = await openBook(bookSession, fullPath, options);
     return c.json({ mode });
-  });
+  })
 
-  app.get("/api/book/list", async (c) => {
+  .get("/list", async (c) => {
     if (!KIFU_DIR) {
       return sendError(c, 404, "KIFU_DIR is not configured");
     }
     const list = await getBookList(KIFU_DIR);
     return c.json(list);
-  });
+  })
 
-  app.post("/api/book/save", async (c) => {
+  .post("/save", async (c) => {
     if (!KIFU_DIR) {
       return sendError(c, 404, "KIFU_DIR is not configured");
     }
@@ -74,30 +78,34 @@ export const registerBookRoutes = (app: Hono<AppEnv>) => {
     const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
     await saveBook(bookSession, fullPath);
     return c.text("ok");
-  });
+  })
 
-  app.post("/api/book/close", async (c) => {
+  .post("/close", async (c) => {
     closeBookSessionForHeader(c.req.header("X-Book-Session-Id"));
     return c.text("ok");
-  });
+  })
 
-  app.post("/api/book/clear", async (c) => {
+  .post("/clear", async (c) => {
     const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
     clearBook(bookSession);
     return c.text("ok");
-  });
+  })
 
-  app.get("/api/book/search", async (c) => {
-    const sfen = c.req.query("sfen");
-    if (typeof sfen !== "string") {
-      return sendError(c, 400, "sfen is required");
-    }
-    const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
-    const moves = await searchBookMoves(bookSession, sfen);
-    return c.json(moves);
-  });
+  .get(
+    "/search",
+    validator("query", (value) => ({ sfen: getString(value.sfen) })),
+    async (c) => {
+      const { sfen } = c.req.valid("query");
+      if (typeof sfen !== "string") {
+        return sendError(c, 400, "sfen is required");
+      }
+      const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
+      const moves = await searchBookMoves(bookSession, sfen);
+      return c.json(moves);
+    },
+  )
 
-  app.post("/api/book/search/batch", createBodyLimit(LARGE_BODY_LIMIT), async (c) => {
+  .post("/search/batch", createBodyLimit(LARGE_BODY_LIMIT), async (c) => {
     const body = await c.req.json<{ sfens?: unknown }>();
     const sfens = body.sfens;
     if (!Array.isArray(sfens)) {
@@ -125,9 +133,9 @@ export const registerBookRoutes = (app: Hono<AppEnv>) => {
     }
     await Promise.all(workers);
     return c.json(results);
-  });
+  })
 
-  app.post("/api/book/update", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
+  .post("/update", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
     const sfen = c.req.query("sfen");
     if (typeof sfen !== "string") {
       return sendError(c, 400, "sfen is required");
@@ -135,9 +143,9 @@ export const registerBookRoutes = (app: Hono<AppEnv>) => {
     const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
     await updateBookMove(bookSession, sfen, await c.req.json());
     return c.text("ok");
-  });
+  })
 
-  app.post("/api/book/remove", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
+  .post("/remove", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
     const sfen = c.req.query("sfen");
     const usi = c.req.query("usi");
     if (typeof sfen !== "string" || typeof usi !== "string") {
@@ -146,9 +154,9 @@ export const registerBookRoutes = (app: Hono<AppEnv>) => {
     const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
     await removeBookMove(bookSession, sfen, usi);
     return c.text("ok");
-  });
+  })
 
-  app.post("/api/book/order", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
+  .post("/order", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
     const sfen = c.req.query("sfen");
     const usi = c.req.query("usi");
     const orderParam = c.req.query("order");
@@ -159,9 +167,9 @@ export const registerBookRoutes = (app: Hono<AppEnv>) => {
     const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
     await updateBookMoveOrder(bookSession, sfen, usi, order);
     return c.text("ok");
-  });
+  })
 
-  app.post("/api/book/import", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
+  .post("/import", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
     if (!KIFU_DIR) {
       return sendError(c, 404, "KIFU_DIR is not configured");
     }
@@ -210,4 +218,3 @@ export const registerBookRoutes = (app: Hono<AppEnv>) => {
     const summary = await importBookMoves(bookSession, settings, undefined, KIFU_DIR);
     return c.json(summary);
   });
-};

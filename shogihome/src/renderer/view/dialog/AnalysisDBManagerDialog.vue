@@ -122,6 +122,9 @@ import { useMessageStore } from "@/renderer/store/message";
 import { useConfirmationStore } from "@/renderer/store/confirm";
 import { useErrorStore } from "@/renderer/store/error";
 import { useLanStore } from "@/renderer/store/lan";
+import { createHonoApiClient, parseJsonResponse, assertOkResponse } from "@/renderer/api/client";
+
+const apiClient = createHonoApiClient();
 
 interface DBEngineStats {
   id: number;
@@ -139,12 +142,9 @@ const minDepth = ref(10);
 
 const fetchStats = async () => {
   try {
-    const response = await fetch("/api/analysis/stats");
-    if (response.ok) {
-      stats.value = await response.json();
-    } else {
-      useErrorStore().add(new Error(`Failed to fetch DB stats: ${await response.text()}`));
-    }
+    stats.value = await parseJsonResponse<DBEngineStats[]>(
+      await apiClient.api.analysis.stats.$get(),
+    );
   } catch (e) {
     useErrorStore().add(e);
   }
@@ -249,11 +249,9 @@ const migrate = async () => {
   useBusyState().retain();
   try {
     await useLanStore().fetchEngineList(true);
-    const dryRunResponse = await fetch("/api/analysis/migrate/dry-run");
-    if (!dryRunResponse.ok) {
-      throw new Error(`Failed to dry-run migration: ${await dryRunResponse.text()}`);
-    }
-    const summary = (await dryRunResponse.json()) as MigrationSummary[];
+    const summary = await parseJsonResponse<MigrationSummary[]>(
+      await apiClient.api.analysis.migrate["dry-run"].$get(),
+    );
     useBusyState().release();
 
     if (summary.length === 0) {
@@ -275,13 +273,9 @@ const migrate = async () => {
       onOk: async () => {
         useBusyState().retain();
         try {
-          const response = await fetch("/api/analysis/migrate/execute", { method: "POST" });
-          if (response.ok) {
-            await fetchStats();
-            useMessageStore().enqueue({ text: t.dataIntegrationCompleted });
-          } else {
-            useErrorStore().add(new Error(`Failed to migrate data: ${await response.text()}`));
-          }
+          await assertOkResponse(await apiClient.api.analysis.migrate.execute.$post());
+          await fetchStats();
+          useMessageStore().enqueue({ text: t.dataIntegrationCompleted });
         } catch (e) {
           useErrorStore().add(e);
         } finally {

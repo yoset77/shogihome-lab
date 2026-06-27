@@ -1,4 +1,5 @@
-import type { Hono } from "hono";
+import { Hono } from "hono";
+import { validator } from "hono/validator";
 import events from "node:events";
 import fs from "fs";
 import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
@@ -18,45 +19,48 @@ import { KIFU_DIR } from "@/server/config";
 import { sendError } from "@/server/errors";
 import { createBodyLimit, DEFAULT_JSON_BODY_LIMIT, type AppEnv } from "@/server/hono";
 
-export const registerAnalysisRoutes = (app: Hono<AppEnv>) => {
-  app.get("/api/analysis", async (c) => {
-    const sfen = c.req.query("sfen");
-    if (typeof sfen !== "string") {
-      return sendError(c, 400, "sfen is required");
-    }
+const getString = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined;
 
-    const parsed = getNormalizedSfenAndHash(sfen);
-    if (!parsed) {
-      return c.json([]);
-    }
+export const analysisRoutes = new Hono<AppEnv>()
+  .get(
+    "/",
+    validator("query", (value) => ({ sfen: getString(value.sfen) })),
+    async (c) => {
+      const { sfen } = c.req.valid("query");
+      if (typeof sfen !== "string") {
+        return sendError(c, 400, "sfen is required");
+      }
 
-    console.log(`Analysis DB Query: sfen=${sfen} hash=${parsed.hash}`);
+      const parsed = getNormalizedSfenAndHash(sfen);
+      if (!parsed) {
+        return c.json([]);
+      }
 
-    const results = getAnalysisResults(parsed.hash, parsed.sfen);
-    console.log(`Analysis DB Results: found ${results.length} records`);
-    return c.json(results);
-  });
+      console.log(`Analysis DB Query: sfen=${sfen} hash=${parsed.hash}`);
 
-  app.get("/api/analysis/stats", async (c) => {
+      const results = getAnalysisResults(parsed.hash, parsed.sfen);
+      console.log(`Analysis DB Results: found ${results.length} records`);
+      return c.json(results);
+    },
+  )
+
+  .get("/stats", async (c) => {
     const stats = getAnalysisDBStats();
     return c.json(stats);
-  });
+  })
 
-  app.post(
-    "/api/analysis/delete_by_engine",
-    createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
-    async (c) => {
-      const body = await c.req.json<{ engineId?: unknown }>();
-      const engineId = body.engineId;
-      if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
-        return sendError(c, 400, "engineId must be a positive integer");
-      }
-      deleteAnalysisResultsByEngine(engineId);
-      return c.text("ok");
-    },
-  );
+  .post("/delete_by_engine", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
+    const body = await c.req.json<{ engineId?: unknown }>();
+    const engineId = body.engineId;
+    if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
+      return sendError(c, 400, "engineId must be a positive integer");
+    }
+    deleteAnalysisResultsByEngine(engineId);
+    return c.text("ok");
+  })
 
-  app.post("/api/analysis/cleanup", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
+  .post("/cleanup", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
     const body = await c.req.json<{ minDepth?: unknown }>();
     const minDepth = body.minDepth;
     if (typeof minDepth !== "number" || !Number.isInteger(minDepth) || minDepth <= 0) {
@@ -64,9 +68,9 @@ export const registerAnalysisRoutes = (app: Hono<AppEnv>) => {
     }
     cleanupAnalysisResults(minDepth);
     return c.text("ok");
-  });
+  })
 
-  app.post("/api/analysis/delete", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
+  .post("/delete", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
     const body = await c.req.json<{ sfen?: unknown; engineId?: unknown; multipv?: unknown }>();
     const sfen = body.sfen;
     const engineId = body.engineId;
@@ -86,9 +90,9 @@ export const registerAnalysisRoutes = (app: Hono<AppEnv>) => {
     }
     deleteAnalysisResult(parsed.hash, parsed.sfen, engineId, multipv);
     return c.text("ok");
-  });
+  })
 
-  app.post("/api/analysis/export", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
+  .post("/export", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
     const body = await c.req.json<{ engineId?: unknown; filename?: unknown }>();
     const engineId = body.engineId;
     const relPath = body.filename;
@@ -123,9 +127,9 @@ export const registerAnalysisRoutes = (app: Hono<AppEnv>) => {
     });
 
     return c.text("ok");
-  });
+  })
 
-  app.get("/api/analysis/migrate/dry-run", async (c) => {
+  .get("/migrate/dry-run", async (c) => {
     const keyMapping = new Map<string, string>();
     const nameMapping = new Map<string, string>();
     for (const config of engineConfigCache.values()) {
@@ -136,9 +140,9 @@ export const registerAnalysisRoutes = (app: Hono<AppEnv>) => {
     }
     const summary = getMigrationSummary(keyMapping, nameMapping);
     return c.json(summary);
-  });
+  })
 
-  app.post("/api/analysis/migrate/execute", async (c) => {
+  .post("/migrate/execute", async (c) => {
     const keyMapping = new Map<string, string>();
     const nameMapping = new Map<string, string>();
     for (const config of engineConfigCache.values()) {
@@ -155,4 +159,3 @@ export const registerAnalysisRoutes = (app: Hono<AppEnv>) => {
       return sendError(c, 500, "Migration failed");
     }
   });
-};

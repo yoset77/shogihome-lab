@@ -1,4 +1,5 @@
-import type { Hono } from "hono";
+import { Hono } from "hono";
+import { validator } from "hono/validator";
 import fs from "fs";
 import { normalizePath } from "@/common/helpers/path";
 import {
@@ -15,108 +16,127 @@ import { KIFU_DIR } from "@/server/config";
 import { sendError } from "@/server/errors";
 import { createBodyLimit, LARGE_BODY_LIMIT, type AppEnv } from "@/server/hono";
 
-export const registerKifuRoutes = (app: Hono<AppEnv>) => {
-  app.get("/api/kifu/list", async (c) => {
-    if (!KIFU_DIR) {
-      return sendError(c, 404, "KIFU_DIR is not configured");
-    }
-    if (c.req.query("reload") === "true") {
-      clearKifuListCache();
-    }
-    const list = await getKifuList(KIFU_DIR);
+const getString = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined;
 
-    const dirParam = c.req.query("dir");
-    if (
-      dirParam &&
-      normalizePath(dirParam)
-        .split("/")
-        .some((s) => s === "..")
-    ) {
-      return sendError(c, 400, "invalid dir");
-    }
-    const entriesMap = new Map<string, { name: string; path: string; isDirectory: boolean }>();
-    const currentDirNormalized = dirParam ? normalizePath(dirParam) : "";
-    const prefix = currentDirNormalized ? currentDirNormalized + "/" : "";
-    const prefixLower = prefix.toLowerCase();
+const getOptionalInt = (value: unknown): number | undefined =>
+  typeof value === "string" && value ? parseInt(value, 10) : undefined;
 
-    list.forEach((file) => {
-      const fileNormalized = normalizePath(file);
-      if (fileNormalized.toLowerCase().startsWith(prefixLower)) {
-        const relative = fileNormalized.substring(prefix.length);
-        const parts = relative.split("/");
-        if (parts.length > 1) {
-          const dirName = parts[0];
-          const dirPath = prefix + dirName;
-          if (!entriesMap.has(dirName)) {
-            entriesMap.set(dirName, { name: dirName, path: dirPath, isDirectory: true });
+export const kifuRoutes = new Hono<AppEnv>()
+  .get(
+    "/list",
+    validator("query", (value) => ({
+      dir: getString(value.dir),
+      reload: value.reload === "true",
+    })),
+    async (c) => {
+      const query = c.req.valid("query");
+      if (!KIFU_DIR) {
+        return sendError(c, 404, "KIFU_DIR is not configured");
+      }
+      if (query.reload) {
+        clearKifuListCache();
+      }
+      const list = await getKifuList(KIFU_DIR);
+
+      const dirParam = query.dir;
+      if (
+        dirParam &&
+        normalizePath(dirParam)
+          .split("/")
+          .some((s) => s === "..")
+      ) {
+        return sendError(c, 400, "invalid dir");
+      }
+      const entriesMap = new Map<string, { name: string; path: string; isDirectory: boolean }>();
+      const currentDirNormalized = dirParam ? normalizePath(dirParam) : "";
+      const prefix = currentDirNormalized ? currentDirNormalized + "/" : "";
+      const prefixLower = prefix.toLowerCase();
+
+      list.forEach((file) => {
+        const fileNormalized = normalizePath(file);
+        if (fileNormalized.toLowerCase().startsWith(prefixLower)) {
+          const relative = fileNormalized.substring(prefix.length);
+          const parts = relative.split("/");
+          if (parts.length > 1) {
+            const dirName = parts[0];
+            const dirPath = prefix + dirName;
+            if (!entriesMap.has(dirName)) {
+              entriesMap.set(dirName, { name: dirName, path: dirPath, isDirectory: true });
+            }
+          } else if (parts.length === 1 && parts[0] !== "") {
+            const fileName = parts[0];
+            entriesMap.set(fileName, { name: fileName, path: fileNormalized, isDirectory: false });
           }
-        } else if (parts.length === 1 && parts[0] !== "") {
-          const fileName = parts[0];
-          entriesMap.set(fileName, { name: fileName, path: fileNormalized, isDirectory: false });
         }
+      });
+
+      const responseList = Array.from(entriesMap.values()).sort((a, b) => {
+        if (a.isDirectory !== b.isDirectory) {
+          return a.isDirectory ? -1 : 1;
+        }
+        return a.name.localeCompare(b.name);
+      });
+
+      return c.json(responseList);
+    },
+  )
+
+  .get(
+    "/search",
+    validator("query", (value) => ({
+      sfen: getString(value.sfen),
+      keyword: getString(value.keyword),
+      player1: getString(value.player1),
+      player2: getString(value.player2),
+      isStrictTurn: value.isStrictTurn === "true",
+      startDate: getString(value.startDate),
+      limit: getOptionalInt(value.limit),
+      offset: getOptionalInt(value.offset),
+    })),
+    async (c) => {
+      const query = c.req.valid("query");
+      if (!KIFU_DIR) {
+        return sendError(c, 404, "KIFU_DIR is not configured");
       }
-    });
-
-    const responseList = Array.from(entriesMap.values()).sort((a, b) => {
-      if (a.isDirectory !== b.isDirectory) {
-        return a.isDirectory ? -1 : 1;
+      let sfen = query.sfen;
+      let sfenHash: bigint | undefined;
+      if (sfen) {
+        const normalized = getNormalizedSfenAndHash(sfen);
+        if (!normalized) {
+          return sendError(c, 400, "Invalid sfen");
+        }
+        sfen = normalized.sfen;
+        sfenHash = normalized.hash;
       }
-      return a.name.localeCompare(b.name);
-    });
-
-    return c.json(responseList);
-  });
-
-  app.get("/api/kifu/search", async (c) => {
-    if (!KIFU_DIR) {
-      return sendError(c, 404, "KIFU_DIR is not configured");
-    }
-    let sfen = c.req.query("sfen");
-    let sfenHash: bigint | undefined;
-    if (sfen) {
-      const normalized = getNormalizedSfenAndHash(sfen);
-      if (!normalized) {
-        return sendError(c, 400, "Invalid sfen");
+      if (!sfen) {
+        sfenHash = undefined;
       }
-      sfen = normalized.sfen;
-      sfenHash = normalized.hash;
-    }
-    if (!sfen) {
-      sfenHash = undefined;
-    }
-    const keyword = c.req.query("keyword");
-    const player1 = c.req.query("player1");
-    const player2 = c.req.query("player2");
-    const isStrictTurn = c.req.query("isStrictTurn") === "true";
-    const startDate = c.req.query("startDate");
-    const limitParam = c.req.query("limit");
-    const offsetParam = c.req.query("offset");
-    const limit = limitParam ? parseInt(limitParam, 10) : undefined;
-    const offset = offsetParam ? parseInt(offsetParam, 10) : undefined;
 
-    const results = kifuIndexDB.searchKifu({
-      sfen,
-      sfenHash,
-      keyword,
-      player1,
-      player2,
-      isStrictTurn,
-      startDate,
-      limit,
-      offset,
-    });
-    return c.json(results);
-  });
+      const results = kifuIndexDB.searchKifu({
+        sfen,
+        sfenHash,
+        keyword: query.keyword,
+        player1: query.player1,
+        player2: query.player2,
+        isStrictTurn: query.isStrictTurn,
+        startDate: query.startDate,
+        limit: query.limit,
+        offset: query.offset,
+      });
+      return c.json(results);
+    },
+  )
 
-  app.get("/api/kifu/index/status", (c) => {
+  .get("/index/status", (c) => {
     return c.json(kifuIndexSync.getSyncStatus());
-  });
+  })
 
-  app.get("/api/kifu/enabled", (c) => {
+  .get("/enabled", (c) => {
     return c.json({ enabled: !!KIFU_DIR });
-  });
+  })
 
-  app.get("/api/kifu/get", async (c) => {
+  .get("/get", async (c) => {
     if (!KIFU_DIR) {
       return sendError(c, 404, "KIFU_DIR is not configured");
     }
@@ -130,9 +150,9 @@ export const registerKifuRoutes = (app: Hono<AppEnv>) => {
     }
     const data = await fs.promises.readFile(fullPath);
     return c.body(data, 200, { "Content-Type": "application/octet-stream" });
-  });
+  })
 
-  app.post("/api/kifu/save", createBodyLimit(LARGE_BODY_LIMIT), async (c) => {
+  .post("/save", createBodyLimit(LARGE_BODY_LIMIT), async (c) => {
     if (!KIFU_DIR) {
       return sendError(c, 404, "KIFU_DIR is not configured");
     }
@@ -149,7 +169,8 @@ export const registerKifuRoutes = (app: Hono<AppEnv>) => {
     return c.text("ok");
   });
 
-  app.get("/api/sfen/load", async (c) => {
+export const sfenRoutes = new Hono<AppEnv>()
+  .get("/load", async (c) => {
     if (!KIFU_DIR) {
       return sendError(c, 404, "KIFU_DIR is not configured");
     }
@@ -167,13 +188,12 @@ export const registerKifuRoutes = (app: Hono<AppEnv>) => {
       .map((line) => line.trim())
       .filter((line) => line.length > 0 && !line.startsWith("#"));
     return c.json({ lines });
-  });
+  })
 
-  app.get("/api/sfen/list", async (c) => {
+  .get("/list", async (c) => {
     if (!KIFU_DIR) {
       return sendError(c, 404, "KIFU_DIR is not configured");
     }
     const list = await getPositionList(KIFU_DIR);
     return c.json(list);
   });
-};

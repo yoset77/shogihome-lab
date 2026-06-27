@@ -29,7 +29,7 @@ graph LR
 | :--- | :--- |
 | `server.ts` | **サーバー起動エントリ**。既存テスト・起動コマンドとの互換性を保つため、`src/server/main.ts` の公開 API を再exportし、直接実行時にサーバーを起動します。 |
 | `src/server/` | **中核サーバー実装**。Hono アプリ構築、HTTP API、静的配信、WebSocket 接続、エンジン中継ロジックを保持します。 |
-| `src/server/routes/` | **HTTP API ルート定義**。棋譜、定跡、検討結果DB、履歴、外部棋譜取得、静的配信を責務別に登録します。 |
+| `src/server/routes/` | **HTTP API ルート定義**。棋譜、定跡、検討結果DB、履歴、外部棋譜取得、静的配信を責務別に定義します。JSON API は Hono RPC の型推論を活かすため、各 module が Hono route tree を export し、`src/server/main.ts` で prefix ごとに合成します。 |
 | `src/server/routes/vision.ts` | **Vision API**。画像を受け取り、Vision worker を呼び出して SFEN 候補を返します。 |
 | `src/server/config.ts` | `.env` 読み込み、基準パス、ポート、許可 Origin/Host、KIFU_DIR、エンジン接続先などのサーバー設定。 |
 | `src/server/security.ts` | Host ヘッダー検証、Hono secure-headers による CSP、rate limit などの HTTP/WebSocket 共通セキュリティ設定。 |
@@ -47,10 +47,12 @@ graph LR
 | `src/server/usi/sfen.ts` | サーバー側の SFEN 正規化と局面ハッシュ計算。 |
 | `src/server/vision/` | 画像認識バックエンドの Node.js worker と呼び出しアダプタ。レスポンスの形と SFEN 妥当性を検証します。 |
 | `src/common/vision/` | Vision API の共有型定義。 |
+| `src/common/api/rpc.ts` | Hono RPC の `AppType` を renderer へ type-only で共有する境界。runtime 依存は持たせません。 |
 | `src/node/` | **Node 実行環境共有ユーティリティ**。server、command、旧 background から共有されるログ、実行環境パスを保持します。ブラウザー向け renderer/common からは参照しません。 |
 | `src/renderer/store/index.ts` | **状態管理**。アプリ全体のステートを保持し、対局・検討・編集などの各マネージャー（`GameManager`, `ResearchManager` 等）を統合します。検討停止は `ResearchState.STOPPING` を経由する非同期ライフサイクルとして扱い、停止完了前に UI を `IDLE` 扱いしないようにしています。 |
 | `src/renderer/players/lan_player.ts` | **リモートプレイヤー**。USIプロトコルの同期制御（Stop待ち、コマンド送信）を実装し、通信経由でエンジンを操作する実体です。 |
 | `src/renderer/network/lan_engine.ts` | **リモートエンジン通信クライアント**。WebSocket接続とコマンド送信、エンジンリスト取得を管理。 |
+| `src/renderer/api/client.ts` | **Hono RPC client**。JSON API 向けに `hc<AppType>`、timeout、`X-Book-Session-Id` 付与、共通レスポンス処理を提供します。バイナリ/Blob/WebSocket 通信は従来の fetch/WebSocket を使用します。 |
 | `src/renderer/view/` | **Vueコンポーネント**: |
 | - `main/` | `BoardPane` (盤面), `RecordPane` (棋譜), `ControlPane` (操作パネル) など、メイン画面の構成要素。 |
 | - `dialog/` | `GameDialog` (対局設定), `ResearchDialog` (検討設定), `AppSettingsDialog` (設定) など、モーダルダイアログ群。 |
