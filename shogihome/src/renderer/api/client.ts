@@ -1,23 +1,49 @@
 import { hc } from "hono/client";
 import type { AppType } from "@/common/api/rpc";
 
+const REQUEST_TIMEOUT_HEADER = "X-ShogiHome-Request-Timeout-Ms";
+const BOOK_SESSION_HEADER = "X-Book-Session-Id";
+
 type ApiClientOptions = {
   timeoutMs?: number;
   getBookSessionId?: () => string | undefined;
+};
+
+type ApiRequestOptions = {
+  timeoutMs?: number;
+  bookSessionId?: string;
+  headers?: Record<string, string>;
+  init?: RequestInit;
+};
+
+export const createApiRequestOptions = (options: ApiRequestOptions = {}) => {
+  const headers: Record<string, string> = { ...(options.headers ?? {}) };
+  if (options.timeoutMs !== undefined) {
+    headers[REQUEST_TIMEOUT_HEADER] = String(options.timeoutMs);
+  }
+  if (options.bookSessionId) {
+    headers[BOOK_SESSION_HEADER] = options.bookSessionId;
+  }
+  return {
+    headers,
+    init: options.init,
+  };
 };
 
 export const createHonoApiClient = (options: ApiClientOptions = {}) => {
   return hc<AppType>(location.origin, {
     fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
       const controller = new AbortController();
+      const headers = new Headers(init?.headers);
+      const timeoutHeader = headers.get(REQUEST_TIMEOUT_HEADER);
+      headers.delete(REQUEST_TIMEOUT_HEADER);
       const id = setTimeout(
         () => controller.abort(new Error("Request timeout")),
-        options.timeoutMs ?? 10000,
+        timeoutHeader ? Number(timeoutHeader) : (options.timeoutMs ?? 10000),
       );
-      const headers = new Headers(init?.headers);
       const bookSessionId = options.getBookSessionId?.();
-      if (bookSessionId) {
-        headers.set("X-Book-Session-Id", bookSessionId);
+      if (bookSessionId && !headers.has(BOOK_SESSION_HEADER)) {
+        headers.set(BOOK_SESSION_HEADER, bookSessionId);
       }
 
       try {
