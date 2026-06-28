@@ -44,12 +44,10 @@ export const bookRoutes = new Hono<AppEnv>()
       if (!fullPath) {
         return sendError(c, 403, "forbidden");
       }
-      const body = await c.req.json<{ forceOnTheFly?: unknown }>();
       const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
       // Override the threshold with the server-side environment variable to protect server memory.
       // Also, explicitly map expected properties to avoid passing unknown fields from req.body.
       const options = {
-        forceOnTheFly: body.forceOnTheFly === true,
         onTheFlyThresholdMB: ONTHEFLY_THRESHOLD_MB,
         sbkOnTheFlyThresholdMB: SBK_ONTHEFLY_THRESHOLD_MB,
       };

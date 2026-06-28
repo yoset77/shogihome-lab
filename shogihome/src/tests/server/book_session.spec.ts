@@ -105,12 +105,11 @@ describe("Book Session API", () => {
     await requestApp(app, "POST", "/api/book/open?path=test1.db", {
       host,
       headers: { "X-Book-Session-Id": "client-threshold" },
-      json: { onTheFlyThresholdMB: 1, forceOnTheFly: false },
+      json: { onTheFlyThresholdMB: 1 },
     });
 
     const call = vi.mocked(bookAPI.openBook).mock.calls[0];
     expect(call[2]).toEqual({
-      forceOnTheFly: false,
       onTheFlyThresholdMB: ONTHEFLY_THRESHOLD_MB,
       sbkOnTheFlyThresholdMB: SBK_ONTHEFLY_THRESHOLD_MB,
     });

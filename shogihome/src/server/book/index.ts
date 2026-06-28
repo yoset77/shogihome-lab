@@ -377,7 +377,7 @@ export async function openBook(
   if (format === "sbk" && size > MAX_SBK_BOOK_SIZE_BYTES) {
     throw new Error(`SBK file too large: ${size} bytes`);
   }
-  if (options?.forceOnTheFly || (thresholdMB !== undefined && size > thresholdMB * 1024 * 1024)) {
+  if (thresholdMB !== undefined && size > thresholdMB * 1024 * 1024) {
     await openBookOnTheFly(session, path, size);
     return "on-the-fly";
   } else {

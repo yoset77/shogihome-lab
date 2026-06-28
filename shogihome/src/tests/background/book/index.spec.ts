@@ -190,7 +190,7 @@ describe("background/book", () => {
     describe("shogihome01.sbk", () => {
       it("supports on-the-fly mode and keeps SBK move evaluation", async () => {
         const mode = await openBook(defaultBookSession, "src/tests/testdata/book/shogihome01.sbk", {
-          forceOnTheFly: true,
+          sbkOnTheFlyThresholdMB: 0.000001,
         });
         expect(mode).toBe("on-the-fly");
         expect(getBookFormat(defaultBookSession)).toBe("sbk");
