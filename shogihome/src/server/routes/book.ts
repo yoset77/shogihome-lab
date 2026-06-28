@@ -22,38 +22,41 @@ import {
   LARGE_BODY_LIMIT,
   type AppEnv,
 } from "@/server/hono";
-
-const getString = (value: unknown): string | undefined =>
-  typeof value === "string" ? value : undefined;
+import { getOptionalInt, getString } from "@/server/routes/query";
 
 export const bookRoutes = new Hono<AppEnv>()
-  .post("/open", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
-    if (!KIFU_DIR) {
-      return sendError(c, 404, "KIFU_DIR is not configured");
-    }
-    let relPath = c.req.query("path");
-    if (typeof relPath !== "string") {
-      return sendError(c, 400, "path is required");
-    }
-    if (relPath.startsWith("server://")) {
-      relPath = relPath.substring(9);
-    }
-    const fullPath = resolveKifuPath(KIFU_DIR, relPath);
-    if (!fullPath) {
-      return sendError(c, 403, "forbidden");
-    }
-    const body = await c.req.json<{ forceOnTheFly?: unknown }>();
-    const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
-    // Override the threshold with the server-side environment variable to protect server memory.
-    // Also, explicitly map expected properties to avoid passing unknown fields from req.body.
-    const options = {
-      forceOnTheFly: body.forceOnTheFly === true,
-      onTheFlyThresholdMB: ONTHEFLY_THRESHOLD_MB,
-      sbkOnTheFlyThresholdMB: SBK_ONTHEFLY_THRESHOLD_MB,
-    };
-    const mode = await openBook(bookSession, fullPath, options);
-    return c.json({ mode });
-  })
+  .post(
+    "/open",
+    createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
+    validator("query", (value) => ({ path: getString(value.path) })),
+    async (c) => {
+      if (!KIFU_DIR) {
+        return sendError(c, 404, "KIFU_DIR is not configured");
+      }
+      let { path: relPath } = c.req.valid("query");
+      if (typeof relPath !== "string") {
+        return sendError(c, 400, "path is required");
+      }
+      if (relPath.startsWith("server://")) {
+        relPath = relPath.substring(9);
+      }
+      const fullPath = resolveKifuPath(KIFU_DIR, relPath);
+      if (!fullPath) {
+        return sendError(c, 403, "forbidden");
+      }
+      const body = await c.req.json<{ forceOnTheFly?: unknown }>();
+      const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
+      // Override the threshold with the server-side environment variable to protect server memory.
+      // Also, explicitly map expected properties to avoid passing unknown fields from req.body.
+      const options = {
+        forceOnTheFly: body.forceOnTheFly === true,
+        onTheFlyThresholdMB: ONTHEFLY_THRESHOLD_MB,
+        sbkOnTheFlyThresholdMB: SBK_ONTHEFLY_THRESHOLD_MB,
+      };
+      const mode = await openBook(bookSession, fullPath, options);
+      return c.json({ mode });
+    },
+  )
 
   .get("/list", async (c) => {
     if (!KIFU_DIR) {
@@ -63,22 +66,26 @@ export const bookRoutes = new Hono<AppEnv>()
     return c.json(list);
   })
 
-  .post("/save", async (c) => {
-    if (!KIFU_DIR) {
-      return sendError(c, 404, "KIFU_DIR is not configured");
-    }
-    const relPath = c.req.query("path");
-    if (typeof relPath !== "string") {
-      return sendError(c, 400, "path is required");
-    }
-    const fullPath = resolveKifuPath(KIFU_DIR, relPath);
-    if (!fullPath) {
-      return sendError(c, 403, "forbidden");
-    }
-    const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
-    await saveBook(bookSession, fullPath);
-    return c.text("ok");
-  })
+  .post(
+    "/save",
+    validator("query", (value) => ({ path: getString(value.path) })),
+    async (c) => {
+      if (!KIFU_DIR) {
+        return sendError(c, 404, "KIFU_DIR is not configured");
+      }
+      const { path: relPath } = c.req.valid("query");
+      if (typeof relPath !== "string") {
+        return sendError(c, 400, "path is required");
+      }
+      const fullPath = resolveKifuPath(KIFU_DIR, relPath);
+      if (!fullPath) {
+        return sendError(c, 403, "forbidden");
+      }
+      const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
+      await saveBook(bookSession, fullPath);
+      return c.text("ok");
+    },
+  )
 
   .post("/close", async (c) => {
     closeBookSessionForHeader(c.req.header("X-Book-Session-Id"));
@@ -135,39 +142,57 @@ export const bookRoutes = new Hono<AppEnv>()
     return c.json(results);
   })
 
-  .post("/update", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
-    const sfen = c.req.query("sfen");
-    if (typeof sfen !== "string") {
-      return sendError(c, 400, "sfen is required");
-    }
-    const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
-    await updateBookMove(bookSession, sfen, await c.req.json());
-    return c.text("ok");
-  })
+  .post(
+    "/update",
+    createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
+    validator("query", (value) => ({ sfen: getString(value.sfen) })),
+    async (c) => {
+      const { sfen } = c.req.valid("query");
+      if (typeof sfen !== "string") {
+        return sendError(c, 400, "sfen is required");
+      }
+      const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
+      await updateBookMove(bookSession, sfen, await c.req.json());
+      return c.text("ok");
+    },
+  )
 
-  .post("/remove", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
-    const sfen = c.req.query("sfen");
-    const usi = c.req.query("usi");
-    if (typeof sfen !== "string" || typeof usi !== "string") {
-      return sendError(c, 400, "sfen and usi are required");
-    }
-    const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
-    await removeBookMove(bookSession, sfen, usi);
-    return c.text("ok");
-  })
+  .post(
+    "/remove",
+    createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
+    validator("query", (value) => ({
+      sfen: getString(value.sfen),
+      usi: getString(value.usi),
+    })),
+    async (c) => {
+      const { sfen, usi } = c.req.valid("query");
+      if (typeof sfen !== "string" || typeof usi !== "string") {
+        return sendError(c, 400, "sfen and usi are required");
+      }
+      const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
+      await removeBookMove(bookSession, sfen, usi);
+      return c.text("ok");
+    },
+  )
 
-  .post("/order", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
-    const sfen = c.req.query("sfen");
-    const usi = c.req.query("usi");
-    const orderParam = c.req.query("order");
-    const order = orderParam ? parseInt(orderParam, 10) : NaN;
-    if (typeof sfen !== "string" || typeof usi !== "string" || isNaN(order)) {
-      return sendError(c, 400, "sfen, usi and order are required");
-    }
-    const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
-    await updateBookMoveOrder(bookSession, sfen, usi, order);
-    return c.text("ok");
-  })
+  .post(
+    "/order",
+    createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
+    validator("query", (value) => ({
+      sfen: getString(value.sfen),
+      usi: getString(value.usi),
+      order: getOptionalInt(value.order),
+    })),
+    async (c) => {
+      const { sfen, usi, order } = c.req.valid("query");
+      if (typeof sfen !== "string" || typeof usi !== "string" || typeof order !== "number") {
+        return sendError(c, 400, "sfen, usi and order are required");
+      }
+      const bookSession = getBookSession(c.req.header("X-Book-Session-Id"));
+      await updateBookMoveOrder(bookSession, sfen, usi, order);
+      return c.text("ok");
+    },
+  )
 
   .post("/import", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
     if (!KIFU_DIR) {

@@ -15,12 +15,7 @@ import { writeFileAtomic } from "@/server/file/atomic";
 import { KIFU_DIR } from "@/server/config";
 import { sendError } from "@/server/errors";
 import { createBodyLimit, LARGE_BODY_LIMIT, type AppEnv } from "@/server/hono";
-
-const getString = (value: unknown): string | undefined =>
-  typeof value === "string" ? value : undefined;
-
-const getOptionalInt = (value: unknown): number | undefined =>
-  typeof value === "string" && value ? parseInt(value, 10) : undefined;
+import { getOptionalInt, getString } from "@/server/routes/query";
 
 export const kifuRoutes = new Hono<AppEnv>()
   .get(

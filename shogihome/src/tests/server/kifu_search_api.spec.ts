@@ -116,4 +116,23 @@ describe("Kifu search API", () => {
       offset: undefined,
     });
   });
+
+  it("should ignore invalid pagination query values", async () => {
+    const response = await requestApp(app, "GET", "/api/kifu/search?limit=abc&offset=invalid", {
+      host,
+    });
+
+    expect(response.status).toBe(200);
+    expect(kifuIndexMock.searchKifu).toHaveBeenCalledWith({
+      sfen: undefined,
+      sfenHash: undefined,
+      keyword: undefined,
+      player1: undefined,
+      player2: undefined,
+      isStrictTurn: false,
+      startDate: undefined,
+      limit: undefined,
+      offset: undefined,
+    });
+  });
 });

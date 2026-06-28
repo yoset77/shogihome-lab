@@ -18,9 +18,7 @@ import { engineConfigCache } from "@/server/engine/list";
 import { KIFU_DIR } from "@/server/config";
 import { sendError } from "@/server/errors";
 import { createBodyLimit, DEFAULT_JSON_BODY_LIMIT, type AppEnv } from "@/server/hono";
-
-const getString = (value: unknown): string | undefined =>
-  typeof value === "string" ? value : undefined;
+import { getString } from "@/server/routes/query";
 
 export const analysisRoutes = new Hono<AppEnv>()
   .get(
