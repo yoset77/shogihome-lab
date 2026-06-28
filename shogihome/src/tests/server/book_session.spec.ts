@@ -25,6 +25,9 @@ vi.mock("@/server/book/index.js", () => {
     clearBook: vi.fn((session: number) => {
       sessions.delete(session);
     }),
+    updateBookMove: vi.fn(),
+    removeBookMove: vi.fn(),
+    updateBookMoveOrder: vi.fn(),
     searchBookMoves: vi.fn(async () => {
       return [];
     }),
@@ -132,6 +135,62 @@ describe("Book Session API", () => {
     expect(response.status).toBe(400);
     expect(response.textBody).toContain("minPly must be a non-negative integer");
     expect(bookAPI.importBookMoves).not.toHaveBeenCalled();
+  });
+
+  it("should pass update query values to the book API", async () => {
+    const response = await requestApp(app, "POST", "/api/book/update?sfen=startpos", {
+      host,
+      headers: { "X-Book-Session-Id": "client-update" },
+      json: { move: "7g7f" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookAPI.updateBookMove).toHaveBeenCalledWith(expect.any(Number), "startpos", {
+      move: "7g7f",
+    });
+  });
+
+  it("should pass remove query values to the book API", async () => {
+    const response = await requestApp(app, "POST", "/api/book/remove?sfen=startpos&usi=7g7f", {
+      host,
+      headers: { "X-Book-Session-Id": "client-remove" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookAPI.removeBookMove).toHaveBeenCalledWith(expect.any(Number), "startpos", "7g7f");
+  });
+
+  it("should validate order query values before updating move order", async () => {
+    const invalidResponse = await requestApp(
+      app,
+      "POST",
+      "/api/book/order?sfen=startpos&usi=7g7f&order=invalid",
+      {
+        host,
+        headers: { "X-Book-Session-Id": "client-order-invalid" },
+      },
+    );
+
+    expect(invalidResponse.status).toBe(400);
+    expect(bookAPI.updateBookMoveOrder).not.toHaveBeenCalled();
+
+    const response = await requestApp(
+      app,
+      "POST",
+      "/api/book/order?sfen=startpos&usi=7g7f&order=2",
+      {
+        host,
+        headers: { "X-Book-Session-Id": "client-order" },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(bookAPI.updateBookMoveOrder).toHaveBeenCalledWith(
+      expect.any(Number),
+      "startpos",
+      "7g7f",
+      2,
+    );
   });
 
   it("should return 400 error when batch search sfens array is too large", async () => {
