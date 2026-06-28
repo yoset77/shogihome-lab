@@ -2,7 +2,6 @@ import { detectRecordFileFormatByPath } from "@/common/file/record";
 import { t } from "@/common/i18n/index";
 
 export enum SourceType {
-  MEMORY = "memory",
   DIRECTORY = "directory",
   FILE = "file",
 }
@@ -26,13 +25,24 @@ export type BookImportSettings = {
 
 export function defaultBookImportSettings(): BookImportSettings {
   return {
-    sourceType: SourceType.MEMORY,
+    sourceType: SourceType.FILE,
     sourceDirectory: "",
     sourceRecordFile: "",
     minPly: 0,
     maxPly: 100,
     playerCriteria: PlayerCriteria.ALL,
   };
+}
+
+export function normalizeBookImportSettings(settings: BookImportSettings): BookImportSettings {
+  const merged = {
+    ...defaultBookImportSettings(),
+    ...settings,
+  };
+  if (merged.sourceType !== SourceType.FILE && merged.sourceType !== SourceType.DIRECTORY) {
+    merged.sourceType = SourceType.FILE;
+  }
+  return merged;
 }
 
 export function validateBookImportSettings(settings: BookImportSettings): Error | undefined {

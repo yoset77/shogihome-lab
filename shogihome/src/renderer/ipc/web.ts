@@ -9,7 +9,7 @@ import { t } from "@/common/i18n/index";
 import { defaultCSAGameSettingsHistory } from "@/common/settings/csa";
 import { defaultMateSearchSettings } from "@/common/settings/mate";
 import { defaultBatchConversionSettings } from "@/common/settings/conversion";
-import { defaultBookImportSettings } from "@/common/settings/book";
+import { defaultBookImportSettings, normalizeBookImportSettings } from "@/common/settings/book";
 import { getEmptyHistory } from "@/common/file/history";
 import { BookLoadingMode } from "@/common/book";
 import { VersionStatus } from "@/common/version";
@@ -206,10 +206,7 @@ export const webAPI: Bridge = {
     if (!json) {
       return JSON.stringify(defaultBookImportSettings());
     }
-    return JSON.stringify({
-      ...defaultBookImportSettings(),
-      ...JSON.parse(json),
-    });
+    return JSON.stringify(normalizeBookImportSettings(JSON.parse(json)));
   },
   async saveBookImportSettings(json: string): Promise<void> {
     localStorage.setItem(STORAGE_KEY.BOOK_IMPORT_SETTINGS, json);

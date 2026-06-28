@@ -2,29 +2,31 @@
   <DialogFrame limited @cancel="onClose">
     <div class="title">{{ t.addBookMoves }}</div>
     <div>
-      <HorizontalSelector v-model:value="settings.sourceType" :items="sourceTypeOptions" />
+      <HorizontalSelector v-model:value="activeTab" :items="sourceTypeOptions" />
     </div>
     <div class="form-group scroll">
-      <div v-show="settings.sourceType === SourceType.MEMORY && !inMemoryList.length">
+      <div v-show="activeTab === 'memory' && !inMemoryList.length">
         {{ t.noMoves }}
       </div>
-      <table
-        v-show="settings.sourceType === SourceType.MEMORY && inMemoryList.length"
-        class="move-list"
-      >
+      <table v-show="activeTab === 'memory' && inMemoryList.length" class="move-list">
         <tbody>
-          <tr v-for="move of inMemoryList" :key="move.ply">
+          <tr
+            v-for="(move, index) of inMemoryList"
+            :key="index"
+            :ref="(el) => setCurrentMoveRow(move, el)"
+          >
             <td v-if="move.type === 'move'">{{ move.ply }}</td>
             <td v-if="move.type === 'move'">{{ move.text }}</td>
             <td v-if="move.type === 'move'">
               <span v-if="move.score !== undefined">{{ t.score }} {{ move.score }}</span>
             </td>
             <td v-if="move.type === 'move'">
-              <button v-if="!move.exists" class="thin" @click="registerMove(move)">
-                {{ t.register }}
-              </button>
-              <button v-else-if="move.scoreUpdatable" class="thin" @click="updateScore(move)">
-                {{ t.update }}
+              <button
+                v-if="!move.exists || move.scoreUpdatable"
+                class="thin"
+                @click="registerMove(move)"
+              >
+                {{ move.exists ? t.update : t.register }}
               </button>
             </td>
             <td v-if="move.type === 'move'">
@@ -36,7 +38,7 @@
           </tr>
         </tbody>
       </table>
-      <div v-show="settings.sourceType === SourceType.DIRECTORY" class="form-item row">
+      <div v-show="activeTab === 'directory'" class="form-item row">
         <input
           v-model="settings.sourceDirectory"
           class="grow"
@@ -50,7 +52,7 @@
           <Icon :icon="IconType.OPEN_FOLDER" />
         </button>
       </div>
-      <div v-show="settings.sourceType === SourceType.FILE" class="form-item row">
+      <div v-show="activeTab === 'file'" class="form-item row">
         <input
           v-model="settings.sourceRecordFile"
           class="grow"
@@ -62,9 +64,7 @@
         </button>
       </div>
       <div
-        v-if="
-          !isNative() && settings.sourceType !== SourceType.MEMORY && serverSelectionList.length > 0
-        "
+        v-if="!isNative() && activeTab !== 'memory' && serverSelectionList.length > 0"
         class="server-selection-list"
       >
         <div class="server-selection-header breadcrumbs">
@@ -87,11 +87,7 @@
               {{ entry.name }}
             </div>
             <button
-              v-if="
-                settings.sourceType === SourceType.DIRECTORY &&
-                entry.isDirectory &&
-                entry.name !== '..'
-              "
+              v-if="activeTab === 'directory' && entry.isDirectory && entry.name !== '..'"
               class="thin"
               @click="onConfirmServerDirectory(entry.path)"
             >
@@ -100,12 +96,7 @@
           </div>
         </div>
       </div>
-      <div
-        v-show="
-          settings.sourceType === SourceType.DIRECTORY || settings.sourceType === SourceType.FILE
-        "
-        class="form-item row"
-      >
+      <div v-show="activeTab === 'directory' || activeTab === 'file'" class="form-item row">
         <span>{{ t.fromPrefix }}</span>
         <input
           v-model.number="settings.minPly"
@@ -117,12 +108,7 @@
         />
         <span>{{ t.plySuffix }}{{ t.fromSuffix }}</span>
       </div>
-      <div
-        v-show="
-          settings.sourceType === SourceType.DIRECTORY || settings.sourceType === SourceType.FILE
-        "
-        class="form-item row"
-      >
+      <div v-show="activeTab === 'directory' || activeTab === 'file'" class="form-item row">
         <span>{{ t.toPrefix }}</span>
         <input
           v-model.number="settings.maxPly"
@@ -134,12 +120,7 @@
         />
         <span>{{ t.plySuffix }}{{ t.toSuffix }}</span>
       </div>
-      <div
-        v-show="
-          settings.sourceType === SourceType.DIRECTORY || settings.sourceType === SourceType.FILE
-        "
-        class="form-item row"
-      >
+      <div v-show="activeTab === 'directory' || activeTab === 'file'" class="form-item row">
         <HorizontalSelector
           v-model:value="settings.playerCriteria"
           :items="[
@@ -150,12 +131,7 @@
           ]"
         />
       </div>
-      <div
-        v-show="
-          settings.sourceType === SourceType.DIRECTORY || settings.sourceType === SourceType.FILE
-        "
-        class="form-item row"
-      >
+      <div v-show="activeTab === 'directory' || activeTab === 'file'" class="form-item row">
         <input
           v-show="settings.playerCriteria === 'filterByName'"
           v-model="settings.playerName"
@@ -165,11 +141,10 @@
         />
       </div>
     </div>
-    <div
-      v-show="
-        settings.sourceType === SourceType.DIRECTORY || settings.sourceType === SourceType.FILE
-      "
-    >
+    <div v-show="activeTab === 'memory' && inMemoryList.length">
+      <button class="register-all" @click="registerAllMoves">{{ t.importAll }}</button>
+    </div>
+    <div v-show="activeTab === 'directory' || activeTab === 'file'">
       <button class="import" @click="importMoves">{{ t.import }}</button>
     </div>
     <div class="main-buttons">
@@ -183,7 +158,7 @@
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import { useStore } from "@/renderer/store";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useBusyState } from "@/renderer/store/busy";
 import { Color, formatMove, ImmutableNode, Move, Position } from "tsshogi";
 import { useBookStore } from "@/renderer/store/book";
@@ -202,6 +177,8 @@ import {
   validateBookImportSettings,
 } from "@/common/settings/book";
 import DialogFrame from "./DialogFrame.vue";
+import { useConfirmationStore } from "@/renderer/store/confirm";
+import { useMessageStore } from "@/renderer/store/message";
 import {
   RecordFileFormat,
   getStandardRecordFileFormats,
@@ -224,22 +201,44 @@ type Branch = {
   type: "branch";
   ply: number;
 };
+type Tab = "memory" | "file" | "directory";
+
+const STORAGE_KEY = "addBookMovesDialog:tab";
+const tabs: Tab[] = ["memory", "file", "directory"];
+const storedTab = localStorage.getItem(STORAGE_KEY);
+
+const sourceTypeFromTab = (tab: Tab): SourceType | undefined => {
+  switch (tab) {
+    case "file":
+      return SourceType.FILE;
+    case "directory":
+      return SourceType.DIRECTORY;
+    case "memory":
+      return;
+  }
+};
 
 const store = useStore();
 const bookStore = useBookStore();
 const errorStore = useErrorStore();
 const busyState = useBusyState();
+const activeTab = ref<Tab>(tabs.includes(storedTab as Tab) ? (storedTab as Tab) : "memory");
 const settings = ref(defaultBookImportSettings());
 const inMemoryList = ref<(InMemoryMove | Branch)[]>([]);
 const serverSelectionList = ref<KifuListEntry[]>([]);
 const currentServerDir = ref("");
+let currentMoveRow: HTMLElement | undefined;
 
-watch(
-  () => settings.value.sourceType,
-  () => {
-    serverSelectionList.value = [];
-  },
-);
+const setCurrentMoveRow = (move: InMemoryMove | Branch, el: unknown) => {
+  if (move.type === "move" && move.last && el instanceof HTMLElement) {
+    currentMoveRow = el;
+  }
+};
+
+watch(activeTab, (tab) => {
+  localStorage.setItem(STORAGE_KEY, tab);
+  serverSelectionList.value = [];
+});
 
 const breadcrumbs = computed(() => {
   if (!currentServerDir.value) return [];
@@ -252,9 +251,9 @@ const breadcrumbs = computed(() => {
 
 const sourceTypeOptions = computed(() => {
   return [
-    { value: SourceType.MEMORY, label: t.fromCurrentRecord },
-    { value: SourceType.FILE, label: t.fromFile },
-    { value: SourceType.DIRECTORY, label: t.fromDirectory },
+    { value: "memory", label: t.fromCurrentRecord },
+    { value: "file", label: t.fromFile },
+    { value: "directory", label: t.fromDirectory },
   ];
 });
 
@@ -267,7 +266,7 @@ const serverSelectionEntries = computed(() => {
   }
 
   serverSelectionList.value.forEach((entry) => {
-    if (settings.value.sourceType !== SourceType.DIRECTORY || entry.isDirectory) {
+    if (activeTab.value !== "directory" || entry.isDirectory) {
       entriesMap.set(entry.name, {
         name: entry.name,
         path: entry.path,
@@ -347,6 +346,8 @@ onMounted(async () => {
   try {
     await setupInMemoryList();
     settings.value = await api.loadBookImportSettings();
+    await nextTick();
+    currentMoveRow?.scrollIntoView({ block: "center" });
   } catch (e) {
     errorStore.add(e);
     store.destroyModalDialog();
@@ -359,23 +360,36 @@ const onClose = () => {
   store.closeModalDialog();
 };
 
-const registerMove = (move: InMemoryMove) => {
-  bookStore.updateMove(move.sfen, {
-    ...move.book,
-    score: move.score,
-    depth: move.depth,
+const registerAllMoves = () => {
+  useConfirmationStore().show({
+    message: t.doYouWantToImportAllMoves,
+    onOk: async () => {
+      let added = 0;
+      for (const item of inMemoryList.value) {
+        if (item.type === "move" && (!item.exists || item.scoreUpdatable)) {
+          await registerMove(item);
+          added++;
+        }
+      }
+      useMessageStore().enqueue({
+        text: t.importedMoves(added),
+      });
+    },
   });
-  move.exists = true;
-  move.scoreUpdatable = false;
 };
 
-const updateScore = (move: InMemoryMove) => {
-  bookStore.updateMove(move.sfen, {
-    ...move.book,
-    score: move.score,
-    depth: move.depth,
-  });
-  move.scoreUpdatable = false;
+const registerMove = async (move: InMemoryMove) => {
+  try {
+    await bookStore.updateMove(move.sfen, {
+      ...move.book,
+      score: move.score,
+      depth: move.depth,
+    });
+    move.exists = true;
+    move.scoreUpdatable = false;
+  } catch (e) {
+    errorStore.add(e);
+  }
 };
 
 const selectDirectory = async () => {
@@ -458,6 +472,11 @@ const onConfirmServerDirectory = (path: string) => {
 };
 
 const importMoves = () => {
+  const sourceType = sourceTypeFromTab(activeTab.value);
+  if (!sourceType) {
+    return;
+  }
+  settings.value.sourceType = sourceType;
   const error = validateBookImportSettings(settings.value);
   if (error) {
     useErrorStore().add(error);
@@ -487,6 +506,7 @@ table.move-list td.branch {
 input.small {
   width: 50px;
 }
+button.register-all,
 button.import {
   width: 100%;
 }

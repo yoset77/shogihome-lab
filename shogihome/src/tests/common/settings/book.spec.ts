@@ -1,4 +1,9 @@
-import { PlayerCriteria, SourceType, validateBookImportSettings } from "@/common/settings/book";
+import {
+  normalizeBookImportSettings,
+  PlayerCriteria,
+  SourceType,
+  validateBookImportSettings,
+} from "@/common/settings/book";
 
 describe("settings/book", () => {
   it("validateBookImportSettings", () => {
@@ -93,15 +98,18 @@ describe("settings/book", () => {
         playerCriteria: PlayerCriteria.ALL,
       }),
     ).toBeInstanceOf(Error);
+  });
+
+  it("normalizeBookImportSettings", () => {
     expect(
-      validateBookImportSettings({
-        sourceType: SourceType.MEMORY,
+      normalizeBookImportSettings({
+        sourceType: "memory" as SourceType,
         sourceDirectory: "",
         sourceRecordFile: "",
         minPly: 0,
         maxPly: 100,
         playerCriteria: PlayerCriteria.ALL,
-      }),
-    ).toBeInstanceOf(Error);
+      }).sourceType,
+    ).toBe(SourceType.FILE);
   });
 });

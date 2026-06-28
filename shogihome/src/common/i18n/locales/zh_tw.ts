@@ -619,6 +619,9 @@ export const zh_tw: Texts = {
   noMoves: "指し手がありません。", // TODO: Translate
   register: "登録", // TODO: Translate
   update: "更新", // TODO: Translate
+  importAll: "全て反映", // TODO: Translate
+  doYouWantToImportAllMoves: "全ての手を反映しますか？", // TODO: Translate
+  importedMoves: (n: number) => `${n}手を定跡に反映しました。`, // TODO: Translate
   currentMove: "現在の手", // TODO: Translate
   branchFrom: (n: number) => `${n}手目から分岐`, // TODO: Translate
   allPlayers: "全ての対局者", // TODO: Translate
