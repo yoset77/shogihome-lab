@@ -565,6 +565,7 @@ export const ja: Texts = {
   commentFormat: "コメントの形式",
   moveEvaluation: "指し手の評価",
   yane2016BookFile: "やねうら王定跡ファイル",
+  ybbBookFile: "やねうら王バイナリ定跡ファイル",
   shogiGUIBookFile: "ShogiGUI 定跡ファイル",
   aperyBookFile: "Apery 定跡ファイル",
   gothic: "ゴシック体",

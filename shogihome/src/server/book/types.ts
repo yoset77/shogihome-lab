@@ -1,11 +1,12 @@
 import {
   BookFormatApery,
   BookFormatSbk,
+  BookFormatYbb,
   BookFormatYane2016,
   BookMove as CommonBookMove,
 } from "@/common/book";
 
-export type BookFormat = BookFormatYane2016 | BookFormatApery | BookFormatSbk;
+export type BookFormat = BookFormatYane2016 | BookFormatApery | BookFormatSbk | BookFormatYbb;
 
 export type YaneBook = {
   format: BookFormatYane2016;
@@ -26,7 +27,14 @@ export type SbkBook = {
   rawData?: Uint8Array;
 };
 
-export type Book = YaneBook | AperyBook | SbkBook;
+export type YbbBook = {
+  format: BookFormatYbb;
+  entries: Map<string, BookEntry>;
+  recordCount?: bigint;
+  flags?: bigint;
+};
+
+export type Book = YaneBook | AperyBook | SbkBook | YbbBook;
 
 export type SbkOnTheFlyLUT = {
   table: Uint32Array;

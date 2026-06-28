@@ -249,6 +249,36 @@ describe("background/book", () => {
       });
     });
 
+    describe("yaneuraou.ybb", () => {
+      const patterns = [
+        { options: { onTheFlyThresholdMB: 0.01 }, mode: "in-memory" },
+        { options: { onTheFlyThresholdMB: 0.0001 }, mode: "on-the-fly" },
+      ];
+      for (const pattern of patterns) {
+        it(`mode=${pattern.mode}`, async () => {
+          const mode = await openBook(
+            defaultBookSession,
+            "src/tests/testdata/book/yaneuraou.ybb",
+            pattern.options,
+          );
+          expect(mode).toBe(pattern.mode);
+          expect(getBookFormat(defaultBookSession)).toBe("ybb");
+
+          const moves = await searchBookMoves(
+            defaultBookSession,
+            "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+          );
+          expect(moves).toHaveLength(5);
+          expect(moves[0].usi).toBe("2g2f");
+          expect(moves[0].score).toBe(63);
+          expect(moves[0].depth).toBe(27);
+          expect(moves[1].usi).toBe("7g7f");
+          expect(moves[1].score).toBe(20);
+          expect(moves[1].depth).toBe(25);
+        });
+      }
+    });
+
     it("newSession", async () => {
       const usedSessions = new Set<number>();
       for (let i = 0; i < 3; i++) {
@@ -384,6 +414,24 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
         comment: "",
       });
     });
+
+    it("ybb", async () => {
+      await openBook(defaultBookSession, "src/tests/testdata/book/yaneuraou.ybb");
+      const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+      await updateBookMove(defaultBookSession, sfen, {
+        usi: "2g2f",
+        score: 100,
+        depth: 30,
+        count: 999,
+        comment: "",
+      });
+      const moves = await searchBookMoves(defaultBookSession, sfen);
+      expect(moves).toHaveLength(5);
+      expect(moves[0].usi).toBe("2g2f");
+      expect(moves[0].score).toBe(100);
+      expect(moves[0].depth).toBe(30);
+      expect(moves[0].count).toBe(999);
+    });
   });
 
   describe("copy", () => {
@@ -402,6 +450,15 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
       await saveBook(defaultBookSession, copyFilePath);
       const output = fs.readFileSync(copyFilePath, "hex");
       const expected = fs.readFileSync("src/tests/testdata/book/apery.bin", "hex");
+      expect(output).toBe(expected);
+    });
+
+    it("ybb", async () => {
+      const copyFilePath = path.join(tmpdir, "copy.ybb");
+      await openBook(defaultBookSession, "src/tests/testdata/book/yaneuraou.ybb");
+      await saveBook(defaultBookSession, copyFilePath);
+      const output = fs.readFileSync(copyFilePath, "hex");
+      const expected = fs.readFileSync("src/tests/testdata/book/yaneuraou.ybb", "hex");
       expect(output).toBe(expected);
     });
 
@@ -767,6 +824,35 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
       await saveBook(defaultBookSession, mergeFilePath2);
       const output2 = fs.readFileSync(mergeFilePath2, "hex");
       expect(output2).toBe(expected);
+    });
+
+    it("ybb", async () => {
+      const mode = await openBook(defaultBookSession, "src/tests/testdata/book/yaneuraou.ybb", {
+        onTheFlyThresholdMB: 0.0001,
+      });
+      expect(mode).toBe("on-the-fly");
+
+      await updateBookMove(
+        defaultBookSession,
+        "lnsgkgsnl/1r5b1/ppppppppp/9/9/7P1/PPPPPPP1P/1B5R1/LNSGKGSNL w - 1",
+        { usi: "3c3d", score: -123, depth: 41, comment: "" },
+      );
+      await updateBookMove(
+        defaultBookSession,
+        "lnsgkgsnl/1r5b1/pppppp1pp/6p2/9/7P1/PPPPPPP1P/1B5R1/LNSGKGSNL b - 1",
+        { usi: "7g7f", depth: 39, comment: "" },
+      );
+      await updateBookMove(
+        defaultBookSession,
+        "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+        { usi: "2h7h", score: 43, comment: "" },
+      );
+
+      const mergeFilePath = path.join(tmpdir, "merge.ybb");
+      await saveBook(defaultBookSession, mergeFilePath);
+      const output = fs.readFileSync(mergeFilePath, "hex");
+      const expected = fs.readFileSync("src/tests/testdata/book/yaneuraou-edit.ybb", "hex");
+      expect(output).toBe(expected);
     });
 
     it("forbidOverwrite", async () => {

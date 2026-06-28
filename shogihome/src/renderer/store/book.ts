@@ -19,6 +19,9 @@ function getBookFormatByPath(path: string): BookFormat {
   if (path.endsWith(".sbk")) {
     return "sbk";
   }
+  if (path.endsWith(".ybb")) {
+    return "ybb";
+  }
   return "yane2016";
 }
 
@@ -28,6 +31,8 @@ function getBookExtension(format: BookFormat): string {
       return ".bin";
     case "sbk":
       return ".sbk";
+    case "ybb":
+      return ".ybb";
     default:
       return ".db";
   }

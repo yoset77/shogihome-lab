@@ -564,6 +564,7 @@ export const zh_tw: Texts = {
   commentFormat: "註解形式",
   moveEvaluation: "著手評價",
   yane2016BookFile: "YaneuraOu 定跡檔案",
+  ybbBookFile: "YaneuraOu 二進制定跡檔案",
   shogiGUIBookFile: "ShogiGUI 定跡檔案",
   aperyBookFile: "Apery 定跡檔案",
   gothic: "黑體",
