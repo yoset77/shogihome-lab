@@ -131,59 +131,72 @@ export const kifuRoutes = new Hono<AppEnv>()
     return c.json({ enabled: !!KIFU_DIR });
   })
 
-  .get("/get", async (c) => {
-    if (!KIFU_DIR) {
-      return sendError(c, 404, "KIFU_DIR is not configured");
-    }
-    const relPath = c.req.query("path");
-    if (typeof relPath !== "string") {
-      return sendError(c, 400, "path is required");
-    }
-    const fullPath = resolveKifuPath(KIFU_DIR, relPath);
-    if (!fullPath) {
-      return sendError(c, 403, "forbidden");
-    }
-    const data = await fs.promises.readFile(fullPath);
-    return c.body(data, 200, { "Content-Type": "application/octet-stream" });
-  })
+  .get(
+    "/get",
+    validator("query", (value) => ({ path: getString(value.path) })),
+    async (c) => {
+      if (!KIFU_DIR) {
+        return sendError(c, 404, "KIFU_DIR is not configured");
+      }
+      const { path: relPath } = c.req.valid("query");
+      if (typeof relPath !== "string") {
+        return sendError(c, 400, "path is required");
+      }
+      const fullPath = resolveKifuPath(KIFU_DIR, relPath);
+      if (!fullPath) {
+        return sendError(c, 403, "forbidden");
+      }
+      const data = await fs.promises.readFile(fullPath);
+      return c.body(data, 200, { "Content-Type": "application/octet-stream" });
+    },
+  )
 
-  .post("/save", createBodyLimit(LARGE_BODY_LIMIT), async (c) => {
-    if (!KIFU_DIR) {
-      return sendError(c, 404, "KIFU_DIR is not configured");
-    }
-    const relPath = c.req.query("path");
-    if (typeof relPath !== "string") {
-      return sendError(c, 400, "path is required");
-    }
-    const fullPath = resolveKifuPath(KIFU_DIR, relPath);
-    if (!fullPath) {
-      return sendError(c, 403, "forbidden");
-    }
-    await writeFileAtomic(fullPath, Buffer.from(await c.req.arrayBuffer()));
-    clearKifuListCache();
-    return c.text("ok");
-  });
+  .post(
+    "/save",
+    createBodyLimit(LARGE_BODY_LIMIT),
+    validator("query", (value) => ({ path: getString(value.path) })),
+    async (c) => {
+      if (!KIFU_DIR) {
+        return sendError(c, 404, "KIFU_DIR is not configured");
+      }
+      const { path: relPath } = c.req.valid("query");
+      if (typeof relPath !== "string") {
+        return sendError(c, 400, "path is required");
+      }
+      const fullPath = resolveKifuPath(KIFU_DIR, relPath);
+      if (!fullPath) {
+        return sendError(c, 403, "forbidden");
+      }
+      await writeFileAtomic(fullPath, Buffer.from(await c.req.arrayBuffer()));
+      clearKifuListCache();
+      return c.text("ok");
+    },
+  );
 
 export const sfenRoutes = new Hono<AppEnv>()
-  .get("/load", async (c) => {
-    if (!KIFU_DIR) {
-      return sendError(c, 404, "KIFU_DIR is not configured");
-    }
-    const relPath = c.req.query("path");
-    if (!relPath) {
-      return sendError(c, 400, "path is required");
-    }
-    const fullPath = resolveKifuPath(KIFU_DIR, relPath);
-    if (!fullPath || !fullPath.endsWith(".sfen")) {
-      return sendError(c, 403, "Invalid path or unsupported file type");
-    }
-    const content = await fs.promises.readFile(fullPath, "utf-8");
-    const lines = content
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0 && !line.startsWith("#"));
-    return c.json({ lines });
-  })
+  .get(
+    "/load",
+    validator("query", (value) => ({ path: getString(value.path) })),
+    async (c) => {
+      if (!KIFU_DIR) {
+        return sendError(c, 404, "KIFU_DIR is not configured");
+      }
+      const { path: relPath } = c.req.valid("query");
+      if (!relPath) {
+        return sendError(c, 400, "path is required");
+      }
+      const fullPath = resolveKifuPath(KIFU_DIR, relPath);
+      if (!fullPath || !fullPath.endsWith(".sfen")) {
+        return sendError(c, 403, "Invalid path or unsupported file type");
+      }
+      const content = await fs.promises.readFile(fullPath, "utf-8");
+      const lines = content
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !line.startsWith("#"));
+      return c.json({ lines });
+    },
+  )
 
   .get("/list", async (c) => {
     if (!KIFU_DIR) {

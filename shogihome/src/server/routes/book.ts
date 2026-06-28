@@ -181,10 +181,11 @@ export const bookRoutes = new Hono<AppEnv>()
     validator("query", (value) => ({
       sfen: getString(value.sfen),
       usi: getString(value.usi),
-      order: getOptionalInt(value.order),
+      order: getString(value.order),
     })),
     async (c) => {
-      const { sfen, usi, order } = c.req.valid("query");
+      const { sfen, usi, order: orderValue } = c.req.valid("query");
+      const order = getOptionalInt(orderValue);
       if (typeof sfen !== "string" || typeof usi !== "string" || typeof order !== "number") {
         return sendError(c, 400, "sfen, usi and order are required");
       }

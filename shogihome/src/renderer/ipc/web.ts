@@ -22,7 +22,11 @@ import { decodeText } from "@/common/helpers/encode";
 import { toJpeg, toPng } from "html-to-image";
 import dayjs from "dayjs";
 import { Rect } from "@/common/assets/geometry";
-import { createHonoApiClient, parseJsonResponse } from "@/renderer/api/client";
+import {
+  createApiRequestOptions,
+  createHonoApiClient,
+  parseJsonResponse,
+} from "@/renderer/api/client";
 
 enum STORAGE_KEY {
   APP_SETTINGS = "appSetting",
@@ -42,29 +46,18 @@ import { generateSessionId } from "@/renderer/helpers/unique";
 const webBookSessionId = generateSessionId();
 const apiClient = createHonoApiClient({ getBookSessionId: () => webBookSessionId });
 
-async function fetchWithTimeout(
-  url: string,
-  init?: RequestInit,
-  timeoutMs = 10000,
-  sessionId?: string,
-): Promise<Response> {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(new Error("Request timeout")), timeoutMs);
-
-  const headers = new Headers(init?.headers);
-  headers.set("X-Book-Session-Id", sessionId || webBookSessionId);
-
-  try {
-    const response = await fetch(url, {
-      ...init,
-      headers,
-      signal: controller.signal,
-    });
-    return response;
-  } finally {
-    clearTimeout(id);
-  }
-}
+const apiOptions = (options: {
+  timeoutMs?: number;
+  sessionId?: string;
+  headers?: Record<string, string>;
+  body?: BodyInit;
+}) =>
+  createApiRequestOptions({
+    timeoutMs: options.timeoutMs,
+    bookSessionId: options.sessionId,
+    headers: options.headers,
+    init: options.body === undefined ? undefined : { body: options.body },
+  });
 
 async function exportCapture(
   type: "png" | "jpeg",
@@ -270,7 +263,7 @@ export const webAPI: Bridge = {
     }
     if (uri.startsWith("server://")) {
       const relPath = uri.substring(9);
-      const response = await fetchWithTimeout(`/api/kifu/get?path=${encodeURIComponent(relPath)}`);
+      const response = await apiClient.api.kifu.get.$get({ query: { path: relPath } });
       if (!response.ok) {
         throw new Error(await response.text());
       }
@@ -309,7 +302,7 @@ export const webAPI: Bridge = {
   },
   async loadRecordFileHistory(): Promise<string> {
     try {
-      const response = await fetchWithTimeout("/api/history");
+      const response = await apiClient.api.history.$get();
       if (response.ok) {
         const data = await response.json();
         return JSON.stringify(data);
@@ -328,32 +321,31 @@ export const webAPI: Bridge = {
       }
       return;
     }
-    fetchWithTimeout("/api/history/add", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ path }),
-    }).catch(() => {
-      // Ignore errors silently
-    });
+    apiClient.api.history.add
+      .$post(
+        undefined,
+        apiOptions({
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path }),
+        }),
+      )
+      .catch(() => {
+        // Ignore errors silently
+      });
   },
   async clearRecordFileHistory(): Promise<void> {
     try {
-      await fetchWithTimeout("/api/history/clear", { method: "POST" });
+      await apiClient.api.history.clear.$post();
     } catch {
       // Ignore errors
     }
   },
   async saveRecordFileBackup(kif: string): Promise<void> {
     try {
-      await fetchWithTimeout("/api/history/backup", {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain",
-        },
-        body: kif,
-      });
+      await apiClient.api.history.backup.$post(
+        undefined,
+        apiOptions({ headers: { "Content-Type": "text/plain" }, body: kif }),
+      );
     } catch {
       // Ignore errors silently
     }
@@ -362,7 +354,7 @@ export const webAPI: Bridge = {
     throw new Error(t.thisFeatureNotAvailableOnWebApp);
   },
   async loadRemoteTextFile(url: string): Promise<string> {
-    const response = await fetchWithTimeout(`/api/fetch-remote?url=${encodeURIComponent(url)}`);
+    const response = await apiClient.api["fetch-remote"].$get({ query: { url } });
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`Failed to fetch remote text: ${response.status} ${text}`);
@@ -377,7 +369,7 @@ export const webAPI: Bridge = {
       throw new Error("Only server-side SFEN files are supported");
     }
     const relPath = path.substring(9);
-    const response = await fetchWithTimeout(`/api/sfen/load?path=${encodeURIComponent(relPath)}`);
+    const response = await apiClient.api.sfen.load.$get({ query: { path: relPath } });
     if (!response.ok) {
       throw new Error(await response.text());
     }
@@ -418,15 +410,14 @@ export const webAPI: Bridge = {
       throw new Error("Only server-side books are supported");
     }
     const relPath = path.substring(9);
-    const response = await fetchWithTimeout(
-      `/api/book/open?path=${encodeURIComponent(relPath)}`,
-      {
-        method: "POST",
+    const response = await apiClient.api.book.open.$post(
+      { query: { path: relPath } },
+      apiOptions({
+        timeoutMs: 60000,
+        sessionId,
         headers: { "Content-Type": "application/json" },
         body: options,
-      },
-      60000,
-      sessionId,
+      }),
     );
     if (!response.ok) {
       throw new Error(await response.text());
@@ -439,46 +430,30 @@ export const webAPI: Bridge = {
       throw new Error("Only server-side books are supported");
     }
     const relPath = path.substring(9);
-    const response = await fetchWithTimeout(
-      `/api/book/save?path=${encodeURIComponent(relPath)}`,
-      {
-        method: "POST",
-      },
-      600000,
-      sessionId,
+    const response = await apiClient.api.book.save.$post(
+      { query: { path: relPath } },
+      apiOptions({ timeoutMs: 600000, sessionId }),
     );
     if (!response.ok) {
       throw new Error(await response.text());
     }
   },
   async closeBookSession(sessionId: string): Promise<void> {
-    const response = await fetchWithTimeout(
-      "/api/book/close",
-      { method: "POST" },
-      10000,
-      sessionId,
-    );
+    const response = await apiClient.api.book.close.$post(undefined, apiOptions({ sessionId }));
     if (!response.ok) {
       throw new Error(await response.text());
     }
   },
   async clearBook(sessionId?: string): Promise<void> {
-    const response = await fetchWithTimeout(
-      "/api/book/clear",
-      { method: "POST" },
-      10000,
-      sessionId,
-    );
+    const response = await apiClient.api.book.clear.$post(undefined, apiOptions({ sessionId }));
     if (!response.ok) {
       throw new Error(await response.text());
     }
   },
   async searchBookMoves(sfen: string, sessionId?: string): Promise<string> {
-    const response = await fetchWithTimeout(
-      `/api/book/search?sfen=${encodeURIComponent(sfen)}`,
-      undefined,
-      10000,
-      sessionId,
+    const response = await apiClient.api.book.search.$get(
+      { query: { sfen } },
+      apiOptions({ sessionId }),
     );
     if (!response.ok) {
       throw new Error(await response.text());
@@ -487,15 +462,14 @@ export const webAPI: Bridge = {
     return JSON.stringify(json);
   },
   async searchBookMovesBatch(sfens: string[], sessionId?: string): Promise<string> {
-    const response = await fetchWithTimeout(
-      "/api/book/search/batch",
-      {
-        method: "POST",
+    const response = await apiClient.api.book.search.batch.$post(
+      undefined,
+      apiOptions({
+        timeoutMs: 60000,
+        sessionId,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sfens }),
-      },
-      60000,
-      sessionId,
+      }),
     );
     if (!response.ok) {
       throw new Error(await response.text());
@@ -504,26 +478,22 @@ export const webAPI: Bridge = {
     return JSON.stringify(json);
   },
   async updateBookMove(sfen: string, move: string, sessionId?: string): Promise<void> {
-    const response = await fetchWithTimeout(
-      `/api/book/update?sfen=${encodeURIComponent(sfen)}`,
-      {
-        method: "POST",
+    const response = await apiClient.api.book.update.$post(
+      { query: { sfen } },
+      apiOptions({
+        sessionId,
         headers: { "Content-Type": "application/json" },
         body: move,
-      },
-      10000,
-      sessionId,
+      }),
     );
     if (!response.ok) {
       throw new Error(await response.text());
     }
   },
   async removeBookMove(sfen: string, usi: string, sessionId?: string): Promise<void> {
-    const response = await fetchWithTimeout(
-      `/api/book/remove?sfen=${encodeURIComponent(sfen)}&usi=${encodeURIComponent(usi)}`,
-      { method: "POST" },
-      10000,
-      sessionId,
+    const response = await apiClient.api.book.remove.$post(
+      { query: { sfen, usi } },
+      apiOptions({ sessionId }),
     );
     if (!response.ok) {
       throw new Error(await response.text());
@@ -535,26 +505,23 @@ export const webAPI: Bridge = {
     order: number,
     sessionId?: string,
   ): Promise<void> {
-    const response = await fetchWithTimeout(
-      `/api/book/order?sfen=${encodeURIComponent(sfen)}&usi=${encodeURIComponent(usi)}&order=${order}`,
-      { method: "POST" },
-      10000,
-      sessionId,
+    const response = await apiClient.api.book.order.$post(
+      { query: { sfen, usi, order: String(order) } },
+      apiOptions({ sessionId }),
     );
     if (!response.ok) {
       throw new Error(await response.text());
     }
   },
   async importBookMoves(json: string, sessionId?: string): Promise<string> {
-    const response = await fetchWithTimeout(
-      "/api/book/import",
-      {
-        method: "POST",
+    const response = await apiClient.api.book.import.$post(
+      undefined,
+      apiOptions({
+        timeoutMs: 600000,
+        sessionId,
         headers: { "Content-Type": "application/json" },
         body: json,
-      },
-      600000,
-      sessionId,
+      }),
     );
     if (!response.ok) {
       throw new Error(await response.text());
@@ -796,18 +763,11 @@ export const webAPI: Bridge = {
     }
   },
   async listServerKifu(dir?: string, reload?: boolean): Promise<KifuListEntry[]> {
-    const url = new URL("/api/kifu/list", location.href);
-    if (dir) {
-      url.searchParams.set("dir", dir);
-    }
-    if (reload) {
-      url.searchParams.set("reload", "true");
-    }
-    const response = await fetchWithTimeout(url.toString());
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-    return await response.json();
+    return await parseJsonResponse<KifuListEntry[]>(
+      await apiClient.api.kifu.list.$get({
+        query: { dir, reload: reload ? "true" : "" },
+      }),
+    );
   },
   async searchServerKifu(params: {
     sfen?: string;
@@ -819,20 +779,19 @@ export const webAPI: Bridge = {
     limit?: number;
     offset?: number;
   }): Promise<KifuSearchResult[]> {
-    const query = new URLSearchParams();
-    if (params.sfen) query.append("sfen", params.sfen);
-    if (params.keyword) query.append("keyword", params.keyword);
-    if (params.player1) query.append("player1", params.player1);
-    if (params.player2) query.append("player2", params.player2);
-    if (params.isStrictTurn) query.append("isStrictTurn", "true");
-    if (params.startDate) query.append("startDate", params.startDate);
-    if (params.limit) query.append("limit", params.limit.toString());
-    if (params.offset) query.append("offset", params.offset.toString());
-    const response = await fetchWithTimeout(`/api/kifu/search?${query.toString()}`);
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-    return await response.json();
+    const response = await apiClient.api.kifu.search.$get({
+      query: {
+        sfen: params.sfen,
+        keyword: params.keyword,
+        player1: params.player1,
+        player2: params.player2,
+        isStrictTurn: params.isStrictTurn ? "true" : "",
+        startDate: params.startDate,
+        limit: params.limit,
+        offset: params.offset,
+      },
+    });
+    return await parseJsonResponse<KifuSearchResult[]>(response);
   },
   async getServerKifuIndexStatus(): Promise<{
     total: number;
@@ -848,7 +807,7 @@ export const webAPI: Bridge = {
     return await parseJsonResponse(await apiClient.api.sfen.list.$get());
   },
   async loadServerKifu(path: string): Promise<string> {
-    const response = await fetchWithTimeout(`/api/kifu/get?path=${encodeURIComponent(path)}`);
+    const response = await apiClient.api.kifu.get.$get({ query: { path } });
     if (!response.ok) {
       throw new Error(await response.text());
     }
@@ -858,12 +817,13 @@ export const webAPI: Bridge = {
     return fileURI;
   },
   async saveServerKifu(path: string, data: Uint8Array): Promise<void> {
-    const response = await fetchWithTimeout(`/api/kifu/save?path=${encodeURIComponent(path)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      body: data as any,
-    });
+    const response = await apiClient.api.kifu.save.$post(
+      { query: { path } },
+      apiOptions({
+        headers: { "Content-Type": "application/octet-stream" },
+        body: data as unknown as BodyInit,
+      }),
+    );
     if (!response.ok) {
       throw new Error(await response.text());
     }
