@@ -560,6 +560,7 @@ export type Texts = {
   commentFormat: string;
   moveEvaluation: string;
   yane2016BookFile: string;
+  ybbBookFile: string;
   shogiGUIBookFile: string;
   aperyBookFile: string;
   gothic: string;

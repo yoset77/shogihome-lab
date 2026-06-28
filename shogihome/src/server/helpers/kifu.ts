@@ -4,7 +4,7 @@ import { watch, FSWatcher } from "chokidar";
 import { normalizePath } from "@/common/helpers/path";
 
 export const SUPPORTED_EXTENSIONS = [".kif", ".kifu", ".ki2", ".ki2u", ".csa", ".jkf"];
-const BOOK_EXTENSIONS = [".db", ".bin", ".sbk"];
+const BOOK_EXTENSIONS = [".db", ".bin", ".sbk", ".ybb"];
 const POSITION_EXTENSIONS = [".sfen"];
 const MAX_DEPTH = 10;
 const MAX_FILES = 100000;

@@ -568,6 +568,7 @@ export const en: Texts = {
   commentFormat: "Comment Format",
   moveEvaluation: "Move Evaluation",
   yane2016BookFile: "YaneuraOu Book File",
+  ybbBookFile: "YaneuraOu Binary Book File",
   shogiGUIBookFile: "ShogiGUI Book File",
   aperyBookFile: "Apery Book File",
   gothic: "Gothic",

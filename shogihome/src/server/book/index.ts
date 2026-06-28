@@ -44,6 +44,13 @@ import {
   searchSbkBookEntryOnTheFly,
   storeSbkBook,
 } from "./sbk.js";
+import {
+  loadYbbBook,
+  mergeYbbBook,
+  openYbbBookOnTheFly,
+  searchYbbBookMovesOnTheFly,
+  storeYbbBook,
+} from "./ybb.js";
 
 type BookHandle = InMemoryBook | OnTheFlyBook;
 
@@ -145,6 +152,20 @@ async function retrieveMergedEntry(book: BookHandle, sfen: string): Promise<Book
         await searchSbkBookEntryOnTheFly(sfen, book.rawData, book.sbkIndex),
         book.entries.get(sfen),
       );
+    case "ybb": {
+      const entry = book.entries.get(sfen);
+      if (book.type === "in-memory" || entry?.type === "normal") {
+        return entry;
+      }
+      const base = await searchYbbBookMovesOnTheFly(
+        sfen,
+        book.file!,
+        book.size,
+        book.recordCount!,
+        book.flags!,
+      );
+      return mergeBookEntries(base, entry);
+    }
   }
 }
 
@@ -152,6 +173,7 @@ function storeEntry(book: BookHandle, sfen: string, entry: BookEntry): void {
   switch (book.format) {
     case "yane2016":
     case "sbk":
+    case "ybb":
       book.entries.set(sfen, entry);
       break;
     case "apery":
@@ -175,6 +197,15 @@ function emptyBook(format: BookFormat = "yane2016"): BookHandle {
     return {
       type: "in-memory",
       format: "sbk",
+      entries: new Map<string, BookEntry>(),
+      saved: true,
+      busy: false,
+    };
+  }
+  if (format === "ybb") {
+    return {
+      type: "in-memory",
+      format: "ybb",
       entries: new Map<string, BookEntry>(),
       saved: true,
       busy: false,
@@ -222,7 +253,20 @@ function getFormatByPath(path: string): BookFormat {
   if (path.endsWith(".sbk")) {
     return "sbk";
   }
+  if (path.endsWith(".ybb")) {
+    return "ybb";
+  }
   return "apery";
+}
+
+function closeWriteStream(stream: fs.WriteStream): Promise<void> {
+  return new Promise((resolve, reject) => {
+    stream.once("error", reject);
+    stream.end(() => {
+      stream.off("error", reject);
+      resolve();
+    });
+  });
 }
 
 async function openBookOnTheFly(session: number, path: string, size: number): Promise<void> {
@@ -236,6 +280,16 @@ async function openBookOnTheFly(session: number, path: string, size: number): Pr
       saved: true,
       busy: false,
       ...(await loadSbkBookOnTheFly(path)),
+    });
+    return;
+  }
+  if (format === "ybb") {
+    replaceBook(session, {
+      path,
+      saved: true,
+      busy: false,
+      type: "on-the-fly",
+      ...(await openYbbBookOnTheFly(path)),
     });
     return;
   }
@@ -287,6 +341,9 @@ async function openBookInMemory(session: number, path: string, size: number): Pr
         book = loadSbkBook(data);
         break;
       }
+      case "ybb":
+        book = await loadYbbBook(path);
+        break;
       case "apery":
         file = fs.createReadStream(path, { highWaterMark: 1024 * 1024 });
         book = await loadAperyBook(file);
@@ -409,6 +466,26 @@ export async function saveBook(session: number, filePath: string) {
             }
             await storeSbkBook(book, file);
             break;
+          case "ybb":
+            if (!filePath.endsWith(".ybb")) {
+              throw new Error("Invalid file extension: " + filePath);
+            }
+            await closeWriteStream(file);
+            if (typeof file.path !== "string") {
+              throw new Error("Invalid temporary file path");
+            }
+            if (book.type === "in-memory") {
+              await storeYbbBook(book.entries, file.path);
+            } else {
+              await mergeYbbBook(
+                book.file!,
+                book.recordCount!,
+                book.flags!,
+                book.entries,
+                file.path,
+              );
+            }
+            break;
         }
       },
       {
@@ -518,7 +595,7 @@ export async function updateBookMove(session: number, sfen: string, move: Common
     throw new Error(t.processingPleaseWait);
   }
   const entry = await retrieveMergedEntry(book, sfen);
-  if (book.format === "yane2016" || book.format === "sbk") {
+  if (book.format === "yane2016" || book.format === "sbk" || book.format === "ybb") {
     if (entry) {
       updateBookEntry(entry, move);
       book.entries.set(sfen, entry);

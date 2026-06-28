@@ -28,6 +28,33 @@ describe("background/book/packed_sfen", () => {
     }
   });
 
+  it("matches YaneuraOu packed SFEN bytes", () => {
+    const testCases = [
+      {
+        sfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+        expected: "58a451220ceb67227e9653221caf447824c22b119e53221ceb6f223e9651220c",
+      },
+      {
+        sfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPP1/1B5R1/LNSGKGSNL b P 1",
+        expected: "58a4518261fd4cc4cf724a84e395088f447825c2734a8463fd4dc4c7324a8401",
+      },
+      {
+        sfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1",
+        expected: "59a451220ceb67227e9653221caf447824c22b119e53221ceb6f223e9651220c",
+      },
+      {
+        sfen: "4k4/9/9/9/9/9/9/9/4K4 b 2R2B4G4S4N4L18P 1",
+        expected: "582400000000000000000000000000000000104208a59432c618e79cf3787c3e",
+      },
+    ];
+    for (const { sfen, expected } of testCases) {
+      const packed = sfenToPackedSfen(sfen);
+      expect(Buffer.from(packed.buffer, packed.byteOffset, packed.byteLength).toString("hex")).toBe(
+        expected,
+      );
+    }
+  });
+
   it("rejects malformed SFEN", () => {
     expect(() => sfenToPackedSfen("invalid")).toThrow("Invalid SFEN");
   });

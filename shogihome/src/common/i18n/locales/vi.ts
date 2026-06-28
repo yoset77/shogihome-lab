@@ -567,6 +567,7 @@ export const vi: Texts = {
   commentFormat: "Định dạng chú thích",
   moveEvaluation: "Đánh giá nước đi",
   yane2016BookFile: "Tệp định thức YaneuraOu",
+  ybbBookFile: "Tệp định thức nhị phân YaneuraOu",
   shogiGUIBookFile: "Tệp định thức ShogiGUI",
   aperyBookFile: "Tệp định thức Apery",
   gothic: "Gothic",
