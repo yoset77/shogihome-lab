@@ -21,11 +21,7 @@
               <span v-if="move.score !== undefined">{{ t.score }} {{ move.score }}</span>
             </td>
             <td v-if="move.type === 'move'">
-              <button
-                v-if="!move.exists || move.scoreUpdatable"
-                class="thin"
-                @click="registerMove(move)"
-              >
+              <button v-if="canRegisterMove(move)" class="thin" @click="registerMove(move)">
                 {{ move.exists ? t.update : t.register }}
               </button>
             </td>
@@ -142,6 +138,9 @@
       </div>
     </div>
     <div v-show="activeTab === 'memory' && inMemoryList.length">
+      <div class="form-item">
+        <ToggleButton v-model:value="importScoreDepth" :label="t.importScoreDepth" />
+      </div>
       <button class="register-all" @click="registerAllMoves">{{ t.importAll }}</button>
     </div>
     <div v-show="activeTab === 'directory' || activeTab === 'file'">
@@ -168,6 +167,7 @@ import { BookMove } from "@/common/book";
 import { IconType } from "@/renderer/assets/icons";
 import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
+import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import api, { isNative } from "@/renderer/ipc/api";
 import { normalizePath } from "@/common/helpers/path";
 import {
@@ -204,6 +204,7 @@ type Branch = {
 type Tab = "memory" | "file" | "directory";
 
 const STORAGE_KEY = "addBookMovesDialog:tab";
+const STORAGE_KEY_IMPORT_SCORE_DEPTH = "addBookMovesDialog:importScoreDepth";
 const tabs: Tab[] = ["memory", "file", "directory"];
 const storedTab = localStorage.getItem(STORAGE_KEY);
 
@@ -223,6 +224,7 @@ const bookStore = useBookStore();
 const errorStore = useErrorStore();
 const busyState = useBusyState();
 const activeTab = ref<Tab>(tabs.includes(storedTab as Tab) ? (storedTab as Tab) : "memory");
+const importScoreDepth = ref(localStorage.getItem(STORAGE_KEY_IMPORT_SCORE_DEPTH) !== "false");
 const settings = ref(defaultBookImportSettings());
 const inMemoryList = ref<(InMemoryMove | Branch)[]>([]);
 const serverSelectionList = ref<KifuListEntry[]>([]);
@@ -238,6 +240,10 @@ const setCurrentMoveRow = (move: InMemoryMove | Branch, el: unknown) => {
 watch(activeTab, (tab) => {
   localStorage.setItem(STORAGE_KEY, tab);
   serverSelectionList.value = [];
+});
+
+watch(importScoreDepth, (value) => {
+  localStorage.setItem(STORAGE_KEY_IMPORT_SCORE_DEPTH, String(value));
 });
 
 const breadcrumbs = computed(() => {
@@ -360,13 +366,18 @@ const onClose = () => {
   store.closeModalDialog();
 };
 
+const canRegisterMove = (move: InMemoryMove): boolean => {
+  return !move.exists || (importScoreDepth.value && move.scoreUpdatable);
+};
+
 const registerAllMoves = () => {
   useConfirmationStore().show({
     message: t.doYouWantToImportAllMoves,
     onOk: async () => {
       let added = 0;
       for (const item of inMemoryList.value) {
-        if (item.type === "move" && (!item.exists || item.scoreUpdatable)) {
+        if (item.type !== "move") continue;
+        if (canRegisterMove(item)) {
           await registerMove(item);
           added++;
         }
@@ -380,11 +391,18 @@ const registerAllMoves = () => {
 
 const registerMove = async (move: InMemoryMove) => {
   try {
-    await bookStore.updateMove(move.sfen, {
-      ...move.book,
-      score: move.score,
-      depth: move.depth,
-    });
+    if (importScoreDepth.value) {
+      await bookStore.updateMove(move.sfen, {
+        ...move.book,
+        score: move.score,
+        depth: move.depth,
+      });
+    } else {
+      await bookStore.updateMove(move.sfen, {
+        usi: move.book.usi,
+        comment: move.book.comment,
+      });
+    }
     move.exists = true;
     move.scoreUpdatable = false;
   } catch (e) {

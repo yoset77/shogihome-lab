@@ -621,6 +621,7 @@ export const zh_tw: Texts = {
   register: "登録", // TODO: Translate
   update: "更新", // TODO: Translate
   importAll: "全て反映", // TODO: Translate
+  importScoreDepth: "評価値・深さを取り込む", // TODO: Translate
   doYouWantToImportAllMoves: "全ての手を反映しますか？", // TODO: Translate
   importedMoves: (n: number) => `${n}手を定跡に反映しました。`, // TODO: Translate
   currentMove: "現在の手", // TODO: Translate
