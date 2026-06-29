@@ -630,6 +630,7 @@ export const zh_tw: Texts = {
   blackPlayerOnly: "先手のみ", // TODO: Translate
   whitePlayerOnly: "後手のみ", // TODO: Translate
   filterByName: "名前でフィルタ", // TODO: Translate
+  importScoreFromComment: "コメントから評価値を取り込む", // TODO: Translate
   enterPartOfPlayerNameHere: "ここに対局者名の一部を入力", // TODO: Translate
   freq: "出現次數",
   frequency: "出現次數",

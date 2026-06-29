@@ -1,4 +1,5 @@
 import {
+  defaultBookImportSettings,
   normalizeBookImportSettings,
   PlayerCriteria,
   SourceType,
@@ -15,6 +16,7 @@ describe("settings/book", () => {
         minPly: 0,
         maxPly: 10,
         playerCriteria: PlayerCriteria.ALL,
+        importScore: true,
       }),
     ).toBeUndefined();
     expect(
@@ -25,6 +27,7 @@ describe("settings/book", () => {
         minPly: 0,
         maxPly: 10,
         playerCriteria: PlayerCriteria.ALL,
+        importScore: true,
       }),
     ).toBeInstanceOf(Error);
     expect(
@@ -35,6 +38,7 @@ describe("settings/book", () => {
         minPly: 20,
         maxPly: 10,
         playerCriteria: PlayerCriteria.ALL,
+        importScore: true,
       }),
     ).toBeInstanceOf(Error);
     expect(
@@ -46,6 +50,7 @@ describe("settings/book", () => {
         maxPly: 10,
         playerCriteria: PlayerCriteria.FILTER_BY_NAME,
         playerName: "player",
+        importScore: true,
       }),
     ).toBeUndefined();
     expect(
@@ -56,6 +61,7 @@ describe("settings/book", () => {
         minPly: 0,
         maxPly: 10,
         playerCriteria: PlayerCriteria.FILTER_BY_NAME,
+        importScore: true,
       }),
     ).toBeInstanceOf(Error);
     expect(
@@ -66,6 +72,7 @@ describe("settings/book", () => {
         minPly: 0,
         maxPly: 100,
         playerCriteria: PlayerCriteria.ALL,
+        importScore: true,
       }),
     ).toBeUndefined();
     expect(
@@ -76,6 +83,7 @@ describe("settings/book", () => {
         minPly: 0,
         maxPly: 100,
         playerCriteria: PlayerCriteria.ALL,
+        importScore: true,
       }),
     ).toBeUndefined();
     expect(
@@ -86,6 +94,7 @@ describe("settings/book", () => {
         minPly: 0,
         maxPly: 100,
         playerCriteria: PlayerCriteria.ALL,
+        importScore: true,
       }),
     ).toBeUndefined();
     expect(
@@ -96,6 +105,7 @@ describe("settings/book", () => {
         minPly: 0,
         maxPly: 100,
         playerCriteria: PlayerCriteria.ALL,
+        importScore: true,
       }),
     ).toBeInstanceOf(Error);
   });
@@ -109,7 +119,32 @@ describe("settings/book", () => {
         minPly: 0,
         maxPly: 100,
         playerCriteria: PlayerCriteria.ALL,
-      }).sourceType,
+      } as never).sourceType,
     ).toBe(SourceType.FILE);
+
+    const full = {
+      sourceType: SourceType.FILE,
+      sourceDirectory: "/dir",
+      sourceRecordFile: "/dir/game.kif",
+      minPly: 5,
+      maxPly: 50,
+      playerCriteria: PlayerCriteria.BLACK,
+      playerName: "Fujii",
+      importScore: false,
+    };
+    expect(normalizeBookImportSettings(full)).toEqual(full);
+
+    const legacy = {
+      sourceType: SourceType.DIRECTORY,
+      sourceDirectory: "/dir",
+      sourceRecordFile: "",
+      minPly: 0,
+      maxPly: 100,
+      playerCriteria: PlayerCriteria.ALL,
+    };
+    expect(normalizeBookImportSettings(legacy as never)).toEqual({
+      ...defaultBookImportSettings(),
+      ...legacy,
+    });
   });
 });

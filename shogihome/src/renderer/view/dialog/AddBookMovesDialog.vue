@@ -136,6 +136,9 @@
           :placeholder="t.enterPartOfPlayerNameHere"
         />
       </div>
+      <div v-show="activeTab === 'directory' || activeTab === 'file'" class="form-item row">
+        <ToggleButton v-model:value="settings.importScore" :label="t.importScoreFromComment" />
+      </div>
     </div>
     <div v-show="activeTab === 'memory' && inMemoryList.length">
       <div class="form-item">
@@ -161,7 +164,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useBusyState } from "@/renderer/store/busy";
 import { Color, formatMove, ImmutableNode, Move, Position } from "tsshogi";
 import { useBookStore } from "@/renderer/store/book";
-import { RecordCustomData } from "@/renderer/store/record";
+import { RecordCustomData } from "@/common/record/types";
 import { useErrorStore } from "@/renderer/store/error";
 import { BookMove } from "@/common/book";
 import { IconType } from "@/renderer/assets/icons";
