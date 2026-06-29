@@ -626,6 +626,7 @@ export type Texts = {
   blackPlayerOnly: string;
   whitePlayerOnly: string;
   filterByName: string;
+  importScoreFromComment: string;
   enterPartOfPlayerNameHere: string;
   freq: string;
   frequency: string;

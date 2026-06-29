@@ -688,6 +688,63 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
         ),
       ).rejects.toThrow("Forbidden path");
     });
+
+    it("importBookMoves - with score and depth", async () => {
+      await importBookMoves(
+        defaultBookSession,
+        {
+          ...defaultBookImportSettings(),
+          sourceType: SourceType.DIRECTORY,
+          sourceDirectory: "src/tests/testdata/book/source-with-score",
+        },
+        undefined,
+        process.cwd(),
+      );
+      expect(
+        await searchBookMoves(
+          defaultBookSession,
+          "lnsgkgsnl/1r5b1/p1pppp1pp/1p4p2/9/2P6/PP1PPPPPP/1B1R5/LNSGKGSNL b - 1",
+        ),
+      ).toEqual([{ usi: "6g6f", count: 3, depth: 31, score: -72, comment: "" }]);
+      expect(
+        await searchBookMoves(
+          defaultBookSession,
+          "lnsgkgsnl/1r5b1/p1pppp1pp/1p4p2/9/2PP5/PP2PPPPP/1B1R5/LNSGKGSNL w - 1",
+        ),
+      ).toEqual([{ usi: "8d8e", count: 3, depth: 21, score: 97, comment: "" }]);
+      expect(
+        await searchBookMoves(
+          defaultBookSession,
+          "ln1gkgsnl/1r1s3b1/p1pppp1pp/6p2/1p7/2PP5/PPB1PPPPP/3R5/LNSGKGSNL b - 1",
+        ),
+      ).toEqual([{ usi: "1g1f", count: 3, score: 30000, comment: "" }]);
+      expect(
+        await searchBookMoves(
+          defaultBookSession,
+          "ln1gkgsnl/1r1s3b1/p1pppp1pp/6p2/1p7/2PP4P/PPB1PPPP1/3R5/LNSGKGSNL w - 1",
+        ),
+      ).toEqual([{ usi: "5a4b", count: 3, score: 30000, comment: "" }]);
+    });
+
+    it("importBookMoves - importScore: false", async () => {
+      await importBookMoves(
+        defaultBookSession,
+        {
+          ...defaultBookImportSettings(),
+          sourceType: SourceType.DIRECTORY,
+          sourceDirectory: "src/tests/testdata/book/source-with-score",
+          importScore: false,
+        },
+        undefined,
+        process.cwd(),
+      );
+      expect(
+        await searchBookMoves(
+          defaultBookSession,
+          "lnsgkgsnl/1r5b1/p1pppp1pp/1p4p2/9/2P6/PP1PPPPPP/1B1R5/LNSGKGSNL b - 1",
+        ),
+      ).toEqual([{ usi: "6g6f", count: 3, comment: "" }]);
+    });
   });
 
   describe("merge", () => {

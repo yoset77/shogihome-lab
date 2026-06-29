@@ -1,3 +1,10 @@
+import { parseComment } from "@/common/record/comment";
+import { SearchInfoSenderType } from "@/common/record/types";
+import type { RecordCustomData, SearchInfo } from "@/common/record/types";
+
+export type { RecordCustomData, SearchInfo };
+export { SearchInfoSenderType };
+
 import { getDateString, getDateTimeString } from "@/common/helpers/datetime";
 import { TimeLimitSettings } from "@/common/settings/game";
 import {
@@ -49,34 +56,6 @@ import api from "@/renderer/ipc/api";
 import { LogLevel } from "@/common/log";
 import { secondsToMMSS } from "@/common/helpers/time";
 
-export enum SearchInfoSenderType {
-  PLAYER,
-  OPPONENT,
-  RESEARCHER,
-  RESEARCHER_2,
-  RESEARCHER_3,
-  RESEARCHER_4,
-}
-
-export type SearchInfo = {
-  depth?: number; // 探索深さ
-  nodes?: number; // 探索ノード数
-  score?: number; // 先手から見た評価値
-  mate?: number; // 先手勝ちの場合に正の値、後手勝ちの場合に負の値
-  lowerBound?: boolean; // 評価値が下限値（以上）である
-  upperBound?: boolean; // 評価値が上限値（以下）である
-  pv?: Move[];
-};
-
-export type RecordCustomData = {
-  playerSearchInfo?: SearchInfo;
-  opponentSearchInfo?: SearchInfo;
-  researchInfo?: SearchInfo;
-  researchInfo2?: SearchInfo;
-  researchInfo3?: SearchInfo;
-  researchInfo4?: SearchInfo;
-};
-
 type replaceRecordOption = {
   path?: string;
   markAsSaved?: boolean;
@@ -100,97 +79,9 @@ export type PieceSet = {
   king: number;
 };
 
-function parsePlayerMateScoreComment(line: string): number | undefined {
-  const matched = /^\*詰み=(先手勝ち|後手勝ち)(?::([0-9]+)手)?/.exec(line);
-  if (matched) {
-    return Number(matched[2] || SCORE_MATE_INFINITE) * (matched[1] === "先手勝ち" ? 1 : -1);
-  }
-}
-
-function parseResearchMateScoreComment(line: string): number | undefined {
-  const matched = /^#詰み=(先手勝ち|後手勝ち)(?::([0-9]+)手)?/.exec(line);
-  if (matched) {
-    return Number(matched[2] || SCORE_MATE_INFINITE) * (matched[1] === "先手勝ち" ? 1 : -1);
-  }
-}
-
-function parsePlayerScoreComment(line: string): number | undefined {
-  const matched = /^\*評価値=([+-]?[.0-9]+)/.exec(line);
-  return matched ? Number(matched[1]) : undefined;
-}
-
-function parseResearchScoreComment(line: string): number | undefined {
-  const matched = /^#評価値=([+-]?[.0-9]+)/.exec(line);
-  return matched ? Number(matched[1]) : undefined;
-}
-
-function parseFloodgateScoreComment(line: string): number | undefined {
-  const matched = /^\* *([+-]?[.0-9]+)/.exec(line);
-  return matched ? Number(matched[1]) : undefined;
-}
-
-function parseShogiGUIPlayerScoreComment(line: string): number | undefined {
-  const matched = /^\*対局 .* 評価値 ([+-]?[0-9]+)/.exec(line);
-  return matched ? Number(matched[1]) : undefined;
-}
-
-function parseShogiGUIAnalysisScoreComment(line: string): number | undefined {
-  const matched = /^\*解析 .* 評価値 ([+-]?[0-9]+)/.exec(line);
-  return matched ? Number(matched[1]) : undefined;
-}
-
-function parseKishinAnalyticsScoreComment(line: string): number | undefined {
-  const matched = /^\* .* 評価値 ([+-]?[0-9]+)/.exec(line);
-  return matched ? Number(matched[1]) : undefined;
-}
-
-function parseKShogiPlayerScoreComment(line: string): number | undefined {
-  const matched = /^#(?:形勢|指し手)\[([+-]?[0-9]+)\]/.exec(line);
-  return matched ? Number(matched[1]) : undefined;
-}
-
 function restoreCustomData(record: Record): void {
   record.forEach((node) => {
-    const data = (node.customData || {}) as RecordCustomData;
-    const lines = node.comment.split("\n");
-    for (const line of lines) {
-      const playerMateScore = parsePlayerMateScoreComment(line);
-      if (playerMateScore !== undefined) {
-        data.playerSearchInfo = {
-          ...data.playerSearchInfo,
-          mate: playerMateScore,
-        };
-      }
-      const researchMateScore = parseResearchMateScoreComment(line);
-      if (researchMateScore !== undefined) {
-        data.researchInfo = {
-          ...data.researchInfo,
-          mate: researchMateScore,
-        };
-      }
-      const playerScore =
-        parsePlayerScoreComment(line) ||
-        parseFloodgateScoreComment(line) ||
-        parseShogiGUIPlayerScoreComment(line);
-      if (playerScore !== undefined) {
-        data.playerSearchInfo = {
-          ...data.playerSearchInfo,
-          score: playerScore,
-        };
-      }
-      const researchScore =
-        parseResearchScoreComment(line) ||
-        parseShogiGUIAnalysisScoreComment(line) ||
-        parseKishinAnalyticsScoreComment(line) ||
-        parseKShogiPlayerScoreComment(line);
-      if (researchScore !== undefined) {
-        data.researchInfo = {
-          ...data.researchInfo,
-          score: researchScore,
-        };
-      }
-    }
-    node.customData = data;
+    node.customData = parseComment(node.comment, node.customData as RecordCustomData);
   });
 }
 

@@ -21,6 +21,7 @@ export type BookImportSettings = {
   maxPly: number;
   playerCriteria: PlayerCriteria;
   playerName?: string;
+  importScore: boolean;
 };
 
 export function defaultBookImportSettings(): BookImportSettings {
@@ -31,6 +32,7 @@ export function defaultBookImportSettings(): BookImportSettings {
     minPly: 0,
     maxPly: 100,
     playerCriteria: PlayerCriteria.ALL,
+    importScore: true,
   };
 }
 

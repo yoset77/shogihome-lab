@@ -217,6 +217,7 @@ export const bookRoutes = new Hono<AppEnv>()
       maxPly,
       playerCriteria: body.playerCriteria as BookImportSettings["playerCriteria"],
       playerName: typeof body.playerName === "string" ? body.playerName : undefined,
+      importScore: body.importScore !== false,
     };
     if (typeof settings.sourceRecordFile === "string" && settings.sourceRecordFile) {
       if (!settings.sourceRecordFile.startsWith("server://")) {

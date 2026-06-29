@@ -11,6 +11,7 @@ import {
   validateBookPositionOrdering,
 } from "./yaneuraou.js";
 import { BookImportSettings, PlayerCriteria, SourceType } from "@/common/settings/book";
+import { parseComment } from "@/common/record/comment";
 import {
   detectRecordFileFormatByPath,
   importRecordFromBuffer,
@@ -706,7 +707,8 @@ export async function importBookMoves(
   let errorFileCount = 0;
   let skippedFileCount = 0;
 
-  const pendingMoves = new Map<string, Map<string, number>>();
+  type PendingMove = { count: number; score?: number; depth?: number };
+  const pendingMoves = new Map<string, Map<string, PendingMove>>();
   const pendingStats = new Map<string, { games: number; wonBlack: number; wonWhite: number }>();
   function importMove(node: ImmutableNode, sfen: string, winner?: Color) {
     if (!(node.move instanceof Move)) {
@@ -721,10 +723,40 @@ export async function importBookMoves(
     const usi = node.move.usi;
     let moves = pendingMoves.get(sfen);
     if (!moves) {
-      moves = new Map<string, number>();
+      moves = new Map<string, PendingMove>();
       pendingMoves.set(sfen, moves);
     }
-    moves.set(usi, (moves.get(usi) || 0) + 1);
+    const existing = moves.get(usi);
+    if (existing) {
+      existing.count++;
+    } else {
+      moves.set(usi, { count: 1 });
+    }
+
+    if (settings.importScore && node.comment) {
+      const customData = parseComment(node.comment);
+      const sign = node.move.color === Color.WHITE ? -1 : 1;
+      const candidates = [
+        customData.playerSearchInfo,
+        customData.opponentSearchInfo,
+        customData.researchInfo,
+        customData.researchInfo2,
+        customData.researchInfo3,
+        customData.researchInfo4,
+      ];
+      for (const info of candidates) {
+        if (info?.score === undefined && info?.mate === undefined) {
+          continue;
+        }
+        const move = moves.get(usi);
+        if (!move) continue;
+        if (move.score === undefined || (info.depth ?? -1) > (move.depth ?? -1)) {
+          move.score =
+            info.mate !== undefined ? (info.mate > 0 ? 30000 : -30000) * sign : info.score! * sign;
+          move.depth = info.depth;
+        }
+      }
+    }
 
     if (book.format === "sbk") {
       const stats = pendingStats.get(sfen) || { games: 0, wonBlack: 0, wonWhite: 0 };
@@ -961,18 +993,27 @@ export async function importBookMoves(
         currentMovesMap.set(move.usi, move);
       }
 
-      for (const [usi, count] of movesMap.entries()) {
+      for (const [usi, pending] of movesMap.entries()) {
         const existing = currentMovesMap.get(usi);
         if (existing) {
-          duplicateCount += count;
-          existing.count = (existing.count || 0) + count;
+          duplicateCount += pending.count;
+          existing.count = (existing.count || 0) + pending.count;
+          if (
+            pending.score !== undefined &&
+            (existing.score === undefined || (pending.depth ?? -1) > (existing.depth ?? -1))
+          ) {
+            existing.score = pending.score;
+            existing.depth = pending.depth;
+          }
         } else {
           entryCount++;
-          duplicateCount += count - 1;
-          const newMove: BookMove = { usi, comment: "", count };
-          if (book.format === "apery") {
+          duplicateCount += pending.count - 1;
+          const newMove: BookMove = { usi, comment: "", count: pending.count };
+          if (pending.score !== undefined) {
+            newMove.score = pending.score;
+            newMove.depth = pending.depth;
+          } else if (book.format === "apery") {
             newMove.score = 0;
-            // usi2, depth, and comment are already undefined/empty in newMove
           }
           currentMovesMap.set(usi, newMove);
         }
