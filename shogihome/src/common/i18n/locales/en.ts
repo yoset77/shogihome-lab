@@ -625,6 +625,7 @@ export const en: Texts = {
   register: "Register",
   update: "Update",
   importAll: "Register All",
+  importScoreDepth: "Import score and depth",
   doYouWantToImportAllMoves: "Do you want to import all available moves?",
   importedMoves: (n: number) => `Imported ${n} move(s).`,
   currentMove: "Current Move",

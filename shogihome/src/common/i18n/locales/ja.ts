@@ -622,6 +622,7 @@ export const ja: Texts = {
   register: "登録",
   update: "更新",
   importAll: "全て反映",
+  importScoreDepth: "評価値・深さを取り込む",
   doYouWantToImportAllMoves: "全ての手を反映しますか？",
   importedMoves: (n: number) => `${n}手を定跡に反映しました。`,
   currentMove: "現在の手",

@@ -617,6 +617,7 @@ export type Texts = {
   register: string;
   update: string;
   importAll: string;
+  importScoreDepth: string;
   doYouWantToImportAllMoves: string;
   importedMoves(n: number): string;
   currentMove: string;
