@@ -37,7 +37,6 @@ describe("Server engine startup cancellation", () => {
         REMOTE_ENGINE_PORT: WRAPPER_PORT.toString(),
         ALLOWED_ORIGINS: `http://localhost:${SERVER_PORT}`,
         WRAPPER_ACCESS_TOKEN: ACCESS_TOKEN,
-        ENGINE_STOP_TIMEOUT_MS: "2000",
       },
       stdio: "pipe",
       shell: true,
