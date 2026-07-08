@@ -182,7 +182,7 @@ describe("LanEngine", () => {
     expect(mockWs.close).toHaveBeenCalled();
   });
 
-  it("should remove all listeners before closing socket on visibility change", async () => {
+  it("should keep onmessage intact to preserve in-flight messages on visibility change", async () => {
     const engine = new LanEngine("test-session");
     const connectPromise = engine.connect();
     connectPromise.catch(() => {});
@@ -206,12 +206,56 @@ describe("LanEngine", () => {
     onVisibilityChange();
 
     expect(mockWs.onopen).toBeNull();
-    expect(mockWs.onmessage).toBeNull();
+    // onmessage must remain attached so in-flight bestmove/info is not dropped.
+    expect(mockWs.onmessage).not.toBeNull();
     expect(mockWs.onerror).toBeNull();
     expect(mockWs.onclose).toBeNull();
     expect(mockWs.close).toHaveBeenCalled();
 
     // Clean up
+    Object.defineProperty(document, "visibilityState", {
+      value: originalVisibilityState,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  it("should deliver in-flight messages via old socket onmessage after visibility change", async () => {
+    const engine = new LanEngine("test-session");
+    const onMessageHandler = vi.fn();
+    const connectPromise = engine.connect(onMessageHandler);
+
+    // Simulate successful connection (OPEN)
+    mockWs.readyState = 1; // OPEN
+    if (mockWs.onopen) mockWs.onopen();
+    await connectPromise;
+
+    // Track messages dispatched through the handler.
+    onMessageHandler.mockClear();
+
+    // Prevent connect() from creating a new WebSocket during reconnect.
+    vi.spyOn(engine, "connect").mockImplementation(() => Promise.resolve());
+
+    const originalVisibilityState = document.visibilityState;
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      writable: true,
+      configurable: true,
+    });
+
+    const onVisibilityChange = (engine as unknown as { onVisibilityChange: () => void })
+      .onVisibilityChange;
+    onVisibilityChange();
+
+    // Simulate a message that was already in the browser's delivery queue when
+    // visibilitychange fired, arriving just after close() was called.
+    const inFlight = JSON.stringify({ sfen: "position startpos", info: "bestmove 7g7f" });
+    if (mockWs.onmessage) {
+      mockWs.onmessage({ data: inFlight });
+    }
+
+    expect(onMessageHandler).toHaveBeenCalledWith(inFlight);
+
     Object.defineProperty(document, "visibilityState", {
       value: originalVisibilityState,
       writable: true,
