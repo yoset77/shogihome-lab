@@ -56,13 +56,15 @@ export class LanEngine {
       console.log(`Foreground detected. Refreshing session ${this.sessionId}...`);
       this.clearReconnect();
       if (this.ws) {
-        this.ws.onopen = null;
-        this.ws.onmessage = null;
-        this.ws.onerror = null;
-        this.ws.onclose = null;
-        this.ws.close();
+        const oldWs = this.ws;
+        // Keep onmessage intact so in-flight engine output is still dispatched;
+        // server replay starts only after the server detects the disconnect.
+        oldWs.onopen = null;
+        oldWs.onerror = null;
+        oldWs.onclose = null;
         this.ws = null;
         this.setStatus("disconnected");
+        oldWs.close();
       }
       this.connect().catch((e) => {
         console.warn(`Reconnect after visibility change failed: ${e}`);
