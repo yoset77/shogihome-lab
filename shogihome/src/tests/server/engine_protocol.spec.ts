@@ -39,7 +39,6 @@ describe("Server USI Protocol & Implicit Stop", () => {
         REMOTE_ENGINE_PORT: WRAPPER_PORT.toString(),
         ALLOWED_ORIGINS: `http://localhost:${SERVER_PORT}`,
         WRAPPER_ACCESS_TOKEN: "",
-        ENGINE_STOP_TIMEOUT_MS: "2000",
       },
       stdio: "pipe",
       shell: true,
@@ -486,7 +485,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
             `Timeout waiting for reset messages. errorReceived=${errorReceived}, stateStoppedReceived=${stateStoppedReceived}`,
           ),
         );
-      }, 10000);
+      }, 15000);
 
       ws!.on("message", (data) => {
         const msg = JSON.parse(data.toString());
@@ -509,7 +508,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
     expect(stopReceived).toBe(true);
 
     ws.send("stop_engine");
-  }, 20000);
+  }, 25000);
 
   it("should sanitize engine list discovery payload", async () => {
     const sessionId = "discovery-test";

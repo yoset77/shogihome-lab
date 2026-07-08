@@ -63,12 +63,10 @@ export const parseAllowedFetchDomains = (raw: string | undefined): Set<string> =
   );
 
 export const PORT = parseIntegerEnv("PORT", 8140, 1, 65535);
-export const ENGINE_STOP_TIMEOUT_MS = parseIntegerEnv(
-  "ENGINE_STOP_TIMEOUT_MS",
-  10000,
-  1000,
-  600000,
-);
+
+// Keep this below the client-side STOP_WAIT_TIMEOUT_MS (15s) so the server
+// times out first and returns an error that resolves the client wait.
+export const ENGINE_STOP_TIMEOUT_MS = 10000;
 
 const DISABLE_AUTO_ALLOWED_ORIGINS = process.env.DISABLE_AUTO_ALLOWED_ORIGINS === "true";
 

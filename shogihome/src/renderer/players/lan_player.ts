@@ -13,6 +13,9 @@ import AsyncLock from "async-lock";
 
 import { generateSessionId } from "@/renderer/helpers/unique";
 
+// Must be longer than the server-side ENGINE_STOP_TIMEOUT_MS (fixed 10000ms
+// in config.ts). The server times out first and returns an error, which
+// resolves this wait.
 const STOP_WAIT_TIMEOUT_MS = 15000;
 const READY_REPLAY_TIMEOUT_MS = 5000;
 
