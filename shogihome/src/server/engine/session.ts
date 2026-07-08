@@ -730,10 +730,16 @@ export class EngineSession {
     if (command === "usi" || command === "isready") return;
 
     if (command.startsWith("setoption ")) {
-      if (this.engineState >= EngineState.READY) {
+      if (this.engineState === EngineState.READY) {
         this.sendToEngine(command);
-      } else {
+      } else if (
+        this.engineState === EngineState.STARTING ||
+        this.engineState === EngineState.WAITING_USIOK ||
+        this.engineState === EngineState.WAITING_READYOK
+      ) {
         this.pushToQueue(this.commandQueue, command);
+      } else {
+        this.sendError(`engine not ready. Cannot process command: ${command}`);
       }
       return;
     }
@@ -750,8 +756,9 @@ export class EngineSession {
     if (this.engineState === EngineState.READY || this.engineState === EngineState.THINKING) {
       this.sendToEngine(command);
     } else if (
-      this.engineState > EngineState.UNINITIALIZED &&
-      this.engineState < EngineState.READY
+      this.engineState === EngineState.STARTING ||
+      this.engineState === EngineState.WAITING_USIOK ||
+      this.engineState === EngineState.WAITING_READYOK
     ) {
       this.pushToQueue(this.commandQueue, command);
     } else {

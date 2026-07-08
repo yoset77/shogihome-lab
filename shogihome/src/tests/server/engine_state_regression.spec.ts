@@ -106,6 +106,40 @@ describe("Engine State Regression Tests", () => {
     expect((tSession as unknown as { currentEngineId: string | null }).currentEngineId).toBeNull();
   });
 
+  it("should sendError for setoption when engine is STOPPED, not silently drop", () => {
+    tSession.engineState = EngineState.STOPPED;
+    tSession.engineHandle = null;
+
+    tSession.handleMessage("setoption name MultiPV value 3");
+
+    expect(mockWs.send).toHaveBeenCalledWith(expect.stringContaining("error"));
+    expect(mockWs.send).toHaveBeenCalledWith(expect.stringContaining("engine not ready"));
+  });
+
+  it("should sendError for setoption when engine is UNINITIALIZED, not queue", () => {
+    tSession.engineState = EngineState.UNINITIALIZED;
+    tSession.engineHandle = null;
+
+    tSession.handleMessage("setoption name MultiPV value 3");
+
+    expect(mockWs.send).toHaveBeenCalledWith(expect.stringContaining("error"));
+    expect(mockWs.send).toHaveBeenCalledWith(expect.stringContaining("engine not ready"));
+  });
+
+  it("should queue setoption when engine is WAITING_READYOK", () => {
+    const queue: string[] = [];
+    tSession.engineState = EngineState.WAITING_READYOK;
+    tSession.engineHandle = null;
+    // Access private commandQueue via reflection-free approach: the pushToQueue appends to commandQueue
+    const cmdQueue = tSession as unknown as { commandQueue: string[] };
+    cmdQueue.commandQueue = queue;
+
+    tSession.handleMessage("setoption name MultiPV value 3");
+
+    expect(queue).toContain("setoption name MultiPV value 3");
+    expect(mockWs.send).not.toHaveBeenCalledWith(expect.stringContaining("error"));
+  });
+
   it("should not replay go before a newer queued position after stop", async () => {
     const stream = new PassThrough();
     tSession.engineState = EngineState.STOPPING_SEARCH;
