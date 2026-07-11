@@ -75,11 +75,8 @@ import Icon from "@/renderer/view/primitive/Icon.vue";
 import { RectSize } from "@/common/assets/geometry.js";
 import { IconType } from "@/renderer/assets/icons";
 import { useAppSettings } from "@/renderer/store/settings";
-import {
-  EvaluationViewFrom,
-  getPieceImageURLTemplate,
-  NodeCountFormat,
-} from "@/common/settings/app";
+import { getPieceImageURLTemplate, NodeCountFormat } from "@/common/settings/app";
+import { getDisplayEvaluation } from "@/renderer/helpers/evaluation";
 import { t } from "@/common/i18n";
 import { useStore } from "@/renderer/store";
 import { SearchInfoSenderType } from "@/renderer/store/record";
@@ -213,10 +210,6 @@ const doFlip = () => {
   flip.value = !flip.value;
 };
 
-const getDisplayScore = (score: number, color: Color, evaluationViewFrom: EvaluationViewFrom) => {
-  return evaluationViewFrom === EvaluationViewFrom.EACH || color == Color.BLACK ? score : -score;
-};
-
 const formatNodeCount = computed(() => {
   switch (appSettings.nodeCountFormat) {
     case NodeCountFormat.COMMA_SEPARATED:
@@ -247,25 +240,38 @@ const info = computed(() => {
   if (props.nodes !== undefined) {
     elements.push(`ノード数=${formatNodeCount.value(props.nodes)}`);
   }
+  const scoreEvaluation =
+    props.score === undefined
+      ? undefined
+      : getDisplayEvaluation(
+          props.score,
+          props.position.color,
+          appSettings.evaluationViewFrom,
+          props.lowerBound,
+          props.upperBound,
+        );
+  const mateEvaluation =
+    props.mate === undefined
+      ? undefined
+      : getDisplayEvaluation(
+          props.mate,
+          props.position.color,
+          appSettings.evaluationViewFrom,
+          props.lowerBound,
+          props.upperBound,
+        );
   if (props.score !== undefined) {
-    elements.push(
-      `評価値=${getDisplayScore(props.score, props.position.color, appSettings.evaluationViewFrom)}`,
-    );
-    if (props.lowerBound) {
-      elements.push("（下界値）");
-    }
-    if (props.upperBound) {
-      elements.push("（上界値）");
-    }
+    elements.push(`評価値=${scoreEvaluation?.score}`);
   }
   if (props.mate !== undefined) {
-    elements.push(
-      `詰み手数=${getDisplayScore(
-        props.mate,
-        props.position.color,
-        appSettings.evaluationViewFrom,
-      )}`,
-    );
+    elements.push(`詰み手数=${mateEvaluation?.score}`);
+  }
+  const boundEvaluation = mateEvaluation ?? scoreEvaluation;
+  if (boundEvaluation?.lowerBound) {
+    elements.push("（下界値）");
+  }
+  if (boundEvaluation?.upperBound) {
+    elements.push("（上界値）");
   }
   if (props.multiPv) {
     elements.push(`順位=${props.multiPv}`);

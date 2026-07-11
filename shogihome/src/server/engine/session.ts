@@ -415,11 +415,23 @@ export class EngineSession {
 
       if (line.startsWith("info ")) {
         const parsed = parseInfoCommand(line.substring(5));
-        if (parsed.depth !== undefined && !parsed.lowerbound && !parsed.upperbound) {
+        const hasScore = parsed.scoreCP !== undefined || parsed.scoreMate !== undefined;
+        const hasInvalidBound =
+          (parsed.lowerbound && parsed.upperbound) ||
+          ((parsed.lowerbound || parsed.upperbound) && !hasScore);
+        if (parsed.depth !== undefined && !hasInvalidBound) {
           const pvId = parsed.multipv || 1;
           const currentInfo = this.lastInfos.get(pvId) || {};
           // Merge with previous to keep nodes/time if omitted in this line
-          this.lastInfos.set(pvId, { ...currentInfo, ...parsed });
+          const nextInfo = { ...currentInfo, ...parsed };
+          if (hasScore) {
+            // Score kind and bound describe one atomic USI score update.
+            nextInfo.scoreCP = parsed.scoreCP;
+            nextInfo.scoreMate = parsed.scoreMate;
+            nextInfo.lowerbound = parsed.lowerbound;
+            nextInfo.upperbound = parsed.upperbound;
+          }
+          this.lastInfos.set(pvId, nextInfo);
         }
       }
 
@@ -445,10 +457,15 @@ export class EngineSession {
           this.lastInfos.size > 0
         ) {
           const validInfos = new Map<number, USIInfoCommand>();
-          for (const [multipv, info] of this.lastInfos.entries()) {
-            if (info.depth !== undefined && info.depth >= ANALYSIS_DB_MIN_DEPTH) {
-              validInfos.set(multipv, info);
-            }
+          const savedMoves = new Set<string>();
+          const sortedInfos = [...this.lastInfos.entries()].sort(([a], [b]) => a - b);
+          for (const [multipv, info] of sortedInfos) {
+            if (info.depth === undefined || info.depth < ANALYSIS_DB_MIN_DEPTH) continue;
+
+            const firstMove = info.pv?.[0];
+            if (firstMove && savedMoves.has(firstMove)) continue;
+            if (firstMove) savedMoves.add(firstMove);
+            validInfos.set(multipv, info);
           }
 
           if (validInfos.size > 0) {

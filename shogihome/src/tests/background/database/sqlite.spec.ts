@@ -112,6 +112,87 @@ describe("background/database/sqlite", () => {
     db.close();
   });
 
+  it("should save and return score bounds", () => {
+    const infos = new Map<number, USIInfoCommand>();
+    infos.set(1, { depth: 15, scoreCP: 100, lowerbound: true, pv: ["7g7f"] });
+    infos.set(2, { depth: 15, scoreCP: -50, upperbound: true, pv: ["2g2f"] });
+
+    saveAnalysisResults(67890n, "bounded sfen", "test-engine", "Test Engine", infos);
+
+    const results = getAnalysisResults(67890n, "bounded sfen");
+    expect(results.map((result) => result.score_bound)).toEqual(["lower", "upper"]);
+  });
+
+  it("should prefer an exact result at the same depth", () => {
+    const infos = new Map<number, USIInfoCommand>();
+    infos.set(1, { depth: 15, scoreCP: 100, lowerbound: true, pv: ["7g7f"] });
+    saveAnalysisResults(67890n, "same-depth sfen", "test-engine", "Test Engine", infos);
+
+    infos.set(1, { depth: 15, scoreCP: 120, pv: ["7g7f", "3c3d"] });
+    saveAnalysisResults(67890n, "same-depth sfen", "test-engine", "Test Engine", infos);
+
+    const result = getAnalysisResults(67890n, "same-depth sfen")[0];
+    expect(result.score_cp).toBe(120);
+    expect(result.score_bound).toBe("exact");
+  });
+
+  it("should not replace a bounded score with scoreless info at the same depth", () => {
+    const infos = new Map<number, USIInfoCommand>();
+    infos.set(1, { depth: 15, scoreCP: 100, lowerbound: true, pv: ["7g7f"] });
+    saveAnalysisResults(67890n, "scoreless sfen", "test-engine", "Test Engine", infos);
+
+    infos.set(1, { depth: 15, pv: ["7g7f", "3c3d"] });
+    saveAnalysisResults(67890n, "scoreless sfen", "test-engine", "Test Engine", infos);
+
+    const result = getAnalysisResults(67890n, "scoreless sfen")[0];
+    expect(result.score_cp).toBe(100);
+    expect(result.score_bound).toBe("lower");
+  });
+
+  it("should migrate an existing analysis database to add score bounds", () => {
+    closeDatabase();
+    const dbPath = path.join(testDataDir, "analysis.db");
+    fs.rmSync(dbPath, { force: true });
+    const legacyDb = new DatabaseSync(dbPath);
+    legacyDb.exec(`
+      CREATE TABLE positions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sfen_hash INTEGER NOT NULL,
+        sfen TEXT UNIQUE NOT NULL
+      );
+      CREATE TABLE engines (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        engine_key TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL
+      );
+      CREATE TABLE analysis_results (
+        position_id INTEGER NOT NULL,
+        engine_id INTEGER NOT NULL,
+        multipv INTEGER NOT NULL,
+        depth INTEGER NOT NULL,
+        seldepth INTEGER,
+        nodes INTEGER,
+        score_cp INTEGER,
+        score_mate INTEGER,
+        pv TEXT,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (position_id, engine_id, multipv)
+      );
+      INSERT INTO positions (sfen_hash, sfen) VALUES (1, 'legacy sfen');
+      INSERT INTO engines (engine_key, name) VALUES ('legacy-engine', 'Legacy Engine');
+      INSERT INTO analysis_results
+        (position_id, engine_id, multipv, depth, score_cp, pv, updated_at)
+      VALUES (1, 1, 1, 10, 50, '7g7f', 1);
+    `);
+    legacyDb.close();
+
+    initDatabase(testDataDir);
+
+    const result = getAnalysisResults(1n, "legacy sfen")[0];
+    expect(result.score_bound).toBe("exact");
+    expect(result.score_cp).toBe(50);
+  });
+
   it("should handle hash collisions by verifying SFEN string", () => {
     const infos1 = new Map<number, USIInfoCommand>();
     infos1.set(1, { depth: 10, scoreCP: 100, pv: ["7g7f"] });
@@ -219,5 +300,19 @@ describe("background/database/sqlite", () => {
     expect(lines[1]).toBe("sfen sfen-data 1\n");
     expect(lines[2]).toBe("7g7f none 50 15 \n");
     expect(lines[3]).toBe("2g2f none -20 15 \n");
+  });
+
+  it("should exclude bounded results from YaneuraOu export", () => {
+    const infos = new Map<number, USIInfoCommand>();
+    infos.set(1, { depth: 15, scoreCP: 50, lowerbound: true, pv: ["7g7f"] });
+    infos.set(2, { depth: 15, scoreCP: -20, pv: ["2g2f"] });
+    saveAnalysisResults(1n, "sfen-data", "engine-1", "Engine 1", infos);
+
+    const generator = exportAnalysisResultsByEngine(getAnalysisDBStats()[0].id);
+    expect(Array.from(generator)).toEqual([
+      "#YANEURAOU-DB2016 1.00\n",
+      "sfen sfen-data 1\n",
+      "2g2f none -20 15 \n",
+    ]);
   });
 });

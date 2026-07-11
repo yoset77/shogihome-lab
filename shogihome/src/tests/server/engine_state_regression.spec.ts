@@ -1,7 +1,14 @@
 import { EngineSession } from "@/server/engine/session";
 import { EngineState } from "@/server/engine/types";
+import { saveAnalysisResults } from "@/server/database/sqlite";
 import { vi, describe, it, expect, beforeEach, type Mock } from "vitest";
 import { PassThrough } from "stream";
+
+vi.mock("@/server/database/sqlite", () => ({
+  saveAnalysisResults: vi.fn(),
+}));
+
+const mockSaveAnalysisResults = vi.mocked(saveAnalysisResults);
 
 // Define a type that matches the internal structure of EngineSession for testing
 type TestableEngineSession = {
@@ -34,6 +41,7 @@ describe("Engine State Regression Tests", () => {
   let mockWs: MockExtendedWebSocket;
 
   beforeEach(() => {
+    mockSaveAnalysisResults.mockClear();
     mockWs = {
       send: vi.fn(),
       terminate: vi.fn(),
@@ -274,5 +282,80 @@ describe("Engine State Regression Tests", () => {
     expect(engineHandle.write).toHaveBeenCalledWith("position startpos moves 2g2f\n");
     expect(engineHandle.write).toHaveBeenCalledWith("go infinite\n");
     expect(engineHandle.write).not.toHaveBeenCalledWith("position startpos moves 7g7f\n");
+  });
+
+  it("should save bounded PVs when MultiPV order changes before bestmove", async () => {
+    const stream = new PassThrough();
+    tSession.engineState = EngineState.THINKING;
+    (
+      tSession as unknown as { currentEngineConfig: { id: string; name: string } }
+    ).currentEngineConfig = { id: "test-engine", name: "Test Engine" };
+    (tSession as unknown as { pendingGoSfen: string }).pendingGoSfen = "position startpos";
+    tSession.setupEngineHandlers(stream);
+
+    // Insert PV2 first to ensure priority is based on MultiPV rank, not Map insertion order.
+    stream.write("info depth 100 multipv 2 score cp 100 pv 2g2f 8c8d\n");
+    stream.write("info depth 100 multipv 1 score cp 200 pv 7g7f 3c3d\n");
+    stream.write("info depth 101 multipv 1 score cp 150 upperbound pv 2g2f 8c8d\n");
+    stream.write("info depth 110 multipv 2 score cp 210 pv 7g7f 3c3d\n");
+    stream.write("bestmove 7g7f\n");
+
+    await vi.waitFor(() => expect(mockSaveAnalysisResults).toHaveBeenCalledOnce());
+    const savedInfos = mockSaveAnalysisResults.mock.calls[0][4];
+    expect([...savedInfos.keys()]).toEqual([1, 2]);
+    expect(savedInfos.get(1)).toEqual(
+      expect.objectContaining({
+        pv: ["2g2f", "8c8d"],
+        depth: 101,
+        upperbound: true,
+      }),
+    );
+    expect(savedInfos.get(2)).toEqual(
+      expect.objectContaining({
+        pv: ["7g7f", "3c3d"],
+        depth: 110,
+      }),
+    );
+  });
+
+  it("should clear a previous bound when an exact score arrives", async () => {
+    const stream = new PassThrough();
+    tSession.engineState = EngineState.THINKING;
+    (
+      tSession as unknown as { currentEngineConfig: { id: string; name: string } }
+    ).currentEngineConfig = { id: "test-engine", name: "Test Engine" };
+    (tSession as unknown as { pendingGoSfen: string }).pendingGoSfen = "position startpos";
+    tSession.setupEngineHandlers(stream);
+
+    stream.write("info depth 100 score cp 100 lowerbound pv 7g7f\n");
+    stream.write("info depth 101 score mate 5 pv 7g7f 3c3d\n");
+    stream.write("bestmove 7g7f\n");
+
+    await vi.waitFor(() => expect(mockSaveAnalysisResults).toHaveBeenCalledOnce());
+    const savedInfo = mockSaveAnalysisResults.mock.calls[0][4].get(1);
+    expect(savedInfo).toEqual(expect.objectContaining({ scoreMate: 5, pv: ["7g7f", "3c3d"] }));
+    expect(savedInfo?.scoreCP).toBeUndefined();
+    expect(savedInfo?.lowerbound).toBeUndefined();
+    expect(savedInfo?.upperbound).toBeUndefined();
+  });
+
+  it("should save all PVs when their first moves are distinct", async () => {
+    const stream = new PassThrough();
+    tSession.engineState = EngineState.THINKING;
+    (
+      tSession as unknown as { currentEngineConfig: { id: string; name: string } }
+    ).currentEngineConfig = { id: "test-engine", name: "Test Engine" };
+    (tSession as unknown as { pendingGoSfen: string }).pendingGoSfen = "position startpos";
+    tSession.setupEngineHandlers(stream);
+
+    stream.write("info depth 100 multipv 2 score cp 100 pv 2g2f 8c8d\n");
+    stream.write("info depth 100 multipv 1 score cp 200 pv 7g7f 3c3d\n");
+    stream.write("bestmove 7g7f\n");
+
+    await vi.waitFor(() => expect(mockSaveAnalysisResults).toHaveBeenCalledOnce());
+    const savedInfos = mockSaveAnalysisResults.mock.calls[0][4];
+    expect([...savedInfos.keys()]).toEqual([1, 2]);
+    expect(savedInfos.get(1)?.pv?.[0]).toBe("7g7f");
+    expect(savedInfos.get(2)?.pv?.[0]).toBe("2g2f");
   });
 });

@@ -1,7 +1,7 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import path from "node:path";
 import fs from "node:fs";
-import { USIInfoCommand } from "@/common/game/usi";
+import { ScoreBound, USIInfoCommand } from "@/common/game/usi";
 
 let db: DatabaseSync | null = null;
 let insertPositionStmt: StatementSync | null = null;
@@ -61,6 +61,8 @@ export function initDatabase(dataDir: string) {
         nodes INTEGER,
         score_cp INTEGER,
         score_mate INTEGER,
+        score_bound TEXT NOT NULL DEFAULT 'exact'
+          CHECK (score_bound IN ('exact', 'lower', 'upper')),
         pv TEXT,
         updated_at INTEGER NOT NULL,
         PRIMARY KEY (position_id, engine_id, multipv),
@@ -68,6 +70,23 @@ export function initDatabase(dataDir: string) {
         FOREIGN KEY(engine_id) REFERENCES engines(id)
       )
     `);
+
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const resultColumns = db.prepare("PRAGMA table_info(analysis_results)").all() as unknown as {
+        name: string;
+      }[];
+      if (!resultColumns.some((column) => column.name === "score_bound")) {
+        db.exec(`
+          ALTER TABLE analysis_results ADD COLUMN score_bound TEXT NOT NULL DEFAULT 'exact'
+            CHECK (score_bound IN ('exact', 'lower', 'upper'))
+        `);
+      }
+      db.exec("COMMIT");
+    } catch (e) {
+      db.exec("ROLLBACK");
+      throw e;
+    }
 
     insertPositionStmt = db.prepare(
       "INSERT OR IGNORE INTO positions (sfen_hash, sfen) VALUES (?, ?)",
@@ -84,17 +103,23 @@ export function initDatabase(dataDir: string) {
     `);
     upsertResultStmt = db.prepare(`
       INSERT INTO analysis_results (
-        position_id, engine_id, multipv, depth, seldepth, nodes, score_cp, score_mate, pv, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        position_id, engine_id, multipv, depth, seldepth, nodes,
+        score_cp, score_mate, score_bound, pv, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(position_id, engine_id, multipv) DO UPDATE SET
         depth = excluded.depth,
         seldepth = excluded.seldepth,
         nodes = excluded.nodes,
         score_cp = excluded.score_cp,
         score_mate = excluded.score_mate,
+        score_bound = excluded.score_bound,
         pv = excluded.pv,
         updated_at = excluded.updated_at
       WHERE excluded.depth > analysis_results.depth
+         OR (excluded.depth = analysis_results.depth
+             AND excluded.score_bound = 'exact'
+             AND (excluded.score_cp IS NOT NULL OR excluded.score_mate IS NOT NULL)
+             AND analysis_results.score_bound != 'exact')
     `);
   } catch (e) {
     console.error("Failed to initialize analysis database:", e);
@@ -172,6 +197,9 @@ export function saveAnalysisResults(
     for (const [multipv, info] of infos.entries()) {
       if (info.depth === undefined) continue;
 
+      const scoreBound = getScoreBound(info);
+      if (!scoreBound) continue;
+
       upsertResultStmt.run(
         positionId,
         engineId,
@@ -181,6 +209,7 @@ export function saveAnalysisResults(
         info.nodes ?? null,
         info.scoreCP ?? null,
         info.scoreMate ?? null,
+        scoreBound,
         info.pv ? info.pv.join(" ") : null,
         now,
       );
@@ -197,6 +226,20 @@ export function saveAnalysisResults(
   }
 }
 
+function getScoreBound(info: USIInfoCommand): ScoreBound | null {
+  if (info.lowerbound && info.upperbound) return null;
+  if (
+    (info.lowerbound || info.upperbound) &&
+    info.scoreCP === undefined &&
+    info.scoreMate === undefined
+  ) {
+    return null;
+  }
+  if (info.lowerbound) return "lower";
+  if (info.upperbound) return "upper";
+  return "exact";
+}
+
 export interface DBAnalysisResult {
   engine_id: number;
   engine_name: string;
@@ -206,6 +249,7 @@ export interface DBAnalysisResult {
   nodes: number | null;
   score_cp: number | null;
   score_mate: number | null;
+  score_bound: ScoreBound;
   pv: string | null;
   updated_at: number;
 }
@@ -225,6 +269,7 @@ export function getAnalysisResults(sfenHash: bigint, sfen: string): DBAnalysisRe
         r.nodes,
         r.score_cp,
         r.score_mate,
+        r.score_bound,
         r.pv,
         r.updated_at
       FROM analysis_results r
@@ -387,6 +432,7 @@ export function* exportAnalysisResultsByEngine(engineId: number): Generator<stri
     FROM analysis_results r
     JOIN positions p ON r.position_id = p.id
     WHERE r.engine_id = ?
+      AND r.score_bound = 'exact'
     ORDER BY p.sfen ASC, r.multipv ASC
   `);
 
@@ -478,10 +524,12 @@ export function executeMigration(mapping: Map<string, string>, nameMapping: Map<
     const updateEngineNameStmt = db.prepare("UPDATE engines SET name = ? WHERE id = ?");
     const migrateStmt = db.prepare(`
       INSERT INTO analysis_results (
-        position_id, engine_id, multipv, depth, seldepth, nodes, score_cp, score_mate, pv, updated_at
+        position_id, engine_id, multipv, depth, seldepth, nodes,
+        score_cp, score_mate, score_bound, pv, updated_at
       )
       SELECT
-        position_id, ?, multipv, depth, seldepth, nodes, score_cp, score_mate, pv, updated_at
+        position_id, ?, multipv, depth, seldepth, nodes,
+        score_cp, score_mate, score_bound, pv, updated_at
       FROM analysis_results
       WHERE engine_id = ?
       ON CONFLICT(position_id, engine_id, multipv) DO UPDATE SET
@@ -490,9 +538,14 @@ export function executeMigration(mapping: Map<string, string>, nameMapping: Map<
         nodes = excluded.nodes,
         score_cp = excluded.score_cp,
         score_mate = excluded.score_mate,
+        score_bound = excluded.score_bound,
         pv = excluded.pv,
         updated_at = excluded.updated_at
       WHERE excluded.depth > analysis_results.depth
+         OR (excluded.depth = analysis_results.depth
+             AND excluded.score_bound = 'exact'
+             AND (excluded.score_cp IS NOT NULL OR excluded.score_mate IS NOT NULL)
+             AND analysis_results.score_bound != 'exact')
     `);
     const deleteSourceStmt = db.prepare("DELETE FROM analysis_results WHERE engine_id = ?");
 
