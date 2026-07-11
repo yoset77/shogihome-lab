@@ -140,6 +140,47 @@ describe("Engine State Regression Tests", () => {
     expect(mockWs.send).not.toHaveBeenCalledWith(expect.stringContaining("error"));
   });
 
+  it.each([EngineState.STOPPED, EngineState.UNINITIALIZED])(
+    "should reject game lifecycle commands when engine is in state %s",
+    (state) => {
+      const commandQueue: string[] = [];
+      tSession.engineState = state;
+      (tSession as unknown as { commandQueue: string[] }).commandQueue = commandQueue;
+
+      tSession.handleMessage("usinewgame");
+      tSession.handleMessage("gameover lose");
+
+      expect(commandQueue).toHaveLength(0);
+      expect(mockWs.send).toHaveBeenCalledTimes(2);
+      expect(mockWs.send).toHaveBeenCalledWith(expect.stringContaining("engine not ready"));
+    },
+  );
+
+  it("should ignore commands from a replaced websocket", () => {
+    tSession.engineState = EngineState.THINKING;
+    const engineHandle = {
+      write: vi.fn(),
+      close: vi.fn(),
+      removeAllListeners: vi.fn(),
+    };
+    tSession.engineHandle = engineHandle;
+    const oldMessageListener = mockWs.on.mock.calls.find(([event]) => event === "message")?.[1];
+    expect(oldMessageListener).toBeTypeOf("function");
+    const replacementWs: MockExtendedWebSocket = {
+      send: vi.fn(),
+      terminate: vi.fn(),
+      close: vi.fn(),
+      on: vi.fn(),
+      readyState: 1,
+    };
+
+    session.attach(replacementWs as unknown as Parameters<EngineSession["attach"]>[0]);
+    oldMessageListener!("stop_engine");
+
+    expect(tSession.engineState).toBe(EngineState.THINKING);
+    expect(engineHandle.close).not.toHaveBeenCalled();
+  });
+
   it("should not replay go before a newer queued position after stop", async () => {
     const stream = new PassThrough();
     tSession.engineState = EngineState.STOPPING_SEARCH;

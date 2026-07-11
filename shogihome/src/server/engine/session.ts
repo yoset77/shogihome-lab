@@ -84,7 +84,13 @@ export class EngineSession {
     this.ws = ws;
     this.isExplicitlyTerminated = false;
 
-    ws.on("message", (message) => this.handleMessage(message.toString()));
+    ws.on("message", (message) => {
+      if (this.ws !== ws) {
+        console.log(`Ignoring message for session ${this.sessionId} (socket replaced)`);
+        return;
+      }
+      this.handleMessage(message.toString());
+    });
     ws.on("close", () => this.handleDisconnect(ws));
 
     // Send initial state to client
@@ -747,8 +753,14 @@ export class EngineSession {
     if (command === "usinewgame" || command.startsWith("gameover")) {
       if (this.engineState === EngineState.READY) {
         this.sendToEngine(command);
-      } else {
+      } else if (
+        this.engineState === EngineState.STARTING ||
+        this.engineState === EngineState.WAITING_USIOK ||
+        this.engineState === EngineState.WAITING_READYOK
+      ) {
         this.pushToQueue(this.commandQueue, command);
+      } else {
+        this.sendError(`engine not ready. Cannot process command: ${command}`);
       }
       return;
     }

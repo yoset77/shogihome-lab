@@ -356,18 +356,21 @@ describe("Server USI Protocol & Implicit Stop", () => {
     });
     await new Promise<void>((resolve) => ws!.on("open", resolve));
 
-    for (let i = 0; i < 150; i++) {
-      ws.send(`gameover win`); // Use gameover as it's not filtered
-    }
-
     const receivedCommands: string[] = [];
+    let commandsQueued = false;
     const testFinished = new Promise<void>((resolve) => {
       mockWrapperServer.once("connection", (socket) => {
         socket.on("data", (data) => {
           const cmds = data.toString().split("\n");
           for (const c of cmds) {
             const cmd = c.trim();
-            if (cmd === "run test-engine") setTimeout(() => socket.write("usiok\n"), 10);
+            if (cmd === "run test-engine" && !commandsQueued) {
+              commandsQueued = true;
+              for (let i = 0; i < 150; i++) {
+                ws!.send("gameover win");
+              }
+              setTimeout(() => socket.write("usiok\n"), 50);
+            }
             if (cmd === "isready") setTimeout(() => socket.write("readyok\n"), 10);
             if (
               cmd &&
