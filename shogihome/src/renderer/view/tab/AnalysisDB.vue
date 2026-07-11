@@ -25,7 +25,7 @@
               </td>
               <td class="nodes">{{ info.nodesText }}</td>
               <td class="score">{{ info.scoreText }}</td>
-              <td class="score-flag"></td>
+              <td class="score-flag">{{ info.scoreFlag }}</td>
               <td class="text">
                 <button v-if="info.pv && info.pv.length > 0" @click="showPreview(info)">
                   <Icon :icon="IconType.PLAY" />
@@ -58,7 +58,7 @@
             <div class="mobile-pv-header">
               <span class="multipv-index">[{{ info.multipv }}]</span>
               <span class="score"
-                >{{ t.score }}: {{ info.scoreText }}
+                >{{ t.score }}: {{ info.scoreText }}{{ info.scoreFlag }}
                 <span class="engine-name">{{ info.engineName }}</span></span
               >
               <button
@@ -103,10 +103,12 @@ import { t } from "@/common/i18n";
 import { IconType } from "@/renderer/assets/icons";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { RectSize } from "@/common/assets/geometry.js";
-import { NodeCountFormat, EvaluationViewFrom, AnalysisDBSearchMode } from "@/common/settings/app";
+import { NodeCountFormat, AnalysisDBSearchMode } from "@/common/settings/app";
 import { AppState } from "@/common/control/state";
 import { Move, Color } from "tsshogi";
 import { formatDisplayPV } from "@/renderer/helpers/pv";
+import { ScoreBound } from "@/common/game/usi";
+import { getDisplayEvaluation } from "@/renderer/helpers/evaluation";
 
 defineProps({
   size: { type: RectSize, required: true },
@@ -123,6 +125,7 @@ interface DBRecord {
   nodes: number | null;
   score_cp: number | null;
   score_mate: number | null;
+  score_bound: ScoreBound;
   pv: string | null;
   updated_at: number;
 }
@@ -137,11 +140,13 @@ interface FormattedInfo {
   nodes?: number;
   nodesText: string;
   scoreText: string | number;
+  scoreFlag: string;
   pv: Move[];
   pvText: string;
   color: Color;
   scoreCp?: number;
   scoreMate?: number;
+  scoreBound: ScoreBound;
 }
 
 const store = useStore();
@@ -238,21 +243,31 @@ const evaluationViewFrom = computed(() => {
   return appSettings.evaluationViewFrom;
 });
 
-const getDisplayScore = (score: number, color: Color, viewFrom: EvaluationViewFrom) => {
-  return viewFrom === EvaluationViewFrom.EACH || color === Color.BLACK ? score : -score;
-};
-
 const formattedResults = computed<FormattedInfo[]>(() => {
   const position = store.record.position;
   return results.value.map((r, index) => {
     let scoreText: string | number = "---";
+    const rawScore = r.score_mate ?? r.score_cp;
+    const displayEvaluation =
+      rawScore === null
+        ? undefined
+        : getDisplayEvaluation(
+            rawScore,
+            position.color,
+            evaluationViewFrom.value,
+            r.score_bound === "lower",
+            r.score_bound === "upper",
+          );
 
-    if (r.score_mate !== null) {
-      const displayScore = getDisplayScore(r.score_mate, position.color, evaluationViewFrom.value);
-      scoreText = Math.abs(displayScore) >= 10000 ? t.mateShort : `${t.mateShort}${displayScore}`;
-    } else if (r.score_cp !== null) {
-      scoreText = getDisplayScore(r.score_cp, position.color, evaluationViewFrom.value);
+    if (displayEvaluation && r.score_mate !== null) {
+      scoreText =
+        Math.abs(displayEvaluation.score) >= 10000
+          ? t.mateShort
+          : `${t.mateShort}${displayEvaluation.score}`;
+    } else if (displayEvaluation) {
+      scoreText = displayEvaluation.score;
     }
+    const scoreFlag = displayEvaluation?.scoreFlag ?? "";
 
     const { parsedPv, text: pvText } = formatDisplayPV(
       position,
@@ -270,12 +285,13 @@ const formattedResults = computed<FormattedInfo[]>(() => {
       nodes: r.nodes ?? undefined,
       nodesText: r.nodes ? formatNodeCount.value(r.nodes) : "---",
       scoreText,
-      scoreFlag: "",
+      scoreFlag,
       pv: parsedPv,
       pvText,
       color: position.color,
       scoreCp: r.score_cp ?? undefined,
       scoreMate: r.score_mate ?? undefined,
+      scoreBound: r.score_bound,
     };
   });
 });
@@ -299,8 +315,8 @@ const showPreview = (info: FormattedInfo) => {
       nodes: info.nodes,
       score: info.scoreCp,
       mate: info.scoreMate,
-      lowerBound: false,
-      upperBound: false,
+      lowerBound: info.scoreBound === "lower",
+      upperBound: info.scoreBound === "upper",
       pv: pvMoves,
     });
   }

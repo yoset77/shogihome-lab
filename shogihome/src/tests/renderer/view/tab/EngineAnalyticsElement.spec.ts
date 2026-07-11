@@ -4,6 +4,7 @@ import { USIInfo, USIPlayerMonitor } from "@/renderer/store/usi";
 import { AppState, ResearchState } from "@/common/control/state";
 import { reactive } from "vue";
 import { Color } from "tsshogi";
+import { EvaluationViewFrom } from "@/common/settings/app";
 
 // Mock store and settings
 const mockStore = reactive({
@@ -24,15 +25,21 @@ vi.mock("@/renderer/store", () => ({
   useStore: () => mockStore,
 }));
 
+const mockSettings = reactive({
+  nodeCountFormat: "comma",
+  evaluationViewFrom: EvaluationViewFrom.EACH,
+});
+
 vi.mock("@/renderer/store/settings", () => ({
-  useAppSettings: () => ({
-    nodeCountFormat: "comma",
-    evaluationViewFrom: "each",
-  }),
+  useAppSettings: () => mockSettings,
 }));
 
 describe("EngineAnalyticsElement", () => {
   const monitor = new USIPlayerMonitor(200000, "Test Engine");
+
+  beforeEach(() => {
+    mockSettings.evaluationViewFrom = EvaluationViewFrom.EACH;
+  });
 
   it("paused logic for research session on mobile", async () => {
     mockStore._isResearchEngine = true;
@@ -115,5 +122,32 @@ describe("EngineAnalyticsElement", () => {
     });
 
     expect(wrapper.find(".mobile-pv-text").text()).toBe("stored pv text from monitor");
+  });
+
+  it("should swap the bound when the displayed score is inverted", () => {
+    const boundedMonitor = new USIPlayerMonitor(200002, "Bounded Engine");
+    boundedMonitor.infoList = [
+      {
+        id: 2,
+        position: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1",
+        color: Color.WHITE,
+        score: 100,
+        lowerBound: true,
+        pv: ["3c3d"],
+        text: "3c3d",
+      },
+    ];
+    mockSettings.evaluationViewFrom = EvaluationViewFrom.BLACK;
+
+    const wrapper = shallowMount(EngineAnalyticsElement, {
+      props: {
+        historyMode: false,
+        monitor: boundedMonitor,
+        height: 300,
+      },
+    });
+
+    expect(wrapper.find("tbody .score").text()).toBe("-100");
+    expect(wrapper.find("tbody .score-flag").text()).toBe("--");
   });
 });

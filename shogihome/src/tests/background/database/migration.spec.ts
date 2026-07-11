@@ -5,6 +5,7 @@ import {
   getAnalysisDBStats,
   getMigrationSummary,
   executeMigration,
+  getAnalysisResults,
   closeDatabase,
 } from "@/server/database/sqlite";
 import { USIInfoCommand } from "@/common/game/usi";
@@ -96,6 +97,29 @@ describe("background/database/migration", () => {
     expect(stats.length).toBe(1);
     expect(stats[0].record_count).toBe(1);
     expect(stats[0].max_depth).toBe(25); // Deepest one remains
+  });
+
+  it("should preserve bounds and prefer exact results at equal depth", () => {
+    const sharedSfen = "bounded shared sfen";
+    const sharedHash = 12346n;
+    const boundedInfos = new Map<number, USIInfoCommand>();
+    boundedInfos.set(1, { depth: 20, scoreCP: 100, lowerbound: true, pv: ["7g7f"] });
+    const exactInfos = new Map<number, USIInfoCommand>();
+    exactInfos.set(1, { depth: 20, scoreCP: 120, pv: ["7g7f", "3c3d"] });
+    saveAnalysisResults(sharedHash, sharedSfen, "engine-1", "Engine 1", boundedInfos);
+    saveAnalysisResults(sharedHash, sharedSfen, "engine-2", "Engine 2", exactInfos);
+
+    executeMigration(
+      new Map([
+        ["engine-1", "group-1"],
+        ["engine-2", "group-1"],
+      ]),
+      new Map([["group-1", "Unified Group"]]),
+    );
+
+    const result = getAnalysisResults(sharedHash, sharedSfen)[0];
+    expect(result.score_cp).toBe(120);
+    expect(result.score_bound).toBe("exact");
   });
 
   it("should handle engine name updates during migration", () => {

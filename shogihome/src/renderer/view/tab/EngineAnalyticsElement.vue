@@ -106,17 +106,10 @@
                 {{ info.nodes && formatNodeCount(info.nodes) }}
               </td>
               <td v-if="showScoreColumn" class="score">
-                {{
-                  info.scoreMate !== undefined
-                    ? getDisplayScore(info.scoreMate, info.color, evaluationViewFrom)
-                    : info.score !== undefined
-                      ? getDisplayScore(info.score, info.color, evaluationViewFrom)
-                      : ""
-                }}
+                {{ getDisplayScore(info) }}
               </td>
               <td v-if="showScoreColumn" class="score-flag">
-                {{ info.lowerBound ? "++" : "" }}
-                {{ info.upperBound ? "--" : "" }}
+                {{ getDisplayScoreFlag(info) }}
                 {{ info.scoreMate ? t.mateShort : "" }}
               </td>
               <td class="text">
@@ -170,16 +163,9 @@
             <span class="multipv-index">[{{ info.multiPV || 1 }}]</span>
             <span class="score"
               >{{ t.score }}:
-              {{
-                info.scoreMate !== undefined
-                  ? getDisplayScore(info.scoreMate, info.color, evaluationViewFrom)
-                  : info.score !== undefined
-                    ? getDisplayScore(info.score, info.color, evaluationViewFrom)
-                    : "---"
-              }}
+              {{ getDisplayScoreOrPlaceholder(info) }}
               <span v-if="info.scoreMate">{{ t.mateShort }}</span>
-              <span v-if="info.lowerBound">++</span>
-              <span v-if="info.upperBound">--</span>
+              <span>{{ getDisplayScoreFlag(info) }}</span>
             </span>
             <button
               v-if="showPlayButton && info.pv && info.pv.length !== 0"
@@ -230,13 +216,14 @@ import { USIInfo, USIPlayerMonitor } from "@/renderer/store/usi";
 import { computed, onBeforeUpdate, reactive, ref } from "vue";
 import { IconType } from "@/renderer/assets/icons";
 import Icon from "@/renderer/view/primitive/Icon.vue";
-import { EvaluationViewFrom, NodeCountFormat } from "@/common/settings/app";
-import { Color, Move, Position } from "tsshogi";
+import { NodeCountFormat } from "@/common/settings/app";
+import { Move, Position } from "tsshogi";
 import { useAppSettings } from "@/renderer/store/settings";
 import { useStore } from "@/renderer/store";
 import { readInputAsNumber } from "@/renderer/helpers/form";
 import { useConfirmationStore } from "@/renderer/store/confirm";
 import { AppState, ResearchState } from "@/common/control/state.js";
+import { getDisplayEvaluation } from "@/renderer/helpers/evaluation";
 
 let ignoreSuggestionsCountLimit = false;
 const suggestionsCountLimit = 10;
@@ -328,9 +315,22 @@ const enableHighlight = computed(() => {
 const evaluationViewFrom = computed(() => {
   return appSettings.evaluationViewFrom;
 });
-const getDisplayScore = (score: number, color: Color, evaluationViewFrom: EvaluationViewFrom) => {
-  return evaluationViewFrom === EvaluationViewFrom.EACH || color == Color.BLACK ? score : -score;
+const getDisplayEvaluationForInfo = (info: USIInfo) => {
+  const score = info.scoreMate ?? info.score;
+  return score === undefined
+    ? undefined
+    : getDisplayEvaluation(
+        score,
+        info.color,
+        evaluationViewFrom.value,
+        info.lowerBound,
+        info.upperBound,
+      );
 };
+const getDisplayScore = (info: USIInfo) => getDisplayEvaluationForInfo(info)?.score ?? "";
+const getDisplayScoreOrPlaceholder = (info: USIInfo) =>
+  getDisplayEvaluationForInfo(info)?.score ?? "---";
+const getDisplayScoreFlag = (info: USIInfo) => getDisplayEvaluationForInfo(info)?.scoreFlag ?? "";
 
 const showPreview = (ite: USIInfo) => {
   const position = Position.newBySFEN(ite.position);
