@@ -14,6 +14,16 @@ interface MockWebSocket {
 describe("LanEngine", () => {
   let mockWs: MockWebSocket;
 
+  const installWebSocketSequence = (...sockets: MockWebSocket[]) => {
+    let index = 0;
+    const MockWS = vi.fn().mockImplementation(function () {
+      return sockets[index++] ?? sockets.at(-1);
+    });
+    Object.assign(MockWS, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
+    global.WebSocket = MockWS as unknown as typeof WebSocket;
+    return MockWS;
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
@@ -121,6 +131,10 @@ describe("LanEngine", () => {
 
   it("should reject connect() on connection error", async () => {
     const engine = new LanEngine("test-session");
+    const scheduleReconnectSpy = vi.spyOn(
+      engine as unknown as { scheduleReconnect: () => void },
+      "scheduleReconnect",
+    );
     const promise = engine.connect();
 
     const expectPromise = expect(promise).rejects.toThrow("WebSocket connection error");
@@ -130,6 +144,9 @@ describe("LanEngine", () => {
     }
 
     await expectPromise;
+    expect((engine as unknown as { ws: MockWebSocket | null }).ws).toBeNull();
+    expect(mockWs.close).toHaveBeenCalled();
+    expect(scheduleReconnectSpy).toHaveBeenCalled();
   });
 
   it("should flush command queue and close socket on disconnect", async () => {
@@ -185,7 +202,9 @@ describe("LanEngine", () => {
   it("should keep onmessage intact to preserve in-flight messages on visibility change", async () => {
     const engine = new LanEngine("test-session");
     const connectPromise = engine.connect();
-    connectPromise.catch(() => {});
+    mockWs.readyState = 1;
+    mockWs.onopen?.();
+    await connectPromise;
 
     expect(mockWs.onopen).not.toBeNull();
 
@@ -221,20 +240,29 @@ describe("LanEngine", () => {
   });
 
   it("should deliver in-flight messages via old socket onmessage after visibility change", async () => {
+    const oldWs = mockWs;
+    const newWs: MockWebSocket = {
+      readyState: 0,
+      send: vi.fn(),
+      close: vi.fn(),
+      onopen: null,
+      onerror: null,
+      onclose: null,
+      onmessage: null,
+    };
+    installWebSocketSequence(oldWs, newWs);
+
     const engine = new LanEngine("test-session");
     const onMessageHandler = vi.fn();
     const connectPromise = engine.connect(onMessageHandler);
 
     // Simulate successful connection (OPEN)
-    mockWs.readyState = 1; // OPEN
-    if (mockWs.onopen) mockWs.onopen();
+    oldWs.readyState = 1; // OPEN
+    if (oldWs.onopen) oldWs.onopen();
     await connectPromise;
 
     // Track messages dispatched through the handler.
     onMessageHandler.mockClear();
-
-    // Prevent connect() from creating a new WebSocket during reconnect.
-    vi.spyOn(engine, "connect").mockImplementation(() => Promise.resolve());
 
     const originalVisibilityState = document.visibilityState;
     Object.defineProperty(document, "visibilityState", {
@@ -247,20 +275,162 @@ describe("LanEngine", () => {
       .onVisibilityChange;
     onVisibilityChange();
 
+    newWs.readyState = 1;
+    newWs.onopen?.();
+    newWs.onmessage?.({ data: JSON.stringify({ state: "ready" }) });
+    onMessageHandler.mockClear();
+
     // Simulate a message that was already in the browser's delivery queue when
     // visibilitychange fired, arriving just after close() was called.
-    const inFlight = JSON.stringify({ sfen: "position startpos", info: "bestmove 7g7f" });
-    if (mockWs.onmessage) {
-      mockWs.onmessage({ data: inFlight });
+    const inFlightMessages = [
+      JSON.stringify({ sfen: "position startpos", info: "info depth 10" }),
+      JSON.stringify({ sfen: "position startpos", info: "bestmove 7g7f" }),
+      JSON.stringify({ sfen: "position startpos", info: "checkmate nomate" }),
+    ];
+    for (const data of inFlightMessages) {
+      oldWs.onmessage?.({ data });
     }
 
-    expect(onMessageHandler).toHaveBeenCalledWith(inFlight);
+    expect(onMessageHandler.mock.calls.map(([message]) => message)).toEqual(inFlightMessages);
 
     Object.defineProperty(document, "visibilityState", {
       value: originalVisibilityState,
       writable: true,
       configurable: true,
     });
+  });
+
+  it("should ignore state messages from a replaced socket", async () => {
+    const oldWs = mockWs;
+    const newWs: MockWebSocket = {
+      readyState: 0,
+      send: vi.fn(),
+      close: vi.fn(),
+      onopen: null,
+      onerror: null,
+      onclose: null,
+      onmessage: null,
+    };
+    installWebSocketSequence(oldWs, newWs);
+    const engine = new LanEngine("test-session");
+    const onMessageHandler = vi.fn();
+    const messageListener = vi.fn(() => false);
+    engine.addMessageListener(messageListener);
+    const connectPromise = engine.connect(onMessageHandler);
+    oldWs.readyState = 1;
+    oldWs.onopen?.();
+    await connectPromise;
+
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      writable: true,
+      configurable: true,
+    });
+    (engine as unknown as { onVisibilityChange: () => void }).onVisibilityChange();
+    newWs.readyState = 1;
+    newWs.onopen?.();
+    onMessageHandler.mockClear();
+
+    for (const data of [
+      JSON.stringify({ state: "thinking" }),
+      JSON.stringify({ error: "stale error" }),
+      JSON.stringify({ info: "pong" }),
+      JSON.stringify({ engineList: [] }),
+    ]) {
+      oldWs.onmessage?.({ data });
+    }
+
+    expect(onMessageHandler).not.toHaveBeenCalled();
+    expect(messageListener).not.toHaveBeenCalled();
+  });
+
+  it("should not replace a websocket that is still connecting on visibility change", () => {
+    const MockWS = installWebSocketSequence(mockWs);
+    const engine = new LanEngine("test-session");
+    engine.connect().catch(() => {});
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      writable: true,
+      configurable: true,
+    });
+
+    (engine as unknown as { onVisibilityChange: () => void }).onVisibilityChange();
+
+    expect(MockWS).toHaveBeenCalledTimes(1);
+    expect(mockWs.close).not.toHaveBeenCalled();
+  });
+
+  it("should not let an old heartbeat timeout close the replacement socket", async () => {
+    const oldWs = mockWs;
+    const newWs: MockWebSocket = {
+      readyState: 0,
+      send: vi.fn(),
+      close: vi.fn(),
+      onopen: null,
+      onerror: null,
+      onclose: null,
+      onmessage: null,
+    };
+    installWebSocketSequence(oldWs, newWs);
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    const engine = new LanEngine("test-session");
+    const connectPromise = engine.connect();
+    oldWs.readyState = 1;
+    oldWs.onopen?.();
+    await connectPromise;
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(oldWs.send).toHaveBeenCalledWith("ping");
+    const oldPongTimeout = setTimeoutSpy.mock.calls.findLast(([, delay]) => delay === 6000)?.[0];
+    expect(oldPongTimeout).toBeTypeOf("function");
+
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      writable: true,
+      configurable: true,
+    });
+    (engine as unknown as { onVisibilityChange: () => void }).onVisibilityChange();
+    newWs.readyState = 1;
+    newWs.onopen?.();
+    if (typeof oldPongTimeout === "function") {
+      oldPongTimeout();
+    }
+
+    expect(newWs.close).not.toHaveBeenCalled();
+  });
+
+  it("should ignore a stale pong while waiting for the replacement pong", async () => {
+    const oldWs = mockWs;
+    const newWs: MockWebSocket = {
+      readyState: 0,
+      send: vi.fn(),
+      close: vi.fn(),
+      onopen: null,
+      onerror: null,
+      onclose: null,
+      onmessage: null,
+    };
+    installWebSocketSequence(oldWs, newWs);
+    const engine = new LanEngine("test-session");
+    const connectPromise = engine.connect();
+    oldWs.readyState = 1;
+    oldWs.onopen?.();
+    await connectPromise;
+
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      writable: true,
+      configurable: true,
+    });
+    (engine as unknown as { onVisibilityChange: () => void }).onVisibilityChange();
+    newWs.readyState = 1;
+    newWs.onopen?.();
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(newWs.send).toHaveBeenCalledWith("ping");
+
+    oldWs.onmessage?.({ data: JSON.stringify({ info: "pong" }) });
+    await vi.advanceTimersByTimeAsync(6000);
+
+    expect(newWs.close).toHaveBeenCalledOnce();
   });
 
   it("should schedule reconnect when socket closes before onopen", async () => {

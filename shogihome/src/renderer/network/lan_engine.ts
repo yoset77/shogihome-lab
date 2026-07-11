@@ -17,6 +17,20 @@ const timeout = (timeoutMs: number, message: string): Promise<never> =>
     window.setTimeout(() => reject(new Error(message)), timeoutMs);
   });
 
+const isRetiredSocketEngineOutput = (data: unknown): data is string => {
+  if (typeof data !== "string") return false;
+  try {
+    const message = JSON.parse(data) as { sfen?: unknown; info?: unknown };
+    return (
+      typeof message.sfen === "string" &&
+      typeof message.info === "string" &&
+      /^(?:bestmove|checkmate|info)(?:\s|$)/.test(message.info)
+    );
+  } catch {
+    return false;
+  }
+};
+
 export class LanEngine {
   private ws: WebSocket | null = null;
   private onMessageHandler: MessageHandler | null = null;
@@ -56,12 +70,20 @@ export class LanEngine {
       console.log(`Foreground detected. Refreshing session ${this.sessionId}...`);
       this.clearReconnect();
       if (this.ws) {
+        if (this.ws.readyState === WebSocket.CONNECTING) {
+          return;
+        }
         const oldWs = this.ws;
+        const preserveEngineOutput = oldWs.readyState === WebSocket.OPEN;
         // Keep onmessage intact so in-flight engine output is still dispatched;
         // server replay starts only after the server detects the disconnect.
+        this.stopHeartbeat();
         oldWs.onopen = null;
         oldWs.onerror = null;
         oldWs.onclose = null;
+        if (!preserveEngineOutput) {
+          oldWs.onmessage = null;
+        }
         this.ws = null;
         this.setStatus("disconnected");
         oldWs.close();
@@ -110,7 +132,7 @@ export class LanEngine {
         if (this.ws.readyState === WebSocket.OPEN) {
           this.setStatus("connected");
           this.flushCommandQueue();
-          this.startHeartbeat();
+          this.startHeartbeat(this.ws);
         } else {
           this.setStatus("connecting");
         }
@@ -155,18 +177,25 @@ export class LanEngine {
         this.reconnectAttempts = 0;
         this.setStatus("connected");
         this.flushCommandQueue();
-        this.startHeartbeat();
+        this.startHeartbeat(ws);
         resolve();
       };
 
       ws.onmessage = (event) => {
         const data = event.data;
 
+        if (this.ws !== ws) {
+          if (isRetiredSocketEngineOutput(data) && this.onMessageHandler) {
+            this.onMessageHandler(data);
+          }
+          return;
+        }
+
         // Handle heartbeat
         try {
           const json = JSON.parse(data);
           if (json.info === "pong") {
-            this.handlePong();
+            this.handlePong(ws);
             return; // Don't propagate pong
           }
         } catch {
@@ -208,20 +237,30 @@ export class LanEngine {
       ws.onerror = (error) => {
         console.error("WebSocket error:", error);
         if (!connected) {
-          // Rejection will be handled by onclose which usually follows onerror,
-          // but we can reject here to be safe and specific.
           window.clearTimeout(timeoutId);
+          if (this.ws === ws) {
+            ws.onopen = null;
+            ws.onmessage = null;
+            ws.onerror = null;
+            ws.onclose = null;
+            ws.close();
+            this.ws = null;
+            this.setStatus("disconnected");
+            if (!this.isExplicitlyClosed) {
+              this.scheduleReconnect();
+            }
+          }
           reject(new Error("WebSocket connection error"));
         }
       };
     });
   }
 
-  private startHeartbeat() {
+  private startHeartbeat(ws: WebSocket) {
     this.stopHeartbeat();
     // Send ping every 6 seconds
     this.pingIntervalId = window.setInterval(() => {
-      this.sendPing();
+      this.sendPing(ws);
     }, 6000);
   }
   private stopHeartbeat() {
@@ -235,26 +274,27 @@ export class LanEngine {
     }
   }
 
-  private sendPing() {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+  private sendPing(ws: WebSocket) {
+    if (this.ws !== ws || ws.readyState !== WebSocket.OPEN) return;
 
     // Set timeout for pong response (e.g. 6 seconds)
     if (this.pongTimeoutId === null) {
       this.pongTimeoutId = window.setTimeout(() => {
         console.warn("Heartbeat timeout. Closing connection.");
-        if (this.ws) {
-          this.ws.close(); // This will trigger onclose and scheduleReconnect
+        if (this.ws === ws) {
+          ws.close(); // This will trigger onclose and scheduleReconnect
         }
       }, 6000);
     }
     try {
-      this.ws.send("ping");
+      ws.send("ping");
     } catch (e) {
       console.warn("Failed to send ping:", e);
     }
   }
 
-  private handlePong() {
+  private handlePong(ws: WebSocket) {
+    if (this.ws !== ws) return;
     if (this.pongTimeoutId !== null) {
       clearTimeout(this.pongTimeoutId);
       this.pongTimeoutId = null;
