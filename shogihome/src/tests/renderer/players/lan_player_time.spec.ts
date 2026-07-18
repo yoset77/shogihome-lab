@@ -41,7 +41,7 @@ describe("LanPlayer Time Control", () => {
 
     // Mock startEngine to trigger the ready sequence
     (LanEngine.prototype.startEngine as Mock).mockImplementation(() => {
-      const readyMsg = JSON.stringify({ info: "info: engine is ready" });
+      const readyMsg = JSON.stringify({ state: "ready", engineId: "test-engine" });
       // Deliver message in next tick to let the launch() call start its await
       process.nextTick(() => {
         if (messageHandler) {

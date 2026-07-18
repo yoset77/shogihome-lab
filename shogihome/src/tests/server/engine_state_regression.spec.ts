@@ -24,6 +24,7 @@ type TestableEngineSession = {
   handleMessage(command: string): void;
   onEngineClose(): void;
   sendToClient(data: unknown): void;
+  sendState(): void;
   setupEngineHandlers(stream: NodeJS.ReadableStream): void;
 };
 
@@ -88,6 +89,17 @@ describe("Engine State Regression Tests", () => {
 
     expect(tSession.engineState).toBe(EngineState.STOPPING_SEARCH);
     expect(tSession.engineHandle.write).toHaveBeenCalledWith("stop\n");
+  });
+
+  it("should include the active engine ID in state frames", () => {
+    tSession.engineState = EngineState.READY;
+    (tSession as unknown as { currentEngineId: string }).currentEngineId = "test-engine";
+
+    tSession.sendState();
+
+    expect(mockWs.send).toHaveBeenCalledWith(
+      expect.stringContaining('"state":"ready","engineId":"test-engine"'),
+    );
   });
 
   it("should move start_engine and stop_engine out of postStopCommandQueue", () => {
@@ -282,6 +294,79 @@ describe("Engine State Regression Tests", () => {
     expect(engineHandle.write).toHaveBeenCalledWith("position startpos moves 2g2f\n");
     expect(engineHandle.write).toHaveBeenCalledWith("go infinite\n");
     expect(engineHandle.write).not.toHaveBeenCalledWith("position startpos moves 7g7f\n");
+  });
+
+  it("should pause the stop timeout while disconnected and restart it after reconnect", async () => {
+    vi.useFakeTimers();
+    try {
+      const engineHandle = {
+        write: vi.fn(),
+        close: vi.fn(),
+        removeAllListeners: vi.fn(),
+      };
+      tSession.engineState = EngineState.THINKING;
+      tSession.engineHandle = engineHandle;
+
+      tSession.handleMessage("stop");
+      expect(tSession.engineState).toBe(EngineState.STOPPING_SEARCH);
+      tSession.handleDisconnect(mockWs);
+
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(engineHandle.close).not.toHaveBeenCalled();
+
+      const reconnectedWs: MockExtendedWebSocket = {
+        send: vi.fn(),
+        terminate: vi.fn(),
+        close: vi.fn(),
+        on: vi.fn(),
+        readyState: 1,
+      };
+      session.attach(reconnectedWs as unknown as Parameters<EngineSession["attach"]>[0]);
+
+      await vi.advanceTimersByTimeAsync(9999);
+      expect(engineHandle.close).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(engineHandle.close).toHaveBeenCalledOnce();
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it("should not restart the stop timeout if bestmove arrived while disconnected", async () => {
+    vi.useFakeTimers();
+    try {
+      const stream = new PassThrough();
+      const engineHandle = {
+        write: vi.fn(),
+        close: vi.fn(),
+        removeAllListeners: vi.fn(),
+      };
+      tSession.engineState = EngineState.THINKING;
+      tSession.engineHandle = engineHandle;
+      tSession.setupEngineHandlers(stream);
+
+      tSession.handleMessage("stop");
+      tSession.handleDisconnect(mockWs);
+      stream.write("bestmove resign\n");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(tSession.engineState).toBe(EngineState.READY);
+
+      const reconnectedWs: MockExtendedWebSocket = {
+        send: vi.fn(),
+        terminate: vi.fn(),
+        close: vi.fn(),
+        on: vi.fn(),
+        readyState: 1,
+      };
+      session.attach(reconnectedWs as unknown as Parameters<EngineSession["attach"]>[0]);
+      await vi.advanceTimersByTimeAsync(10000);
+
+      expect(engineHandle.close).not.toHaveBeenCalled();
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
   });
 
   it("should save bounded PVs when MultiPV order changes before bestmove", async () => {

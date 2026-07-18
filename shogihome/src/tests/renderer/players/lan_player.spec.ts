@@ -16,6 +16,7 @@ describe("LanPlayer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    localStorage.clear();
     messageListeners = [];
 
     // Mock API
@@ -74,7 +75,13 @@ describe("LanPlayer", () => {
     messageListeners.forEach((l) => l(json));
   }
 
-  async function launchPlayer(player: LanPlayer, msg: unknown = { info: "info: engine is ready" }) {
+  async function launchPlayer(
+    player: LanPlayer,
+    msg: unknown = {
+      state: "ready",
+      engineId: (player as unknown as { engineId: string }).engineId,
+    },
+  ) {
     const launchPromise = player.launch();
     await vi.advanceTimersByTimeAsync(100);
     sendMsg(msg);
@@ -257,10 +264,47 @@ describe("LanPlayer", () => {
 
   it("should resolve launch and set isThinking to true when re-attaching to a thinking engine", async () => {
     const player = new LanPlayer("test-session", "test-engine", "Test Engine");
-    await launchPlayer(player, { state: "thinking" });
+    await launchPlayer(player, { state: "thinking", engineId: "test-engine" });
 
     // Check if isThinking is true
     expect((player as unknown as { isThinking: boolean }).isThinking).toBe(true);
+  });
+
+  it("should rotate the persistent session ID when the selected engine changes", () => {
+    new LanPlayer("research_main", "engine-a", "Engine A");
+    const firstSessionId = (LanEngine as unknown as Mock).mock.calls.at(-1)?.[0];
+
+    new LanPlayer("research_main", "engine-b", "Engine B");
+    const secondSessionId = (LanEngine as unknown as Mock).mock.calls.at(-1)?.[0];
+
+    expect(secondSessionId).not.toBe(firstSessionId);
+  });
+
+  it("should preserve the persistent session ID for the same normalized engine", () => {
+    new LanPlayer("research_main", "lan-engine:engine-a", "Engine A");
+    const firstSessionId = (LanEngine as unknown as Mock).mock.calls.at(-1)?.[0];
+
+    new LanPlayer("research_main", "engine-a", "Engine A");
+    const secondSessionId = (LanEngine as unknown as Mock).mock.calls.at(-1)?.[0];
+
+    expect(secondSessionId).toBe(firstSessionId);
+  });
+
+  it("should not complete launch from another engine's state", async () => {
+    const player = new LanPlayer("engine-mismatch-test", "engine-b", "Engine B");
+    let resolved = false;
+    const launchPromise = player.launch().then(() => {
+      resolved = true;
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    sendMsg({ state: "ready", engineId: "engine-a" });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(resolved).toBe(false);
+
+    sendMsg({ state: "ready", engineId: "engine-b" });
+    await launchPromise;
+    expect(resolved).toBe(true);
   });
 
   it("should send go infinite when starting research", async () => {

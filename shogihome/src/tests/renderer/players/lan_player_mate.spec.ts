@@ -57,7 +57,13 @@ describe("LanPlayer Mate Search", () => {
     messageListeners.forEach((l) => l(json));
   }
 
-  async function launchPlayer(player: LanPlayer, msg: unknown = { info: "info: engine is ready" }) {
+  async function launchPlayer(
+    player: LanPlayer,
+    msg: unknown = {
+      state: "ready",
+      engineId: (player as unknown as { engineId: string }).engineId,
+    },
+  ) {
     const launchPromise = player.launch();
     await vi.advanceTimersByTimeAsync(100);
     sendMsg(msg);

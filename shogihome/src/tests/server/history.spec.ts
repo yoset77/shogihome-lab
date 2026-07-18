@@ -72,13 +72,19 @@ describe("API: /api/history (Backup & History)", () => {
     contentType = "application/json",
   ): Promise<{ status: number; data: T }> => {
     return new Promise((resolve, reject) => {
+      const headers: Record<string, string | number> = {};
+      if (!["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) {
+        headers.Origin = SERVER_URL;
+      }
+      if (body) {
+        headers["Content-Type"] = contentType;
+        headers["Content-Length"] = Buffer.byteLength(body);
+      }
       const req = http.request(
         `${SERVER_URL}${path}`,
         {
           method,
-          headers: body
-            ? { "Content-Type": contentType, "Content-Length": Buffer.byteLength(body) }
-            : {},
+          headers,
         },
         (res) => {
           let data = "";

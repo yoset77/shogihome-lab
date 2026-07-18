@@ -1,5 +1,6 @@
 import { LanEngine, LanEngineStatus } from "@/renderer/network/lan_engine";
-import { LanPlayer } from "@/renderer/players/lan_player";
+import { LanPlayer, isActiveLanPlayerSession } from "@/renderer/players/lan_player";
+import api from "@/renderer/ipc/api";
 import { Record } from "tsshogi";
 import { Mock } from "vitest";
 
@@ -15,6 +16,7 @@ describe("LanPlayer resilience", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    localStorage.clear();
     messageListeners = [];
     statusListeners = [];
 
@@ -52,6 +54,8 @@ describe("LanPlayer resilience", () => {
     (LanEngine.prototype.stopEngine as Mock).mockImplementation(() => undefined);
     (LanEngine.prototype.disconnect as Mock).mockImplementation(() => undefined);
     (LanEngine.prototype.isConnected as Mock).mockReturnValue(true);
+    (api.openBookAsNewSession as Mock).mockResolvedValue("test-book-session");
+    (api.closeBook as Mock).mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -71,7 +75,13 @@ describe("LanPlayer resilience", () => {
     statusListeners.forEach((listener) => listener(status));
   }
 
-  async function launchPlayer(player: LanPlayer, msg: unknown = { info: "info: engine is ready" }) {
+  async function launchPlayer(
+    player: LanPlayer,
+    msg: unknown = {
+      state: "ready",
+      engineId: (player as unknown as { engineId: string }).engineId,
+    },
+  ) {
     const launchPromise = player.launch();
     await vi.advanceTimersByTimeAsync(100);
     sendMsg(msg);
@@ -105,7 +115,7 @@ describe("LanPlayer resilience", () => {
 
     // Now simulate reconnection and stopped state frame
     updateStatus("connected");
-    sendMsg({ state: "stopped" });
+    sendMsg({ state: "stopped", engineId: null });
 
     // It should still wait for bestmove
     await vi.advanceTimersByTimeAsync(1000);
@@ -157,17 +167,43 @@ describe("LanPlayer resilience", () => {
       undefined,
       onError,
     );
-    await launchPlayer(player, { state: "thinking" });
+    await launchPlayer(player, { state: "thinking", engineId: "test-engine" });
 
-    sendMsg({ state: "ready" });
+    sendMsg({ state: "ready", engineId: "test-engine" });
     await vi.advanceTimersByTimeAsync(5001);
 
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
     expect((player as unknown as { isThinking: boolean }).isThinking).toBe(false);
   });
 
-  it("should resolve stop promise if state syncs to stopped and bestmove never arrives", async () => {
+  it("should reject a queued search if state syncs to stopped and bestmove never arrives", async () => {
     const player = new LanPlayer("test-session", "test-engine", "Test Engine");
+    await launchPlayer(player);
+
+    const firstUsi = "position startpos moves 7g7f";
+    const secondUsi = "position startpos moves 2g2f";
+    const firstRecord = Record.newByUSI(firstUsi) as Record;
+    const secondRecord = Record.newByUSI(secondUsi) as Record;
+    await player.startResearch(firstRecord.position, firstUsi);
+
+    const secondSearch = player.startResearch(secondRecord.position, secondUsi);
+    const secondSearchResult = expect(secondSearch).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Simulate reconnection state frame
+    sendMsg({ state: "stopped", engineId: null });
+
+    // Wait for the readyReplayTimeout (5000ms)
+    await vi.advanceTimersByTimeAsync(5001);
+
+    await secondSearchResult;
+    expect((player as unknown as { isThinking: boolean }).isThinking).toBe(false);
+    expect(LanEngine.prototype.sendCommand).not.toHaveBeenCalledWith(secondUsi);
+  });
+
+  it("should close while a stop acknowledgement is waiting on a permanent disconnection", async () => {
+    (LanEngine.prototype.sendCommand as Mock).mockImplementation(() => undefined);
+    const player = new LanPlayer("research_main", "test-engine", "Test Engine");
     await launchPlayer(player);
 
     const usi = "position startpos";
@@ -176,14 +212,127 @@ describe("LanPlayer resilience", () => {
 
     const stopPromise = player.stop();
     await vi.advanceTimersByTimeAsync(100);
+    (LanEngine.prototype.isConnected as Mock).mockReturnValue(false);
+    updateStatus("disconnected");
 
-    // Simulate reconnection state frame
-    sendMsg({ state: "stopped" });
-
-    // Wait for the readyReplayTimeout (5000ms)
-    await vi.advanceTimersByTimeAsync(5001);
+    const closePromise = player.close();
+    await vi.advanceTimersByTimeAsync(100);
 
     await expect(stopPromise).resolves.toBeUndefined();
-    expect((player as unknown as { isThinking: boolean }).isThinking).toBe(false);
+    await expect(closePromise).resolves.toBeUndefined();
+    expect(LanEngine.prototype.terminateEngine).toHaveBeenCalledOnce();
+  });
+
+  it("should not resume a queued search after close cancels its stop wait", async () => {
+    (LanEngine.prototype.sendCommand as Mock).mockImplementation(() => undefined);
+    const player = new LanPlayer("research_main", "test-engine", "Test Engine");
+    await launchPlayer(player);
+
+    const firstUsi = "position startpos moves 7g7f";
+    const secondUsi = "position startpos moves 2g2f";
+    const firstRecord = Record.newByUSI(firstUsi) as Record;
+    const secondRecord = Record.newByUSI(secondUsi) as Record;
+    await player.startResearch(firstRecord.position, firstUsi);
+
+    const secondSearch = player.startResearch(secondRecord.position, secondUsi);
+    const secondSearchResult = expect(secondSearch).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(100);
+    (LanEngine.prototype.isConnected as Mock).mockReturnValue(false);
+    updateStatus("disconnected");
+
+    const closePromise = player.close();
+    await vi.advanceTimersByTimeAsync(100);
+
+    await secondSearchResult;
+    await expect(closePromise).resolves.toBeUndefined();
+    expect(LanEngine.prototype.sendCommand).not.toHaveBeenCalledWith(secondUsi);
+  });
+
+  it("should report an established idle session becoming uninitialized only once", async () => {
+    const onError = vi.fn();
+    const player = new LanPlayer(
+      "research_main",
+      "test-engine",
+      "Test Engine",
+      10,
+      undefined,
+      onError,
+    );
+    await launchPlayer(player, { state: "ready", engineId: "test-engine" });
+
+    sendMsg({ state: "uninitialized", engineId: null });
+    sendMsg({ state: "uninitialized", engineId: null });
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it("should release owned resources when an established session is lost", async () => {
+    const player = new LanPlayer(
+      "research_main",
+      "test-engine",
+      "Test Engine",
+      10,
+      undefined,
+      undefined,
+      {
+        enabled: true,
+        filePath: "test.db",
+        considerBookMoveCount: true,
+      },
+    );
+    await launchPlayer(player, { state: "ready", engineId: "test-engine" });
+    expect(isActiveLanPlayerSession(200000)).toBe(true);
+
+    sendMsg({ state: "uninitialized", engineId: null });
+    await Promise.resolve();
+
+    expect(isActiveLanPlayerSession(200000)).toBe(false);
+    expect(api.closeBook).toHaveBeenCalledWith("test-book-session");
+  });
+
+  it("should keep a pending session-loss decision when a server error arrives first", async () => {
+    const onError = vi.fn();
+    const player = new LanPlayer(
+      "research_main",
+      "test-engine",
+      "Test Engine",
+      10,
+      undefined,
+      onError,
+    );
+    await launchPlayer(player, { state: "thinking", engineId: "test-engine" });
+
+    sendMsg({ state: "uninitialized", engineId: null });
+    sendMsg({ error: "engine not started" });
+
+    expect(onError).toHaveBeenCalledOnce();
+    await expect(
+      player.startResearch(
+        (Record.newByUSI("position startpos") as Record).position,
+        "position startpos",
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("should accept uninitialized and starting states while launching", async () => {
+    const onError = vi.fn();
+    const player = new LanPlayer(
+      "research_main",
+      "test-engine",
+      "Test Engine",
+      10,
+      undefined,
+      onError,
+    );
+    const launchPromise = player.launch();
+    await vi.advanceTimersByTimeAsync(100);
+
+    sendMsg({ state: "uninitialized", engineId: null });
+    sendMsg({ state: "starting", engineId: "test-engine" });
+    sendMsg({ state: "ready", engineId: "test-engine" });
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    expect(onError).not.toHaveBeenCalled();
   });
 });
