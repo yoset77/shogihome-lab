@@ -7,6 +7,7 @@ import {
 } from "@/common/settings/game";
 import { InitialPositionType } from "tsshogi";
 import * as uri from "@/common/uri";
+import { BookMoveSelectionRule } from "@/common/settings/usi";
 
 describe("settings/game", () => {
   it("normalize", () => {
@@ -50,6 +51,27 @@ describe("settings/game", () => {
     };
     const result = normalizeGameSettings(settings);
     expect(result).toStrictEqual(settings);
+
+    const legacy = {
+      ...settings,
+      white: {
+        ...settings.white,
+        usi: {
+          ...settings.white.usi,
+          extraBook: {
+            enabled: true,
+            filePath: "book.db",
+            considerBookMoveCount: false,
+          },
+        },
+      },
+    } as unknown as GameSettings;
+    expect(normalizeGameSettings(legacy).white.usi?.extraBook).toMatchObject({
+      enabled: true,
+      filePath: "book.db",
+      moveSelectionRule: BookMoveSelectionRule.UNIFORM,
+      scoreTemperature: 50,
+    });
   });
 
   it("validateGameSettings/startPositionListPly-valid", () => {

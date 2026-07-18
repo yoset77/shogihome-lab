@@ -4,9 +4,11 @@ import { LogLevel } from "@/common/log";
 import { USIInfoCommand } from "@/common/game/usi";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "./usi_events";
 import { BookMove } from "@/common/book";
+import { BookMoveSelectionRule, DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE } from "@/common/settings/usi";
 
 export interface BookSearchOptions {
-  considerBookMoveCount: boolean;
+  moveSelectionRule: BookMoveSelectionRule;
+  scoreTemperature: number;
   turn: Color;
   minEvalBlack?: number;
   minEvalWhite?: number;
@@ -96,7 +98,7 @@ export async function searchBookMovesForPlayer(
     }
 
     // Select a move from filtered candidates
-    const selectedMove = selectBookMove(filteredMoves, options.considerBookMoveCount);
+    const selectedMove = selectBookMove(filteredMoves, options);
     const move = position.createMoveByUSI(selectedMove.usi);
     if (!move) {
       api.log(
@@ -114,25 +116,57 @@ export async function searchBookMovesForPlayer(
   }
 }
 
-function selectBookMove(moves: BookMove[], considerMoveCount: boolean): BookMove {
+function selectBookMove(moves: BookMove[], options: BookSearchOptions): BookMove {
   if (moves.length <= 1) {
     return moves[0];
   }
 
-  if (considerMoveCount) {
-    const total = moves.reduce((sum, m) => sum + (m.count ?? 1), 0);
-    let r = Math.random() * total;
-    for (const move of moves) {
-      r -= move.count ?? 1;
-      if (r <= 0) {
-        return move;
+  switch (options.moveSelectionRule) {
+    case BookMoveSelectionRule.WEIGHTED_BY_COUNT:
+      return selectWeightedRandom(moves, (move) => move.count ?? 1);
+    case BookMoveSelectionRule.WEIGHTED_BY_SCORE: {
+      const scores = moves
+        .map((move) => move.score)
+        .filter((score): score is number => score !== undefined && Number.isFinite(score));
+      if (scores.length === 0) {
+        return moves[0];
       }
+      const maxScore = Math.max(...scores);
+      const temperature =
+        Number.isFinite(options.scoreTemperature) && options.scoreTemperature > 0
+          ? options.scoreTemperature
+          : DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE;
+      return selectWeightedRandom(moves, (move) =>
+        move.score !== undefined && Number.isFinite(move.score)
+          ? Math.exp((move.score - maxScore) / temperature)
+          : 0,
+      );
     }
-  } else {
-    // Uniform random
-    const index = Math.floor(Math.random() * moves.length);
-    return moves[index];
+    case BookMoveSelectionRule.UNIFORM:
+      return moves[Math.floor(Math.random() * moves.length)];
+    default:
+      return moves[0];
+  }
+}
+
+function selectWeightedRandom<T>(items: T[], getWeight: (item: T) => number): T {
+  const weights = items.map((item) => {
+    const weight = getWeight(item);
+    return Number.isFinite(weight) && weight > 0 ? weight : 0;
+  });
+  const maxWeight = Math.max(...weights);
+  if (maxWeight <= 0) {
+    return items[0];
   }
 
-  return moves[0];
+  const normalizedWeights = weights.map((weight) => weight / maxWeight);
+  const total = normalizedWeights.reduce((sum, weight) => sum + weight, 0);
+  let remaining = Math.random() * total;
+  for (let i = 0; i < items.length; i++) {
+    remaining -= normalizedWeights[i];
+    if (remaining < 0) {
+      return items[i];
+    }
+  }
+  return items[items.length - 1];
 }

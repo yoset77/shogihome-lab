@@ -304,6 +304,7 @@ import {
   USIEngineExtraBookConfig,
   emptyUSIEngine,
   emptyUSIEngineExtraBookConfig,
+  normalizeUSIEngineExtraBookConfig,
 } from "@/common/settings/usi";
 import { ref, onMounted, computed } from "vue";
 import api, { isNative } from "@/renderer/ipc/api";
@@ -390,10 +391,12 @@ onMounted(async () => {
     engines.value = await api.loadUSIEngines();
     blackPlayerURI.value = gameSettings.value.black.uri;
     whitePlayerURI.value = gameSettings.value.white.uri;
-    blackExtraBook.value =
-      gameSettings.value.black.usi?.extraBook || emptyUSIEngineExtraBookConfig();
-    whiteExtraBook.value =
-      gameSettings.value.white.usi?.extraBook || emptyUSIEngineExtraBookConfig();
+    blackExtraBook.value = normalizeUSIEngineExtraBookConfig(
+      gameSettings.value.black.usi?.extraBook,
+    );
+    whiteExtraBook.value = normalizeUSIEngineExtraBookConfig(
+      gameSettings.value.white.usi?.extraBook,
+    );
     hours.value = Math.floor(gameSettings.value.timeLimit.timeSeconds / 3600);
     minutes.value = Math.floor(gameSettings.value.timeLimit.timeSeconds / 60) % 60;
     byoyomi.value = gameSettings.value.timeLimit.byoyomi;

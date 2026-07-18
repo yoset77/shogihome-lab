@@ -1,5 +1,8 @@
 import {
+  BookMoveSelectionRule,
+  DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE,
   duplicateEngine,
+  emptyUSIEngineExtraBookConfig,
   exportUSIEnginesForCLI,
   getUSIEngineOptionCurrentValue,
   importUSIEnginesForCLI,
@@ -13,10 +16,64 @@ import {
   getUSIEngineThreads,
   getUSIEngineMultiPV,
   getUSIEngineStochasticPonder,
+  normalizeUSIEngineExtraBookConfig,
 } from "@/common/settings/usi";
 import { testUSIEngine } from "@/tests/mock/usi";
 
 describe("settings/usi", () => {
+  it("normalizeUSIEngineExtraBookConfig", () => {
+    expect(DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE).toBe(50);
+    expect(emptyUSIEngineExtraBookConfig()).toMatchObject({
+      moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_COUNT,
+      scoreTemperature: 50,
+    });
+
+    const legacyCount = normalizeUSIEngineExtraBookConfig({
+      enabled: true,
+      filePath: "book.db",
+      considerBookMoveCount: true,
+    });
+    expect(legacyCount).toMatchObject({
+      enabled: true,
+      filePath: "book.db",
+      moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_COUNT,
+      scoreTemperature: 50,
+    });
+    expect(legacyCount).not.toHaveProperty("considerBookMoveCount");
+
+    expect(
+      normalizeUSIEngineExtraBookConfig({
+        enabled: true,
+        filePath: "book.db",
+        considerBookMoveCount: false,
+      }).moveSelectionRule,
+    ).toBe(BookMoveSelectionRule.UNIFORM);
+
+    expect(
+      normalizeUSIEngineExtraBookConfig({
+        enabled: true,
+        filePath: "book.db",
+        moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_SCORE,
+        scoreTemperature: 75,
+      }),
+    ).toMatchObject({
+      moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_SCORE,
+      scoreTemperature: 75,
+    });
+
+    expect(
+      normalizeUSIEngineExtraBookConfig({
+        enabled: true,
+        filePath: "book.db",
+        moveSelectionRule: "invalid",
+        scoreTemperature: 0,
+      }),
+    ).toMatchObject({
+      moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_COUNT,
+      scoreTemperature: 50,
+    });
+  });
+
   it("getUSIEngineOptionCurrentValue", () => {
     expect(
       getUSIEngineOptionCurrentValue({
@@ -347,7 +404,13 @@ describe("settings/usi", () => {
       },
       labels: {},
       enableEarlyPonder: false,
-      extraBook: { enabled: false, filePath: "", considerBookMoveCount: true, bookDepthLimit: 0 },
+      extraBook: {
+        enabled: false,
+        filePath: "",
+        moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_COUNT,
+        scoreTemperature: 50,
+        bookDepthLimit: 0,
+      },
     };
     const out = duplicateEngine(src);
     expect(out.uri).toMatch(/^es:\/\/usi-engine\/.*$/);
@@ -358,7 +421,8 @@ describe("settings/usi", () => {
     expect(out.extraBook).toStrictEqual({
       enabled: false,
       filePath: "",
-      considerBookMoveCount: true,
+      moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_COUNT,
+      scoreTemperature: 50,
       bookDepthLimit: 0,
     });
     expect(out.options).toStrictEqual({
@@ -395,7 +459,13 @@ describe("settings/usi", () => {
       },
       labels: {},
       enableEarlyPonder: false,
-      extraBook: { enabled: false, filePath: "", considerBookMoveCount: true, bookDepthLimit: 0 },
+      extraBook: {
+        enabled: false,
+        filePath: "",
+        moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_COUNT,
+        scoreTemperature: 50,
+        bookDepthLimit: 0,
+      },
     };
     const rhs: USIEngine = {
       uri: "uri-b",
@@ -422,7 +492,8 @@ describe("settings/usi", () => {
       extraBook: {
         enabled: true,
         filePath: "path/to/book",
-        considerBookMoveCount: true,
+        moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_COUNT,
+        scoreTemperature: 50,
         bookDepthLimit: 0,
       },
     };
@@ -453,7 +524,13 @@ describe("settings/usi", () => {
       extraBook: {
         enabled: true,
         filePath: "path/to/book",
-        considerBookMoveCount: true,
+        moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_COUNT,
+        scoreTemperature: 50,
+        maxMoves: 0,
+        minEvalBlack: undefined,
+        minEvalWhite: undefined,
+        maxEvalDiff: undefined,
+        ignoreRate: 0,
         bookDepthLimit: 0,
       },
     });
@@ -691,6 +768,11 @@ describe("settings/usi", () => {
             path: "path-a",
             options: {},
             labels: {},
+            extraBook: {
+              enabled: true,
+              filePath: "book.db",
+              considerBookMoveCount: false,
+            },
           },
         },
       }),
@@ -709,6 +791,12 @@ describe("settings/usi", () => {
     expect(engines.hasEngine("es://usi-engine/b")).toBeTruthy();
     expect(engines.hasEngine("es://usi-engine/c")).toBeFalsy();
     expect((engines.getEngine("es://usi-engine/a") as USIEngine).name).toBe("Engine A");
+    expect((engines.getEngine("es://usi-engine/a") as USIEngine).extraBook).toMatchObject({
+      enabled: true,
+      filePath: "book.db",
+      moveSelectionRule: BookMoveSelectionRule.UNIFORM,
+      scoreTemperature: 50,
+    });
     expect((engines.getEngine("es://usi-engine/b") as USIEngine).name).toBe("Engine B");
     expect(engines.engineList).toHaveLength(2);
     expect(engines.engineList[0].name).toBe("Engine A");

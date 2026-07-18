@@ -1,15 +1,15 @@
 import { USIEngine, USIEngines } from "@/common/settings/usi";
-import { GameSettings } from "@/common/settings/game";
+import { GameSettings, normalizeGameSettings } from "@/common/settings/game";
 import { AppSettings } from "@/common/settings/app";
 import { webAPI } from "./web.js";
-import { ResearchSettings } from "@/common/settings/research";
+import { normalizeResearchSettings, ResearchSettings } from "@/common/settings/research";
 import { AppState, ResearchState } from "@/common/control/state";
 import { GameResult } from "@/common/game/result";
-import { AnalysisSettings } from "@/common/settings/analysis";
+import { AnalysisSettings, normalizeAnalysisSettings } from "@/common/settings/analysis";
 import { LogLevel, LogType } from "@/common/log";
 import { CSAGameSettingsHistory, CSAServerSettings } from "@/common/settings/csa";
 import { Rect } from "@/common/assets/geometry";
-import { MateSearchSettings } from "@/common/settings/mate";
+import { MateSearchSettings, normalizeMateSearchSettings } from "@/common/settings/mate";
 import { BatchConversionSettings } from "@/common/settings/conversion";
 import { BatchConversionResult } from "@/common/file/conversion";
 import { RecordFileHistory } from "@/common/file/history";
@@ -198,19 +198,19 @@ const api: API = {
     return bridge.saveBatchConversionSettings(JSON.stringify(settings));
   },
   async loadResearchSettings(): Promise<ResearchSettings> {
-    return JSON.parse(await bridge.loadResearchSettings());
+    return normalizeResearchSettings(JSON.parse(await bridge.loadResearchSettings()));
   },
   saveResearchSettings(settings: ResearchSettings): Promise<void> {
     return bridge.saveResearchSettings(JSON.stringify(settings));
   },
   async loadAnalysisSettings(): Promise<AnalysisSettings> {
-    return JSON.parse(await bridge.loadAnalysisSettings());
+    return normalizeAnalysisSettings(JSON.parse(await bridge.loadAnalysisSettings()));
   },
   saveAnalysisSettings(settings: AnalysisSettings): Promise<void> {
     return bridge.saveAnalysisSettings(JSON.stringify(settings));
   },
   async loadGameSettings(): Promise<GameSettings> {
-    return JSON.parse(await bridge.loadGameSettings());
+    return normalizeGameSettings(JSON.parse(await bridge.loadGameSettings()));
   },
   saveGameSettings(settings: GameSettings): Promise<void> {
     return bridge.saveGameSettings(JSON.stringify(settings));
@@ -222,7 +222,7 @@ const api: API = {
     return bridge.saveCSAGameSettingsHistory(JSON.stringify(settings));
   },
   async loadMateSearchSettings(): Promise<MateSearchSettings> {
-    return JSON.parse(await bridge.loadMateSearchSettings());
+    return normalizeMateSearchSettings(JSON.parse(await bridge.loadMateSearchSettings()));
   },
   saveMateSearchSettings(settings: MateSearchSettings): Promise<void> {
     return bridge.saveMateSearchSettings(JSON.stringify(settings));

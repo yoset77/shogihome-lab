@@ -3,6 +3,7 @@ import { LanPlayer, isActiveLanPlayerSession } from "@/renderer/players/lan_play
 import api from "@/renderer/ipc/api";
 import { Record } from "tsshogi";
 import { Mock } from "vitest";
+import { BookMoveSelectionRule } from "@/common/settings/usi";
 
 vi.mock("@/renderer/network/lan_engine");
 vi.mock("@/renderer/ipc/api");
@@ -278,7 +279,8 @@ describe("LanPlayer resilience", () => {
       {
         enabled: true,
         filePath: "test.db",
-        considerBookMoveCount: true,
+        moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_COUNT,
+        scoreTemperature: 50,
       },
     );
     await launchPlayer(player, { state: "ready", engineId: "test-engine" });

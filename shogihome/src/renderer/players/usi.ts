@@ -5,6 +5,7 @@ import {
   getUSIEnginePonder,
   getUSIEngineStochasticPonder,
   MultiPV,
+  normalizeUSIEngineExtraBookConfig,
   USIEngine,
   USIEngineLaunchOptions,
   USIMultiPV,
@@ -44,6 +45,9 @@ export class USIPlayer implements Player {
   ) {
     this.launchOptions =
       typeof launchOptions === "number" ? { timeoutSeconds: launchOptions } : launchOptions;
+    if (this.engine.extraBook) {
+      this.engine.extraBook = normalizeUSIEngineExtraBookConfig(this.engine.extraBook);
+    }
   }
 
   get name(): string {
@@ -213,7 +217,8 @@ export class USIPlayer implements Player {
       this.bookSessionID,
       this.name,
       {
-        considerBookMoveCount: extraBook.considerBookMoveCount,
+        moveSelectionRule: extraBook.moveSelectionRule,
+        scoreTemperature: extraBook.scoreTemperature,
         turn: this.position.color,
         minEvalBlack: extraBook.minEvalBlack,
         minEvalWhite: extraBook.minEvalWhite,

@@ -1,4 +1,4 @@
-import { USIEngine } from "./usi.js";
+import { normalizeUSIEngine, USIEngine } from "./usi.js";
 
 export type MateSearchSettings = {
   usi?: USIEngine;
@@ -17,5 +17,6 @@ export function normalizeMateSearchSettings(settings: MateSearchSettings): MateS
   return {
     ...defaultMateSearchSettings(),
     ...settings,
+    ...(settings.usi ? { usi: normalizeUSIEngine(settings.usi) } : {}),
   };
 }

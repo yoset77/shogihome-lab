@@ -4,11 +4,30 @@
       <div class="title">{{ t.settings }}</div>
       <div class="form-group">
         <div class="form-item">
-          <div class="form-item-label">{{ t.considerBookMoveCount }}</div>
+          <div class="form-item-label">{{ t.bookMoveSelection }}</div>
+          <div class="form-item-value selection-rule-value">
+            <HorizontalSelector
+              v-model:value="localConfig.moveSelectionRule"
+              :items="[
+                { value: BookMoveSelectionRule.UNIFORM, label: t.bookMoveSelectionUniform },
+                { value: BookMoveSelectionRule.WEIGHTED_BY_COUNT, label: t.frequency },
+                { value: BookMoveSelectionRule.WEIGHTED_BY_SCORE, label: t.evaluation },
+              ]"
+            />
+          </div>
+        </div>
+        <div
+          v-if="localConfig.moveSelectionRule === BookMoveSelectionRule.WEIGHTED_BY_SCORE"
+          class="form-item"
+        >
+          <div class="form-item-label">{{ t.bookMoveScoreTemperature }}</div>
           <div class="form-item-value">
-            <ToggleButton
-              :value="localConfig.considerBookMoveCount"
-              @update:value="(val: boolean) => (localConfig.considerBookMoveCount = val)"
+            <input
+              v-model.number="localConfig.scoreTemperature"
+              class="number"
+              type="number"
+              min="1"
+              step="1"
             />
           </div>
         </div>
@@ -106,9 +125,14 @@
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import { ref } from "vue";
-import { USIEngineExtraBookConfig } from "@/common/settings/usi";
+import {
+  BookMoveSelectionRule,
+  DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE,
+  normalizeUSIEngineExtraBookConfig,
+  USIEngineExtraBookConfig,
+} from "@/common/settings/usi";
 import DialogFrame from "./DialogFrame.vue";
-import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
+import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
 
 const props = defineProps<{
   config: USIEngineExtraBookConfig;
@@ -119,16 +143,7 @@ const emit = defineEmits<{
   cancel: [];
 }>();
 
-const localConfig = ref<USIEngineExtraBookConfig>({
-  ...props.config,
-  considerBookMoveCount: props.config.considerBookMoveCount ?? true,
-  ignoreRate: props.config.ignoreRate ?? 0,
-  maxMoves: props.config.maxMoves ?? 0,
-  bookDepthLimit: props.config.bookDepthLimit ?? 0,
-  minEvalBlack: props.config.minEvalBlack,
-  minEvalWhite: props.config.minEvalWhite,
-  maxEvalDiff: props.config.maxEvalDiff,
-});
+const localConfig = ref<USIEngineExtraBookConfig>(normalizeUSIEngineExtraBookConfig(props.config));
 
 const onOk = () => {
   const config = { ...localConfig.value };
@@ -139,8 +154,11 @@ const onOk = () => {
   if ((config.maxMoves as unknown) === "") config.maxMoves = 0;
   if ((config.ignoreRate as unknown) === "") config.ignoreRate = 0;
   if ((config.bookDepthLimit as unknown) === "") config.bookDepthLimit = 0;
+  if ((config.scoreTemperature as unknown) === "") {
+    config.scoreTemperature = DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE;
+  }
 
-  emit("ok", config);
+  emit("ok", normalizeUSIEngineExtraBookConfig(config));
 };
 
 const onCancel = () => {
@@ -150,7 +168,7 @@ const onCancel = () => {
 
 <style scoped>
 .root {
-  width: 460px;
+  width: 560px;
   max-width: 100%;
   box-sizing: border-box;
 }
@@ -175,6 +193,9 @@ const onCancel = () => {
   gap: 4px;
   width: 120px;
   flex-shrink: 0;
+}
+.form-item-value.selection-rule-value {
+  width: 300px;
 }
 input.number {
   text-align: right;
@@ -204,6 +225,9 @@ input.number.short {
   }
   .form-item-value {
     width: 100px;
+  }
+  .form-item-value.selection-rule-value {
+    width: 190px;
   }
   input.number {
     width: 80px;

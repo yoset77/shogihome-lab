@@ -96,10 +96,19 @@ export function getUSIEngineStochasticPonder(engine: USIEngine): boolean {
   return value === "true";
 }
 
+export enum BookMoveSelectionRule {
+  UNIFORM = "uniform",
+  WEIGHTED_BY_COUNT = "weightedByCount",
+  WEIGHTED_BY_SCORE = "weightedByScore",
+}
+
+export const DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE = 50;
+
 export type USIEngineExtraBookConfig = {
   enabled: boolean;
   filePath: string;
-  considerBookMoveCount: boolean;
+  moveSelectionRule: BookMoveSelectionRule;
+  scoreTemperature: number;
   maxMoves?: number;
   minEvalBlack?: number;
   minEvalWhite?: number;
@@ -108,17 +117,57 @@ export type USIEngineExtraBookConfig = {
   bookDepthLimit?: number;
 };
 
+type LegacyUSIEngineExtraBookConfig = Omit<
+  Partial<USIEngineExtraBookConfig>,
+  "moveSelectionRule"
+> & {
+  moveSelectionRule?: BookMoveSelectionRule | string;
+  considerBookMoveCount?: boolean;
+};
+
 export function emptyUSIEngineExtraBookConfig(): USIEngineExtraBookConfig {
   return {
     enabled: false,
     filePath: "",
-    considerBookMoveCount: true,
+    moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_COUNT,
+    scoreTemperature: DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE,
     maxMoves: 0,
     minEvalBlack: undefined,
     minEvalWhite: undefined,
     maxEvalDiff: undefined,
     ignoreRate: 0,
     bookDepthLimit: 0,
+  };
+}
+
+export function normalizeUSIEngineExtraBookConfig(
+  config?: LegacyUSIEngineExtraBookConfig,
+): USIEngineExtraBookConfig {
+  const defaults = emptyUSIEngineExtraBookConfig();
+  if (!config) {
+    return defaults;
+  }
+
+  const { considerBookMoveCount, ...currentConfig } = config;
+  const moveSelectionRule = Object.values(BookMoveSelectionRule).includes(
+    currentConfig.moveSelectionRule as BookMoveSelectionRule,
+  )
+    ? (currentConfig.moveSelectionRule as BookMoveSelectionRule)
+    : considerBookMoveCount === false
+      ? BookMoveSelectionRule.UNIFORM
+      : BookMoveSelectionRule.WEIGHTED_BY_COUNT;
+  const scoreTemperature =
+    typeof currentConfig.scoreTemperature === "number" &&
+    Number.isFinite(currentConfig.scoreTemperature) &&
+    currentConfig.scoreTemperature > 0
+      ? currentConfig.scoreTemperature
+      : DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE;
+
+  return {
+    ...defaults,
+    ...currentConfig,
+    moveSelectionRule,
+    scoreTemperature,
   };
 }
 
@@ -160,6 +209,16 @@ export type USIEngine = {
   extraBook?: USIEngineExtraBookConfig;
 };
 
+export function normalizeUSIEngine(engine: USIEngine): USIEngine {
+  if (!engine.extraBook) {
+    return { ...engine };
+  }
+  return {
+    ...engine,
+    extraBook: normalizeUSIEngineExtraBookConfig(engine.extraBook),
+  };
+}
+
 export function emptyUSIEngine(): USIEngine {
   return {
     uri: "",
@@ -179,17 +238,7 @@ export function emptyUSIEngine(): USIEngine {
       getPredefinedUSIEngineTag("mate"),
     ],
     enableEarlyPonder: false,
-    extraBook: {
-      enabled: false,
-      filePath: "",
-      considerBookMoveCount: true,
-      maxMoves: 0,
-      minEvalBlack: undefined,
-      minEvalWhite: undefined,
-      maxEvalDiff: undefined,
-      ignoreRate: 0,
-      bookDepthLimit: 0,
-    },
+    extraBook: emptyUSIEngineExtraBookConfig(),
   };
 }
 
@@ -256,7 +305,9 @@ export function mergeUSIEngine(engine: USIEngine, local: USIEngine): void {
   engine.labels = local.labels;
   engine.tags = local.tags || labelsToTags(local.labels || {});
   engine.enableEarlyPonder = local.enableEarlyPonder;
-  engine.extraBook = local.extraBook;
+  engine.extraBook = local.extraBook
+    ? normalizeUSIEngineExtraBookConfig(local.extraBook)
+    : undefined;
 }
 
 export function validateUSIEngine(engine: USIEngine): Error | undefined {
@@ -414,6 +465,7 @@ export class USIEngines {
               ...engine.labels,
             },
             tags: engine.tags || labelsToTags(engine.labels || {}),
+            extraBook: normalizeUSIEngineExtraBookConfig(engine.extraBook),
           };
         });
       this.tagColorMapping = src.tagColorMapping || {};
@@ -594,7 +646,7 @@ export function exportUSIEnginesForCLI(engine: USIEngine): USIEngineForCLI {
     path: engine.path,
     options: options,
     enableEarlyPonder: engine.enableEarlyPonder,
-    extraBook: engine.extraBook,
+    extraBook: engine.extraBook ? normalizeUSIEngineExtraBookConfig(engine.extraBook) : undefined,
   };
 }
 
@@ -631,7 +683,7 @@ export function importUSIEnginesForCLI(engine: USIEngineForCLI, uri?: string): U
     path: engine.path,
     options,
     enableEarlyPonder: engine.enableEarlyPonder,
-    extraBook: engine.extraBook,
+    extraBook: engine.extraBook ? normalizeUSIEngineExtraBookConfig(engine.extraBook) : undefined,
     labels: {},
   };
 }
