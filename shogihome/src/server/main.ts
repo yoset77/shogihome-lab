@@ -13,6 +13,7 @@ import {
   createRateLimiter,
   createSecureHeadersMiddleware,
   validateHostHeader,
+  validateUnsafeRequestOrigin,
 } from "@/server/security";
 import { setupKifuWatcher } from "@/server/helpers/kifu";
 import * as kifuIndexDB from "@/server/database/kifu_index";
@@ -78,6 +79,7 @@ const updatePuzzlesManifest = () => {
 export { EngineSession, EngineState };
 
 app.use("*", validateHostHeader);
+app.use("*", validateUnsafeRequestOrigin);
 app.use("*", createSecureHeadersMiddleware());
 
 app.use("*", createRateLimiter());

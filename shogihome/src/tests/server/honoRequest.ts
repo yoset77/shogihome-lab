@@ -16,6 +16,8 @@ const createHeaders = (host: string, headers?: HeadersInit) => {
   return result;
 };
 
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
 export const requestApp = async (
   app: Hono<AppEnv>,
   method: string,
@@ -25,9 +27,14 @@ export const requestApp = async (
     headers?: HeadersInit;
     json?: JsonBody;
     body?: BodyInit;
+    omitOrigin?: boolean;
   } = {},
 ): Promise<TestResponse> => {
-  const headers = createHeaders(options.host ?? "localhost:8140", options.headers);
+  const host = options.host ?? "localhost:8140";
+  const headers = createHeaders(host, options.headers);
+  if (!SAFE_METHODS.has(method.toUpperCase()) && !options.omitOrigin && !headers.has("Origin")) {
+    headers.set("Origin", `http://${host}`);
+  }
   let body = options.body;
   if (options.json !== undefined) {
     headers.set("Content-Type", "application/json");

@@ -83,6 +83,9 @@ export class EngineSession {
 
     this.ws = ws;
     this.isExplicitlyTerminated = false;
+    if (this.engineState === EngineState.STOPPING_SEARCH) {
+      this.startStopTimeout();
+    }
 
     ws.on("message", (message) => {
       if (this.ws !== ws) {
@@ -126,7 +129,7 @@ export class EngineSession {
         stateStr = "stopped";
         break;
     }
-    this.sendToClient({ state: stateStr });
+    this.sendToClient({ state: stateStr, engineId: this.currentEngineId });
   }
 
   private handleDisconnect(socket: ExtendedWebSocket) {
@@ -137,6 +140,7 @@ export class EngineSession {
 
     console.log(`WebSocket disconnected for session ${this.sessionId}`);
     this.ws = null;
+    this.clearStopTimeout();
 
     if (
       this.isExplicitlyTerminated ||
@@ -162,8 +166,34 @@ export class EngineSession {
     }
   }
 
+  private clearStopTimeout() {
+    if (this.stopTimeout) {
+      clearTimeout(this.stopTimeout);
+      this.stopTimeout = null;
+    }
+  }
+
+  private startStopTimeout() {
+    this.clearStopTimeout();
+    this.stopTimeout = setTimeout(() => {
+      this.stopTimeout = null;
+      if (this.engineState !== EngineState.STOPPING_SEARCH || !this.ws) {
+        return;
+      }
+      console.error(
+        `Engine for session ${this.sessionId} did not respond to stop command within ${ENGINE_STOP_TIMEOUT_MS}ms. Resetting engine session.`,
+      );
+      this.sendError("Engine did not respond to stop command. Session reset.");
+      if (this.engineHandle) {
+        this.engineState = EngineState.TERMINATING;
+        this.engineHandle.close();
+      }
+    }, ENGINE_STOP_TIMEOUT_MS);
+  }
+
   private terminate() {
     this.clearCleanupTimeout();
+    this.clearStopTimeout();
     this.messageBuffer = [];
     this.lastInfos.clear();
     if (this.connectingSocket) {
@@ -395,10 +425,7 @@ export class EngineSession {
     this.engineState = EngineState.STOPPED;
     this.commandQueue.length = 0;
     this.postStopCommandQueue.length = 0;
-    if (this.stopTimeout) {
-      clearTimeout(this.stopTimeout);
-      this.stopTimeout = null;
-    }
+    this.clearStopTimeout();
     this.currentEngineSfen = null;
     this.pendingGoSfen = null;
     this.lastInfos.clear();
@@ -488,10 +515,7 @@ export class EngineSession {
         this.lastInfos.clear();
 
         if (this.engineState === EngineState.STOPPING_SEARCH) {
-          if (this.stopTimeout) {
-            clearTimeout(this.stopTimeout);
-            this.stopTimeout = null;
-          }
+          this.clearStopTimeout();
 
           const commandsToRun = this.collectPostStopCommands();
           this.postStopCommandQueue.length = 0;
@@ -647,19 +671,7 @@ export class EngineSession {
         this.engineState = EngineState.STOPPING_SEARCH;
         this.postStopCommandQueue.length = 0;
         this.sendToEngine("stop");
-        if (this.stopTimeout) clearTimeout(this.stopTimeout);
-        this.stopTimeout = setTimeout(() => {
-          if (this.engineState === EngineState.STOPPING_SEARCH) {
-            console.error(
-              `Engine for session ${this.sessionId} did not respond to stop command within ${ENGINE_STOP_TIMEOUT_MS}ms. Resetting engine session.`,
-            );
-            this.sendError("Engine did not respond to stop command. Session reset.");
-            if (this.engineHandle) {
-              this.engineState = EngineState.TERMINATING;
-              this.engineHandle.close();
-            }
-          }
-        }, ENGINE_STOP_TIMEOUT_MS);
+        this.startStopTimeout();
       }
     };
 
@@ -724,10 +736,7 @@ export class EngineSession {
       this.currentEngineId = null;
       this.commandQueue.length = 0;
       this.postStopCommandQueue.length = 0;
-      if (this.stopTimeout) {
-        clearTimeout(this.stopTimeout);
-        this.stopTimeout = null;
-      }
+      this.clearStopTimeout();
       this.currentEngineSfen = null;
       this.pendingGoSfen = null;
       this.lastInfos.clear();

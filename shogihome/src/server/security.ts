@@ -20,6 +20,22 @@ export const validateHostHeader = createMiddleware(async (c, next) => {
   await next();
 });
 
+const SAFE_HTTP_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+export const validateUnsafeRequestOrigin = createMiddleware(async (c, next) => {
+  if (SAFE_HTTP_METHODS.has(c.req.method.toUpperCase())) {
+    await next();
+    return;
+  }
+
+  const origin = c.req.header("origin");
+  if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
+    console.warn(`Blocked unsafe HTTP request from unauthorized origin: ${origin}`);
+    return sendError(c, 403, "Forbidden (Invalid Origin)");
+  }
+  await next();
+});
+
 export const createSecureHeadersMiddleware = () =>
   secureHeaders({
     contentSecurityPolicy: {
