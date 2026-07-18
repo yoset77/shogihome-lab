@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import { createShutdownCoordinator, hasChildProcessExited } from './shutdown-coordinator.mjs';
 
 // Find .env file in the same directory as this script
 const __filename = fileURLToPath(import.meta.url);
@@ -82,75 +83,102 @@ function applyEngineOptions(engineProcess, options) {
 const server = net.createServer((socket) => {
   console.log(`[${new Date().toISOString()}] Client connected.`);
   let engineProcess = null;
-  let isCleaningUp = false;
+  let cleanupPromise = null;
+  let unregisterEngineProcess = null;
+  let unregisterCleanup = null;
+  let rl = null;
   let optionsApplied = false; // Track if options have been applied
   let authenticated = !ACCESS_TOKEN; // If no token set, auth is not required
   let engineStarted = false; // Track if engine process is running
   let authNonce = null;
 
   const cleanup = () => {
-    if (isCleaningUp) {
-      return;
+    if (cleanupPromise) {
+      return cleanupPromise;
     }
-    isCleaningUp = true;
+    cleanupPromise = new Promise((resolve) => {
+      let quitTimeout = null;
+      let termTimeout = null;
+      let finished = false;
 
-    // Stop reading from the socket
-    if (rl) {
-      rl.close();
-    }
+      const finishCleanup = () => {
+        if (finished) {
+          return;
+        }
+        finished = true;
+        if (quitTimeout !== null) {
+          clearTimeout(quitTimeout);
+        }
+        if (termTimeout !== null) {
+          clearTimeout(termTimeout);
+        }
+        if (!socket.destroyed) {
+          socket.destroy();
+        }
+        unregisterCleanup?.();
+        resolve();
+      };
 
-    // If engine process is already gone or exited
-    if (!engineProcess || engineProcess.exitCode !== null) {
-      engineProcess = null;
-      engineStarted = false;
-      if (!socket.destroyed) {
-        console.log(`[${new Date().toISOString()}] Closing client socket.`);
-        socket.destroy();
+      rl?.close();
+
+      const processToCleanup = engineProcess;
+      if (!processToCleanup || hasChildProcessExited(processToCleanup)) {
+        engineProcess = null;
+        engineStarted = false;
+        unregisterEngineProcess?.();
+        unregisterEngineProcess = null;
+        if (!socket.destroyed) {
+          console.log(`[${new Date().toISOString()}] Closing client socket.`);
+        }
+        finishCleanup();
+        return;
       }
-      return;
-    }
 
-    console.log(`[${new Date().toISOString()}] Cleaning up engine process (PID: ${engineProcess.pid}).`);
+      console.log(`[${new Date().toISOString()}] Cleaning up engine process (PID: ${processToCleanup.pid}).`);
 
-    let termTimeout;
-    const quitTimeout = setTimeout(() => {
-      console.warn(`[${new Date().toISOString()}] Engine did not exit after 'quit'. Terminating.`);
-      if (engineProcess) engineProcess.kill('SIGTERM');
+      processToCleanup.once('close', (code) => {
+        console.log(`[${new Date().toISOString()}] Engine process exited with code ${code}.`);
+        if (engineProcess === processToCleanup) {
+          engineProcess = null;
+        }
+        engineStarted = false;
+        unregisterEngineProcess?.();
+        unregisterEngineProcess = null;
+        finishCleanup();
+      });
 
-      termTimeout = setTimeout(() => {
-        console.warn(`[${new Date().toISOString()}] Engine did not respond to SIGTERM. Killing.`);
-        if (engineProcess) engineProcess.kill('SIGKILL');
-      }, 3000);
-    }, 5000);
+      quitTimeout = setTimeout(() => {
+        console.warn(`[${new Date().toISOString()}] Engine did not exit after 'quit'. Terminating.`);
+        processToCleanup.kill('SIGTERM');
 
-    engineProcess.once('close', (code) => {
-      clearTimeout(quitTimeout);
-      clearTimeout(termTimeout);
-      console.log(`[${new Date().toISOString()}] Engine process exited with code ${code}.`);
-      engineProcess = null;
-      // Do not reset isCleaningUp to false, as this connection scope is done.
-      if (!socket.destroyed) {
-        socket.destroy();
+        termTimeout = setTimeout(() => {
+          console.warn(`[${new Date().toISOString()}] Engine did not respond to SIGTERM. Killing.`);
+          processToCleanup.kill('SIGKILL');
+        }, 3000);
+      }, 5000);
+
+      try {
+        if (processToCleanup.stdin && processToCleanup.stdin.writable) {
+          console.log(`[${new Date().toISOString()}] Sending 'quit' command to engine.`);
+          processToCleanup.stdin.write('quit\n');
+          processToCleanup.stdin.end();
+        }
+      } catch (e) {
+        console.error(`[${new Date().toISOString()}] Failed to send 'quit' command, proceeding to terminate.`, e.message);
       }
     });
 
-    try {
-      if (engineProcess.stdin && engineProcess.stdin.writable) {
-        console.log(`[${new Date().toISOString()}] Sending 'quit' command to engine.`);
-        engineProcess.stdin.write('quit\n');
-        engineProcess.stdin.end();
-      }
-    } catch (e) {
-      console.error(`[${new Date().toISOString()}] Failed to send 'quit' command, proceeding to terminate.`, e.message);
-    }
+    return cleanupPromise;
   };
+
+  unregisterCleanup = shutdownCoordinator.trackCleanup(cleanup);
 
   if (!authenticated) {
     authNonce = crypto.randomBytes(16).toString('hex');
     socket.write(`auth_cram_sha256 ${authNonce}\n`);
   }
 
-  const rl = readline.createInterface({ input: socket });
+  rl = readline.createInterface({ input: socket });
 
   rl.on('line', (line) => {
     // If engine is started, forward everything to it
@@ -270,6 +298,7 @@ const server = net.createServer((socket) => {
     }
 
     engineProcess = spawn(command, [], spawnOptions);
+    unregisterEngineProcess = shutdownCoordinator.trackProcess(engineProcess);
 
     engineProcess.on('error', (err) => {
       console.error(`[${new Date().toISOString()}] Failed to start engine process. ${err.message}`);
@@ -353,6 +382,8 @@ const server = net.createServer((socket) => {
     engineProcess.on('close', (code) => {
       console.log(`[${new Date().toISOString()}] Engine process exited with code ${code}.`);
       engineStarted = false;
+      unregisterEngineProcess?.();
+      unregisterEngineProcess = null;
       // Ensure socket is closed when engine exits
       cleanup();
     });
@@ -374,6 +405,8 @@ const server = net.createServer((socket) => {
   });
 });
 
+const shutdownCoordinator = createShutdownCoordinator({ server });
+
 server.listen(PORT, HOST, () => {
   console.log(`[${new Date().toISOString()}] Single-port engine wrapper server listening on ${HOST}:${PORT}`);
   
@@ -393,19 +426,30 @@ server.listen(PORT, HOST, () => {
   }
 });
 
-// Graceful shutdown
-const gracefulShutdown = (signal) => {
-  console.log(`[${new Date().toISOString()}] Received ${signal}. Shutting down gracefully.`);
-  server.close(() => {
-    console.log(`[${new Date().toISOString()}] All connections closed. Server is shut down.`);
-    process.exit(0);
-  });
+let shutdownPromise = null;
 
-  // Forcefully close server after a timeout
-  setTimeout(() => {
-    console.error(`[${new Date().toISOString()}] Could not close connections in time, forcefully shutting down.`);
-    process.exit(1);
-  }, 10000); // 10 seconds
+const gracefulShutdown = (signal) => {
+  if (shutdownPromise) {
+    return shutdownPromise;
+  }
+
+  console.log(`[${new Date().toISOString()}] Received ${signal}. Shutting down gracefully.`);
+  shutdownPromise = shutdownCoordinator.shutdown().then(
+    ({ forced }) => {
+      if (forced) {
+        console.error(`[${new Date().toISOString()}] Could not close connections in time, forcefully shutting down.`);
+        process.exit(1);
+      } else {
+        console.log(`[${new Date().toISOString()}] All connections and engine processes closed. Server is shut down.`);
+        process.exit(0);
+      }
+    },
+    (error) => {
+      console.error(`[${new Date().toISOString()}] Failed to shut down cleanly.`, error);
+      process.exit(1);
+    },
+  );
+  return shutdownPromise;
 };
 
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));

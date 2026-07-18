@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import { Writable } from "node:stream";
 import { finished } from "node:stream/promises";
 import { ImmutablePosition, Move, Position } from "tsshogi";
@@ -23,7 +24,36 @@ import { packedSfenToSfen, positionToPackedSfen, sfenToPackedSfen } from "./pack
 
 const INITIAL_POSITION_SFEN = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
 const SBK_ON_THE_FLY_ROW_SIZE = 9;
+const SBK_INDEX_CONSTRUCTION_BUDGET_BYTES = 512 * 1024 * 1024;
+const MAX_SBK_STATE_ID = 2147483647;
 export const MAX_SBK_BOOK_SIZE_BYTES = 512 * 1024 * 1024;
+
+export function estimateSbkIndexConstructionBytes(
+  rawBytes: number,
+  stateCount: number,
+  moveCount = 0,
+  evalCount = 0,
+): number {
+  return rawBytes * 4 + stateCount * 256 + moveCount * 256 + evalCount * 512;
+}
+
+export function validateSbkIndexConstructionMemory(
+  rawBytes: number,
+  stateCount: number,
+  moveCount: number,
+  evalCount: number,
+): number {
+  const estimatedBytes = estimateSbkIndexConstructionBytes(
+    rawBytes,
+    stateCount,
+    moveCount,
+    evalCount,
+  );
+  if (estimatedBytes > SBK_INDEX_CONSTRUCTION_BUDGET_BYTES) {
+    throw new Error(`SBK index construction exceeds memory budget: ${estimatedBytes} bytes`);
+  }
+  return estimatedBytes;
+}
 
 function readVarint(data: Uint8Array, offset: number): [value: number, nextOffset: number] {
   let value = 0;
@@ -71,12 +101,18 @@ function skipField(data: Uint8Array, offset: number, wireType: number): number {
   }
 }
 
-function scanSBookTopLevel(data: Uint8Array): {
+type SBookScanResult = {
   stateCount: number;
+  moveCount: number;
+  evalCount: number;
   sbkAuthor?: string;
   sbkDescription?: string;
-} {
+};
+
+function scanSBookTopLevel(data: Uint8Array): SBookScanResult {
   let stateCount = 0;
+  let moveCount = 0;
+  let evalCount = 0;
   let sbkAuthor: string | undefined;
   let sbkDescription: string | undefined;
   let offset = 0;
@@ -106,16 +142,55 @@ function scanSBookTopLevel(data: Uint8Array): {
     }
     if (field === 3 && wireType === 2) {
       const [stateLength, stateOffset] = readVarint(data, offset);
-      offset = stateOffset + stateLength;
-      if (offset > data.length) {
+      const stateEnd = stateOffset + stateLength;
+      if (stateEnd > data.length) {
         throw new Error("Invalid protobuf: truncated SBookState payload");
       }
+      const nestedCounts = countSBookStateEntries(data, stateOffset, stateEnd);
+      moveCount += nestedCounts.moveCount;
+      evalCount += nestedCounts.evalCount;
+      offset = stateEnd;
       stateCount++;
       continue;
     }
     offset = skipField(data, offset, wireType);
   }
-  return { stateCount, sbkAuthor, sbkDescription };
+  return { stateCount, moveCount, evalCount, sbkAuthor, sbkDescription };
+}
+
+function countSBookStateEntries(
+  data: Uint8Array,
+  startOffset: number,
+  endOffset: number,
+): { moveCount: number; evalCount: number } {
+  let moveCount = 0;
+  let evalCount = 0;
+  let offset = startOffset;
+  while (offset < endOffset) {
+    const [tag, next] = readVarint(data, offset);
+    offset = next;
+    if (tag === 0) break;
+    const field = tag >>> 3;
+    const wireType = tag & 0x7;
+    if ((field === 9 || field === 10) && wireType === 2) {
+      const [length, payloadOffset] = readVarint(data, offset);
+      offset = payloadOffset + length;
+      if (offset > endOffset) {
+        throw new Error("Invalid protobuf: truncated SBookState field");
+      }
+      if (field === 9) {
+        moveCount++;
+      } else {
+        evalCount++;
+      }
+      continue;
+    }
+    offset = skipField(data, offset, wireType);
+    if (offset > endOffset) {
+      throw new Error("Invalid protobuf: truncated SBookState field");
+    }
+  }
+  return { moveCount, evalCount };
 }
 
 function readRowOffset(table: Uint32Array, row: number): number {
@@ -272,16 +347,18 @@ function buildStateIdToRow(
   data: Uint8Array,
   table: Uint32Array,
   rowCount: number,
-): Map<number, number> {
+): { idToRow: Map<number, number>; maxStateId: number } {
   const idToRow = new Map<number, number>();
+  let maxStateId = -1;
   for (let row = 0; row < rowCount; row++) {
     const state = decodeStateAt(data, readRowOffset(table, row));
     if (idToRow.has(state.Id)) {
       throw new Error(`Invalid SBK: duplicated state ID ${state.Id}`);
     }
     idToRow.set(state.Id, row);
+    maxStateId = Math.max(maxStateId, state.Id);
   }
-  return idToRow;
+  return { idToRow, maxStateId };
 }
 
 function setPackedSfenForRow(table: Uint32Array, row: number, position: ImmutablePosition): void {
@@ -451,25 +528,42 @@ function fillPackedSfenByTraversal(
   }
 }
 
-function buildSbkOnTheFlyIndex(rawData: Uint8Array): SbkOnTheFlyLUT {
-  const { stateCount } = scanSBookTopLevel(rawData);
+function buildSbkOnTheFlyIndex(
+  rawData: Uint8Array,
+  { stateCount, moveCount, evalCount }: SBookScanResult,
+): SbkOnTheFlyLUT {
+  validateSbkIndexConstructionMemory(rawData.byteLength, stateCount, moveCount, evalCount);
   const table = new Uint32Array(stateCount * SBK_ON_THE_FLY_ROW_SIZE);
-  const indexToOffset = new Uint32Array(stateCount);
 
   buildStateOffsetTable(rawData, table, stateCount);
-  const idToRow = buildStateIdToRow(rawData, table, stateCount);
+  const { idToRow, maxStateId } = buildStateIdToRow(rawData, table, stateCount);
   fillPackedSfenByTraversal(rawData, table, stateCount, idToRow);
-  for (let i = 0; i < stateCount; i++) {
-    indexToOffset[i] = readRowOffset(table, i);
-  }
   sortRowsByPackedSfen(table, stateCount);
-  const stateIds = new Set(idToRow.keys());
 
   let firstNonZeroRow = 0;
   while (firstNonZeroRow < stateCount && isPackedZeroRow(table, firstNonZeroRow)) {
     firstNonZeroRow++;
   }
-  return { table, rowCount: stateCount, firstNonZeroRow, indexToOffset, stateIds };
+  return { table, rowCount: stateCount, firstNonZeroRow, maxStateId };
+}
+
+async function readFileWithValidatedSize(file: FileHandle, size: number): Promise<Buffer> {
+  const data = Buffer.allocUnsafe(size);
+  let offset = 0;
+  while (offset < size) {
+    const { bytesRead } = await file.read(data, offset, size - offset, offset);
+    if (bytesRead === 0) {
+      throw new Error("SBK file changed while being read");
+    }
+    offset += bytesRead;
+  }
+
+  const extraByte = Buffer.allocUnsafe(1);
+  const { bytesRead: extraBytesRead } = await file.read(extraByte, 0, 1, size);
+  if (extraBytesRead > 0) {
+    throw new Error("SBK file changed while being read");
+  }
+  return data;
 }
 
 function searchOnTheFlyRow(sfen: string, index: SbkOnTheFlyLUT): number | undefined {
@@ -505,14 +599,16 @@ export async function loadSbkBookOnTheFly(
     if (stat.size > maxSizeBytes) {
       throw new Error(`SBK file too large: ${stat.size} bytes`);
     }
-    const rawData = await file.readFile();
-    const { sbkAuthor, sbkDescription } = scanSBookTopLevel(rawData);
+    validateSbkIndexConstructionMemory(stat.size, 0, 0, 0);
+    const rawData = await readFileWithValidatedSize(file, stat.size);
+    const scanResult = scanSBookTopLevel(rawData);
+    const { sbkAuthor, sbkDescription } = scanResult;
     return {
       format: "sbk",
       entries: new Map<string, BookEntry>(),
       sbkAuthor,
       sbkDescription,
-      sbkIndex: buildSbkOnTheFlyIndex(rawData),
+      sbkIndex: buildSbkOnTheFlyIndex(rawData, scanResult),
       rawData,
     };
   } finally {
@@ -549,13 +645,10 @@ function getRowsByOffset(table: Uint32Array, rowCount: number): number[] {
 }
 
 function getNextSbkStateId(index: SbkOnTheFlyLUT): number {
-  let nextId = 0;
-  for (const id of index.stateIds) {
-    if (id >= nextId) {
-      nextId = id + 1;
-    }
+  if (index.maxStateId >= MAX_SBK_STATE_ID) {
+    throw new Error("SBK state ID limit reached");
   }
-  return nextId;
+  return index.maxStateId + 1;
 }
 
 function entryToSbkState(

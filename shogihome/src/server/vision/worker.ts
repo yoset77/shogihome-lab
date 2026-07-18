@@ -20,11 +20,14 @@ type WorkerEnvelope = ScanWorkerRequest & {
 type PendingRequest = {
   resolve: (value: VisionScanResponse) => void;
   reject: (reason: Error) => void;
-  timer: NodeJS.Timeout;
+  timer?: NodeJS.Timeout;
   child: ChildProcessWithoutNullStreams;
+  request: ScanWorkerRequest;
+  cleanExitRetries: number;
 };
 
 const STDOUT_BUFFER_LIMIT = 16 * 1024 * 1024;
+const MAX_QUEUED_SCANS = 8;
 
 export type WorkerProcessConfig = {
   command: string;
@@ -39,35 +42,67 @@ export class VisionWorkerClient {
   private child?: ChildProcessWithoutNullStreams;
   private nextId = 1;
   private pending = new Map<number, PendingRequest>();
+  private scanTail: Promise<void> = Promise.resolve();
+  private scheduledScans = 0;
   private stdoutBuffer = "";
   private stderrBuffer = "";
 
-  async scan(request: ScanWorkerRequest): Promise<VisionScanResponse> {
+  scan(request: ScanWorkerRequest): Promise<VisionScanResponse> {
+    if (this.scheduledScans >= MAX_QUEUED_SCANS) {
+      return Promise.reject(new Error("vision worker queue is full"));
+    }
+    this.scheduledScans++;
+    const result = this.scanTail.then(() => {
+      this.scheduledScans--;
+      return this.dispatch(request);
+    });
+    this.scanTail = result.then(
+      () => this.waitForWorkerEvents(),
+      () => this.waitForWorkerEvents(),
+    );
+    return result;
+  }
+
+  private waitForWorkerEvents(): Promise<void> {
+    return new Promise((resolve) => setImmediate(resolve));
+  }
+
+  private dispatch(request: ScanWorkerRequest, cleanExitRetries = 1): Promise<VisionScanResponse> {
     const child = this.ensureStarted();
     const id = this.nextId++;
     const envelope: WorkerEnvelope = { ...request, id };
     return new Promise((resolve, reject) => {
+      const pending: PendingRequest = { resolve, reject, child, request, cleanExitRetries };
       const timer = setTimeout(() => {
+        if (this.pending.get(id) !== pending) return;
         this.pending.delete(id);
         this.stop(child);
-        this.rejectAll(new Error("vision worker stopped"), child);
         reject(new Error("vision worker timed out"));
       }, VISION_TIMEOUT_MS);
-      this.pending.set(id, { resolve, reject, timer, child });
+      pending.timer = timer;
+      this.pending.set(id, pending);
       child.stdin.write(`${JSON.stringify(envelope)}\n`, (error) => {
-        if (!error) {
-          return;
-        }
+        if (!error || this.pending.get(id) !== pending) return;
+        if (this.retryPending(id, pending, true)) return;
         clearTimeout(timer);
         this.pending.delete(id);
+        this.stop(child);
         reject(error);
       });
     });
   }
 
   private ensureStarted(): ChildProcessWithoutNullStreams {
-    if (this.child && !this.child.killed) {
+    if (
+      this.child &&
+      !this.child.killed &&
+      this.child.exitCode === null &&
+      !this.child.stdin.destroyed
+    ) {
       return this.child;
+    }
+    if (this.child) {
+      this.stop(this.child);
     }
     const config = this.resolveConfig();
     const child = spawn(config.command, config.args, {
@@ -82,16 +117,26 @@ export class VisionWorkerClient {
     child.stdout.setEncoding("utf-8");
     child.stdout.on("data", (chunk: string) => this.handleStdout(chunk, child));
     child.stderr.setEncoding("utf-8");
+    child.stdin.on("error", () => {
+      // Write callbacks handle delivery failures; consume the stream event too.
+    });
     child.stderr.on("data", (chunk: string) => {
       if (this.child !== child) return;
       this.stderrBuffer = `${this.stderrBuffer}${chunk}`.slice(-4096);
     });
-    child.on("error", (error) => this.rejectAll(error, child));
+    child.on("error", (error) => {
+      if (this.child !== child) return;
+      this.rejectActive(error, child);
+      this.stop(child);
+    });
     child.on("close", (code) => {
       if (this.child !== child) return;
       const message = this.stderrBuffer.trim() || `vision worker exited with code ${code}`;
       this.child = undefined;
-      this.rejectAll(new Error(message), child);
+      if (code === 0 && this.retryAfterCleanExit(child)) {
+        return;
+      }
+      this.rejectActive(new Error(message), child);
     });
     return child;
   }
@@ -100,8 +145,7 @@ export class VisionWorkerClient {
     if (this.child !== child) return;
     this.stdoutBuffer += chunk;
     if (this.stdoutBuffer.length > STDOUT_BUFFER_LIMIT) {
-      this.rejectAll(new Error("vision worker stdout overflow"), child);
-      this.stop(child);
+      this.failProtocol(new Error("vision worker stdout overflow"), child);
       return;
     }
 
@@ -123,20 +167,17 @@ export class VisionWorkerClient {
     try {
       data = JSON.parse(line);
     } catch {
-      this.rejectAll(new Error("vision worker returned invalid JSON"), child);
-      this.stop(child);
+      this.failProtocol(new Error("vision worker returned invalid JSON"), child);
       return;
     }
     if (typeof data !== "object" || data === null || !("id" in data)) {
-      this.rejectAll(new Error("vision worker returned an invalid envelope"), child);
-      this.stop(child);
+      this.failProtocol(new Error("vision worker returned an invalid envelope"), child);
       return;
     }
     const id = Number((data as { id: unknown }).id);
     const pending = this.pending.get(id);
-    if (!pending) {
-      this.rejectAll(new Error("vision worker returned an unknown response id"), child);
-      this.stop(child);
+    if (!pending || pending.child !== child) {
+      this.failProtocol(new Error("vision worker returned an unknown response id"), child);
       return;
     }
     clearTimeout(pending.timer);
@@ -150,17 +191,50 @@ export class VisionWorkerClient {
     try {
       pending.resolve(parseVisionScanResponse((data as { result?: unknown }).result));
     } catch (error) {
+      this.stop(child);
       pending.reject(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
-  private rejectAll(error: Error, child?: ChildProcessWithoutNullStreams): void {
+  private rejectActive(error: Error, child: ChildProcessWithoutNullStreams): void {
     for (const [id, pending] of this.pending.entries()) {
-      if (child && pending.child !== child) continue;
+      if (pending.child !== child) continue;
       clearTimeout(pending.timer);
       pending.reject(error);
       this.pending.delete(id);
     }
+  }
+
+  private retryAfterCleanExit(child: ChildProcessWithoutNullStreams): boolean {
+    const active = [...this.pending.entries()].find(([, pending]) => pending.child === child);
+    if (!active) return false;
+    const [id, pending] = active;
+    return this.retryPending(id, pending, false);
+  }
+
+  private retryPending(id: number, pending: PendingRequest, stopChild: boolean): boolean {
+    if (pending.cleanExitRetries <= 0 || this.pending.get(id) !== pending) return false;
+
+    clearTimeout(pending.timer);
+    this.pending.delete(id);
+    if (stopChild) {
+      this.stop(pending.child);
+    }
+    try {
+      this.dispatch(pending.request, pending.cleanExitRetries - 1).then(
+        pending.resolve,
+        pending.reject,
+      );
+    } catch (error) {
+      pending.reject(error instanceof Error ? error : new Error(String(error)));
+    }
+    return true;
+  }
+
+  private failProtocol(error: Error, child: ChildProcessWithoutNullStreams): void {
+    if (this.child !== child) return;
+    this.rejectActive(error, child);
+    this.stop(child);
   }
 
   private stop(child = this.child): void {

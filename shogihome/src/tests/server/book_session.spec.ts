@@ -11,6 +11,14 @@ import { ONTHEFLY_THRESHOLD_MB, SBK_ONTHEFLY_THRESHOLD_MB } from "@/server/confi
 
 const host = "localhost:8140";
 
+const deferred = <T>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
+
 // Mock the dependencies
 vi.mock("@/server/book/index.js", () => {
   let sessionCounter = 100;
@@ -217,6 +225,77 @@ describe("Book Session API", () => {
     response.body.forEach((item, i) => {
       expect(item.sfen).toBe(sfens[i]);
     });
+  });
+
+  it("should serialize operations for the same external session", async () => {
+    const openResult = deferred<"in-memory">();
+    vi.mocked(bookAPI.openBook).mockReturnValueOnce(openResult.promise);
+
+    const openRequest = requestApp(app, "POST", "/api/book/open?path=test1.db", {
+      host,
+      headers: { "X-Book-Session-Id": "serial-client" },
+      json: {},
+    });
+    await vi.waitFor(() => expect(bookAPI.openBook).toHaveBeenCalledOnce());
+
+    const updateRequest = requestApp(app, "POST", "/api/book/update?sfen=startpos", {
+      host,
+      headers: { "X-Book-Session-Id": "serial-client" },
+      json: { move: "7g7f" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(bookAPI.updateBookMove).not.toHaveBeenCalled();
+
+    openResult.resolve("in-memory");
+    await expect(openRequest).resolves.toMatchObject({ status: 200 });
+    await expect(updateRequest).resolves.toMatchObject({ status: 200 });
+    expect(bookAPI.updateBookMove).toHaveBeenCalledOnce();
+  });
+
+  it("should allow different external sessions to run concurrently", async () => {
+    const openResult = deferred<"in-memory">();
+    vi.mocked(bookAPI.openBook).mockReturnValueOnce(openResult.promise);
+
+    const openRequest = requestApp(app, "POST", "/api/book/open?path=test1.db", {
+      host,
+      headers: { "X-Book-Session-Id": "parallel-client-a" },
+      json: {},
+    });
+    await vi.waitFor(() => expect(bookAPI.openBook).toHaveBeenCalledOnce());
+
+    const updateRequest = requestApp(app, "POST", "/api/book/update?sfen=startpos", {
+      host,
+      headers: { "X-Book-Session-Id": "parallel-client-b" },
+      json: { move: "2g2f" },
+    });
+    await expect(updateRequest).resolves.toMatchObject({ status: 200 });
+
+    openResult.resolve("in-memory");
+    await expect(openRequest).resolves.toMatchObject({ status: 200 });
+  });
+
+  it("should wait for an active batch search before closing the same session", async () => {
+    const searchResult = deferred<never[]>();
+    vi.mocked(bookAPI.searchBookMoves).mockReturnValueOnce(searchResult.promise);
+
+    const searchRequest = requestApp(app, "POST", "/api/book/search/batch", {
+      host,
+      headers: { "X-Book-Session-Id": "batch-close-client" },
+      json: { sfens: ["startpos"] },
+    });
+    await vi.waitFor(() => expect(bookAPI.searchBookMoves).toHaveBeenCalledOnce());
+
+    const closeRequest = requestApp(app, "POST", "/api/book/close", {
+      host,
+      headers: { "X-Book-Session-Id": "batch-close-client" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(bookAPI.closeBookSession).not.toHaveBeenCalled();
+
+    searchResult.resolve([]);
+    await expect(searchRequest).resolves.toMatchObject({ status: 200 });
+    await expect(closeRequest).resolves.toMatchObject({ status: 200 });
+    expect(bookAPI.closeBookSession).toHaveBeenCalledOnce();
   });
 
   it("should handle large batch search up to 10000 items without error", async () => {

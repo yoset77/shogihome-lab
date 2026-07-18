@@ -10,6 +10,7 @@ import { clearKifuListCache } from "@/server/helpers/kifu";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { DatabaseSync } from "node:sqlite";
 
 describe("background/kifu_index/sync", () => {
   let tempDir: string;
@@ -27,6 +28,24 @@ describe("background/kifu_index/sync", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
     fs.rmSync(dbDir, { recursive: true, force: true });
   });
+
+  function insertLegacyOrphan(sfen: string): void {
+    const testDb = new DatabaseSync(path.join(dbDir, "kifu_index.db"));
+    try {
+      testDb.prepare("INSERT INTO positions (sfen_hash, sfen) VALUES (?, ?)").run(999, sfen);
+    } finally {
+      testDb.close();
+    }
+  }
+
+  function hasPosition(sfen: string): boolean {
+    const testDb = new DatabaseSync(path.join(dbDir, "kifu_index.db"));
+    try {
+      return testDb.prepare("SELECT 1 FROM positions WHERE sfen = ?").get(sfen) !== undefined;
+    } finally {
+      testDb.close();
+    }
+  }
 
   it("should sync directory correctly", async () => {
     // Create some kifu files
@@ -73,6 +92,25 @@ describe("background/kifu_index/sync", () => {
     onKifuFileEvent("unlink", tempDir, kifPath);
     await new Promise((resolve) => setTimeout(resolve, 600)); // Wait for debounce
     expect(getKifuCount()).toBe(0);
+  });
+
+  it("defers legacy orphan repair from live events to full sync", async () => {
+    const orphanSfen = "legacy-orphan";
+    const kifPath = "event_test.kif";
+    insertLegacyOrphan(orphanSfen);
+    fs.writeFileSync(
+      path.join(tempDir, kifPath),
+      "先手：A\n後手：B\n手数----指手----\n1 ７六歩(77)\n",
+    );
+
+    onKifuFileEvent("add", tempDir, kifPath);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    expect(hasPosition(orphanSfen)).toBe(true);
+
+    await syncKifuDirectory(tempDir);
+
+    expect(hasPosition(orphanSfen)).toBe(false);
   });
 
   it("should only index changed files during full sync", async () => {

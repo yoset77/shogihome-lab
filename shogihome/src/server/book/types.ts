@@ -40,8 +40,7 @@ export type SbkOnTheFlyLUT = {
   table: Uint32Array;
   rowCount: number;
   firstNonZeroRow: number;
-  indexToOffset: Uint32Array;
-  stateIds: Set<number>;
+  maxStateId: number;
 };
 
 export type SbkEval = {

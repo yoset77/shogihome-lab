@@ -1,8 +1,13 @@
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { PassThrough, Writable } from "node:stream";
 import {
+  estimateSbkIndexConstructionBytes,
+  validateSbkIndexConstructionMemory,
   loadSbkBook,
   loadSbkBookOnTheFly,
+  MAX_SBK_BOOK_SIZE_BYTES,
   searchSbkBookEntryOnTheFly,
   storeSbkBook,
 } from "@/server/book/sbk";
@@ -12,6 +17,25 @@ import { SbkBook } from "@/server/book/types";
 import { Position } from "tsshogi";
 
 describe("background/book/sbk", () => {
+  async function loadOnTheFlyFromData(data: Uint8Array): Promise<SbkBook> {
+    const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "shogihome-sbk-"));
+    const filePath = path.join(directory, "book.sbk");
+    try {
+      await fs.promises.writeFile(filePath, data);
+      return await loadSbkBookOnTheFly(filePath);
+    } finally {
+      await fs.promises.rm(directory, { recursive: true, force: true });
+    }
+  }
+
+  async function storeToData(book: SbkBook): Promise<Uint8Array> {
+    const pass = new PassThrough();
+    const chunks: Buffer[] = [];
+    pass.on("data", (chunk: Buffer) => chunks.push(chunk));
+    await storeSbkBook(book, pass);
+    return Buffer.concat(chunks);
+  }
+
   const testCases = [
     { input: "shogigui01.sbk", expected: "shogihome01.sbk" },
     { input: "shogigui02.sbk", expected: "shogihome02.sbk" },
@@ -126,6 +150,92 @@ describe("background/book/sbk", () => {
     expect(book.entries.get(childSfen)?.comment).toBe("child");
   });
 
+  it("estimates raw, state, move, and evaluation expansion during index construction", () => {
+    expect(estimateSbkIndexConstructionBytes(1024, 2, 3, 4)).toBe(
+      1024 * 4 + 2 * 256 + 3 * 256 + 4 * 512,
+    );
+  });
+
+  it("rejects an index estimate above the fixed construction budget", () => {
+    expect(() => validateSbkIndexConstructionMemory(MAX_SBK_BOOK_SIZE_BYTES / 3, 1, 0, 0)).toThrow(
+      "SBK index construction exceeds memory budget",
+    );
+  });
+
+  it.each([
+    { sourceIds: [], expectedMaxStateId: -1, expectedNewStateId: 0 },
+    { sourceIds: [10, 3, 20], expectedMaxStateId: 20, expectedNewStateId: 21 },
+  ])(
+    "uses max state ID $expectedMaxStateId when extending an on-the-fly book",
+    async ({ sourceIds, expectedMaxStateId, expectedNewStateId }) => {
+      const rawData = SBook.encode({
+        Author: "",
+        Description: "",
+        BookStates: sourceIds.map((id) => ({
+          Id: id,
+          BoardKey: 0n,
+          HandKey: 0,
+          Games: 0,
+          WonBlack: 0,
+          WonWhite: 0,
+          Position: "",
+          Comment: "",
+          Moves: [],
+          Evals: [],
+        })),
+      }).finish();
+      const book = await loadOnTheFlyFromData(rawData);
+      const index = book.sbkIndex;
+      if (!index) {
+        throw new Error("test book was not loaded on-the-fly");
+      }
+      expect(index).not.toHaveProperty("indexToOffset");
+      expect(index).not.toHaveProperty("stateIds");
+      expect(index.maxStateId).toBe(expectedMaxStateId);
+
+      const newSfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/P8/1PPPPPPPP/1B5R1/LNSGKGSNL w - 2";
+      book.entries.set(newSfen, {
+        type: "normal",
+        comment: "new state",
+        moves: [],
+        minPly: 1,
+      });
+
+      const stored = SBook.decode(await storeToData(book));
+      expect(stored.BookStates.at(-1)?.Id).toBe(expectedNewStateId);
+    },
+  );
+
+  it("rejects extending an on-the-fly book beyond the int32 state ID range", async () => {
+    const rawData = SBook.encode({
+      Author: "",
+      Description: "",
+      BookStates: [
+        {
+          Id: 2147483647,
+          BoardKey: 0n,
+          HandKey: 0,
+          Games: 0,
+          WonBlack: 0,
+          WonWhite: 0,
+          Position: "",
+          Comment: "",
+          Moves: [],
+          Evals: [],
+        },
+      ],
+    }).finish();
+    const book = await loadOnTheFlyFromData(rawData);
+    book.entries.set("lnsgkgsnl/1r5b1/ppppppppp/9/9/P8/1PPPPPPPP/1B5R1/LNSGKGSNL w - 2", {
+      type: "normal",
+      comment: "new state",
+      moves: [],
+      minPly: 1,
+    });
+
+    await expect(storeToData(book)).rejects.toThrow("SBK state ID limit reached");
+  });
+
   it("rejects stream errors while storing", async () => {
     class FailingWritable extends Writable {
       override _write(
@@ -238,8 +348,7 @@ describe("background/book/sbk", () => {
         table: new Uint32Array(9),
         rowCount: 1,
         firstNonZeroRow: 1,
-        indexToOffset: new Uint32Array([0]),
-        stateIds: new Set([0]),
+        maxStateId: 0,
       },
     };
 

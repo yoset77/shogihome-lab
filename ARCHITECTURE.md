@@ -75,6 +75,7 @@ graph LR
 | `scripts/generate_licenses.py` | Python依存ライブラリのライセンスを生成。 |
 | `VERSION` | 配布パッケージに同梱されるバージョン情報。リリースワークフローで生成される（Git 管理対象外）。 |
 | `engine-wrapper.mjs` | エンジンラッパー（Node.js版）。依存関係ゼロで動作する軽量な実装。 |
+| `shutdown-coordinator.mjs` | Node.js版ラッパーの終了調停。SIGINT/SIGTERM時に新規接続を停止し、接続ごとのcleanupと子エンジン終了を期限付きで待機します。 |
 | `engines.json` | エンジン設定ファイル (Git管理対象外)。ID、表示名、実行パスのリストを定義。原本として `engines.json.default` (空) または `engines.json.example` (設定例) を参照。 |
 | `engines.json.default` | リリース用テンプレート (空のリスト `[]`)。 |
 | `engines.json.example` | 開発者向け設定例。 |
@@ -186,6 +187,7 @@ graph LR
     - **初期同期**: サーバー起動時に全ファイルをスキャンし、`mtime` と `size` を DB と比較して差分のみをインデックスします。
     - **非ブロック処理**: 1局ごとにイベントループを解放（`setImmediate`）することで、大量の棋譜をインデックス中もサーバーの応答性を維持します。
     - **リアルタイム同期**: `chokidar` 監視と連動し、ファイルの変更を検知した瞬間にインデックスを更新します。
+- **孤立局面の整理**: ライブ更新・削除では、変更前の棋譜が参照していた局面 ID だけを同一トランザクション内で検査し、他の棋譜から参照されなくなった局面だけを削除します。イベントごとの全局面走査は行わず、フル同期完了時のみ旧バージョンや中断処理で残った孤立局面を全体 cleanup します。
 - **検索機能**: 局面検索では、現在の盤面が含まれるすべての棋譜を一瞬でリストアップできます。キーワード検索（対局者、大会名、ファイル名）との AND 検索も可能です。
 - **データ構造**:
     - `kifu_files`: メタデータ（対局者、日付等）とファイル情報を保持。
@@ -201,7 +203,7 @@ graph LR
 カメラや画像ファイルから単一画像の盤面を読み取り、局面候補として SFEN を返すためのバックエンド境界です。
 - **有効化**: Webサーバー側の `.env.example` では `VISION_ENABLED=true` が既定で設定されており、`POST /api/vision/scan` が有効になります。無効化する場合は `.env` で `VISION_ENABLED` を `true` 以外に設定、または削除します。
 - **入力**: フロントエンドは選択・撮影された画像を短辺 960px 以下の JPEG（quality 0.8）へ再エンコードし、EXIF/GPS などのメタデータを送信しません。API は `image/jpeg`, `image/png` の raw body を受け付けます。最大サイズは `VISION_MAX_IMAGE_MB`（デフォルト 8MB）です。
-- **外部プロセス境界**: Node.js サーバーは画像を一時ファイルへ保存し、Vision backend worker を常駐プロセスとして起動します。本番では `npm run server:runtime` で生成された `shogihome-server.exe` が `dist/server/server.js` を実行し、同じ Node.js runtime で `dist/server/node-worker/worker.js` を起動します。Docker でも同じ `dist/server` 配置を使います。開発時は `dist/server/node-worker/worker.js` が優先され、未ビルドの場合は `src/server/vision/node-worker/worker.ts` を `tsx` 経由で起動します。モデルディレクトリは worker スクリプトからの相対パス `../models` で解決されます。通信は stdin/stdout の JSON Lines で、リクエストには `imagePath`、`sideToMove`、`maxCandidates` を含めます。`viewpoint` は worker へ渡さず、Node.js 側で SFEN と warning square を反転します。
+- **外部プロセス境界**: Node.js サーバーは画像を一時ファイルへ保存し、Vision backend worker を常駐プロセスとして起動します。本番では `npm run server:runtime` で生成された `shogihome-server.exe` が `dist/server/server.js` を実行し、同じ Node.js runtime で `dist/server/node-worker/worker.js` を起動します。Docker でも同じ `dist/server` 配置を使います。開発時は `dist/server/node-worker/worker.js` が優先され、未ビルドの場合は `src/server/vision/node-worker/worker.ts` を `tsx` 経由で起動します。モデルディレクトリは worker スクリプトからの相対パス `../models` で解決されます。通信は stdin/stdout の JSON Lines で、リクエストには `imagePath`、`sideToMove`、`maxCandidates` を含めます。scan は親クライアントと子 worker の両方で FIFO に直列化され、実行タイムアウトは worker へdispatchした時点から計測します。待機列は8件に制限し、timeout・crash・protocol errorは実行中の1件だけを失敗させ、待機中の要求は新しい worker で継続します。正常応答直後に worker が終了した場合は、応答を得られなかった次の要求を新しい worker で一度だけ再試行します。`viewpoint` は worker へ渡さず、Node.js 側で SFEN と warning square を反転します。
 - **ONNX 推論**: Vision backend は `board_segmenter.onnx` で盤面領域検出、`mixed.onnx` で 81 マスの駒種・向き分類、`hand_piece_detector.onnx` で持ち駒検出を実行します。
 - **持ち駒認識**: 盤面四隅検出結果から持ち駒台 ROI を推定し、持ち駒数・駒種を検出して SFEN の持ち駒フィールドに反映します。持ち駒検出結果は盤面候補探索の駒数制約にも反映されます。
 - **後処理**: 駒種ごとの上限数、二歩、行き所のない駒を常時検証します。玉数（先後各1枚）は hard 制約ではなく `KING_COUNT_INVALID` warning として返します。盤上＋持ち駒の合計が40枚でない場合は `TOTAL_PIECE_COUNT_INVALID`、各駒種が上限を超える場合は `PIECE_COUNT_INVALID` を warning として返します。旧 `--strict-piece-count` モードは廃止し、少なすぎる駒による hard filter は行いません。ビームサーチでは bounded selection を使い、全件 sort のコストを抑えています。
@@ -217,10 +219,11 @@ graph LR
 ### 定跡DB管理 (Book DB Management - Web/LAN)
 サーバー側の `KIFU_DIR` 内にある定跡ファイル (.db, .bin, .sbk, .ybb) をブラウザから利用・編集する機能です。
 - **対応形式**: YaneuraOu 形式 (`.db`)、Apery 形式 (`.bin`)、ShogiGUI/SBK 形式 (`.sbk`)、YaneuraOu Binary Book 形式 (`.ybb`) をサポートします。
-- **読み込み**: サーバーサイドで実行され、巨大な `.db`/`.bin`/`.ybb` ファイルに対してはオンザフライ検索を行うことで、クライアント側のリソース消費を抑えています。SBK は protobuf ベースのバイナリ形式で、一定サイズを超える場合は Packed SFEN の索引を構築し、必要な局面だけをデコードする on-the-fly モードで扱います。YBB は Packed SFEN でソートされた索引を二分探索し、必要な局面だけを読む on-the-fly モードをサポートします。現行の SBK on-the-fly は元ファイルの raw data を保持するため、`SBK_ONTHEFLY_THRESHOLD_MB` とは別に 512MiB の絶対上限を設けています。Web/LAN API ではクライアントから送信された閾値を信用せず、`.db`/`.bin`/`.ybb` は `.env` の `ONTHEFLY_THRESHOLD_MB`、`.sbk` は `SBK_ONTHEFLY_THRESHOLD_MB` をサーバー側で適用します。
+- **読み込み**: サーバーサイドで実行され、巨大な `.db`/`.bin`/`.ybb` ファイルに対してはオンザフライ検索を行うことで、クライアント側のリソース消費を抑えています。SBK は protobuf ベースのバイナリ形式で、一定サイズを超える場合は Packed SFEN の索引を構築し、必要な局面だけをデコードする on-the-fly モードで扱います。YBB は Packed SFEN でソートされた索引を二分探索し、必要な局面だけを読む on-the-fly モードをサポートします。SBK on-the-fly は raw file size を最大512MiBに制限し、さらに索引構築前に raw data、state、move、evaluation の展開量を保守的に見積もった構築メモリが512MiB以下であることを検証します。Web/LAN API ではクライアントから送信された閾値を信用せず、`.db`/`.bin`/`.ybb` は `.env` の `ONTHEFLY_THRESHOLD_MB`、`.sbk` は `SBK_ONTHEFLY_THRESHOLD_MB` をサーバー側で適用します。
 - **編集機能**: 定跡手の追加、削除、評価値/出現回数/SBK 指し手評価の更新、表示順の変更がブラウザから可能です。**「指し手追加」ダイアログにおける設定（インポート条件、現在の棋譜から取り込む際に評価値/深さを反映するかなど）はブラウザの `localStorage` に保持されます。**
 - **インポート**: サーバー上の特定の棋譜ファイルから定跡データをインポートする機能をサポートしています。棋譜コメント内の評価値・深さも取り込むことができます（`importScore` 設定で制御）。
 - **セキュリティ**: 棋譜管理と同様、`resolveKifuPath` によるパスバリデーションにより、安全なファイル操作を保証しています。
+- **セッション排他**: Web/LAN API の操作は `X-Book-Session-Id` ごとの FIFO lock で直列化します。異なるセッションは並行実行でき、batch search はセッションlockを1つ保持したまま内部検索の並列性を維持します。open/edit/save/import/clear/closeと期限切れcleanupが同じlockを使うため、検索中のFileHandle closeやロスト更新を防止します。
 
 ### エンジンごとの定跡着手 (Engine-specific Book Search - GUI Extension)
 エンジン思考開始前にサーバー側の定跡を検索し、ヒットした場合は自動着手する機能です。

@@ -3,11 +3,14 @@ import {
   initDatabase,
   closeDatabase,
   upsertKifuFile,
+  deleteKifuFile,
+  getKifuFileByPath,
   searchKifu,
   KifuFileMetadata,
 } from "@/server/database/kifu_index";
 import fs from "node:fs";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 describe("background/database/kifu_index", () => {
   const testDataDir = path.join(__dirname, "test_kifu_data");
@@ -44,6 +47,18 @@ describe("background/database/kifu_index", () => {
       start_date: "2024/01/01",
       event: "Test Event",
     };
+  }
+
+  function getPositionCount(): number {
+    const testDb = new DatabaseSync(path.join(testDataDir, "kifu_index.db"));
+    try {
+      const row = testDb.prepare("SELECT COUNT(*) AS count FROM positions").get() as {
+        count: number;
+      };
+      return row.count;
+    } finally {
+      testDb.close();
+    }
   }
 
   it("should return matched_ply when searching by position", () => {
@@ -124,5 +139,59 @@ describe("background/database/kifu_index", () => {
     const file2 = results.find((r) => r.file_path === "test2.kif");
     expect(file1?.matched_ply).toBe(12);
     expect(file2?.matched_ply).toBe(25);
+  });
+
+  it("removes only positions orphaned by an upsert", () => {
+    const sharedPosition = { sfen_hash: 100n, sfen: "shared", ply: 0 };
+    upsertKifuFile(makeMetadata("test1.kif"), [
+      sharedPosition,
+      { sfen_hash: 200n, sfen: "obsolete", ply: 1 },
+    ]);
+    upsertKifuFile(makeMetadata("test2.kif"), [sharedPosition]);
+
+    upsertKifuFile(makeMetadata("test1.kif"), [{ sfen_hash: 300n, sfen: "replacement", ply: 0 }]);
+
+    expect(getPositionCount()).toBe(2);
+    expect(searchKifu({ sfenHash: 100n, sfen: "shared" })).toHaveLength(1);
+    expect(searchKifu({ sfenHash: 200n, sfen: "obsolete" })).toHaveLength(0);
+  });
+
+  it("removes only positions orphaned by a file deletion", () => {
+    const sharedPosition = { sfen_hash: 100n, sfen: "shared", ply: 0 };
+    upsertKifuFile(makeMetadata("test1.kif"), [
+      sharedPosition,
+      { sfen_hash: 200n, sfen: "unique", ply: 1 },
+    ]);
+    upsertKifuFile(makeMetadata("test2.kif"), [sharedPosition]);
+
+    deleteKifuFile("test1.kif");
+
+    expect(getPositionCount()).toBe(1);
+    expect(searchKifu({ sfenHash: 100n, sfen: "shared" })).toHaveLength(1);
+
+    deleteKifuFile("test2.kif");
+
+    expect(getPositionCount()).toBe(0);
+  });
+
+  it("rolls back a file deletion when position cleanup fails", () => {
+    upsertKifuFile(makeMetadata("test1.kif"), [{ sfen_hash: 100n, sfen: "unique", ply: 0 }]);
+    const testDb = new DatabaseSync(path.join(testDataDir, "kifu_index.db"));
+    try {
+      testDb.exec(`
+        CREATE TRIGGER fail_position_delete
+        BEFORE DELETE ON positions
+        BEGIN
+          SELECT RAISE(ABORT, 'blocked position delete');
+        END
+      `);
+    } finally {
+      testDb.close();
+    }
+
+    expect(() => deleteKifuFile("test1.kif")).toThrow("blocked position delete");
+
+    expect(getKifuFileByPath("test1.kif")).toBeDefined();
+    expect(searchKifu({ sfenHash: 100n, sfen: "unique" })).toHaveLength(1);
   });
 });
