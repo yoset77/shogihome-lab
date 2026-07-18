@@ -236,6 +236,41 @@ describe("background/book/sbk", () => {
     await expect(storeToData(book)).rejects.toThrow("SBK state ID limit reached");
   });
 
+  it("rejects allocating multiple new states past the int32 state ID range", async () => {
+    const rawData = SBook.encode({
+      Author: "",
+      Description: "",
+      BookStates: [
+        {
+          Id: 2147483646,
+          BoardKey: 0n,
+          HandKey: 0,
+          Games: 0,
+          WonBlack: 0,
+          WonWhite: 0,
+          Position: "",
+          Comment: "",
+          Moves: [],
+          Evals: [],
+        },
+      ],
+    }).finish();
+    const book = await loadOnTheFlyFromData(rawData);
+    for (const sfen of [
+      "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+      "lnsgkgsnl/1r5b1/ppppppppp/9/9/P8/1PPPPPPPP/1B5R1/LNSGKGSNL w - 2",
+    ]) {
+      book.entries.set(sfen, {
+        type: "normal",
+        comment: "",
+        moves: [],
+        minPly: 0,
+      });
+    }
+
+    await expect(storeToData(book)).rejects.toThrow("SBK state ID limit reached");
+  });
+
   it("rejects stream errors while storing", async () => {
     class FailingWritable extends Writable {
       override _write(

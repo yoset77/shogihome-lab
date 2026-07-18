@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  createShutdownCoordinator,
-  hasChildProcessExited,
-} from '../shutdown-coordinator.mjs';
+import { createShutdownCoordinator, hasChildProcessExited, shouldCreateProcessGroup, terminateProcessTree } from '../shutdown-coordinator.mjs';
 
 function deferred() {
   let resolve;
@@ -18,6 +15,60 @@ test('detects child processes that exited by code or signal', () => {
   assert.equal(hasChildProcessExited({ exitCode: 0, signalCode: null }), true);
   assert.equal(hasChildProcessExited({ exitCode: null, signalCode: 'SIGTERM' }), true);
   assert.equal(hasChildProcessExited({ exitCode: null, signalCode: null }), false);
+});
+
+test('creates process groups only on POSIX platforms', () => {
+  assert.equal(shouldCreateProcessGroup('linux'), true);
+  assert.equal(shouldCreateProcessGroup('darwin'), true);
+  assert.equal(shouldCreateProcessGroup('win32'), false);
+});
+
+test('terminates the POSIX process group', async () => {
+  const calls = [];
+  await terminateProcessTree({ pid: 123, exitCode: null, signalCode: null }, 'SIGTERM', {
+    platform: 'linux',
+    killProcessGroup(pid, signal) {
+      calls.push([pid, signal]);
+    },
+  });
+
+  assert.deepEqual(calls, [[-123, 'SIGTERM']]);
+});
+
+test('terminates a POSIX process group after its leader exits', async () => {
+  const calls = [];
+  await terminateProcessTree({ pid: 124, exitCode: 0, signalCode: null }, 'SIGKILL', {
+    platform: 'linux',
+    killProcessGroup(pid, signal) {
+      calls.push([pid, signal]);
+    },
+  });
+
+  assert.deepEqual(calls, [[-124, 'SIGKILL']]);
+});
+
+test('terminates the complete Windows process tree', async () => {
+  const calls = [];
+  const childProcess = { pid: 456, exitCode: null, signalCode: null };
+  await terminateProcessTree(childProcess, 'SIGTERM', {
+    platform: 'win32',
+    runTaskkill(pid, force) {
+      calls.push([pid, force]);
+      return Promise.resolve();
+    },
+  });
+  await terminateProcessTree(childProcess, 'SIGKILL', {
+    platform: 'win32',
+    runTaskkill(pid, force) {
+      calls.push([pid, force]);
+      return Promise.resolve();
+    },
+  });
+
+  assert.deepEqual(calls, [
+    [456, true],
+    [456, true],
+  ]);
 });
 
 test('shutdown is idempotent and waits for the server and active cleanups', async () => {

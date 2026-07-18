@@ -3,11 +3,16 @@ import { HttpError } from "@/server/errors";
 import AsyncLock from "async-lock";
 
 const SESSION_ID_HEADER_REGEX = /^[a-zA-Z0-9_-]{8,128}$/;
+const BOOK_LOCK_MAX_PENDING = 32;
+const BOOK_LOCK_TIMEOUT_MS = 30_000;
 
 class BookSessionManager {
   private sessions = new Map<string, number>();
   private lastAccess = new Map<string, number>();
-  private lock = new AsyncLock();
+  private lock = new AsyncLock({
+    maxPending: BOOK_LOCK_MAX_PENDING,
+    timeout: BOOK_LOCK_TIMEOUT_MS,
+  });
   private nextSessionId = 1;
   private readonly MAX_SESSIONS = 50;
 
@@ -33,8 +38,19 @@ class BookSessionManager {
     }
   }
 
-  runExclusive<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
-    return this.lock.acquire(sessionId, operation);
+  async runExclusive<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
+    let operationStarted = false;
+    try {
+      return await this.lock.acquire(sessionId, async () => {
+        operationStarted = true;
+        return operation();
+      });
+    } catch (error) {
+      if (!operationStarted) {
+        throw new HttpError(503, "Book session is busy");
+      }
+      throw error;
+    }
   }
 
   cleanup() {

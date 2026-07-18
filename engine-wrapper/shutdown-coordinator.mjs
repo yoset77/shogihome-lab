@@ -1,13 +1,54 @@
+import { execFile } from 'node:child_process';
+
 export function hasChildProcessExited(childProcess) {
-  return childProcess.exitCode !== null || childProcess.signalCode !== null;
+  return childProcess.exitCode != null || childProcess.signalCode != null;
 }
 
-export function createShutdownCoordinator({
-  server,
-  deadlineMs = 10000,
-  setTimeoutFn = setTimeout,
-  clearTimeoutFn = clearTimeout,
-}) {
+export function shouldCreateProcessGroup(platform = process.platform) {
+  return platform !== 'win32';
+}
+
+function runTaskkill(pid, force) {
+  const args = ['/PID', String(pid), '/T'];
+  if (force) {
+    args.push('/F');
+  }
+  return new Promise((resolve, reject) => {
+    execFile('taskkill', args, { windowsHide: true, timeout: 3000 }, (error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+export async function terminateProcessTree(
+  childProcess,
+  signal,
+  { platform = process.platform, killProcessGroup = (pid, groupSignal) => process.kill(pid, groupSignal), runTaskkill: runTaskkillFn = runTaskkill } = {},
+) {
+  const pid = childProcess.pid;
+  try {
+    if (platform !== 'win32' && Number.isInteger(pid) && pid > 0) {
+      killProcessGroup(-pid, signal);
+    } else if (hasChildProcessExited(childProcess)) {
+      return;
+    } else if (!Number.isInteger(pid) || pid <= 0) {
+      childProcess.kill(signal);
+    } else {
+      await runTaskkillFn(pid, true);
+    }
+  } catch (error) {
+    if (error?.code === 'ESRCH' || (platform === 'win32' && hasChildProcessExited(childProcess))) {
+      return;
+    }
+    throw error;
+  }
+}
+
+export function createShutdownCoordinator({ server, deadlineMs = 10000, setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout, terminateProcess = terminateProcessTree }) {
   const activeCleanups = new Set();
   const activeProcesses = new Set();
   const processWaiters = new Set();
@@ -66,29 +107,20 @@ export function createShutdownCoordinator({
       }),
     );
     const processesFinished = waitForProcesses();
-    const orderlyShutdown = Promise.all([serverClosed, cleanupResults, processesFinished]).then(
-      ([, results]) => {
-        const failures = results.filter((result) => result.status === 'rejected');
-        if (failures.length > 0) {
-          throw new AggregateError(
-            failures.map((failure) => failure.reason),
-            'one or more engine cleanups failed',
-          );
-        }
-      },
-    );
+    const orderlyShutdown = Promise.all([serverClosed, cleanupResults, processesFinished]).then(([, results]) => {
+      const failures = results.filter((result) => result.status === 'rejected');
+      if (failures.length > 0) {
+        throw new AggregateError(
+          failures.map((failure) => failure.reason),
+          'one or more engine cleanups failed',
+        );
+      }
+    });
 
     shutdownPromise = new Promise((resolve, reject) => {
       let deadlineTimer = setTimeoutFn(() => {
         deadlineTimer = null;
-        for (const childProcess of activeProcesses) {
-          try {
-            childProcess.kill('SIGKILL');
-          } catch {
-            // The process may have exited before its close event was delivered.
-          }
-        }
-        resolve({ forced: true });
+        void Promise.allSettled([...activeProcesses].map((childProcess) => terminateProcess(childProcess, 'SIGKILL'))).then(() => resolve({ forced: true }));
       }, deadlineMs);
 
       orderlyShutdown.then(
