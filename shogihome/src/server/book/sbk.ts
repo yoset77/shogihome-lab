@@ -644,8 +644,8 @@ function getRowsByOffset(table: Uint32Array, rowCount: number): number[] {
   );
 }
 
-function getNextSbkStateId(index: SbkOnTheFlyLUT): number {
-  if (index.maxStateId >= MAX_SBK_STATE_ID) {
+function getNextSbkStateId(index: SbkOnTheFlyLUT, newStateCount: number): number {
+  if (newStateCount > MAX_SBK_STATE_ID - index.maxStateId) {
     throw new Error("SBK state ID limit reached");
   }
   return index.maxStateId + 1;
@@ -804,7 +804,7 @@ async function storeSbkBookOnTheFly(
   }
 
   const newSfenToId = new Map<string, number>();
-  let nextId = getNextSbkStateId(book.sbkIndex);
+  let nextId = getNextSbkStateId(book.sbkIndex, newSfens.size);
   for (const sfen of newSfens) {
     newSfenToId.set(sfen, nextId++);
   }

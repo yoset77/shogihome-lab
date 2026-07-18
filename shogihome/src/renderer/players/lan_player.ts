@@ -70,6 +70,7 @@ export class LanPlayer implements Player {
   private isClosing = false;
   private sessionLost = false;
   private pendingSessionLoss = false;
+  private reportedErrorAwaitingState = false;
   private releaseResourcesPromise: Promise<void> | null = null;
   private closePromise: Promise<void> | null = null;
 
@@ -431,10 +432,14 @@ export class LanPlayer implements Player {
       const data = JSON.parse(message);
 
       if (data.error) {
+        if (this.sessionLost || this.isClosing) {
+          return;
+        }
         if (this.pendingSessionLoss) {
           this.markSessionLost();
           return;
         }
+        this.reportedErrorAwaitingState = true;
         this.clearReadyReplayTimeout();
         this.isThinking = false;
         const error = new Error(data.error);
@@ -554,6 +559,8 @@ export class LanPlayer implements Player {
       } else if (typeof data.state === "string") {
         const state = data.state as string;
         const stateEngineId = typeof data.engineId === "string" ? data.engineId : null;
+        const errorAlreadyReported = this.reportedErrorAwaitingState;
+        this.reportedErrorAwaitingState = false;
         if (state === "thinking" && stateEngineId === this.engineId) {
           this.clearReadyReplayTimeout();
           this.isThinking = true;
@@ -565,7 +572,7 @@ export class LanPlayer implements Player {
         }
 
         if (stateEngineId && stateEngineId !== this.engineId) {
-          this.markSessionLost();
+          this.markSessionLost(!errorAlreadyReported);
           return;
         }
 
@@ -581,7 +588,7 @@ export class LanPlayer implements Player {
         }
 
         if (!this.isThinking && (state === "uninitialized" || state === "stopped")) {
-          this.markSessionLost();
+          this.markSessionLost(!errorAlreadyReported);
         }
       }
     } catch {
@@ -690,7 +697,7 @@ export class LanPlayer implements Player {
     }
   }
 
-  private markSessionLost() {
+  private markSessionLost(notify = true) {
     if (this.sessionLost || this.isClosing) {
       return;
     }
@@ -706,6 +713,9 @@ export class LanPlayer implements Player {
     const handler = this.handler;
     this.clearHandlers();
     this.rejectStopPromise(error);
+    if (!notify) {
+      return;
+    }
     if (handler) {
       handler.onError(error);
     } else {

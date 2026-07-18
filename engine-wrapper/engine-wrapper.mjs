@@ -5,7 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { createShutdownCoordinator, hasChildProcessExited } from './shutdown-coordinator.mjs';
+import { createShutdownCoordinator, hasChildProcessExited, shouldCreateProcessGroup, terminateProcessTree } from './shutdown-coordinator.mjs';
 
 // Find .env file in the same directory as this script
 const __filename = fileURLToPath(import.meta.url);
@@ -50,20 +50,19 @@ function applyEngineOptions(engineProcess, options) {
     if (typeof value === 'boolean') {
       value = value.toString();
     }
-    
+
     // Sanitize: reject names/values containing line terminators
     const nameStr = String(name);
     const valueStr = String(value);
-    
-    if (nameStr.includes('\n') || nameStr.includes('\r') || 
-        valueStr.includes('\n') || valueStr.includes('\r')) {
+
+    if (nameStr.includes('\n') || nameStr.includes('\r') || valueStr.includes('\n') || valueStr.includes('\r')) {
       console.warn(`[${new Date().toISOString()}] Skipping option with invalid characters: ${nameStr}`);
       continue;
     }
 
     const command = `setoption name ${nameStr} value ${valueStr}`;
     console.log(`[${new Date().toISOString()}] Applying option: ${command}`);
-    
+
     if (engineProcess && engineProcess.stdin && engineProcess.stdin.writable) {
       try {
         engineProcess.stdin.write(command + '\n', (err) => {
@@ -100,6 +99,7 @@ const server = net.createServer((socket) => {
       let quitTimeout = null;
       let termTimeout = null;
       let finished = false;
+      let terminationStarted = false;
 
       const finishCleanup = () => {
         if (finished) {
@@ -122,15 +122,45 @@ const server = net.createServer((socket) => {
       rl?.close();
 
       const processToCleanup = engineProcess;
-      if (!processToCleanup || hasChildProcessExited(processToCleanup)) {
-        engineProcess = null;
-        engineStarted = false;
+      const completeProcessCleanup = () => {
         unregisterEngineProcess?.();
         unregisterEngineProcess = null;
+        finishCleanup();
+      };
+      const terminateAndFinish = (signal, failureMessage) => {
+        let terminated = false;
+        void terminateProcessTree(processToCleanup, signal)
+          .then(() => {
+            terminated = true;
+          })
+          .catch((error) => {
+            console.error(`[${new Date().toISOString()}] ${failureMessage}`, error);
+          })
+          .finally(() => {
+            if (terminated) {
+              unregisterEngineProcess?.();
+              unregisterEngineProcess = null;
+            }
+            finishCleanup();
+          });
+      };
+
+      if (!processToCleanup) {
+        engineStarted = false;
+        finishCleanup();
+        return;
+      }
+      if (hasChildProcessExited(processToCleanup)) {
+        engineProcess = null;
+        engineStarted = false;
         if (!socket.destroyed) {
           console.log(`[${new Date().toISOString()}] Closing client socket.`);
         }
-        finishCleanup();
+        if (shouldCreateProcessGroup()) {
+          terminateAndFinish('SIGKILL', 'Failed to clean up remaining engine process group.');
+        } else {
+          completeProcessCleanup();
+        }
         return;
       }
 
@@ -142,18 +172,30 @@ const server = net.createServer((socket) => {
           engineProcess = null;
         }
         engineStarted = false;
-        unregisterEngineProcess?.();
-        unregisterEngineProcess = null;
-        finishCleanup();
+        if (!terminationStarted) {
+          if (shouldCreateProcessGroup()) {
+            terminateAndFinish('SIGKILL', 'Failed to clean up remaining engine process group.');
+          } else {
+            completeProcessCleanup();
+          }
+        }
       });
 
       quitTimeout = setTimeout(() => {
+        terminationStarted = true;
         console.warn(`[${new Date().toISOString()}] Engine did not exit after 'quit'. Terminating.`);
-        processToCleanup.kill('SIGTERM');
+        const firstSignal = shouldCreateProcessGroup() ? 'SIGTERM' : 'SIGKILL';
+        if (!shouldCreateProcessGroup()) {
+          terminateAndFinish(firstSignal, 'Failed to terminate engine process tree.');
+          return;
+        }
+        void terminateProcessTree(processToCleanup, firstSignal).catch((error) => {
+          console.error(`[${new Date().toISOString()}] Failed to terminate engine process tree.`, error);
+        });
 
         termTimeout = setTimeout(() => {
           console.warn(`[${new Date().toISOString()}] Engine did not respond to SIGTERM. Killing.`);
-          processToCleanup.kill('SIGKILL');
+          terminateAndFinish('SIGKILL', 'Failed to kill engine process tree.');
         }, 3000);
       }, 5000);
 
@@ -184,7 +226,7 @@ const server = net.createServer((socket) => {
     // If engine is started, forward everything to it
     if (engineStarted) {
       if (engineProcess && engineProcess.stdin.writable) {
-        const command = line; 
+        const command = line;
         const cmd = command.trim();
 
         // Inject options immediately BEFORE 'isready' command (only once)
@@ -193,7 +235,7 @@ const server = net.createServer((socket) => {
           applyEngineOptions(engineProcess, socket.engineOptions);
           optionsApplied = true;
         }
-        
+
         console.log(`[Client -> Engine] ${cmd}`);
         engineProcess.stdin.write(cmd + '\n');
       }
@@ -211,8 +253,7 @@ const server = net.createServer((socket) => {
 
         // Check length first to avoid RangeError in timingSafeEqual (DoS protection)
         // Then use timing-safe comparison to prevent timing attacks
-        if (digestBuffer.length === expectedDigestBuffer.length && 
-            crypto.timingSafeEqual(digestBuffer, expectedDigestBuffer)) {
+        if (digestBuffer.length === expectedDigestBuffer.length && crypto.timingSafeEqual(digestBuffer, expectedDigestBuffer)) {
           console.log(`[${new Date().toISOString()}] Client authenticated successfully.`);
           authenticated = true;
           socket.write('auth_ok\n');
@@ -225,7 +266,7 @@ const server = net.createServer((socket) => {
         console.warn(`[${new Date().toISOString()}] Unauthenticated command attempt: ${input}`);
         socket.write('WRAPPER_ERROR: Authentication required\n', () => socket.destroy());
       }
-      
+
       // Stop processing any further input immediately
       if (rl) {
         rl.close();
@@ -233,11 +274,11 @@ const server = net.createServer((socket) => {
       }
       return;
     }
-    
+
     // Engine started check again just in case (though we checked at top)
     if (engineStarted) {
-       // Logic moved to top of listener
-       return;
+      // Logic moved to top of listener
+      return;
     }
 
     console.log(`[${new Date().toISOString()}] Received command: '${input}'`);
@@ -264,7 +305,7 @@ const server = net.createServer((socket) => {
       return;
     }
 
-    const engineDef = engines.find(e => e.id === engineId);
+    const engineDef = engines.find((e) => e.id === engineId);
     if (!engineDef) {
       console.error(`[${new Date().toISOString()}] Engine ID '${engineId}' not found.`);
       socket.write(`WRAPPER_ERROR: Engine ID '${engineId}' not found.\n`);
@@ -289,7 +330,10 @@ const server = net.createServer((socket) => {
 
     // On Windows, batch files (.bat, .cmd) must be spawned with shell: true
     const isBatchFile = process.platform === 'win32' && /\.(bat|cmd)$/i.test(enginePath);
-    const spawnOptions = { cwd: engineDirectory };
+    const spawnOptions = {
+      cwd: engineDirectory,
+      detached: shouldCreateProcessGroup(),
+    };
     let command = enginePath;
     if (isBatchFile) {
       spawnOptions.shell = true;
@@ -303,9 +347,9 @@ const server = net.createServer((socket) => {
     engineProcess.on('error', (err) => {
       console.error(`[${new Date().toISOString()}] Failed to start engine process. ${err.message}`);
       // Differentiate specific errors if needed for logs, but keep client message generic
-      let clientMsg = "WRAPPER_ERROR: Failed to start engine process.";
+      let clientMsg = 'WRAPPER_ERROR: Failed to start engine process.';
       if (err.code === 'ENOENT') {
-         clientMsg = "WRAPPER_ERROR: Engine executable not found.";
+        clientMsg = 'WRAPPER_ERROR: Engine executable not found.';
       }
       socket.write(clientMsg + '\n');
       cleanup();
@@ -314,9 +358,9 @@ const server = net.createServer((socket) => {
     // If the process fails to start, the 'error' event will be emitted and handled above.
     // We should not proceed if the process is not valid.
     if (engineProcess.pid === undefined) {
-        return;
+      return;
     }
-    
+
     // Store options for the upper scope listener to use
     socket.engineOptions = engineDef.options;
 
@@ -348,7 +392,7 @@ const server = net.createServer((socket) => {
         const output = lineStr.trim();
         if (isError) {
           console.error(`${prefix} ${output}`);
-        } else if (!output.startsWith("info")) {
+        } else if (!output.startsWith('info')) {
           console.log(`${prefix} ${output}`);
         }
 
@@ -382,8 +426,6 @@ const server = net.createServer((socket) => {
     engineProcess.on('close', (code) => {
       console.log(`[${new Date().toISOString()}] Engine process exited with code ${code}.`);
       engineStarted = false;
-      unregisterEngineProcess?.();
-      unregisterEngineProcess = null;
       // Ensure socket is closed when engine exits
       cleanup();
     });
@@ -409,7 +451,7 @@ const shutdownCoordinator = createShutdownCoordinator({ server });
 
 server.listen(PORT, HOST, () => {
   console.log(`[${new Date().toISOString()}] Single-port engine wrapper server listening on ${HOST}:${PORT}`);
-  
+
   const enginesJsonPath = path.join(__dirname, 'engines.json');
   if (fs.existsSync(enginesJsonPath)) {
     console.log(`[${new Date().toISOString()}] engines.json found at ${enginesJsonPath}`);
@@ -417,7 +459,7 @@ server.listen(PORT, HOST, () => {
       const content = fs.readFileSync(enginesJsonPath, 'utf-8');
       const engines = JSON.parse(content);
       console.log(`[${new Date().toISOString()}] Loaded ${engines.length} engines from engines.json:`);
-      engines.forEach(e => console.log(`  - ${e.id}: ${e.name} (${e.path})`));
+      engines.forEach((e) => console.log(`  - ${e.id}: ${e.name} (${e.path})`));
     } catch (e) {
       console.error(`[${new Date().toISOString()}] Failed to parse engines.json: ${e.message}`);
     }

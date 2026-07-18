@@ -315,6 +315,48 @@ describe("LanPlayer resilience", () => {
     ).rejects.toThrow();
   });
 
+  it("should report a fatal error followed by stopped only once", async () => {
+    const onError = vi.fn();
+    const player = new LanPlayer(
+      "research_main",
+      "test-engine",
+      "Test Engine",
+      10,
+      undefined,
+      onError,
+    );
+    await launchPlayer(player, { state: "ready", engineId: "test-engine" });
+
+    sendMsg({ error: "Engine did not respond to stop command. Session reset." });
+    sendMsg({ state: "stopped", engineId: null });
+
+    expect(onError).toHaveBeenCalledOnce();
+    await expect(
+      player.startResearch(
+        (Record.newByUSI("position startpos") as Record).position,
+        "position startpos",
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("should report stopped followed by a buffered fatal error only once", async () => {
+    const onError = vi.fn();
+    const player = new LanPlayer(
+      "research_main",
+      "test-engine",
+      "Test Engine",
+      10,
+      undefined,
+      onError,
+    );
+    await launchPlayer(player, { state: "ready", engineId: "test-engine" });
+
+    sendMsg({ state: "stopped", engineId: null });
+    sendMsg({ error: "Engine did not respond to stop command. Session reset." });
+
+    expect(onError).toHaveBeenCalledOnce();
+  });
+
   it("should accept uninitialized and starting states while launching", async () => {
     const onError = vi.fn();
     const player = new LanPlayer(

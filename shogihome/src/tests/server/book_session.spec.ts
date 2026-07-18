@@ -8,6 +8,7 @@ vi.hoisted(() => {
 import { app } from "@/server/main";
 import * as bookAPI from "@/server/book/index";
 import { ONTHEFLY_THRESHOLD_MB, SBK_ONTHEFLY_THRESHOLD_MB } from "@/server/config";
+import { runWithBookSessionLock } from "@/server/bookSessionManager";
 
 const host = "localhost:8140";
 
@@ -68,7 +69,58 @@ describe("Book Session API", () => {
     vi.clearAllMocks();
   });
 
-  afterEach(() => {});
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("should reject requests beyond the per-session lock queue limit", async () => {
+    const started = deferred<void>();
+    const release = deferred<void>();
+    const active = runWithBookSessionLock("bounded-lock-client", async () => {
+      started.resolve(undefined);
+      await release.promise;
+    });
+    await started.promise;
+
+    const queued = Array.from({ length: 32 }, () =>
+      runWithBookSessionLock("bounded-lock-client", async () => undefined),
+    );
+    const overflowResult = runWithBookSessionLock(
+      "bounded-lock-client",
+      async () => undefined,
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    release.resolve(undefined);
+    await active;
+    await Promise.all(queued);
+
+    await expect(overflowResult).resolves.toMatchObject({ status: 503 });
+  });
+
+  it("should time out requests waiting for the per-session lock", async () => {
+    vi.useFakeTimers();
+    const started = deferred<void>();
+    const release = deferred<void>();
+    const active = runWithBookSessionLock("timed-lock-client", async () => {
+      started.resolve(undefined);
+      await release.promise;
+    });
+    await started.promise;
+
+    const waitingResult = runWithBookSessionLock("timed-lock-client", async () => undefined).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await vi.advanceTimersByTimeAsync(30_000);
+    release.resolve(undefined);
+    await active;
+
+    await expect(waitingResult).resolves.toMatchObject({ status: 503 });
+    vi.useRealTimers();
+  });
 
   it("should assign different sessions for different clients", async () => {
     // We expect openBook to be called with different session IDs

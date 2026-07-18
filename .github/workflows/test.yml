@@ -43,7 +43,12 @@ jobs:
         working-directory: .
         run: |
           node --check engine-wrapper/engine-wrapper.mjs
+          node --check engine-wrapper/shutdown-coordinator.mjs
           python3 -m py_compile engine-wrapper/engine_wrapper.py
+
+      - name: Run Node engine-wrapper tests
+        working-directory: engine-wrapper
+        run: npm run test:node
 
   test-python:
     runs-on: ubuntu-latest

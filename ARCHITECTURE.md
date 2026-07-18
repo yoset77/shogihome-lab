@@ -75,7 +75,7 @@ graph LR
 | `scripts/generate_licenses.py` | Python依存ライブラリのライセンスを生成。 |
 | `VERSION` | 配布パッケージに同梱されるバージョン情報。リリースワークフローで生成される（Git 管理対象外）。 |
 | `engine-wrapper.mjs` | エンジンラッパー（Node.js版）。依存関係ゼロで動作する軽量な実装。 |
-| `shutdown-coordinator.mjs` | Node.js版ラッパーの終了調停。SIGINT/SIGTERM時に新規接続を停止し、接続ごとのcleanupと子エンジン終了を期限付きで待機します。 |
+| `shutdown-coordinator.mjs` | Node.js版ラッパーの終了調停。SIGINT/SIGTERM時に新規接続を停止し、接続ごとのcleanupと子エンジン終了を期限付きで待機します。POSIXではエンジンを専用process groupで起動し、Windowsでは`taskkill /T /F`を使ってshell配下を含むprocess treeを終了します。 |
 | `engines.json` | エンジン設定ファイル (Git管理対象外)。ID、表示名、実行パスのリストを定義。原本として `engines.json.default` (空) または `engines.json.example` (設定例) を参照。 |
 | `engines.json.default` | リリース用テンプレート (空のリスト `[]`)。 |
 | `engines.json.example` | 開発者向け設定例。 |
@@ -223,7 +223,7 @@ graph LR
 - **編集機能**: 定跡手の追加、削除、評価値/出現回数/SBK 指し手評価の更新、表示順の変更がブラウザから可能です。**「指し手追加」ダイアログにおける設定（インポート条件、現在の棋譜から取り込む際に評価値/深さを反映するかなど）はブラウザの `localStorage` に保持されます。**
 - **インポート**: サーバー上の特定の棋譜ファイルから定跡データをインポートする機能をサポートしています。棋譜コメント内の評価値・深さも取り込むことができます（`importScore` 設定で制御）。
 - **セキュリティ**: 棋譜管理と同様、`resolveKifuPath` によるパスバリデーションにより、安全なファイル操作を保証しています。
-- **セッション排他**: Web/LAN API の操作は `X-Book-Session-Id` ごとの FIFO lock で直列化します。異なるセッションは並行実行でき、batch search はセッションlockを1つ保持したまま内部検索の並列性を維持します。open/edit/save/import/clear/closeと期限切れcleanupが同じlockを使うため、検索中のFileHandle closeやロスト更新を防止します。
+- **セッション排他**: Web/LAN API の操作は `X-Book-Session-Id` ごとの FIFO lock で直列化します。異なるセッションは並行実行でき、batch search はセッションlockを1つ保持したまま内部検索の並列性を維持します。open/edit/save/import/clear/closeと期限切れcleanupが同じlockを使うため、検索中のFileHandle closeやロスト更新を防止します。同一セッションの待機は32件、lock取得待ちは30秒に制限し、超過時はHTTP 503を返します。
 
 ### エンジンごとの定跡着手 (Engine-specific Book Search - GUI Extension)
 エンジン思考開始前にサーバー側の定跡を検索し、ヒットした場合は自動着手する機能です。
