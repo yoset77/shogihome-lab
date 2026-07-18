@@ -156,8 +156,6 @@ export function onKifuFileEvent(
       }
     }
 
-    cleanupOrphanedPositions();
-
     if (events.some(([, ev]) => ev === "add" || ev === "unlink")) {
       clearKifuListCache();
       const files = await getKifuList(kifuDir);

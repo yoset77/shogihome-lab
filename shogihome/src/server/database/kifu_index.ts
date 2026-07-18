@@ -13,6 +13,8 @@ let insertPositionStmt: StatementSync | null = null;
 let getPositionIdStmt: StatementSync | null = null;
 let insertKifuPositionStmt: StatementSync | null = null;
 let deleteKifuPositionsStmt: StatementSync | null = null;
+let getKifuPositionIdsStmt: StatementSync | null = null;
+let deleteOrphanedPositionStmt: StatementSync | null = null;
 let getKifuCountStmt: StatementSync | null = null;
 
 export function initDatabase(dataDir: string) {
@@ -96,6 +98,14 @@ export function initDatabase(dataDir: string) {
       VALUES (?, ?, ?)
     `);
     deleteKifuPositionsStmt = db.prepare("DELETE FROM kifu_positions WHERE kifu_id = ?");
+    getKifuPositionIdsStmt = db.prepare("SELECT position_id FROM kifu_positions WHERE kifu_id = ?");
+    deleteOrphanedPositionStmt = db.prepare(`
+      DELETE FROM positions
+      WHERE id = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM kifu_positions WHERE kifu_positions.position_id = positions.id
+        )
+    `);
     getKifuCountStmt = db.prepare("SELECT COUNT(*) as count FROM kifu_files");
   } catch (e) {
     console.error("Failed to initialize kifu index database:", e);
@@ -109,6 +119,8 @@ export function initDatabase(dataDir: string) {
     getPositionIdStmt = null;
     insertKifuPositionStmt = null;
     deleteKifuPositionsStmt = null;
+    getKifuPositionIdsStmt = null;
+    deleteOrphanedPositionStmt = null;
     getKifuCountStmt = null;
     db = null;
   }
@@ -125,6 +137,8 @@ export function closeDatabase() {
   getPositionIdStmt = null;
   insertKifuPositionStmt = null;
   deleteKifuPositionsStmt = null;
+  getKifuPositionIdsStmt = null;
+  deleteOrphanedPositionStmt = null;
   getKifuCountStmt = null;
   if (db) {
     db.close();
@@ -149,6 +163,13 @@ export interface KifuPositionData {
   ply: number;
 }
 
+function getKifuPositionIds(kifuId: number): number[] {
+  const rows = getKifuPositionIdsStmt?.all(kifuId) ?? [];
+  return rows
+    .map((row) => Number(row.position_id))
+    .filter((positionId) => Number.isSafeInteger(positionId));
+}
+
 export function upsertKifuFile(
   metadata: Omit<KifuFileMetadata, "indexed_at">,
   positions: KifuPositionData[],
@@ -163,8 +184,10 @@ export function upsertKifuFile(
     const existing = getKifuFileIdStmt?.get(metadata.file_path) as { id: number } | undefined;
 
     let kifuId: number;
+    let previousPositionIds: number[] = [];
     if (existing) {
       kifuId = existing.id;
+      previousPositionIds = getKifuPositionIds(kifuId);
       deleteKifuPositionsStmt?.run(kifuId);
 
       updateKifuFileStmt?.run(
@@ -199,6 +222,10 @@ export function upsertKifuFile(
       }
     }
 
+    for (const positionId of previousPositionIds) {
+      deleteOrphanedPositionStmt?.run(positionId);
+    }
+
     db.exec("COMMIT");
   } catch (e) {
     try {
@@ -214,8 +241,24 @@ export function upsertKifuFile(
 export function deleteKifuFile(filePath: string) {
   if (!db) return;
   try {
+    db.exec("BEGIN IMMEDIATE");
+
+    const existing = getKifuFileIdStmt?.get(filePath) as { id: number } | undefined;
+    const previousPositionIds = existing ? getKifuPositionIds(existing.id) : [];
+
     deleteKifuFileStmt?.run(filePath);
+
+    for (const positionId of previousPositionIds) {
+      deleteOrphanedPositionStmt?.run(positionId);
+    }
+
+    db.exec("COMMIT");
   } catch (e) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // ignore rollback errors to preserve original error
+    }
     console.error("Failed to delete kifu file from DB:", e);
     throw e;
   }

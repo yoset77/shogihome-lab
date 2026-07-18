@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node --env-file=.env engine-wrapper.mjs",
+    "test:node": "node --test tests/shutdown-coordinator.test.mjs",
     "py:license": "uv run python scripts/generate_licenses.py"
   },
   "author": "",

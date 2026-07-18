@@ -17,6 +17,7 @@ const main = (): void => {
   const rl: Interface = createInterface({ input: process.stdin, terminal: false });
   let pending = 0;
   let inputClosed = false;
+  let tail: Promise<void> = Promise.resolve();
 
   const finish = (): void => {
     pending--;
@@ -30,7 +31,7 @@ const main = (): void => {
     if (!trimmed) return;
 
     pending++;
-    handleLine(trimmed, modelDir).finally(finish);
+    tail = tail.then(() => handleLine(trimmed, modelDir)).finally(finish);
   });
 
   rl.on("close", () => {
