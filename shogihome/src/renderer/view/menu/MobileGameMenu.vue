@@ -167,6 +167,7 @@ import {
   USIEngineExtraBookConfig,
   emptyUSIEngine,
   emptyUSIEngineExtraBookConfig,
+  normalizeUSIEngineExtraBookConfig,
 } from "@/common/settings/usi";
 import { PlayerSettings } from "@/common/settings/player";
 
@@ -258,10 +259,10 @@ onMounted(async () => {
     settings.enableAutoSave = saved.enableAutoSave;
 
     if (saved.black.usi?.extraBook) {
-      blackExtraBook.value = { ...saved.black.usi.extraBook };
+      blackExtraBook.value = normalizeUSIEngineExtraBookConfig(saved.black.usi.extraBook);
     }
     if (saved.white.usi?.extraBook) {
-      whiteExtraBook.value = { ...saved.white.usi.extraBook };
+      whiteExtraBook.value = normalizeUSIEngineExtraBookConfig(saved.white.usi.extraBook);
     }
 
     initialized.value = true;

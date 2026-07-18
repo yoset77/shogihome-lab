@@ -7,7 +7,7 @@ import {
   researchSettingsSecondaryEngines,
 } from "@/tests/mock/research";
 import { Mocked } from "vitest";
-import { USIEngine, USIEngineOption } from "@/common/settings/usi";
+import { emptyUSIEngineExtraBookConfig, USIEngine, USIEngineOption } from "@/common/settings/usi";
 
 vi.mock("@/renderer/ipc/api.js");
 
@@ -235,12 +235,9 @@ describe("store/research", () => {
       default: 1,
       value: 4,
     });
-    expect(mockAPI.usiLaunch.mock.calls[0][0].extraBook).toStrictEqual({
-      enabled: false,
-      filePath: "",
-      considerBookMoveCount: true,
-      bookDepthLimit: 0,
-    });
+    expect(mockAPI.usiLaunch.mock.calls[0][0].extraBook).toStrictEqual(
+      emptyUSIEngineExtraBookConfig(),
+    );
     expect(originalOption.value).toBe(1);
     expect(manager.getMultiPV(101)).toBe(4);
   });

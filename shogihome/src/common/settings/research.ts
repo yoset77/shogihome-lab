@@ -1,5 +1,5 @@
 import { t } from "@/common/i18n/index";
-import { USIEngine } from "./usi.js";
+import { normalizeUSIEngine, USIEngine } from "./usi.js";
 
 export type SecondaryResearchSettings = {
   usi?: USIEngine;
@@ -27,7 +27,15 @@ export function normalizeResearchSettings(settings: ResearchSettings): ResearchS
   return {
     ...defaultResearchSettings(),
     ...settings,
-    secondaries: settings.secondaries?.filter((secondary) => !!secondary.usi),
+    ...(settings.usi ? { usi: normalizeUSIEngine(settings.usi) } : {}),
+    secondaries: settings.secondaries
+      ?.filter(
+        (secondary): secondary is SecondaryResearchSettings & { usi: USIEngine } => !!secondary.usi,
+      )
+      .map((secondary) => ({
+        ...secondary,
+        usi: normalizeUSIEngine(secondary.usi),
+      })),
   };
 }
 

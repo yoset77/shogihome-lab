@@ -443,7 +443,9 @@ export type Texts = {
   replaceEnginePath: string;
   displayName: string;
   frontendBook: string;
-  considerBookMoveCount: string;
+  bookMoveSelection: string;
+  bookMoveSelectionUniform: string;
+  bookMoveScoreTemperature: string;
   bookMaxMoves: string;
   bookMinEvalBlack: string;
   bookMinEvalWhite: string;

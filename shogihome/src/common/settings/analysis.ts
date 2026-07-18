@@ -1,5 +1,5 @@
 import { CommentBehavior } from "./comment.js";
-import { USIEngine } from "./usi.js";
+import { normalizeUSIEngine, USIEngine } from "./usi.js";
 
 type StartCriteria = {
   enableNumber: boolean;
@@ -58,6 +58,7 @@ export function normalizeAnalysisSettings(settings: AnalysisSettings): AnalysisS
   return {
     ...defaultAnalysisSettings(),
     ...settings,
+    ...(settings.usi ? { usi: normalizeUSIEngine(settings.usi) } : {}),
     startCriteria: {
       ...defaultStartCriteria(),
       ...settings.startCriteria,

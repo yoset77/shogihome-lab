@@ -1,4 +1,4 @@
-import { USIEngine } from "@/common/settings/usi";
+import { emptyUSIEngineExtraBookConfig, USIEngine } from "@/common/settings/usi";
 
 export const testUSIEngine: USIEngine = {
   uri: "es://usi-engine/test-engine",
@@ -14,7 +14,7 @@ export const testUSIEngine: USIEngine = {
   },
   tags: ["対局"],
   enableEarlyPonder: false,
-  extraBook: { enabled: false, filePath: "", considerBookMoveCount: true, bookDepthLimit: 0 },
+  extraBook: emptyUSIEngineExtraBookConfig(),
 };
 
 export const testUSIEngineWithPonder: USIEngine = {
@@ -37,5 +37,5 @@ export const testUSIEngineWithPonder: USIEngine = {
     mate: false,
   },
   enableEarlyPonder: false,
-  extraBook: { enabled: false, filePath: "", considerBookMoveCount: true, bookDepthLimit: 0 },
+  extraBook: emptyUSIEngineExtraBookConfig(),
 };

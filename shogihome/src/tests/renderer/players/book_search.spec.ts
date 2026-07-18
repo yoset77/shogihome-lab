@@ -3,6 +3,7 @@ import { searchBookMovesForPlayer } from "@/renderer/players/book_search";
 import { Color, Position } from "tsshogi";
 import api from "@/renderer/ipc/api";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "@/renderer/players/usi_events";
+import { BookMoveSelectionRule } from "@/common/settings/usi";
 
 vi.mock("@/renderer/ipc/api");
 vi.mock("@/renderer/players/usi_events");
@@ -13,6 +14,14 @@ describe("searchBookMovesForPlayer", () => {
   const mockBookSessionID = "book-session-1";
   const mockEngineName = "Test Engine";
   const mockUSI = "position startpos";
+  const weightedByCountOptions = {
+    moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_COUNT,
+    scoreTemperature: 50,
+  };
+  const uniformOptions = {
+    moveSelectionRule: BookMoveSelectionRule.UNIFORM,
+    scoreTemperature: 50,
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -22,6 +31,7 @@ describe("searchBookMovesForPlayer", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("should return false when no book moves found", async () => {
@@ -30,7 +40,7 @@ describe("searchBookMovesForPlayer", () => {
       mockPosition,
       mockBookSessionID,
       mockEngineName,
-      { considerBookMoveCount: true, turn: Color.BLACK },
+      { ...weightedByCountOptions, turn: Color.BLACK },
       mockUSI,
       vi.fn(),
     );
@@ -49,7 +59,7 @@ describe("searchBookMovesForPlayer", () => {
       mockPosition,
       mockBookSessionID,
       mockEngineName,
-      { considerBookMoveCount: true, ignoreRate: 10, turn: Color.BLACK },
+      { ...weightedByCountOptions, ignoreRate: 10, turn: Color.BLACK },
       mockUSI,
       vi.fn(),
     );
@@ -70,7 +80,7 @@ describe("searchBookMovesForPlayer", () => {
       mockPosition,
       mockBookSessionID,
       mockEngineName,
-      { considerBookMoveCount: false, turn: Color.BLACK, minEvalBlack: 0 },
+      { ...uniformOptions, turn: Color.BLACK, minEvalBlack: 0 },
       mockUSI,
       onMove,
     );
@@ -96,7 +106,7 @@ describe("searchBookMovesForPlayer", () => {
       mockPosition,
       mockBookSessionID,
       mockEngineName,
-      { considerBookMoveCount: false, turn: Color.WHITE, minEvalWhite: 0 },
+      { ...uniformOptions, turn: Color.WHITE, minEvalWhite: 0 },
       mockUSI,
       onMove,
     );
@@ -120,7 +130,7 @@ describe("searchBookMovesForPlayer", () => {
       mockPosition,
       mockBookSessionID,
       mockEngineName,
-      { considerBookMoveCount: false, turn: Color.BLACK, maxEvalDiff: 100 },
+      { ...uniformOptions, turn: Color.BLACK, maxEvalDiff: 100 },
       mockUSI,
       onMove,
     );
@@ -147,7 +157,7 @@ describe("searchBookMovesForPlayer", () => {
       mockPosition,
       mockBookSessionID,
       mockEngineName,
-      { considerBookMoveCount: false, turn: Color.WHITE, maxEvalDiff: 60 },
+      { ...uniformOptions, turn: Color.WHITE, maxEvalDiff: 60 },
       mockUSI,
       onMove,
     );
@@ -171,7 +181,7 @@ describe("searchBookMovesForPlayer", () => {
       mockPosition,
       mockBookSessionID,
       mockEngineName,
-      { considerBookMoveCount: true, turn: Color.BLACK, maxEvalDiff: 0 },
+      { ...weightedByCountOptions, turn: Color.BLACK, maxEvalDiff: 0 },
       mockUSI,
       onMove,
     );
@@ -193,7 +203,7 @@ describe("searchBookMovesForPlayer", () => {
       mockPosition,
       mockBookSessionID,
       mockEngineName,
-      { considerBookMoveCount: true, turn: Color.BLACK, minEvalBlack: 0 },
+      { ...weightedByCountOptions, turn: Color.BLACK, minEvalBlack: 0 },
       mockUSI,
       vi.fn(),
     );
@@ -213,7 +223,7 @@ describe("searchBookMovesForPlayer", () => {
       mockPosition,
       mockBookSessionID,
       mockEngineName,
-      { considerBookMoveCount: false, turn: Color.BLACK, bookDepthLimit: 5 },
+      { ...uniformOptions, turn: Color.BLACK, bookDepthLimit: 5 },
       mockUSI,
       onMove,
     );
@@ -236,7 +246,7 @@ describe("searchBookMovesForPlayer", () => {
       mockPosition,
       mockBookSessionID,
       mockEngineName,
-      { considerBookMoveCount: false, turn: Color.BLACK, bookDepthLimit: 5 },
+      { ...uniformOptions, turn: Color.BLACK, bookDepthLimit: 5 },
       mockUSI,
       onMove,
     );
@@ -258,40 +268,32 @@ describe("searchBookMovesForPlayer", () => {
       mockPosition,
       mockBookSessionID,
       mockEngineName,
-      { considerBookMoveCount: true, turn: Color.BLACK, bookDepthLimit: 10 },
+      { ...weightedByCountOptions, turn: Color.BLACK, bookDepthLimit: 10 },
       mockUSI,
       vi.fn(),
     );
     expect(result).toBe(false);
   });
 
-  it("should select a move with uniform probability from filtered moves when considerBookMoveCount is false", async () => {
+  it("should select a move with uniform probability from filtered moves", async () => {
     (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
       { usi: "7g7f", count: 10, score: 100, comment: "" },
       { usi: "2g2f", count: 90, score: 300, comment: "" },
     ]);
 
+    vi.spyOn(Math, "random").mockReturnValue(0.6);
     const onMove = vi.fn();
-    let move7g7f = 0;
-    let move2g2f = 0;
-    for (let i = 0; i < 100; i++) {
-      onMove.mockClear();
-      await searchBookMovesForPlayer(
-        mockSessionID,
-        mockPosition,
-        mockBookSessionID,
-        mockEngineName,
-        { considerBookMoveCount: false, turn: Color.BLACK, minEvalBlack: 0 },
-        mockUSI,
-        onMove,
-      );
-      const move = onMove.mock.calls[0][0].usi;
-      if (move === "7g7f") move7g7f++;
-      if (move === "2g2f") move2g2f++;
-    }
+    await searchBookMovesForPlayer(
+      mockSessionID,
+      mockPosition,
+      mockBookSessionID,
+      mockEngineName,
+      { ...uniformOptions, turn: Color.BLACK, minEvalBlack: 0 },
+      mockUSI,
+      onMove,
+    );
 
-    expect(move7g7f).toBeGreaterThan(20);
-    expect(move2g2f).toBeGreaterThan(20);
+    expect(onMove.mock.calls[0][0].usi).toBe("2g2f");
   });
 
   it("should dispatch USI info for all original book moves", async () => {
@@ -305,7 +307,7 @@ describe("searchBookMovesForPlayer", () => {
       mockPosition,
       mockBookSessionID,
       mockEngineName,
-      { considerBookMoveCount: true, turn: Color.BLACK, minEvalBlack: 90 },
+      { ...weightedByCountOptions, turn: Color.BLACK, minEvalBlack: 90 },
       mockUSI,
       vi.fn(),
     );
@@ -314,26 +316,127 @@ describe("searchBookMovesForPlayer", () => {
     expect(dispatchUSIInfoUpdate).toBeCalledTimes(2);
   });
 
-  it("should not select moves with zero count when considerBookMoveCount is true", async () => {
+  it("should not select moves with zero count when weighted by count", async () => {
     (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { usi: "7g7f", count: 100, score: 100, comment: "" },
-      { usi: "2g2f", count: 0, score: 200, comment: "" },
+      { usi: "7g7f", count: 0, score: 100, comment: "" },
+      { usi: "2g2f", count: 100, score: 200, comment: "" },
     ]);
 
+    vi.spyOn(Math, "random").mockReturnValue(0);
     const onMove = vi.fn();
-    for (let i = 0; i < 100; i++) {
-      onMove.mockClear();
-      await searchBookMovesForPlayer(
-        mockSessionID,
-        mockPosition,
-        mockBookSessionID,
-        mockEngineName,
-        { considerBookMoveCount: true, turn: Color.BLACK },
-        mockUSI,
-        onMove,
-      );
-      const move = onMove.mock.calls[0][0].usi;
-      expect(move).toBe("7g7f");
-    }
+    await searchBookMovesForPlayer(
+      mockSessionID,
+      mockPosition,
+      mockBookSessionID,
+      mockEngineName,
+      { ...weightedByCountOptions, turn: Color.BLACK },
+      mockUSI,
+      onMove,
+    );
+
+    expect(onMove.mock.calls[0][0].usi).toBe("2g2f");
+  });
+
+  it("should select a move using score softmax with the default temperature", async () => {
+    (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { usi: "7g7f", count: 1, score: 100, comment: "" },
+      { usi: "2g2f", count: 100, score: 0, comment: "" },
+    ]);
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+
+    const onMove = vi.fn();
+    await searchBookMovesForPlayer(
+      mockSessionID,
+      mockPosition,
+      mockBookSessionID,
+      mockEngineName,
+      {
+        moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_SCORE,
+        scoreTemperature: 50,
+        turn: Color.BLACK,
+      },
+      mockUSI,
+      onMove,
+    );
+
+    // Weights are 1 and exp(-2), so 0.9 selects the lower-scored move.
+    expect(onMove.mock.calls[0][0].usi).toBe("2g2f");
+  });
+
+  it("should use the configured score temperature", async () => {
+    (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { usi: "7g7f", score: 100, comment: "" },
+      { usi: "2g2f", score: 0, comment: "" },
+    ]);
+    vi.spyOn(Math, "random").mockReturnValue(0.8);
+
+    const onMove = vi.fn();
+    await searchBookMovesForPlayer(
+      mockSessionID,
+      mockPosition,
+      mockBookSessionID,
+      mockEngineName,
+      {
+        moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_SCORE,
+        scoreTemperature: 100,
+        turn: Color.BLACK,
+      },
+      mockUSI,
+      onMove,
+    );
+
+    // At temperature 100, the best move has about 73% probability.
+    expect(onMove.mock.calls[0][0].usi).toBe("2g2f");
+  });
+
+  it("should exclude moves without a finite score from score softmax", async () => {
+    (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { usi: "7g7f", count: 100, comment: "" },
+      { usi: "2g2f", count: 1, score: 0, comment: "" },
+      { usi: "5g5f", count: 100, score: NaN, comment: "" },
+    ]);
+    vi.spyOn(Math, "random").mockReturnValue(0);
+
+    const onMove = vi.fn();
+    await searchBookMovesForPlayer(
+      mockSessionID,
+      mockPosition,
+      mockBookSessionID,
+      mockEngineName,
+      {
+        moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_SCORE,
+        scoreTemperature: 50,
+        turn: Color.BLACK,
+      },
+      mockUSI,
+      onMove,
+    );
+
+    expect(onMove.mock.calls[0][0].usi).toBe("2g2f");
+  });
+
+  it("should select the first move when all scores are missing", async () => {
+    (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { usi: "7g7f", count: 1, comment: "" },
+      { usi: "2g2f", count: 100, comment: "" },
+    ]);
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+
+    const onMove = vi.fn();
+    await searchBookMovesForPlayer(
+      mockSessionID,
+      mockPosition,
+      mockBookSessionID,
+      mockEngineName,
+      {
+        moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_SCORE,
+        scoreTemperature: 50,
+        turn: Color.BLACK,
+      },
+      mockUSI,
+      onMove,
+    );
+
+    expect(onMove.mock.calls[0][0].usi).toBe("7g7f");
   });
 });

@@ -1,5 +1,6 @@
 import { InitialPositionType } from "tsshogi";
 import { PlayerSettings, defaultPlayerSettings, validatePlayerSettings } from "./player.js";
+import { normalizeUSIEngine } from "./usi.js";
 import { t } from "@/common/i18n/index";
 import * as uri from "@/common/uri";
 
@@ -80,10 +81,12 @@ export function normalizeGameSettings(settings: GameSettings): GameSettings {
     black: {
       ...defaultPlayerSettings(),
       ...settings.black,
+      ...(settings.black.usi ? { usi: normalizeUSIEngine(settings.black.usi) } : {}),
     },
     white: {
       ...defaultPlayerSettings(),
       ...settings.white,
+      ...(settings.white.usi ? { usi: normalizeUSIEngine(settings.white.usi) } : {}),
     },
     timeLimit: {
       ...defaultTimeLimitSettings(),

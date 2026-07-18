@@ -7,7 +7,7 @@ import { parseUSIPV, USIInfoCommand, parseInfoCommand } from "@/common/game/usi"
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "./usi_events";
 import { t } from "@/common/i18n";
 import api from "@/renderer/ipc/api";
-import { USIEngineExtraBookConfig } from "@/common/settings/usi";
+import { normalizeUSIEngineExtraBookConfig, USIEngineExtraBookConfig } from "@/common/settings/usi";
 import { searchBookMovesForPlayer } from "./book_search";
 import AsyncLock from "async-lock";
 
@@ -87,6 +87,9 @@ export class LanPlayer implements Player {
     this.engineName = engineName;
     this.onSearchInfo = onSearchInfo;
     this.onErrorCallback = onError;
+    if (this.extraBook) {
+      this.extraBook = normalizeUSIEngineExtraBookConfig(this.extraBook);
+    }
 
     // Use deterministic session ID for engines to avoid collisions and pruning.
     // USIPlayer uses IDs from 1. We use a high offset.
@@ -386,7 +389,8 @@ export class LanPlayer implements Player {
       this.bookSessionID,
       this.name,
       {
-        considerBookMoveCount: extraBook.considerBookMoveCount,
+        moveSelectionRule: extraBook.moveSelectionRule,
+        scoreTemperature: extraBook.scoreTemperature,
         turn: this.position.color,
         minEvalBlack: extraBook.minEvalBlack,
         minEvalWhite: extraBook.minEvalWhite,
