@@ -12,7 +12,7 @@ import { showModalDialog } from "@/renderer/helpers/dialog";
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useAppSettings } from "@/renderer/store/settings";
 
-const dialog = ref();
+const dialog = ref<HTMLDialogElement | null>(null);
 const appSettings = useAppSettings();
 
 defineProps<{
@@ -24,20 +24,25 @@ const emit = defineEmits<{
 }>();
 
 onMounted(() => {
+  if (!dialog.value) return;
   showModalDialog(dialog.value, () => emit("cancel"));
   installHotKeyForDialog(dialog.value);
 });
 
 onBeforeUnmount(() => {
-  uninstallHotKeyForDialog(dialog.value);
+  if (dialog.value) {
+    uninstallHotKeyForDialog(dialog.value);
+  }
 });
+
+defineExpose({ dialog });
 </script>
 
 <style scoped>
 dialog {
   width: fit-content;
   max-width: 95vw;
-  height: calc(100vh - 3px - 2em);
+  height: calc(100dvh - 3px - 2em);
   border: none;
   margin: auto;
   padding: 0;

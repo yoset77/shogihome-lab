@@ -47,7 +47,7 @@
       v-if="store.appState === AppState.VISION_POSITION_EDIT_DIALOG && store.visionEditSession"
       :session="store.visionEditSession"
     />
-    <PieceSetChangeDialog v-if="store.appState === AppState.PIECE_SET_CHANGE_DIALOG" />
+    <PositionEditingDialog v-if="store.appState === AppState.POSITION_EDITING_DIALOG" />
     <ResearchDialog v-if="store.researchState === ResearchState.STARTUP_DIALOG" />
     <CSAGameReadyDialog
       v-if="
@@ -130,7 +130,7 @@ import RecordFileHistoryDialog from "./view/dialog/RecordFileHistoryDialog.vue";
 import BatchConversionDialog from "./view/dialog/BatchConversionDialog.vue";
 import LaunchUSIEngineDialog from "./view/dialog/LaunchUSIEngineDialog.vue";
 import ConnectToCSAServerDialog from "./view/dialog/ConnectToCSAServerDialog.vue";
-import PieceSetChangeDialog from "./view/dialog/PieceSetChangeDialog.vue";
+import PositionEditingDialog from "./view/dialog/PositionEditingDialog.vue";
 import LoadRemoteFileDialog from "./view/dialog/LoadRemoteFileDialog.vue";
 import ShareDialog from "./view/dialog/ShareDialog.vue";
 import AddBookMovesDialog from "./view/dialog/AddBookMovesDialog.vue";

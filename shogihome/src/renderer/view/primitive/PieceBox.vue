@@ -119,7 +119,9 @@ defineExpose({ containsPoint });
   display: flex;
   flex-direction: column;
   gap: 4px;
+  box-sizing: border-box;
   padding: 4px;
+  max-width: 100%;
   background: var(--main-bg-color);
   border: 1px solid var(--main-color);
 }

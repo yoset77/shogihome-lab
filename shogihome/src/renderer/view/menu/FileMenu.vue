@@ -488,7 +488,7 @@ const states = computed(() => {
     batchConversion: store.appState === AppState.NORMAL,
     analysisDBManager: store.appState === AppState.NORMAL,
     exportImage: store.appState === AppState.NORMAL,
-    visionScan: store.appState === AppState.NORMAL || store.appState === AppState.POSITION_EDITING,
+    visionScan: store.appState === AppState.NORMAL,
     paste: store.appState === AppState.NORMAL,
   };
 });
