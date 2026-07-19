@@ -209,7 +209,7 @@ graph LR
 - **後処理**: 駒種ごとの上限数、二歩、行き所のない駒を常時検証します。玉数（先後各1枚）は hard 制約ではなく `KING_COUNT_INVALID` warning として返します。盤上＋持ち駒の合計が40枚でない場合は `TOTAL_PIECE_COUNT_INVALID`、各駒種が上限を超える場合は `PIECE_COUNT_INVALID` を warning として返します。旧 `--strict-piece-count` モードは廃止し、少なすぎる駒による hard filter は行いません。ビームサーチでは bounded selection を使い、全件 sort のコストを抑えています。
 - **レスポンス検証**: サーバーは Vision backend の JSON 形状を検証し、返却された `sfen` と候補 SFEN が `tsshogi` で読み込めることを確認します。不正な応答やタイムアウトは `502` として扱い、HTTP body には固定文言のみを返します。詳細な worker エラーはサーバーログへ記録します。HTTP API の安定契約は `sfen`、`confidence`、`candidates`、`warnings`、`preview` であり、worker 内部の `board` payload は API レスポンスから除外します。
 - **責務分離**: ShogiVision 由来の発想（四隅検出、透視変換、81マス分類、top-k候補、後処理）は Vision backend 側に閉じ込め、Middle Server は安全なプロセス呼び出しと SFEN 検証に限定します。USI エンジン中継を担う `engine-wrapper/` には画像認識処理を混ぜません。
-- **フロントエンド確認**: 画像だけでは手番や盤面の向き、局面種別（実戦/詰将棋）は確定できないため、`VisionScanDialog.vue` で `sideToMove`、`viewpoint`、`positionType` を明示指定します。スキャン中にダイアログを閉じた場合は fetch を abort し、30秒応答がない場合もタイムアウトとして中断します。読み取り結果は `VisionPositionEditDialog.vue` で確認・修正し、確定後は通常モードへ戻ります。詰将棋として取り込む場合は、編集ダイアログを開く時点で玉以外の未使用駒を後手持ち駒へ一度だけ補充します。
+- **フロントエンド確認**: 画像だけでは手番や盤面の向き、局面種別（実戦/詰将棋）は確定できないため、`VisionScanDialog.vue` で `sideToMove`、`viewpoint`、`positionType` を明示指定します。スキャン中にダイアログを閉じた場合は fetch を abort し、30秒応答がない場合もタイムアウトとして中断します。読み取り結果は `VisionPositionEditDialog.vue` で確認・修正し、確定後は通常モードへ戻ります。編集ダイアログでは「編集」と「画像」をタブで切り替えられます。画像にはメタデータを除去してAPIへ送信した圧縮済み `Blob` を使い、完全なAPIレスポンスとともに編集セッション内だけで保持し、確定・キャンセル時に破棄します。未校正の `confidence`、近接したビーム探索結果である `candidates`、精度特性が異なる `warnings` は現時点では編集UIに表示しません。詰将棋として取り込む場合は、編集ダイアログを開く時点で玉以外の未使用駒を後手持ち駒へ一度だけ補充します。
 
 ### 統合履歴・バックアップ管理 (Integrated History & Backup Management)
 デバイスやセッションを跨いで履歴とバックアップを共有・永続化する機能です。

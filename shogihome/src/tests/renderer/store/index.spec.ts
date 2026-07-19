@@ -28,6 +28,7 @@ import { RecordFileFormat } from "@/common/file/record";
 import { mateSearchSettings } from "@/tests/mock/mate";
 import { MateSearchManager } from "@/renderer/store/mate";
 import { ResearchManager } from "@/renderer/store/research";
+import type { VisionEditSession } from "@/renderer/vision/types";
 
 vi.mock("@/renderer/devices/audio.js");
 vi.mock("@/renderer/ipc/api.js");
@@ -1122,28 +1123,50 @@ describe("store/index", () => {
   });
 
   describe("vision scan", () => {
-    it("keeps the scan viewpoint for the position edit dialog", () => {
+    const createVisionEditSession = (): VisionEditSession => ({
+      sourceImage: new Blob(["image"], { type: "image/jpeg" }),
+      response: {
+        ok: true,
+        sfen: "9/9/9/9/9/9/9/9/9 w - 1",
+        confidence: 0.9,
+        candidates: [],
+        warnings: [],
+      },
+      viewpoint: "white",
+      positionType: "mate",
+    });
+
+    it("keeps the scan session for the position edit dialog", () => {
       const store = createStore();
-      const sfen = "9/9/9/9/9/9/9/9/9 w - 1";
+      const session = createVisionEditSession();
 
       store.showVisionScanDialog();
-      store.showVisionPositionEditDialog(sfen, "white", "mate");
+      store.showVisionPositionEditDialog(session);
 
       expect(store.appState).toBe(AppState.VISION_POSITION_EDIT_DIALOG);
-      expect(store.visionPositionEditSFEN).toBe(sfen);
-      expect(store.visionPositionEditViewpoint).toBe("white");
-      expect(store.visionPositionEditType).toBe("mate");
+      expect(store.visionEditSession).toBe(session);
+    });
+
+    it("clears the scan session when the position edit dialog is cancelled", () => {
+      const store = createStore();
+
+      store.showVisionScanDialog();
+      store.showVisionPositionEditDialog(createVisionEditSession());
+      store.destroyModalDialog();
+
+      expect(store.visionEditSession).toBeNull();
     });
 
     it("returns to normal after importing from the position edit dialog", () => {
       const store = createStore();
-      const sfen = "9/9/9/9/9/9/9/9/9 w - 1";
+      const session = createVisionEditSession();
 
       store.showVisionScanDialog();
-      store.showVisionPositionEditDialog(sfen, "black", "game");
-      store.importVisionSFEN(sfen);
+      store.showVisionPositionEditDialog(session);
+      store.importVisionSFEN(session.response.sfen);
 
       expect(store.appState).toBe(AppState.NORMAL);
+      expect(store.visionEditSession).toBeNull();
     });
   });
 

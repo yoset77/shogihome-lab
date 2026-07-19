@@ -28,6 +28,7 @@ export const vi: Texts = {
   visionPositionType: "Loại thế cờ",
   visionPositionTypeGame: "Ván đấu",
   visionPositionTypeMate: "Tsume shogi",
+  visionImage: "Ảnh",
   pieceBox: "Hộp quân",
   correctPieceCount: "Sửa thành 40 quân",
   pieceCountExceeded: "Số quân vượt quá giới hạn",

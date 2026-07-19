@@ -28,6 +28,7 @@ export const ja: Texts = {
   visionPositionType: "局面種別",
   visionPositionTypeGame: "実戦",
   visionPositionTypeMate: "詰将棋",
+  visionImage: "画像",
   pieceBox: "駒箱",
   correctPieceCount: "40枚に補正",
   pieceCountExceeded: "駒数が規定枚数を超えています",

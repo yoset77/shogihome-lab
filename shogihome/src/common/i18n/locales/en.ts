@@ -29,6 +29,7 @@ export const en: Texts = {
   visionPositionType: "Position type",
   visionPositionTypeGame: "Game",
   visionPositionTypeMate: "Tsume shogi",
+  visionImage: "Image",
   pieceBox: "Piece Box",
   correctPieceCount: "Correct to 40 pieces",
   pieceCountExceeded: "Piece count exceeds the limit",
