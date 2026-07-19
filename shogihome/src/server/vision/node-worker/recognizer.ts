@@ -107,25 +107,14 @@ const ensureProbabilities = (values: Float32Array): Float32Array => {
   return softmax(values);
 };
 
-const cellFromPredictions = (
+export const cellFromPredictions = (
   figureProbs: Float32Array,
   directionProbs: Float32Array,
 ): RecognizedCell => {
-  const figureIdx = argmax(figureProbs);
-  const directionIdx = argmax(directionProbs);
-  const piece = orientedPiece(FIGURE_LABELS[figureIdx], DIRECTION_LABELS[directionIdx]);
-  const confidence = figureProbs[figureIdx] * directionProbs[directionIdx];
   const candidates = buildCandidates(figureProbs, directionProbs, 5);
+  const best = candidates[0] ?? { piece: null, confidence: 1 };
 
-  return { piece, confidence, candidates };
-};
-
-const argmax = (arr: Float32Array): number => {
-  let maxIdx = 0;
-  for (let i = 1; i < arr.length; i++) {
-    if (arr[i] > arr[maxIdx]) maxIdx = i;
-  }
-  return maxIdx;
+  return { piece: best.piece, confidence: best.confidence, candidates };
 };
 
 const orientedPiece = (piece: string | null, direction: string): string | null => {
@@ -142,35 +131,42 @@ const buildCandidates = (
   directionProbs: Float32Array,
   limit: number,
 ): CellCandidate[] => {
-  const bestByPiece = new Map<string | null, number>();
-
-  const figureIndices = argsorted(figureProbs).slice(0, limit);
-  const directionIndices = argsorted(directionProbs).slice(0, limit);
-
-  for (const fi of figureIndices) {
+  const probabilityByPiece = new Map<string | null, number>();
+  for (let fi = 0; fi < FIGURE_LABELS.length; fi++) {
     const figure = FIGURE_LABELS[fi];
-    if (figure === null) {
-      bestByPiece.set(null, Math.max(bestByPiece.get(null) ?? 0, figureProbs[fi]));
-      continue;
-    }
-    for (const di of directionIndices) {
+    for (let di = 0; di < DIRECTION_LABELS.length; di++) {
       const direction = DIRECTION_LABELS[di];
+      if ((figure === null) !== (direction === "none")) continue;
       const piece = orientedPiece(figure, direction);
-      if (piece === null) continue;
       const prob = figureProbs[fi] * directionProbs[di];
-      bestByPiece.set(piece, Math.max(bestByPiece.get(piece) ?? 0, prob));
+      probabilityByPiece.set(piece, (probabilityByPiece.get(piece) ?? 0) + prob);
     }
   }
 
-  return [...bestByPiece.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, limit)
-    .map(([piece, confidence]) => ({ piece, confidence }));
-};
+  const total = [...probabilityByPiece.values()].reduce((sum, probability) => sum + probability, 0);
+  if (!Number.isFinite(total) || total <= 0) {
+    return [{ piece: null, confidence: 1 }];
+  }
 
-const argsorted = (arr: Float32Array): number[] => {
-  const indices = Array.from({ length: arr.length }, (_, i) => i);
-  return indices.sort((a, b) => arr[b] - arr[a]);
+  const allCandidates = [...probabilityByPiece.entries()]
+    .filter(([, probability]) => probability > 0)
+    .map(([piece, probability]) => ({ piece, confidence: probability / total }))
+    .sort((a, b) => b.confidence - a.confidence);
+  const candidates = allCandidates.slice(0, limit);
+  const emptyProbability = probabilityByPiece.get(null);
+  const emptyCandidate =
+    emptyProbability === undefined
+      ? undefined
+      : { piece: null, confidence: emptyProbability / total };
+  if (limit > 1 && emptyCandidate && !candidates.some((candidate) => candidate.piece === null)) {
+    if (candidates.length === limit) {
+      candidates[candidates.length - 1] = emptyCandidate;
+    } else {
+      candidates.push(emptyCandidate);
+    }
+    candidates.sort((a, b) => b.confidence - a.confidence);
+  }
+  return candidates;
 };
 
 const resizeGrayscale = (image: RawImage, targetW: number, targetH: number): Float32Array => {
