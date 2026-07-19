@@ -44,10 +44,8 @@
     />
     <VisionScanDialog v-if="store.appState === AppState.VISION_SCAN_DIALOG" />
     <VisionPositionEditDialog
-      v-if="store.appState === AppState.VISION_POSITION_EDIT_DIALOG"
-      :initial-sfen="store.visionPositionEditSFEN"
-      :initial-viewpoint="store.visionPositionEditViewpoint"
-      :initial-position-type="store.visionPositionEditType"
+      v-if="store.appState === AppState.VISION_POSITION_EDIT_DIALOG && store.visionEditSession"
+      :session="store.visionEditSession"
     />
     <PieceSetChangeDialog v-if="store.appState === AppState.PIECE_SET_CHANGE_DIALOG" />
     <ResearchDialog v-if="store.researchState === ResearchState.STARTUP_DIALOG" />

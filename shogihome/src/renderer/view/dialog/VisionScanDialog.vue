@@ -143,6 +143,7 @@ const scan = async () => {
   if (!imageBlob.value || scanning.value) {
     return;
   }
+  const sourceImage = imageBlob.value;
   scanning.value = true;
   busyState.retain();
   scanAbortController = new AbortController();
@@ -153,12 +154,17 @@ const scan = async () => {
   }, SCAN_TIMEOUT_MS);
   try {
     const result = await scanPositionImage(
-      imageBlob.value,
+      sourceImage,
       sideToMove.value,
       viewpoint.value,
       scanAbortController.signal,
     );
-    store.showVisionPositionEditDialog(result.sfen, viewpoint.value, positionType.value);
+    store.showVisionPositionEditDialog({
+      sourceImage,
+      response: result,
+      viewpoint: viewpoint.value,
+      positionType: positionType.value,
+    });
   } catch (e) {
     if (scanTimedOut) {
       useErrorStore().add(new Error(t.timeout));

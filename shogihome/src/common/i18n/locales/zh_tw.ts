@@ -28,6 +28,7 @@ export const zh_tw: Texts = {
   visionPositionType: "局面種類",
   visionPositionTypeGame: "實戰",
   visionPositionTypeMate: "詰將棋",
+  visionImage: "圖片",
   pieceBox: "駒箱",
   correctPieceCount: "補正為40枚",
   pieceCountExceeded: "駒數超過規定枚數",

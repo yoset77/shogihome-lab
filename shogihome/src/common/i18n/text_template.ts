@@ -26,6 +26,7 @@ export type Texts = {
   visionPositionType: string;
   visionPositionTypeGame: string;
   visionPositionTypeMate: string;
+  visionImage: string;
   pieceBox: string;
   correctPieceCount: string;
   pieceCountExceeded: string;

@@ -1,68 +1,120 @@
 <template>
   <DialogFrame :limited="isMobile" @cancel="onCancel">
     <div class="vision-position-edit-dialog" :class="{ mobile: isMobile }">
-      <header class="dialog-header">
+      <header v-if="!isMobile" class="dialog-header">
         <h2>{{ t.importBoardImage }}</h2>
       </header>
 
-      <div v-if="hasViolation" class="warning-message">
-        {{ t.pieceCountExceeded }}
+      <div class="tab-header row" role="tablist">
+        <div
+          id="vision-position-tab"
+          ref="positionTabRef"
+          class="tab-item"
+          :class="{ active: activeTab === 'position' }"
+          data-tab="position"
+          role="tab"
+          :aria-selected="activeTab === 'position'"
+          aria-controls="vision-position-panel"
+          :tabindex="activeTab === 'position' ? 0 : -1"
+          @click="selectTab('position')"
+          @keydown="onTabKeydown"
+        >
+          {{ t.editing }}
+        </div>
+        <div
+          id="vision-source-tab"
+          ref="sourceTabRef"
+          class="tab-item"
+          :class="{ active: activeTab === 'source' }"
+          data-tab="source"
+          role="tab"
+          :aria-selected="activeTab === 'source'"
+          aria-controls="vision-source-panel"
+          :tabindex="activeTab === 'source' ? 0 : -1"
+          @click="selectTab('source')"
+          @keydown="onTabKeydown"
+        >
+          {{ t.visionImage }}
+        </div>
       </div>
 
-      <div ref="contentRef" class="content">
-        <div class="board-area">
-          <BoardView
-            :layout-type="isMobile ? BoardLayoutType.PORTRAIT : BoardLayoutType.STANDARD"
-            :board-image-type="appSettings.boardImage"
-            :custom-board-image-url="appSettings.boardImageFileURL"
-            :board-image-opacity="appSettings.enableTransparent ? appSettings.boardOpacity : 1"
-            :board-grid-color="appSettings.boardGridColor || undefined"
-            :piece-stand-image-type="appSettings.pieceStandImage"
-            :custom-piece-stand-image-url="appSettings.pieceStandImageFileURL"
-            :piece-stand-image-opacity="
-              appSettings.enableTransparent ? appSettings.pieceStandOpacity : 1
-            "
-            :promotion-selector-style="appSettings.promotionSelectorStyle"
-            :board-label-type="appSettings.boardLabelType"
-            :piece-image-url-template="getPieceImageURLTemplate(appSettings)"
-            :king-piece-type="appSettings.kingPieceType"
-            :max-size="boardMaxSize"
-            :position="position"
-            :flip="props.initialViewpoint === 'white'"
-            :hide-clock="true"
-            :mobile="isMobile"
-            :allow-move="false"
-            :allow-edit="true"
-            :enable-drag-and-drop="appSettings.enableDragAndDrop"
-            :external-drag="externalDrag"
-            :piece-box-selection="pieceBoxSelection"
-            :black-player-name="t.sente"
-            :white-player-name="t.gote"
-            :next-move-label="t.nextTurn"
-            :drop-shadows="!isMobile"
-            @edit="onEdit"
-            @piece-box-drop="onPieceBoxDrop"
-            @drop-outside="onDropOutside"
-            @external-drag-end="externalDrag = null"
-            @piece-box-selection-end="pieceBoxSelection = null"
-            @edit-selection-change="editSelection = $event"
-          />
+      <div
+        v-show="activeTab === 'position'"
+        id="vision-position-panel"
+        class="position-tab"
+        role="tabpanel"
+        aria-labelledby="vision-position-tab"
+      >
+        <div v-if="hasViolation" class="warning-message">
+          {{ t.pieceCountExceeded }}
         </div>
 
-        <div class="piece-box-area">
-          <PieceBox
-            ref="pieceBoxRef"
-            :position="position"
-            :accept-tap-drop="editSelection !== null"
-            :selection="pieceBoxSelection"
-            @dragstart="onPieceBoxDragStart"
-            @tap-drop="onPieceBoxTapDrop"
-          />
+        <div ref="contentRef" class="content">
+          <div class="board-area">
+            <BoardView
+              :layout-type="isMobile ? BoardLayoutType.PORTRAIT : BoardLayoutType.STANDARD"
+              :board-image-type="appSettings.boardImage"
+              :custom-board-image-url="appSettings.boardImageFileURL"
+              :board-image-opacity="appSettings.enableTransparent ? appSettings.boardOpacity : 1"
+              :board-grid-color="appSettings.boardGridColor || undefined"
+              :piece-stand-image-type="appSettings.pieceStandImage"
+              :custom-piece-stand-image-url="appSettings.pieceStandImageFileURL"
+              :piece-stand-image-opacity="
+                appSettings.enableTransparent ? appSettings.pieceStandOpacity : 1
+              "
+              :promotion-selector-style="appSettings.promotionSelectorStyle"
+              :board-label-type="appSettings.boardLabelType"
+              :piece-image-url-template="getPieceImageURLTemplate(appSettings)"
+              :king-piece-type="appSettings.kingPieceType"
+              :max-size="boardMaxSize"
+              :position="position"
+              :flip="props.session.viewpoint === 'white'"
+              :hide-clock="true"
+              :mobile="isMobile"
+              :allow-move="false"
+              :allow-edit="true"
+              :enable-drag-and-drop="appSettings.enableDragAndDrop"
+              :external-drag="externalDrag"
+              :piece-box-selection="pieceBoxSelection"
+              :black-player-name="t.sente"
+              :white-player-name="t.gote"
+              :next-move-label="t.nextTurn"
+              :drop-shadows="!isMobile"
+              @edit="onEdit"
+              @piece-box-drop="onPieceBoxDrop"
+              @drop-outside="onDropOutside"
+              @external-drag-end="externalDrag = null"
+              @piece-box-selection-end="pieceBoxSelection = null"
+              @edit-selection-change="editSelection = $event"
+            />
+          </div>
+
+          <div class="piece-box-area">
+            <PieceBox
+              ref="pieceBoxRef"
+              :position="position"
+              :accept-tap-drop="editSelection !== null"
+              :selection="pieceBoxSelection"
+              @dragstart="onPieceBoxDragStart"
+              @tap-drop="onPieceBoxTapDrop"
+            />
+          </div>
         </div>
+      </div>
+
+      <div
+        v-if="activeTab === 'source'"
+        id="vision-source-panel"
+        class="source-tab"
+        role="tabpanel"
+        aria-labelledby="vision-source-tab"
+      >
+        <img class="source-image" :src="sourceImageUrl" :alt="t.visionImage" />
       </div>
 
       <div class="main-buttons">
         <button
+          v-if="activeTab === 'position'"
           type="button"
           class="correct-button"
           :disabled="!hasViolation"
@@ -101,16 +153,15 @@ import {
   fillUnusedPiecesToWhiteHand,
   pieceTypeToPieceBoxKey,
 } from "@/common/game/pieceBox";
-import type { VisionPositionType, VisionViewpoint } from "@/common/vision/types";
+import type { VisionPositionType } from "@/common/vision/types";
+import type { VisionEditSession } from "@/renderer/vision/types";
 
 type PieceBoxExpose = {
   containsPoint(clientX: number, clientY: number): boolean;
 };
 
 const props = defineProps<{
-  initialSfen: string;
-  initialViewpoint: VisionViewpoint;
-  initialPositionType: VisionPositionType;
+  session: VisionEditSession;
 }>();
 
 const store = useStore();
@@ -123,8 +174,12 @@ const createPosition = (sfen: string, positionType: VisionPositionType): Positio
 };
 
 const position = shallowRef<Position>(
-  markRaw(createPosition(props.initialSfen, props.initialPositionType)),
+  markRaw(createPosition(props.session.response.sfen, props.session.positionType)),
 );
+const activeTab = ref<"position" | "source">("position");
+const sourceImageUrl = ref("");
+const positionTabRef = ref<HTMLDivElement | null>(null);
+const sourceTabRef = ref<HTMLDivElement | null>(null);
 const hasViolation = ref(detectPieceCountViolations(position.value).length > 0);
 const pieceBoxRef = ref<PieceBoxExpose | null>(null);
 const editSelection = shallowRef<Square | Piece | null>(null);
@@ -167,7 +222,39 @@ onMounted(() => {
 onBeforeUnmount(() => {
   resizeObserver?.disconnect();
   resizeObserver = null;
+  if (sourceImageUrl.value) {
+    URL.revokeObjectURL(sourceImageUrl.value);
+    sourceImageUrl.value = "";
+  }
 });
+
+const selectTab = (tab: "position" | "source") => {
+  if (tab === "source" && !sourceImageUrl.value) {
+    sourceImageUrl.value = URL.createObjectURL(props.session.sourceImage);
+  }
+  activeTab.value = tab;
+};
+
+const onTabKeydown = (event: KeyboardEvent) => {
+  let tab: "position" | "source";
+  switch (event.key) {
+    case "ArrowLeft":
+    case "ArrowRight":
+      tab = activeTab.value === "position" ? "source" : "position";
+      break;
+    case "Home":
+      tab = "position";
+      break;
+    case "End":
+      tab = "source";
+      break;
+    default:
+      return;
+  }
+  event.preventDefault();
+  selectTab(tab);
+  (tab === "position" ? positionTabRef.value : sourceTabRef.value)?.focus();
+};
 
 const updatePosition = (newPos: Position) => {
   const raw = markRaw(newPos);
@@ -291,13 +378,26 @@ const onCancel = () => {
   width: 100%;
   height: 100%;
   max-width: 100%;
-  max-height: 100%;
+  max-height: calc(100dvh - 2em - 33px);
   overflow: hidden;
   gap: 0;
 }
 
-.vision-position-edit-dialog.mobile .dialog-header {
-  padding: 8px 8px 0;
+.vision-position-edit-dialog.mobile .tab-header {
+  flex-shrink: 0;
+  margin-top: 0;
+}
+
+.vision-position-edit-dialog.mobile .position-tab,
+.vision-position-edit-dialog.mobile .source-tab {
+  flex: 1;
+  min-height: 0;
+  padding-top: 10px;
+  box-sizing: border-box;
+}
+
+.vision-position-edit-dialog.mobile .main-buttons {
+  flex-shrink: 0;
 }
 
 .vision-position-edit-dialog.mobile .content {
@@ -323,6 +423,53 @@ const onCancel = () => {
 h2 {
   margin: 0;
   font-size: 120%;
+}
+
+.tab-header {
+  margin: 10px 10px 0 10px;
+  border-bottom: 1px solid var(--text-dashed-separator-color);
+}
+
+.tab-item {
+  padding: 8px 20px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 5px 5px 0 0;
+  margin-bottom: -1px;
+}
+
+.tab-item.active {
+  background-color: var(--text-bg-color);
+  border-color: var(--text-dashed-separator-color);
+  font-weight: bold;
+}
+
+.position-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.source-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  overflow: hidden;
+}
+
+.source-image {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 190px);
+  object-fit: contain;
+}
+
+.vision-position-edit-dialog.mobile .source-image {
+  width: 100%;
+  height: auto;
+  max-height: calc(100dvh - 190px);
 }
 
 .warning-message {

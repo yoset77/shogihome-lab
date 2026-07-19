@@ -25,7 +25,7 @@ import {
   exportBOD,
   formatKIFMove,
 } from "tsshogi";
-import { reactive, UnwrapNestedRefs } from "vue";
+import { markRaw, reactive, UnwrapNestedRefs } from "vue";
 import { GameSettings } from "@/common/settings/game";
 import { ClockSoundTarget, Tab, TextDecodingRule } from "@/common/settings/app";
 import { beepShort, beepUnlimited, playPieceBeat, stopBeep } from "@/renderer/devices/audio";
@@ -75,7 +75,7 @@ import { clearURLParams, loadRecordForWebApp, saveRecordForWebApp } from "./weba
 import { useBookStore } from "./book.js";
 import { CommentBehavior } from "@/common/settings/comment";
 import { Attachment, ListItem } from "@/common/message";
-import type { VisionPositionType, VisionViewpoint } from "@/common/vision/types";
+import type { VisionEditSession } from "@/renderer/vision/types";
 
 const puzzleHistoryKey = "shogihome-puzzle-history";
 const puzzleHistoryExpirationDays = 28;
@@ -229,9 +229,7 @@ class Store {
   private _researchState = ResearchState.IDLE;
   private researchManager = new ResearchManager();
   private _duplicatePositionsSFEN = "";
-  private _visionPositionEditSFEN = "";
-  private _visionPositionEditViewpoint: VisionViewpoint = "black";
-  private _visionPositionEditType: VisionPositionType = "game";
+  private _visionEditSession: VisionEditSession | null = null;
   private isForceStopping = false;
   private _puzzle: Puzzle | null = null;
   private _reactive: UnwrapNestedRefs<Store>;
@@ -402,16 +400,8 @@ class Store {
     return this._duplicatePositionsSFEN;
   }
 
-  get visionPositionEditSFEN(): string {
-    return this._visionPositionEditSFEN;
-  }
-
-  get visionPositionEditViewpoint(): VisionViewpoint {
-    return this._visionPositionEditViewpoint;
-  }
-
-  get visionPositionEditType(): VisionPositionType {
-    return this._visionPositionEditType;
+  get visionEditSession(): VisionEditSession | null {
+    return this._visionEditSession;
   }
 
   get inCommentPVs(): Move[][] {
@@ -629,20 +619,15 @@ class Store {
 
   showVisionScanDialog(): void {
     if (this.appState === AppState.NORMAL || this.appState === AppState.POSITION_EDITING) {
+      this._visionEditSession = null;
       this._lastAppState = this.appState;
       this._appState = AppState.VISION_SCAN_DIALOG;
     }
   }
 
-  showVisionPositionEditDialog(
-    sfen: string,
-    viewpoint: VisionViewpoint,
-    positionType: VisionPositionType,
-  ): void {
+  showVisionPositionEditDialog(session: VisionEditSession): void {
     if (this.appState === AppState.VISION_SCAN_DIALOG) {
-      this._visionPositionEditSFEN = sfen;
-      this._visionPositionEditViewpoint = viewpoint;
-      this._visionPositionEditType = positionType;
+      this._visionEditSession = markRaw(session);
       this._appState = AppState.VISION_POSITION_EDIT_DIALOG;
     }
   }
@@ -658,6 +643,7 @@ class Store {
       useErrorStore().add(new Error(t.failedToParseSFEN));
       return;
     }
+    this._visionEditSession = null;
     this._appState = AppState.NORMAL;
     this._lastAppState = AppState.NORMAL;
   }
@@ -734,6 +720,9 @@ class Store {
       this.appState === AppState.VISION_POSITION_EDIT_DIALOG ||
       this.appState === AppState.ELAPSED_TIME_CHART_DIALOG
     ) {
+      if (this.appState === AppState.VISION_POSITION_EDIT_DIALOG) {
+        this._visionEditSession = null;
+      }
       const nextState = this._lastAppState;
       this._appState = nextState;
       this._lastAppState = AppState.NORMAL;
