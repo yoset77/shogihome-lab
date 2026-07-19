@@ -162,7 +162,7 @@ const isGame = computed(() => {
 
 const isAutoSearchEnabled = computed(() => {
   if (
-    store.appState === AppState.POSITION_EDITING ||
+    store.appState === AppState.POSITION_EDITING_DIALOG ||
     store.appState === AppState.PUZZLE ||
     store.appState === AppState.ANALYSIS
   ) {

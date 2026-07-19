@@ -71,8 +71,7 @@ export function setup(): void {
   bridge.onSendMessage((json: string) => {
     useMessageStore().enqueue(JSON.parse(json));
   });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  bridge.onMenuEvent((event: MenuEvent, ...args: any[]) => {
+  bridge.onMenuEvent((event: MenuEvent) => {
     if (busyState.isBusy) {
       return;
     }
@@ -178,18 +177,6 @@ export function setup(): void {
         break;
       case MenuEvent.START_POSITION_EDITING:
         store.startPositionEditing();
-        break;
-      case MenuEvent.END_POSITION_EDITING:
-        store.endPositionEditing();
-        break;
-      case MenuEvent.CHANGE_TURN:
-        store.changeTurn();
-        break;
-      case MenuEvent.INIT_POSITION:
-        store.initializePositionBySFEN(args[0]);
-        break;
-      case MenuEvent.CHANGE_PIECE_SET:
-        store.showPieceSetChangeDialog();
         break;
       case MenuEvent.START_MATE_SEARCH:
         store.showMateSearchDialog();

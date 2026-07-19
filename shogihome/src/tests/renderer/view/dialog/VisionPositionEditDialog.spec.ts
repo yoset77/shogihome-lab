@@ -1,7 +1,9 @@
 import { shallowMount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import VisionPositionEditDialog from "@/renderer/view/dialog/VisionPositionEditDialog.vue";
+import PositionEditorCore from "@/renderer/view/dialog/PositionEditorCore.vue";
 import type { VisionEditSession } from "@/renderer/vision/types";
+import { InitialPositionSFEN, Position } from "tsshogi";
 
 const destroyModalDialog = vi.hoisted(() => vi.fn());
 const importVisionSFEN = vi.hoisted(() => vi.fn());
@@ -34,6 +36,8 @@ const createSession = (): VisionEditSession => ({
 
 describe("VisionPositionEditDialog", () => {
   beforeEach(() => {
+    destroyModalDialog.mockReset();
+    importVisionSFEN.mockReset();
     isMobileWebApp.mockReturnValue(false);
     vi.stubGlobal(
       "ResizeObserver",
@@ -101,5 +105,27 @@ describe("VisionPositionEditDialog", () => {
 
     expect(wrapper.find(".vision-position-edit-dialog").classes()).toContain("mobile");
     expect(wrapper.find(".dialog-header").exists()).toBe(false);
+  });
+
+  it("imports the position emitted by the shared editor core", async () => {
+    const wrapper = shallowMount(VisionPositionEditDialog, {
+      props: { session: createSession() },
+      global: {
+        stubs: {
+          DialogFrame: { template: "<div><slot /></div>" },
+        },
+      },
+    });
+    const position = Position.newBySFEN(InitialPositionSFEN.HANDICAP_ROOK) as Position;
+
+    wrapper.findComponent(PositionEditorCore).vm.$emit("change", position);
+    await wrapper.vm.$nextTick();
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === "OK")
+      ?.trigger("click");
+
+    expect(importVisionSFEN).toHaveBeenCalledWith(InitialPositionSFEN.HANDICAP_ROOK);
+    expect(destroyModalDialog).toHaveBeenCalled();
   });
 });

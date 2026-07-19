@@ -28,6 +28,9 @@ export type Texts = {
   visionPositionTypeMate: string;
   visionImage: string;
   pieceBox: string;
+  undo: string;
+  redo: string;
+  clipboardOperationFailed: string;
   correctPieceCount: string;
   pieceCountExceeded: string;
   batchConversion: string;
@@ -224,11 +227,8 @@ export type Texts = {
   appearanceCount: string;
   showList: string;
   setupPosition: string;
-  startPositionSetup: string;
-  completePositionSetup: string;
   changeTurn: string;
   initializePosition: string;
-  changePieceSet: string;
   appSettings: string;
   language: string;
   theme: string;
@@ -708,7 +708,6 @@ export type Texts = {
   areYouSureWantToQuitGames: string;
   areYouSureWantToRequestQuit: string;
   areYouSureWantToClearRecord: string;
-  areYouSureWantToDiscardPosition: string;
   areYouSureWantToOpenFileInsteadOfCurrentRecord: string;
   areYouSureWantToClearHistory: string;
   areYouSureWantToRemoveCurrentProfile: string;

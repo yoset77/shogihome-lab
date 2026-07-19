@@ -1,5 +1,5 @@
 import api, { API } from "@/renderer/ipc/api";
-import { exportKI2, ImmutablePosition, Move, Position } from "tsshogi";
+import { exportKI2, ImmutablePosition, InitialPositionSFEN, Move, Position } from "tsshogi";
 import fs from "node:fs";
 import { createStore } from "@/renderer/store/index";
 import { RecordCustomData } from "@/renderer/store/record";
@@ -610,6 +610,48 @@ describe("store/index", () => {
     useConfirmationStore().ok();
     expect(store.record.moves.length).toBe(1);
     expect(store.recordFilePath).toBeUndefined();
+  });
+
+  it("startPositionEditing opens a sandbox without clearing the record", () => {
+    mockAudio.playPieceBeat.mockReturnValue();
+    const store = createStore();
+    store.doMove(store.record.position.createMoveByUSI("7g7f") as Move);
+    const sfen = store.record.position.sfen;
+    const moves = store.record.moves.length;
+
+    store.startPositionEditing();
+
+    const confirmationMessage = useConfirmationStore().message;
+    if (confirmationMessage) {
+      useConfirmationStore().cancel();
+    }
+    expect(store.appState).toBe(AppState.POSITION_EDITING_DIALOG);
+    expect(confirmationMessage).toBeUndefined();
+    expect(store.record.position.sfen).toBe(sfen);
+    expect(store.record.moves.length).toBe(moves);
+  });
+
+  it("closePositionEditingDialog applies the snapshot only after confirmation", () => {
+    mockAudio.playPieceBeat.mockReturnValue();
+    const store = createStore();
+    store.doMove(store.record.position.createMoveByUSI("7g7f") as Move);
+    const originalSFEN = store.record.position.sfen;
+    const originalMoves = store.record.moves.length;
+    store.startPositionEditing();
+
+    store.closePositionEditingDialog(InitialPositionSFEN.HANDICAP_BISHOP);
+    expect(useConfirmationStore().message).toBe("現在の棋譜は削除されます。よろしいですか？");
+    useConfirmationStore().cancel();
+    expect(store.appState).toBe(AppState.POSITION_EDITING_DIALOG);
+    expect(store.record.position.sfen).toBe(originalSFEN);
+    expect(store.record.moves.length).toBe(originalMoves);
+
+    store.closePositionEditingDialog(InitialPositionSFEN.HANDICAP_BISHOP);
+    useConfirmationStore().ok();
+    expect(store.appState).toBe(AppState.NORMAL);
+    expect(store.record.position.sfen).toBe(InitialPositionSFEN.HANDICAP_BISHOP);
+    expect(store.record.moves.length).toBe(1);
+    expect(store.isRecordFileUnsaved).toBeTruthy();
   });
 
   it("removeCurrentMove", () => {
