@@ -4,14 +4,15 @@ import api from "@/renderer/ipc/api";
 import { Record } from "tsshogi";
 import { Mock } from "vitest";
 import { BookMoveSelectionRule } from "@/common/settings/usi";
+import { decodeServerRelayMessage, type ServerRelayMessage } from "@/common/engine/relay_protocol";
 
 vi.mock("@/renderer/network/lan_engine");
 vi.mock("@/renderer/ipc/api");
 vi.mock("@/renderer/players/usi_events");
 
 describe("LanPlayer resilience", () => {
-  let messageHandler: (message: string) => void;
-  let messageListeners: ((message: string) => boolean)[] = [];
+  let messageHandler: (message: ServerRelayMessage) => void;
+  let messageListeners: ((message: ServerRelayMessage) => boolean)[] = [];
   let statusListeners: ((status: LanEngineStatus) => void)[] = [];
 
   beforeEach(() => {
@@ -23,7 +24,7 @@ describe("LanPlayer resilience", () => {
 
     (LanEngine.prototype.connect as Mock).mockImplementation(function (
       this: LanEngine,
-      handler?: (message: string) => void,
+      handler?: (message: ServerRelayMessage) => void,
     ) {
       if (handler) {
         messageHandler = handler;
@@ -51,7 +52,7 @@ describe("LanPlayer resilience", () => {
       // noop
     });
 
-    (LanEngine.prototype.sendCommand as Mock).mockImplementation(() => Promise.resolve());
+    (LanEngine.prototype.sendUsiCommand as Mock).mockImplementation(() => Promise.resolve());
     (LanEngine.prototype.stopEngine as Mock).mockImplementation(() => undefined);
     (LanEngine.prototype.disconnect as Mock).mockImplementation(() => undefined);
     (LanEngine.prototype.isConnected as Mock).mockReturnValue(true);
@@ -65,11 +66,12 @@ describe("LanPlayer resilience", () => {
   });
 
   function sendMsg(msg: unknown) {
-    const json = JSON.stringify(msg);
+    const result = decodeServerRelayMessage(JSON.stringify(msg));
+    if (!result.ok) throw new Error(result.error);
     if (messageHandler) {
-      messageHandler(json);
+      messageHandler(result.value);
     }
-    messageListeners.forEach((listener) => listener(json));
+    messageListeners.forEach((listener) => listener(result.value));
   }
 
   function updateStatus(status: LanEngineStatus) {
@@ -199,11 +201,11 @@ describe("LanPlayer resilience", () => {
 
     await secondSearchResult;
     expect((player as unknown as { isThinking: boolean }).isThinking).toBe(false);
-    expect(LanEngine.prototype.sendCommand).not.toHaveBeenCalledWith(secondUsi);
+    expect(LanEngine.prototype.sendUsiCommand).not.toHaveBeenCalledWith(secondUsi);
   });
 
   it("should close while a stop acknowledgement is waiting on a permanent disconnection", async () => {
-    (LanEngine.prototype.sendCommand as Mock).mockImplementation(() => undefined);
+    (LanEngine.prototype.sendUsiCommand as Mock).mockImplementation(() => undefined);
     const player = new LanPlayer("research_main", "test-engine", "Test Engine");
     await launchPlayer(player);
 
@@ -225,7 +227,7 @@ describe("LanPlayer resilience", () => {
   });
 
   it("should not resume a queued search after close cancels its stop wait", async () => {
-    (LanEngine.prototype.sendCommand as Mock).mockImplementation(() => undefined);
+    (LanEngine.prototype.sendUsiCommand as Mock).mockImplementation(() => undefined);
     const player = new LanPlayer("research_main", "test-engine", "Test Engine");
     await launchPlayer(player);
 
@@ -246,7 +248,7 @@ describe("LanPlayer resilience", () => {
 
     await secondSearchResult;
     await expect(closePromise).resolves.toBeUndefined();
-    expect(LanEngine.prototype.sendCommand).not.toHaveBeenCalledWith(secondUsi);
+    expect(LanEngine.prototype.sendUsiCommand).not.toHaveBeenCalledWith(secondUsi);
   });
 
   it("should report an established idle session becoming uninitialized only once", async () => {

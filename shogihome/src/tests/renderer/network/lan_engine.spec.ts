@@ -162,7 +162,7 @@ describe("LanEngine", () => {
     mockWs.send.mockImplementation(() => {
       throw new Error("Send failed");
     });
-    engine.sendCommand("test-command");
+    engine.sendUsiCommand("stop");
 
     // Disconnect
     mockWs.send.mockImplementation(() => {
@@ -170,9 +170,105 @@ describe("LanEngine", () => {
     }); // Success on flush
     engine.disconnect();
 
-    expect(mockWs.send).toHaveBeenCalledWith("test-command");
+    expect(mockWs.send).toHaveBeenCalledWith("stop");
     expect(mockWs.close).toHaveBeenCalled();
     expect((engine as unknown as { ws: MockWebSocket | null }).ws).toBeNull();
+  });
+
+  it("should block invalid outbound USI commands", async () => {
+    const engine = new LanEngine("test-session");
+    const connectPromise = engine.connect();
+    mockWs.readyState = 1;
+    mockWs.onopen?.();
+    await connectPromise;
+
+    engine.sendUsiCommand("setoption name USI_Hash value 1024");
+
+    expect(mockWs.send).not.toHaveBeenCalledWith("setoption name USI_Hash value 1024");
+  });
+
+  it("should drop invalid outbound relay messages without buffering them", async () => {
+    const engine = new LanEngine("test-session");
+    const connectPromise = engine.connect();
+    mockWs.readyState = 1;
+    mockWs.onopen?.();
+    await connectPromise;
+
+    expect(() => engine.startEngine("invalid engine id")).not.toThrow();
+    expect(() =>
+      (
+        engine as unknown as {
+          sendRelayMessage: (message: unknown) => void;
+        }
+      ).sendRelayMessage({ type: "future" }),
+    ).not.toThrow();
+
+    expect(mockWs.send).not.toHaveBeenCalled();
+    expect((engine as unknown as { commandQueue: unknown[] }).commandQueue).toEqual([]);
+  });
+
+  it.each([null, undefined, 1, {}])(
+    "should drop a runtime-invalid USI command without throwing: %j",
+    (command) => {
+      const engine = new LanEngine("test-session");
+      const sendUsiCommand = engine.sendUsiCommand as unknown as (command: unknown) => void;
+
+      expect(() => sendUsiCommand.call(engine, command)).not.toThrow();
+      expect((engine as unknown as { commandQueue: unknown[] }).commandQueue).toEqual([]);
+    },
+  );
+
+  it("should warn and drop malformed frames while keeping the connection usable", async () => {
+    const engine = new LanEngine("test-session");
+    const onMessage = vi.fn();
+    const listener = vi.fn(() => false);
+    engine.addMessageListener(listener);
+    const connectPromise = engine.connect(onMessage);
+    mockWs.readyState = 1;
+    mockWs.onopen?.();
+    await connectPromise;
+
+    mockWs.onmessage?.({ data: "{" });
+    mockWs.onmessage?.({ data: JSON.stringify({ state: "ready" }) });
+
+    expect(onMessage).not.toHaveBeenCalled();
+    expect(listener).not.toHaveBeenCalled();
+    expect(mockWs.close).not.toHaveBeenCalled();
+
+    mockWs.onmessage?.({
+      data: JSON.stringify({ state: "ready", engineId: "test-engine" }),
+    });
+
+    expect(onMessage).toHaveBeenCalledWith({
+      type: "state",
+      state: "ready",
+      engineId: "test-engine",
+    });
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("should cache only a validated engine list", async () => {
+    const engine = new LanEngine("test-session");
+    const connectPromise = engine.connect();
+    mockWs.readyState = 1;
+    mockWs.onopen?.();
+    await connectPromise;
+
+    const listPromise = engine.getEngineList();
+    mockWs.onmessage?.({
+      data: JSON.stringify({
+        engineList: [{ id: "engine-1", name: "Engine", type: ["invalid"] }],
+      }),
+    });
+    mockWs.onmessage?.({
+      data: JSON.stringify({
+        engineList: [{ id: "engine-1", name: "Engine", type: ["game"] }],
+      }),
+    });
+
+    await expect(listPromise).resolves.toEqual([
+      { id: "engine-1", name: "Engine", type: ["game"] },
+    ]);
   });
 
   it("should remove all listeners before closing socket on disconnect", async () => {
@@ -277,7 +373,7 @@ describe("LanEngine", () => {
 
     newWs.readyState = 1;
     newWs.onopen?.();
-    newWs.onmessage?.({ data: JSON.stringify({ state: "ready" }) });
+    newWs.onmessage?.({ data: JSON.stringify({ state: "ready", engineId: null }) });
     onMessageHandler.mockClear();
 
     // Simulate a message that was already in the browser's delivery queue when
@@ -291,7 +387,23 @@ describe("LanEngine", () => {
       oldWs.onmessage?.({ data });
     }
 
-    expect(onMessageHandler.mock.calls.map(([message]) => message)).toEqual(inFlightMessages);
+    expect(onMessageHandler.mock.calls.map(([message]) => message)).toEqual([
+      {
+        type: "engineOutput",
+        positionCommand: "position startpos",
+        output: "info depth 10",
+      },
+      {
+        type: "engineOutput",
+        positionCommand: "position startpos",
+        output: "bestmove 7g7f",
+      },
+      {
+        type: "engineOutput",
+        positionCommand: "position startpos",
+        output: "checkmate nomate",
+      },
+    ]);
 
     Object.defineProperty(document, "visibilityState", {
       value: originalVisibilityState,
@@ -332,7 +444,7 @@ describe("LanEngine", () => {
     onMessageHandler.mockClear();
 
     for (const data of [
-      JSON.stringify({ state: "thinking" }),
+      JSON.stringify({ state: "thinking", engineId: "test-engine" }),
       JSON.stringify({ error: "stale error" }),
       JSON.stringify({ info: "pong" }),
       JSON.stringify({ engineList: [] }),

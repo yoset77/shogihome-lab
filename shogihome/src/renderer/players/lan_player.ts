@@ -2,6 +2,7 @@ import { Player, SearchHandler, SearchInfo, MateHandler } from "./player";
 import { ImmutablePosition, Color, Move } from "tsshogi";
 import { TimeStates } from "@/common/game/time";
 import { LanEngine } from "@/renderer/network/lan_engine";
+import type { ServerRelayMessage } from "@/common/engine/relay_protocol";
 import { GameResult } from "@/common/game/result";
 import { parseUSIPV, USIInfoCommand, parseInfoCommand } from "@/common/game/usi";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "./usi_events";
@@ -134,7 +135,7 @@ export class LanPlayer implements Player {
         this.bookSessionID = await api.openBookAsNewSession(this.extraBook.filePath, {});
       }
 
-      await this.lanEngine.connect((message: string) => {
+      await this.lanEngine.connect((message: ServerRelayMessage) => {
         this.onMessage(message);
       });
 
@@ -144,23 +145,19 @@ export class LanPlayer implements Player {
           reject(new Error("Timeout: Failed to receive ready message from engine"));
         }, this.timeoutSeconds * 1000);
 
-        const readyListener = (message: string) => {
-          try {
-            const data = JSON.parse(message);
-            if (
-              (data.state === "ready" || data.state === "thinking") &&
-              data.engineId === this.engineId
-            ) {
-              clearTimeout(timeout);
-              this.lanEngine.removeMessageListener(readyListener);
-              resolve();
-            } else if (data.error) {
-              clearTimeout(timeout);
-              this.lanEngine.removeMessageListener(readyListener);
-              reject(new Error(data.error));
-            }
-          } catch {
-            // ignore
+        const readyListener = (message: ServerRelayMessage) => {
+          if (
+            message.type === "state" &&
+            (message.state === "ready" || message.state === "thinking") &&
+            message.engineId === this.engineId
+          ) {
+            clearTimeout(timeout);
+            this.lanEngine.removeMessageListener(readyListener);
+            resolve();
+          } else if (message.type === "error") {
+            clearTimeout(timeout);
+            this.lanEngine.removeMessageListener(readyListener);
+            reject(new Error(message.message));
           }
           return false;
         };
@@ -191,7 +188,7 @@ export class LanPlayer implements Player {
       await this.stopAndWait();
       this.throwIfUnavailable();
     }
-    this.lanEngine.sendCommand("usinewgame");
+    this.lanEngine.sendUsiCommand("usinewgame");
   }
 
   async startSearch(
@@ -219,7 +216,7 @@ export class LanPlayer implements Player {
         await this.stopAndWait(previousSfen);
         this.throwIfUnavailable();
       }
-      this.lanEngine.sendCommand(usi); // "position ..."
+      this.lanEngine.sendUsiCommand(usi); // "position ..."
 
       // ShogiHome keeps the time after adding the increment.
       // However, USI requires the time before adding the increment (btime + binc).
@@ -239,7 +236,7 @@ export class LanPlayer implements Player {
       } else if (binc > 0 || winc > 0) {
         goCommand += ` binc ${binc} winc ${winc}`;
       }
-      this.lanEngine.sendCommand(goCommand);
+      this.lanEngine.sendUsiCommand(goCommand);
       this.isThinking = true;
       triggerOnStartSearch(this._sessionID, this.position);
     });
@@ -261,8 +258,8 @@ export class LanPlayer implements Player {
         await this.stopAndWait(previousSfen);
         this.throwIfUnavailable();
       }
-      this.lanEngine.sendCommand(usi);
-      this.lanEngine.sendCommand("go infinite");
+      this.lanEngine.sendUsiCommand(usi);
+      this.lanEngine.sendUsiCommand("go infinite");
       this.isThinking = true;
       triggerOnStartSearch(this._sessionID, this.position);
     });
@@ -295,8 +292,10 @@ export class LanPlayer implements Player {
         await this.stopAndWait(previousSfen);
         this.throwIfUnavailable();
       }
-      this.lanEngine.sendCommand(usi);
-      this.lanEngine.sendCommand("go mate" + (maxSeconds ? ` ${maxSeconds * 1000}` : " infinite"));
+      this.lanEngine.sendUsiCommand(usi);
+      this.lanEngine.sendUsiCommand(
+        "go mate" + (maxSeconds ? ` ${maxSeconds * 1000}` : " infinite"),
+      );
       this.isThinking = true;
       triggerOnStartSearch(this._sessionID, this.position);
     });
@@ -319,7 +318,7 @@ export class LanPlayer implements Player {
         await this.stopAndWait();
         this.throwIfUnavailable();
       }
-      this.lanEngine.sendCommand("gameover " + result);
+      this.lanEngine.sendUsiCommand("gameover " + result);
     });
   }
 
@@ -356,7 +355,7 @@ export class LanPlayer implements Player {
     this.throwIfUnavailable();
     this._multiPV = multiPV;
     if (this.lanEngine.isConnected()) {
-      this.lanEngine.setOption("MultiPV", multiPV);
+      this.lanEngine.setMultiPV(multiPV);
     }
   }
 
@@ -423,19 +422,16 @@ export class LanPlayer implements Player {
     this.stopPromise = new Promise((resolve, reject) => {
       this.stopPromiseResolver = resolve;
       this.stopPromiseRejector = reject;
-      this.lanEngine.sendCommand("stop");
+      this.lanEngine.sendUsiCommand("stop");
       this.startStopPromiseTimeoutIfConnected();
     });
 
     return this.stopPromise;
   }
 
-  private onMessage(message: string): void {
-    // Expected format from server: {"sfen":"...","info":"bestmove ..."}
-    try {
-      const data = JSON.parse(message);
-
-      if (data.error) {
+  private onMessage(message: ServerRelayMessage): void {
+    switch (message.type) {
+      case "error": {
         if (this.sessionLost || this.isClosing) {
           return;
         }
@@ -446,7 +442,7 @@ export class LanPlayer implements Player {
         this.reportedErrorAwaitingState = true;
         this.clearReadyReplayTimeout();
         this.isThinking = false;
-        const error = new Error(data.error);
+        const error = new Error(message.message);
         const handler = this.handler;
         const onErrorCallback = this.onErrorCallback;
         this.clearHandlers();
@@ -457,30 +453,31 @@ export class LanPlayer implements Player {
         } else if (onErrorCallback) {
           onErrorCallback(error);
         } else {
-          console.error("Engine Error:", data.error);
+          console.error("Engine Error:", message.message);
         }
         return;
       }
 
-      if (data.info) {
-        const infoStr = data.info as string;
+      case "engineOutput": {
+        const infoStr = message.output;
+        const positionCommand = message.positionCommand;
         if (infoStr.startsWith("bestmove")) {
           this.clearReadyReplayTimeout();
-          const isStopAck = this.isStopAcknowledgement(data.sfen);
-          if (isStopAck || data.sfen === this.currentSfen) {
+          const isStopAck = this.isStopAcknowledgement(positionCommand);
+          if (isStopAck || positionCommand === this.currentSfen) {
             this.isThinking = false;
           }
           if (isStopAck) {
             this.resolveStopPromise();
           }
 
-          if (data.sfen === this.currentSfen) {
+          if (positionCommand === this.currentSfen) {
             this.flushInfo();
           } else {
             this.clearPendingInfo();
           }
 
-          if (this.handler && this.position && data.sfen === this.currentSfen) {
+          if (this.handler && this.position && positionCommand === this.currentSfen) {
             const parts = infoStr.split(" ");
             if (parts[1] === "resign") {
               this.handler.onResign();
@@ -488,7 +485,7 @@ export class LanPlayer implements Player {
             }
             const move = this.position.createMoveByUSI(parts[1]);
             if (move) {
-              const delay = data.delay as number | undefined;
+              const delay = message.delay;
               const baseInfo = this.info || { usi: this.currentSfen };
               const infoWithDelay = delay ? { ...baseInfo, delay } : baseInfo;
 
@@ -505,15 +502,15 @@ export class LanPlayer implements Player {
           }
         } else if (infoStr.startsWith("checkmate") && this.position) {
           this.clearReadyReplayTimeout();
-          const isStopAck = this.isStopAcknowledgement(data.sfen);
-          if (isStopAck || data.sfen === this.currentSfen) {
+          const isStopAck = this.isStopAcknowledgement(positionCommand);
+          if (isStopAck || positionCommand === this.currentSfen) {
             this.isThinking = false;
           }
           if (isStopAck) {
             this.resolveStopPromise();
           }
 
-          if (data.sfen !== this.currentSfen) {
+          if (positionCommand !== this.currentSfen) {
             this.clearPendingInfo();
             return;
           }
@@ -558,11 +555,14 @@ export class LanPlayer implements Player {
         } else if (infoStr.startsWith("info") && this.position) {
           // Parse info string for research
           const infoCommand = parseInfoCommand(infoStr);
-          this.updateInfo(infoCommand, data.sfen);
+          this.updateInfo(infoCommand, positionCommand);
         }
-      } else if (typeof data.state === "string") {
-        const state = data.state as string;
-        const stateEngineId = typeof data.engineId === "string" ? data.engineId : null;
+        return;
+      }
+
+      case "state": {
+        const state = message.state;
+        const stateEngineId = message.engineId;
         const errorAlreadyReported = this.reportedErrorAwaitingState;
         this.reportedErrorAwaitingState = false;
         if (state === "thinking" && stateEngineId === this.engineId) {
@@ -580,27 +580,35 @@ export class LanPlayer implements Player {
           return;
         }
 
-        if (
-          this.isThinking &&
-          (state === "uninitialized" || state === "stopped" || state === "ready")
-        ) {
-          // If the engine is not thinking (uninitialized, stopped, or ready) but the client expects it to be,
-          // it might mean we just reconnected and 'bestmove' is coming in the replay buffer.
-          // Wait for the replay buffer to deliver 'bestmove' or a timeout.
-          this.scheduleReadyReplayTimeout(state === "uninitialized" || state === "stopped");
-          return;
+        switch (state) {
+          case "uninitialized":
+          case "stopped":
+            if (this.isThinking) {
+              this.scheduleReadyReplayTimeout(true);
+            } else {
+              this.markSessionLost(!errorAlreadyReported);
+            }
+            return;
+          case "ready":
+            if (this.isThinking) {
+              // A replayed bestmove may still follow this state after reconnecting.
+              this.scheduleReadyReplayTimeout(false);
+            }
+            return;
+          case "starting":
+          case "thinking":
+            return;
         }
-
-        if (!this.isThinking && (state === "uninitialized" || state === "stopped")) {
-          this.markSessionLost(!errorAlreadyReported);
-        }
+        return;
       }
-    } catch {
-      // Ignore non-JSON messages or parse errors
+
+      case "notice":
+      case "engineList":
+        return;
     }
   }
 
-  private updateInfo(infoCommand: USIInfoCommand, sfen?: string) {
+  private updateInfo(infoCommand: USIInfoCommand, sfen?: string | null) {
     if (!this.position) return;
 
     // Check if the received USI command matches the current command.
@@ -691,7 +699,7 @@ export class LanPlayer implements Player {
     if (!this.stopPromiseResolver) {
       return;
     }
-    this.lanEngine.sendCommand("stop");
+    this.lanEngine.sendUsiCommand("stop");
     this.startStopPromiseTimeoutIfConnected();
   }
 

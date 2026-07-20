@@ -1,11 +1,14 @@
-type MessageHandler = (data: string) => void;
-type MessageListener = (data: string) => boolean; // Return true to remove listener
+import {
+  decodeServerRelayMessage,
+  encodeClientRelayMessage,
+  isValidUsiCommand,
+  type ClientRelayMessage,
+  type LanEngineInfo,
+  type ServerRelayMessage,
+} from "@/common/engine/relay_protocol";
 
-export interface LanEngineInfo {
-  id: string;
-  name: string;
-  type?: ("game" | "research" | "mate")[];
-}
+type MessageHandler = (data: ServerRelayMessage) => void;
+type MessageListener = (data: ServerRelayMessage) => boolean; // Return true to remove listener
 
 export type LanEngineStatus = "disconnected" | "connecting" | "connected";
 
@@ -17,18 +20,15 @@ const timeout = (timeoutMs: number, message: string): Promise<never> =>
     window.setTimeout(() => reject(new Error(message)), timeoutMs);
   });
 
-const isRetiredSocketEngineOutput = (data: unknown): data is string => {
-  if (typeof data !== "string") return false;
-  try {
-    const message = JSON.parse(data) as { sfen?: unknown; info?: unknown };
-    return (
-      typeof message.sfen === "string" &&
-      typeof message.info === "string" &&
-      /^(?:bestmove|checkmate|info)(?:\s|$)/.test(message.info)
-    );
-  } catch {
-    return false;
-  }
+const decodeRetiredSocketEngineOutput = (data: unknown): ServerRelayMessage | null => {
+  const result = decodeServerRelayMessage(data);
+  if (!result.ok) return null;
+  const message = result.value;
+  return message.type === "engineOutput" &&
+    typeof message.positionCommand === "string" &&
+    /^(?:bestmove|checkmate|info)(?:\s|$)/.test(message.output)
+    ? message
+    : null;
 };
 
 export class LanEngine {
@@ -185,26 +185,27 @@ export class LanEngine {
         const data = event.data;
 
         if (this.ws !== ws) {
-          if (isRetiredSocketEngineOutput(data) && this.onMessageHandler) {
-            this.onMessageHandler(data);
+          const message = decodeRetiredSocketEngineOutput(data);
+          if (message && this.onMessageHandler) {
+            this.onMessageHandler(message);
           }
           return;
         }
 
-        // Handle heartbeat
-        try {
-          const json = JSON.parse(data);
-          if (json.info === "pong") {
-            this.handlePong(ws);
-            return; // Don't propagate pong
-          }
-        } catch {
-          // ignore
+        const result = decodeServerRelayMessage(data);
+        if (!result.ok) {
+          console.warn(`Invalid WebSocket relay frame ignored: ${result.error}`);
+          return;
+        }
+        const message = result.value;
+        if (message.type === "notice" && message.notice === "pong") {
+          this.handlePong(ws);
+          return;
         }
 
-        this.messageListeners = this.messageListeners.filter((listener) => !listener(data));
+        this.messageListeners = this.messageListeners.filter((listener) => !listener(message));
         if (this.onMessageHandler) {
-          this.onMessageHandler(data);
+          this.onMessageHandler(message);
         }
       };
 
@@ -287,7 +288,7 @@ export class LanEngine {
       }, 6000);
     }
     try {
-      ws.send("ping");
+      ws.send(encodeClientRelayMessage({ type: "ping" }));
     } catch (e) {
       console.warn("Failed to send ping:", e);
     }
@@ -412,7 +413,7 @@ export class LanEngine {
         }
       }
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send("stop_engine");
+        this.ws.send(encodeClientRelayMessage({ type: "stopEngine" }));
       }
     } catch (e) {
       console.warn("Failed to send stop_engine before disconnect:", e);
@@ -421,7 +422,14 @@ export class LanEngine {
     }
   }
 
-  sendCommand(command: string) {
+  private sendRelayMessage(message: ClientRelayMessage) {
+    let command: string;
+    try {
+      command = encodeClientRelayMessage(message);
+    } catch (e) {
+      console.warn("Invalid relay message blocked:", e);
+      return;
+    }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(command);
@@ -433,6 +441,14 @@ export class LanEngine {
       console.log("WebSocket is not connected, buffering command:", command);
       this.commandQueue.push(command);
     }
+  }
+
+  sendUsiCommand(command: string) {
+    if (!isValidUsiCommand(command)) {
+      console.warn("Invalid USI command blocked:", command);
+      return;
+    }
+    this.sendRelayMessage({ type: "usi", command: command.trim() });
   }
 
   private flushCommandQueue() {
@@ -449,8 +465,7 @@ export class LanEngine {
             console.error("Failed to flush command:", command, e);
             // If send fails here, connection is likely broken again.
             // Push back to front? Or just let onclose handle it?
-            // If we push back, we risk infinite loops if command is bad.
-            // But if it's network, we should keep it.
+            // The command was validated before buffering, so preserve it for a retry.
             this.commandQueue.unshift(command);
             break;
           }
@@ -504,7 +519,7 @@ export class LanEngine {
   private async fetchEngineList(): Promise<LanEngineInfo[]> {
     if (!this.isConnected()) {
       try {
-        await this.connect(() => {});
+        await this.connect();
       } catch (e) {
         throw new Error(
           `Failed to connect while fetching engine list: ${e instanceof Error ? e.message : String(e)}`,
@@ -521,41 +536,36 @@ export class LanEngine {
         reject(new Error("Timeout waiting for engine list"));
       }, 5000);
 
-      const listener = (data: string) => {
-        try {
-          const json = JSON.parse(data);
-          if (json.engineList) {
-            clearTimeout(timeout);
-            this.engineListCache = json.engineList;
-            this.engineListCacheTimestamp = Date.now();
-            resolve(json.engineList);
-            return true;
-          }
-        } catch {
-          // ignore
+      const listener = (message: ServerRelayMessage) => {
+        if (message.type === "engineList") {
+          clearTimeout(timeout);
+          this.engineListCache = message.engines;
+          this.engineListCacheTimestamp = Date.now();
+          resolve(message.engines);
+          return true;
         }
         return false;
       };
 
       this.addMessageListener(listener);
-      this.sendCommand("get_engine_list");
+      this.sendRelayMessage({ type: "getEngineList" });
     });
   }
 
   startEngine(engineId: string) {
-    this.sendCommand(`start_engine ${engineId}`);
+    this.sendRelayMessage({ type: "startEngine", engineId });
   }
 
   stopEngine() {
-    this.sendCommand("stop_engine");
+    this.sendRelayMessage({ type: "stopEngine" });
   }
 
-  setOption(name: string, value?: string | number) {
-    if (value !== undefined) {
-      this.sendCommand(`setoption name ${name} value ${value}`);
-    } else {
-      this.sendCommand(`setoption name ${name}`);
+  setMultiPV(value: number) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      console.warn("Invalid MultiPV value blocked:", value);
+      return;
     }
+    this.sendUsiCommand(`setoption name MultiPV value ${value}`);
   }
 }
 

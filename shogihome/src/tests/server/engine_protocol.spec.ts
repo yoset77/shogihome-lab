@@ -4,6 +4,7 @@ import net from "net";
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
 import { killTree } from "./helpers/process";
+import type { LanEngineInfo } from "@/common/engine/relay_protocol";
 
 const SERVER_PORT = 8100 + Math.floor(Math.random() * 1000);
 const WRAPPER_PORT = 9990 + Math.floor(Math.random() * 1000);
@@ -529,6 +530,8 @@ describe("Server USI Protocol & Implicit Stop", () => {
               JSON.stringify([
                 { id: "engine1", name: "Engine 1", type: "game", path: "/secret/path/1" },
                 { id: "engine2", name: "Engine 2", type: "research", path: "/secret/path/2" },
+                { id: "invalid type", name: "Invalid ID", type: "game" },
+                { id: "engine3", name: "Invalid Type", type: "unsupported" },
               ]) + "\n",
             );
             setTimeout(() => socket.end(), 10);
@@ -540,9 +543,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
 
     ws.send("get_engine_list");
 
-    const engineListPromise = new Promise<
-      { id: string; name: string; type?: string; path?: string }[]
-    >((resolve) => {
+    const engineListPromise = new Promise<(LanEngineInfo & { path?: string })[]>((resolve) => {
       ws!.on("message", (data) => {
         const msg = JSON.parse(data.toString());
         if (msg.engineList) {
@@ -556,8 +557,10 @@ describe("Server USI Protocol & Implicit Stop", () => {
 
     expect(list).toHaveLength(2);
     expect(list[0].id).toBe("engine1");
+    expect(list[0].type).toEqual(["game"]);
     expect(list[0].path).toBeUndefined(); // Path should be removed
     expect(list[1].id).toBe("engine2");
+    expect(list[1].type).toEqual(["research"]);
     expect(list[1].path).toBeUndefined(); // Path should be removed
   });
 });
