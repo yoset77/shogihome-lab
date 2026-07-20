@@ -1,6 +1,7 @@
 import { EngineSession } from "@/server/engine/session";
 import { EngineState } from "@/server/engine/types";
 import { saveAnalysisResults } from "@/server/database/sqlite";
+import type { ClientRelayMessage, SessionRelayPayload } from "@/common/engine/relay_protocol";
 import { vi, describe, it, expect, beforeEach, type Mock } from "vitest";
 import { PassThrough } from "stream";
 
@@ -19,11 +20,11 @@ type TestableEngineSession = {
     removeAllListeners: Mock<() => void>;
   } | null;
   postStopCommandQueue: string[];
-  messageBuffer: { data: unknown; createdAt: number }[];
+  messageBuffer: { data: SessionRelayPayload; createdAt: number }[];
   handleDisconnect(socket: MockExtendedWebSocket): void;
-  handleMessage(command: string): void;
+  handleMessage(command: ClientRelayMessage): void;
   onEngineClose(): void;
-  sendToClient(data: unknown): void;
+  sendToClient(data: SessionRelayPayload, createdAt?: number): void;
   sendState(): void;
   setupEngineHandlers(stream: NodeJS.ReadableStream): void;
 };
@@ -32,7 +33,7 @@ interface MockExtendedWebSocket {
   send: Mock<(data: string) => void>;
   terminate: Mock<() => void>;
   close: Mock<() => void>;
-  on: Mock<(event: string, listener: (data: string) => void) => void>;
+  on: Mock<(event: string, listener: (data: string, isBinary?: boolean) => void) => void>;
   readyState: number;
 }
 
@@ -66,11 +67,11 @@ describe("Engine State Regression Tests", () => {
     };
 
     // 2. Trigger stop to enter STOPPING_SEARCH
-    tSession.handleMessage("stop");
+    tSession.handleMessage({ type: "usi", command: "stop" });
     expect(tSession.engineState).toBe(EngineState.STOPPING_SEARCH);
 
     // 3. Send stop_engine while in STOPPING_SEARCH
-    tSession.handleMessage("stop_engine");
+    tSession.handleMessage({ type: "stopEngine" });
 
     // Verification: State should be STOPPED
     expect(tSession.engineState).toBe(EngineState.STOPPED);
@@ -85,7 +86,8 @@ describe("Engine State Regression Tests", () => {
       removeAllListeners: vi.fn(),
     };
 
-    tSession.handleMessage("stop ");
+    const messageListener = mockWs.on.mock.calls.find(([event]) => event === "message")?.[1];
+    messageListener?.("stop ");
 
     expect(tSession.engineState).toBe(EngineState.STOPPING_SEARCH);
     expect(tSession.engineHandle.write).toHaveBeenCalledWith("stop\n");
@@ -102,13 +104,42 @@ describe("Engine State Regression Tests", () => {
     );
   });
 
-  it("should move start_engine and stop_engine out of postStopCommandQueue", () => {
+  it("should handle stop_engine outside postStopCommandQueue", () => {
     tSession.engineState = EngineState.STOPPING_SEARCH;
 
-    tSession.handleMessage("start_engine dummy");
+    tSession.handleMessage({ type: "stopEngine" });
     // If it was queued, postStopCommandQueue would have 1 item.
     // But it should be handled immediately.
     expect(tSession.postStopCommandQueue.length).toBe(0);
+  });
+
+  it("should drop an invalid command and continue processing later commands", () => {
+    tSession.engineState = EngineState.READY;
+    tSession.engineHandle = {
+      write: vi.fn(),
+      close: vi.fn(),
+      removeAllListeners: vi.fn(),
+    };
+    const messageListener = mockWs.on.mock.calls.find(([event]) => event === "message")?.[1];
+
+    messageListener?.("position startpos", true);
+    messageListener?.("setoption name USI_Hash value 1024");
+    messageListener?.("position startpos");
+
+    expect(tSession.engineHandle.write).toHaveBeenCalledOnce();
+    expect(tSession.engineHandle.write).toHaveBeenCalledWith("position startpos\n");
+    expect(tSession.engineState).toBe(EngineState.READY);
+  });
+
+  it("should clamp relay delay when the wall clock moves backward", () => {
+    tSession.sendToClient(
+      { type: "state", state: "ready", engineId: "test-engine" },
+      Date.now() + 1000,
+    );
+
+    expect(mockWs.send).toHaveBeenCalledWith(
+      JSON.stringify({ state: "ready", engineId: "test-engine", delay: 0 }),
+    );
   });
 
   it("should reset engine state on authentication failure", async () => {
@@ -130,7 +161,7 @@ describe("Engine State Regression Tests", () => {
     tSession.engineState = EngineState.STOPPED;
     tSession.engineHandle = null;
 
-    tSession.handleMessage("setoption name MultiPV value 3");
+    tSession.handleMessage({ type: "usi", command: "setoption name MultiPV value 3" });
 
     expect(mockWs.send).toHaveBeenCalledWith(expect.stringContaining("error"));
     expect(mockWs.send).toHaveBeenCalledWith(expect.stringContaining("engine not ready"));
@@ -140,7 +171,7 @@ describe("Engine State Regression Tests", () => {
     tSession.engineState = EngineState.UNINITIALIZED;
     tSession.engineHandle = null;
 
-    tSession.handleMessage("setoption name MultiPV value 3");
+    tSession.handleMessage({ type: "usi", command: "setoption name MultiPV value 3" });
 
     expect(mockWs.send).toHaveBeenCalledWith(expect.stringContaining("error"));
     expect(mockWs.send).toHaveBeenCalledWith(expect.stringContaining("engine not ready"));
@@ -154,7 +185,7 @@ describe("Engine State Regression Tests", () => {
     const cmdQueue = tSession as unknown as { commandQueue: string[] };
     cmdQueue.commandQueue = queue;
 
-    tSession.handleMessage("setoption name MultiPV value 3");
+    tSession.handleMessage({ type: "usi", command: "setoption name MultiPV value 3" });
 
     expect(queue).toContain("setoption name MultiPV value 3");
     expect(mockWs.send).not.toHaveBeenCalledWith(expect.stringContaining("error"));
@@ -167,8 +198,8 @@ describe("Engine State Regression Tests", () => {
       tSession.engineState = state;
       (tSession as unknown as { commandQueue: string[] }).commandQueue = commandQueue;
 
-      tSession.handleMessage("usinewgame");
-      tSession.handleMessage("gameover lose");
+      tSession.handleMessage({ type: "usi", command: "usinewgame" });
+      tSession.handleMessage({ type: "usi", command: "gameover lose" });
 
       expect(commandQueue).toHaveLength(0);
       expect(mockWs.send).toHaveBeenCalledTimes(2);
@@ -245,7 +276,11 @@ describe("Engine State Regression Tests", () => {
     (tSession as unknown as { ws: null }).ws = null;
 
     for (let i = 0; i < 80; i++) {
-      tSession.sendToClient({ info: `debug line ${i}` });
+      tSession.sendToClient({
+        type: "engineOutput",
+        positionCommand: null,
+        output: `debug line ${i}`,
+      });
     }
 
     expect(tSession.messageBuffer.length).toBeLessThanOrEqual(50);
@@ -276,10 +311,10 @@ describe("Engine State Regression Tests", () => {
     };
     session.attach(reconnectedWs as unknown as Parameters<EngineSession["attach"]>[0]);
 
-    tSession.handleMessage("position startpos moves 7g7f");
-    tSession.handleMessage("go infinite");
-    tSession.handleMessage("position startpos moves 2g2f");
-    tSession.handleMessage("go infinite");
+    tSession.handleMessage({ type: "usi", command: "position startpos moves 7g7f" });
+    tSession.handleMessage({ type: "usi", command: "go infinite" });
+    tSession.handleMessage({ type: "usi", command: "position startpos moves 2g2f" });
+    tSession.handleMessage({ type: "usi", command: "go infinite" });
 
     expect(engineHandle.close).not.toHaveBeenCalled();
     expect(engineHandle.write).toHaveBeenCalledWith("stop\n");
@@ -307,7 +342,7 @@ describe("Engine State Regression Tests", () => {
       tSession.engineState = EngineState.THINKING;
       tSession.engineHandle = engineHandle;
 
-      tSession.handleMessage("stop");
+      tSession.handleMessage({ type: "usi", command: "stop" });
       expect(tSession.engineState).toBe(EngineState.STOPPING_SEARCH);
       tSession.handleDisconnect(mockWs);
 
@@ -346,7 +381,7 @@ describe("Engine State Regression Tests", () => {
       tSession.engineHandle = engineHandle;
       tSession.setupEngineHandlers(stream);
 
-      tSession.handleMessage("stop");
+      tSession.handleMessage({ type: "usi", command: "stop" });
       tSession.handleDisconnect(mockWs);
       stream.write("bestmove resign\n");
       await vi.advanceTimersByTimeAsync(0);

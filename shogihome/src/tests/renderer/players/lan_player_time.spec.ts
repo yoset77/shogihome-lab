@@ -4,14 +4,15 @@ import { Record } from "tsshogi";
 import { TimeStates } from "@/common/game/time";
 import { SearchHandler } from "@/renderer/players/player";
 import { Mock } from "vitest";
+import type { ServerRelayMessage } from "@/common/engine/relay_protocol";
 
 vi.mock("@/renderer/network/lan_engine");
 vi.mock("@/renderer/players/usi.js");
 
 describe("LanPlayer Time Control", () => {
   let player: LanPlayer;
-  let messageHandler: (message: string) => void;
-  let messageListeners: ((message: string) => boolean)[] = [];
+  let messageHandler: (message: ServerRelayMessage) => void;
+  let messageListeners: ((message: ServerRelayMessage) => boolean)[] = [];
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -21,7 +22,7 @@ describe("LanPlayer Time Control", () => {
     // Functional mock for connect
     (LanEngine.prototype.connect as Mock).mockImplementation(function (
       this: LanEngine,
-      handler?: (message: string) => void,
+      handler?: (message: ServerRelayMessage) => void,
     ) {
       if (handler) {
         messageHandler = handler;
@@ -41,7 +42,11 @@ describe("LanPlayer Time Control", () => {
 
     // Mock startEngine to trigger the ready sequence
     (LanEngine.prototype.startEngine as Mock).mockImplementation(() => {
-      const readyMsg = JSON.stringify({ state: "ready", engineId: "test-engine" });
+      const readyMsg: ServerRelayMessage = {
+        type: "state",
+        state: "ready",
+        engineId: "test-engine",
+      };
       // Deliver message in next tick to let the launch() call start its await
       process.nextTick(() => {
         if (messageHandler) {
@@ -51,8 +56,8 @@ describe("LanPlayer Time Control", () => {
       });
     });
 
-    (LanEngine.prototype.sendCommand as Mock).mockResolvedValue(undefined);
-    (LanEngine.prototype.setOption as Mock).mockResolvedValue(undefined);
+    (LanEngine.prototype.sendUsiCommand as Mock).mockResolvedValue(undefined);
+    (LanEngine.prototype.setMultiPV as Mock).mockResolvedValue(undefined);
 
     player = new LanPlayer("test-session", "test-engine", "Test Engine");
 
@@ -84,7 +89,7 @@ describe("LanPlayer Time Control", () => {
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
     const expectedGo = "go btime 55000 wtime 55000 binc 5000 winc 5000";
-    expect(LanEngine.prototype.sendCommand).toHaveBeenCalledWith(expectedGo);
+    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(expectedGo);
   });
 
   it("should send correct go command for Byoyomi rule (Black)", async () => {
@@ -99,7 +104,7 @@ describe("LanPlayer Time Control", () => {
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
     const expectedGo = "go btime 60000 wtime 60000 byoyomi 10000";
-    expect(LanEngine.prototype.sendCommand).toHaveBeenCalledWith(expectedGo);
+    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(expectedGo);
   });
 
   it("should send correct go command for Fischer rule (White)", async () => {
@@ -114,7 +119,7 @@ describe("LanPlayer Time Control", () => {
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
     const expectedGo = "go btime 50000 wtime 55000 binc 5000 winc 5000";
-    expect(LanEngine.prototype.sendCommand).toHaveBeenCalledWith(expectedGo);
+    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(expectedGo);
   });
 
   it("should prioritize Byoyomi over Increment if Byoyomi > 0", async () => {
@@ -129,7 +134,7 @@ describe("LanPlayer Time Control", () => {
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
     const expectedGo = "go btime 55000 wtime 55000 byoyomi 10000";
-    expect(LanEngine.prototype.sendCommand).toHaveBeenCalledWith(expectedGo);
+    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(expectedGo);
   });
 
   it("should calculate correct time for 3rd move (Black) with Fischer rule", async () => {
@@ -144,7 +149,7 @@ describe("LanPlayer Time Control", () => {
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
     const expectedGo = "go btime 50000 wtime 55000 binc 5000 winc 5000";
-    expect(LanEngine.prototype.sendCommand).toHaveBeenCalledWith(expectedGo);
+    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(expectedGo);
   });
 
   it("should pass delay to handler", async () => {
@@ -164,11 +169,12 @@ describe("LanPlayer Time Control", () => {
 
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
-    const response = JSON.stringify({
-      sfen: usi,
-      info: "bestmove 7g7f",
+    const response: ServerRelayMessage = {
+      type: "engineOutput",
+      positionCommand: usi,
+      output: "bestmove 7g7f",
       delay: 1234,
-    });
+    };
     messageHandler(response);
 
     expect(dummyHandler.onMove).toHaveBeenCalledWith(

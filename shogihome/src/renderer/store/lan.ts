@@ -1,5 +1,6 @@
 import { ref, readonly } from "vue";
-import { lanDiscoveryEngine, LanEngineStatus, LanEngineInfo } from "@/renderer/network/lan_engine";
+import { lanDiscoveryEngine, LanEngineStatus } from "@/renderer/network/lan_engine";
+import type { LanEngineInfo } from "@/common/engine/relay_protocol";
 
 const status = ref<LanEngineStatus>("disconnected");
 const engineList = ref<LanEngineInfo[]>([]);

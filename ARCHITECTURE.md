@@ -47,6 +47,7 @@ graph LR
 | `src/server/usi/sfen.ts` | サーバー側の SFEN 正規化と局面ハッシュ計算。 |
 | `src/server/vision/` | 画像認識バックエンドの Node.js worker と呼び出しアダプタ。レスポンスの形と SFEN 妥当性を検証します。 |
 | `src/common/vision/` | Vision API の共有型定義。 |
+| `src/common/engine/relay_protocol.ts` | Browser と Middle Server 間の WebSocket 中継プロトコル契約。現行 wire format の codec、runtime validator、共有 state・公開エンジン情報型を保持します。Node.js 固有依存は持ちません。 |
 | `src/common/api/rpc.ts` | Hono RPC の `AppType` を renderer へ type-only で共有する境界。runtime 依存は持たせません。 |
 | `src/node/` | **Node 実行環境共有ユーティリティ**。server、command、旧 background から共有されるログ、実行環境パスを保持します。ブラウザー向け renderer/common からは参照しません。 |
 | `src/renderer/store/index.ts` | **状態管理**。アプリ全体のステートを保持し、対局・検討・編集などの各マネージャー（`GameManager`, `ResearchManager` 等）を統合します。検討停止は `ResearchState.STOPPING` を経由する非同期ライフサイクルとして扱い、停止完了前に UI を `IDLE` 扱いしないようにしています。 |
@@ -134,7 +135,18 @@ graph LR
         1. Wrapper -> Server: `auth_cram_sha256 <nonce>` (16進数32文字のランダムなナンス)
         2. Server -> Wrapper: `auth <digest>` (トークンを鍵、ナンスをメッセージとしたHMAC-SHA256ハッシュ)
         3. Wrapper -> Server: 検証成功なら `auth_ok`、失敗ならエラーメッセージを送信して切断。
-    - トークンが未設定の場合は、従来通り認証なしで動作します（後方互換性あり）。
+     - トークンが未設定の場合は、従来通り認証なしで動作します（後方互換性あり）。
+
+#### WebSocket 中継プロトコル契約
+
+- **共有境界**: `src/common/engine/relay_protocol.ts` が Browser と Middle Server の共有契約を所有します。renderer/server の双方は WebSocket 境界で外部入力を `unknown` として検証し、境界通過後は `ClientRelayMessage` / `ServerRelayMessage` の discriminated union を使用します。
+- **Browser → Server**: wire format は従来どおり plain text です。`ping`、`get_engine_list`、`start_engine <id>`、`stop_engine` と、生の USI コマンドを同じ WebSocket 上で送信します。共通 decoder が制御コマンドと USI を分類し、不正な engine ID、改行を含む入力、許可されない USI コマンドを拒否します。
+- **Server → Browser**: wire format は従来どおり discriminator なし JSON です。state は `{state, engineId, delay}`、エンジン出力は `{sfen, info, delay}`、error は `{error, delay}`、通知は `{info, delay}`、一覧は `{engineList}` です。互換性維持のため wire 上に `type` や `version` は追加しません。
+- **フィールドの意味**: エンジン出力の wire field `sfen` は裸の SFEN ではなく、探索結果に対応する `position ...` コマンド全体または `null` です。内部型では意味を明確にするため `positionCommand` として扱います。
+- **runtime validation**: `LanEngine` は受信フレームを一度だけ decode し、検証済みメッセージだけを `LanPlayer` や一時 listener へ渡します。`EngineSession` は受信テキストを一度だけ decode してから状態機械へ渡します。未知の追加 JSON property は将来互換のため許可しますが、未知の frame、型不正、複数 payload を併記した曖昧な frame は警告して破棄し、WebSocket 接続は維持します。
+- **状態同期**: wire state は `uninitialized` / `starting` / `ready` / `thinking` / `stopped` に限定し、state frame の `engineId` は `string | null` の必須フィールドです。これにより再接続時に要求エンジンとの一致を検証します。
+- **公開エンジン情報**: Browser へ公開する一覧は `id`、`name`、`type` のみで、`type` は `game` / `research` / `mate` に限定します。Wrapper の path や解析 DB 設定は server 内部の `EngineConfig` に留めます。
+- **対象外**: Middle Server と Python/Node Engine Wrapper 間の TCP プロトコルは別契約です。TypeScript の WebSocket 共有型には含めません。
 
 #### 接続の回復力 (Resilience)
 - **セッション再接続**: ネットワーク瞬断やリロードに対し、`localStorage` に保存された `sessionId` を用いた再接続機能を備えています。セッション ID は論理セッションとエンジン ID の組み合わせに対応し、同じ論理セッションで別エンジンを選択した場合はローテートされます。サーバーの状態フレームにも現在の `engineId` を含め、クライアントは要求したエンジンとの一致を確認します。

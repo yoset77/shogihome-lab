@@ -4,6 +4,13 @@ import { WebSocket } from "ws";
 import { REMOTE_ENGINE_HOST, REMOTE_ENGINE_PORT } from "@/server/config";
 import { authenticateSocket } from "@/server/engine/auth";
 import type { EngineConfig } from "@/server/engine/types";
+import {
+  LAN_ENGINE_TYPES,
+  encodeEngineListRelayMessage,
+  isLanEngineType,
+  isRelayEngineId,
+  type LanEngineInfo,
+} from "@/common/engine/relay_protocol";
 
 export const engineConfigCache = new Map<string, EngineConfig>();
 
@@ -29,6 +36,23 @@ export const toEngineConfig = (value: unknown): EngineConfig | null => {
     analysisDBGroupName:
       typeof engine.analysisDBGroupName === "string" ? engine.analysisDBGroupName : undefined,
   };
+};
+
+const toLanEngineInfo = (config: EngineConfig): LanEngineInfo | null => {
+  if (!isRelayEngineId(config.id)) return null;
+
+  let types: LanEngineInfo["type"];
+  if (Array.isArray(config.type)) {
+    if (!config.type.every(isLanEngineType)) return null;
+    types = config.type;
+  } else if (config.type === "both" || config.type === undefined) {
+    types = [...LAN_ENGINE_TYPES];
+  } else if (isLanEngineType(config.type)) {
+    types = [config.type];
+  } else {
+    return null;
+  }
+  return { id: config.id, name: config.name, type: types };
 };
 
 export const getEngineList = (ws: WebSocket) => {
@@ -89,29 +113,11 @@ export const getEngineList = (ws: WebSocket) => {
           ? engines.flatMap((e: unknown) => {
               const config = toEngineConfig(e);
               if (!config) return [];
-
-              let types: string[] | undefined;
-              if (Array.isArray(config.type)) {
-                types = config.type;
-              } else if (typeof config.type === "string") {
-                if (config.type === "both") {
-                  types = ["game", "research", "mate"];
-                } else {
-                  types = [config.type];
-                }
-              } else {
-                types = ["game", "research", "mate"];
-              }
-              return [
-                {
-                  id: config.id,
-                  name: config.name,
-                  type: types,
-                },
-              ];
+              const engineInfo = toLanEngineInfo(config);
+              return engineInfo ? [engineInfo] : [];
             })
           : [];
-        payload = JSON.stringify({ engineList: sanitizedEngines });
+        payload = encodeEngineListRelayMessage(sanitizedEngines);
       }
     } catch (e) {
       console.error("Failed to parse engine list from wrapper:", e);

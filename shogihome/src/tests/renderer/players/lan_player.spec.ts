@@ -5,6 +5,7 @@ import { Mock } from "vitest";
 import api from "@/renderer/ipc/api";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "@/renderer/players/usi_events";
 import { BookMoveSelectionRule } from "@/common/settings/usi";
+import { decodeServerRelayMessage, type ServerRelayMessage } from "@/common/engine/relay_protocol";
 
 vi.mock("@/renderer/network/lan_engine");
 vi.mock("@/renderer/ipc/api");
@@ -12,7 +13,7 @@ vi.mock("@/renderer/players/usi_events");
 
 describe("LanPlayer", () => {
   let messageHandler: (message: string) => void;
-  let messageListeners: ((message: string) => boolean)[] = [];
+  let messageListeners: ((message: ServerRelayMessage) => boolean)[] = [];
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -28,10 +29,10 @@ describe("LanPlayer", () => {
     // Functional mock for connect
     (LanEngine.prototype.connect as Mock).mockImplementation(function (
       this: LanEngine,
-      handler?: (message: string) => void,
+      handler?: (message: ServerRelayMessage) => void,
     ) {
       if (handler) {
-        messageHandler = handler;
+        messageHandler = (message: string) => handler(parseMessage(message));
       }
       return Promise.resolve();
     });
@@ -51,16 +52,16 @@ describe("LanPlayer", () => {
       // noop
     });
 
-    // Mock sendCommand to automatically resolve stopAndWait
-    (LanEngine.prototype.sendCommand as Mock).mockImplementation((cmd: string) => {
+    // Mock sendUsiCommand to automatically resolve stopAndWait
+    (LanEngine.prototype.sendUsiCommand as Mock).mockImplementation((cmd: string) => {
       if (cmd === "stop") {
         setTimeout(() => {
-          sendMsg({ info: "bestmove 7g7f" });
+          sendMsg({ sfen: null, info: "bestmove 7g7f" });
         }, 10);
       }
       return Promise.resolve();
     });
-    (LanEngine.prototype.setOption as Mock).mockResolvedValue(undefined);
+    (LanEngine.prototype.setMultiPV as Mock).mockResolvedValue(undefined);
     (LanEngine.prototype.terminateEngine as Mock).mockResolvedValue(undefined);
   });
 
@@ -68,12 +69,19 @@ describe("LanPlayer", () => {
     vi.useRealTimers();
   });
 
+  function parseMessage(msg: unknown): ServerRelayMessage {
+    const raw = typeof msg === "string" ? msg : JSON.stringify(msg);
+    const result = decodeServerRelayMessage(raw);
+    if (!result.ok) throw new Error(result.error);
+    return result.value;
+  }
+
   function sendMsg(msg: unknown) {
-    const json = JSON.stringify(msg);
+    const message = parseMessage(msg);
     if (messageHandler) {
-      messageHandler(json);
+      messageHandler(JSON.stringify(msg));
     }
-    messageListeners.forEach((l) => l(json));
+    messageListeners.forEach((listener) => listener(message));
   }
 
   async function launchPlayer(
@@ -161,7 +169,7 @@ describe("LanPlayer", () => {
     // Position changes to 2
     const p2 = player.startResearch(record2.position, usi2);
     // Simulate bestmove for position 1 to resolve stopAndWait
-    sendMsg({ info: "bestmove 7g7f" });
+    sendMsg({ sfen: null, info: "bestmove 7g7f" });
     await vi.runAllTimersAsync();
     await p2;
 
@@ -315,8 +323,8 @@ describe("LanPlayer", () => {
     await launchPlayer(player);
     await player.startResearch(pos, "position startpos");
 
-    expect(LanEngine.prototype.sendCommand).toHaveBeenCalledWith("position startpos");
-    expect(LanEngine.prototype.sendCommand).toHaveBeenCalledWith("go infinite");
+    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith("position startpos");
+    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith("go infinite");
     expect((player as unknown as { isThinking: boolean }).isThinking).toBe(true);
 
     const closePromise = player.close();
@@ -386,8 +394,8 @@ describe("LanPlayer", () => {
     const player = new LanPlayer("research_main", "test-engine", "Test Engine");
     await launchPlayer(player);
 
-    // Override sendCommand mock to NOT send bestmove automatically
-    (LanEngine.prototype.sendCommand as Mock).mockImplementation(() => {
+    // Override sendUsiCommand mock to NOT send bestmove automatically
+    (LanEngine.prototype.sendUsiCommand as Mock).mockImplementation(() => {
       return Promise.resolve();
     });
 
@@ -565,7 +573,7 @@ describe("LanPlayer", () => {
       currentSfen: string;
       position: ImmutablePosition;
       isThinking: boolean;
-      onMessage(message: string): void;
+      onMessage(message: ServerRelayMessage): void;
     }
 
     const onSearchInfo = vi.fn();
@@ -578,24 +586,14 @@ describe("LanPlayer", () => {
     internals.isThinking = true;
 
     // Mate +
-    internals.onMessage(
-      JSON.stringify({
-        sfen: usi,
-        info: "info depth 10 score mate + pv 7g7f",
-      }),
-    );
+    internals.onMessage(parseMessage({ sfen: usi, info: "info depth 10 score mate + pv 7g7f" }));
     vi.advanceTimersByTime(500);
     expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ mate: 10000 }));
 
     onSearchInfo.mockClear();
 
     // Mate -
-    internals.onMessage(
-      JSON.stringify({
-        sfen: usi,
-        info: "info depth 10 score mate - pv 7g7f",
-      }),
-    );
+    internals.onMessage(parseMessage({ sfen: usi, info: "info depth 10 score mate - pv 7g7f" }));
     vi.advanceTimersByTime(500);
     expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ mate: -10000 }));
 
@@ -603,10 +601,7 @@ describe("LanPlayer", () => {
 
     // lowerbound
     internals.onMessage(
-      JSON.stringify({
-        sfen: usi,
-        info: "info depth 10 score cp 100 lowerbound pv 7g7f",
-      }),
+      parseMessage({ sfen: usi, info: "info depth 10 score cp 100 lowerbound pv 7g7f" }),
     );
     vi.advanceTimersByTime(500);
     expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ score: 100, lowerBound: true }));
@@ -615,10 +610,7 @@ describe("LanPlayer", () => {
 
     // upperbound
     internals.onMessage(
-      JSON.stringify({
-        sfen: usi,
-        info: "info depth 10 score cp 100 upperbound pv 7g7f",
-      }),
+      parseMessage({ sfen: usi, info: "info depth 10 score cp 100 upperbound pv 7g7f" }),
     );
     vi.advanceTimersByTime(500);
     expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ score: 100, upperBound: true }));
@@ -626,12 +618,7 @@ describe("LanPlayer", () => {
     onSearchInfo.mockClear();
 
     // currmove
-    internals.onMessage(
-      JSON.stringify({
-        sfen: usi,
-        info: "info depth 10 currmove 7g7f",
-      }),
-    );
+    internals.onMessage(parseMessage({ sfen: usi, info: "info depth 10 currmove 7g7f" }));
     vi.advanceTimersByTime(500);
     expect(onSearchInfo).toBeCalled();
   });
@@ -639,13 +626,13 @@ describe("LanPlayer", () => {
   it("should reset isThinking on server error", async () => {
     interface LanPlayerInternals {
       isThinking: boolean;
-      onMessage(message: string): void;
+      onMessage(message: ServerRelayMessage): void;
     }
     const player = new LanPlayer("test-session", "test-engine", "Test Engine");
     const internals = player as unknown as LanPlayerInternals;
     internals.isThinking = true;
 
-    internals.onMessage(JSON.stringify({ error: "some error" }));
+    internals.onMessage(parseMessage({ error: "some error" }));
 
     expect(internals.isThinking).toBe(false);
   });
@@ -709,7 +696,7 @@ describe("LanPlayer", () => {
   });
 
   it("should not resolve stop wait with bestmove from unrelated SFEN", async () => {
-    (LanEngine.prototype.sendCommand as Mock).mockImplementation(() => Promise.resolve());
+    (LanEngine.prototype.sendUsiCommand as Mock).mockImplementation(() => Promise.resolve());
 
     const player = new LanPlayer("test-session", "test-engine", "Test Engine");
     await launchPlayer(player);
@@ -726,12 +713,12 @@ describe("LanPlayer", () => {
     sendMsg({ sfen: "position startpos moves 3g3f", info: "bestmove 8c8d" });
     await vi.advanceTimersByTimeAsync(100);
 
-    expect(LanEngine.prototype.sendCommand).not.toHaveBeenCalledWith(usi2);
+    expect(LanEngine.prototype.sendUsiCommand).not.toHaveBeenCalledWith(usi2);
 
     sendMsg({ sfen: usi1, info: "bestmove 3c3d" });
     await vi.advanceTimersByTimeAsync(100);
     await secondSearch;
 
-    expect(LanEngine.prototype.sendCommand).toHaveBeenCalledWith(usi2);
+    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(usi2);
   });
 });
