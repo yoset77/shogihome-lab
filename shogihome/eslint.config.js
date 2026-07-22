@@ -106,6 +106,14 @@ export default defineConfigWithVueTs([
               from: "./src/command",
               target: "./src/server",
             },
+            {
+              from: "./src/server",
+              target: "./src/renderer",
+            },
+            {
+              from: "./src/server",
+              target: "./src/common",
+            },
           ],
         },
       ],

@@ -48,7 +48,7 @@ graph LR
 | `src/server/vision/` | 画像認識バックエンドの Node.js worker と呼び出しアダプタ。レスポンスの形と SFEN 妥当性を検証します。 |
 | `src/common/vision/` | Vision API の共有型定義。 |
 | `src/common/engine/relay_protocol.ts` | Browser と Middle Server 間の WebSocket 中継プロトコル契約。現行 wire format の codec、runtime validator、共有 state・公開エンジン情報型を保持します。Node.js 固有依存は持ちません。 |
-| `src/common/api/rpc.ts` | Hono RPC の `AppType` を renderer へ type-only で共有する境界。runtime 依存は持たせません。 |
+| `src/common/api/rpc.ts` | Hono RPC の `AppType` を renderer へ type-only で共有する境界。runtime 依存は持たせません。ESLint (`import-x/no-restricted-paths`) で `renderer`/`common` → `server` の import は遮断しており、このファイルが唯一の公式例外です。 |
 | `src/node/` | **Node 実行環境共有ユーティリティ**。server、command、旧 background から共有されるログ、実行環境パスを保持します。ブラウザー向け renderer/common からは参照しません。 |
 | `src/renderer/store/index.ts` | **状態管理**。アプリ全体のステートを保持し、対局・検討・編集などの各マネージャー（`GameManager`, `ResearchManager` 等）を統合します。検討停止は `ResearchState.STOPPING` を経由する非同期ライフサイクルとして扱い、停止完了前に UI を `IDLE` 扱いしないようにしています。 |
 | `src/renderer/players/lan_player.ts` | **リモートプレイヤー**。USIプロトコルの同期制御（Stop待ち、コマンド送信）を実装し、通信経由でエンジンを操作する実体です。 |
