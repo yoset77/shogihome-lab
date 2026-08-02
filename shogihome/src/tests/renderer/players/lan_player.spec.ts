@@ -6,6 +6,7 @@ import api from "@/renderer/ipc/api";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "@/renderer/players/usi_events";
 import { BookMoveSelectionRule } from "@/common/settings/usi";
 import { decodeServerRelayMessage, type ServerRelayMessage } from "@/common/engine/relay_protocol";
+import { flippedSFEN } from "@/common/helpers/sfen";
 
 vi.mock("@/renderer/network/lan_engine");
 vi.mock("@/renderer/ipc/api");
@@ -566,6 +567,57 @@ describe("LanPlayer", () => {
 
     expect(onMove.mock.calls[0][0].usi).toBe("2g2f");
     random.mockRestore();
+  });
+
+  it("should select a flipped book move before starting an engine search", async () => {
+    const sfen = "lnsgk1snl/1r4gb1/ppppppppp/9/7P1/9/PPPPPPP1P/1B5R1/LNSGKGSNL w - 4";
+    const usi = `position sfen ${sfen}`;
+    const record = Record.newByUSI(usi) as Record;
+    (api.searchBookMoves as Mock)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ usi: "2g2f", score: -66, depth: 80, comment: "" }]);
+
+    const onMove = vi.fn();
+    const player = new LanPlayer(
+      "research_main",
+      "test-engine",
+      "Test Engine",
+      10,
+      undefined,
+      undefined,
+      {
+        enabled: true,
+        filePath: "test.ybb",
+        moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_SCORE,
+        scoreTemperature: 50,
+        maxEvalDiff: 50,
+        bookDepthLimit: 3,
+      },
+    );
+    await launchPlayer(player);
+
+    await player.startSearch(
+      record.position,
+      record.usi,
+      {
+        black: { timeMs: 1000, byoyomi: 0, increment: 0 },
+        white: { timeMs: 1000, byoyomi: 0, increment: 0 },
+      },
+      { onMove, onResign: vi.fn(), onWin: vi.fn(), onError: vi.fn() },
+    );
+
+    expect(api.searchBookMoves).toHaveBeenNthCalledWith(
+      1,
+      record.position.sfen,
+      "test-book-session",
+    );
+    expect(api.searchBookMoves).toHaveBeenNthCalledWith(
+      2,
+      flippedSFEN(record.position.sfen),
+      "test-book-session",
+    );
+    expect(onMove.mock.calls[0][0].usi).toBe("8c8d");
+    expect(LanEngine.prototype.sendUsiCommand).not.toHaveBeenCalledWith(record.usi);
   });
 
   it("parseInfoCommand should handle mate score and currmove", async () => {
