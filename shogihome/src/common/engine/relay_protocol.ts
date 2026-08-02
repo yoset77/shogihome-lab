@@ -2,6 +2,10 @@ export const RELAY_STATES = ["uninitialized", "starting", "ready", "thinking", "
 
 export type RelayState = (typeof RELAY_STATES)[number];
 
+export type ActiveRelayState = "starting" | "ready" | "thinking";
+
+export type InactiveRelayState = "uninitialized" | "stopped";
+
 export const LAN_ENGINE_TYPES = ["game", "research", "mate"] as const;
 
 export type LanEngineType = (typeof LAN_ENGINE_TYPES)[number];
@@ -14,16 +18,22 @@ export type LanEngineInfo = {
 
 export type RelayNotice = "pong" | "engineReady" | "engineStopped";
 
+type SessionRelayStatePayload =
+  | { type: "state"; state: ActiveRelayState; engineId: string }
+  | { type: "state"; state: InactiveRelayState; engineId: null };
+
 export type SessionRelayPayload =
-  | { type: "state"; state: RelayState; engineId: string | null }
+  | SessionRelayStatePayload
   | { type: "engineOutput"; positionCommand: string | null; output: string }
   | { type: "notice"; notice: RelayNotice }
   | { type: "error"; message: string };
 
 type RelayDelay = { delay?: number };
 
+type ServerRelayStateMessage = SessionRelayStatePayload & RelayDelay;
+
 export type ServerRelayMessage =
-  | ({ type: "state"; state: RelayState; engineId: string | null } & RelayDelay)
+  | ServerRelayStateMessage
   | ({ type: "engineOutput"; positionCommand: string | null; output: string } & RelayDelay)
   | ({ type: "notice"; notice: RelayNotice } & RelayDelay)
   | ({ type: "error"; message: string } & RelayDelay)
@@ -39,12 +49,17 @@ export type ClientRelayMessage =
 export type DecodeResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 const ENGINE_ID_PATTERN = /^[a-zA-Z0-9_.-]+$/;
+export const MIN_MULTIPV = 1;
+export const MAX_MULTIPV = 10;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const isRelayState = (value: unknown): value is RelayState =>
   typeof value === "string" && (RELAY_STATES as readonly string[]).includes(value);
+
+const isActiveRelayState = (value: RelayState): value is ActiveRelayState =>
+  value === "starting" || value === "ready" || value === "thinking";
 
 export const isLanEngineType = (value: unknown): value is LanEngineType =>
   typeof value === "string" && (LAN_ENGINE_TYPES as readonly string[]).includes(value);
@@ -135,12 +150,21 @@ export const decodeServerRelayMessage = (data: unknown): DecodeResult<ServerRela
     if (!isRelayState(parsed.state) || !Object.hasOwn(parsed, "engineId")) {
       return { ok: false, error: "invalid relay state" };
     }
-    if (parsed.engineId !== null && !isRelayEngineId(parsed.engineId)) {
-      return { ok: false, error: "invalid state engine id" };
+    if (isActiveRelayState(parsed.state)) {
+      if (!isRelayEngineId(parsed.engineId)) {
+        return { ok: false, error: "active state requires an engine id" };
+      }
+      return {
+        ok: true,
+        value: withDelay({ type: "state", state: parsed.state, engineId: parsed.engineId }, delay),
+      };
+    }
+    if (parsed.engineId !== null) {
+      return { ok: false, error: "inactive state requires a null engine id" };
     }
     return {
       ok: true,
-      value: withDelay({ type: "state", state: parsed.state, engineId: parsed.engineId }, delay),
+      value: withDelay({ type: "state", state: parsed.state, engineId: null }, delay),
     };
   }
 
@@ -215,8 +239,12 @@ export const isValidUsiCommand = (command: unknown): command is string => {
       return parts.length === 1;
     case "gameover":
       return parts.length === 2 && ["win", "lose", "draw"].includes(parts[1]);
-    case "setoption":
-      return /^setoption name MultiPV value \d+$/.test(cmd);
+    case "setoption": {
+      const match = /^setoption name MultiPV value (\d+)$/.exec(cmd);
+      if (!match) return false;
+      const value = Number(match[1]);
+      return Number.isSafeInteger(value) && value >= MIN_MULTIPV && value <= MAX_MULTIPV;
+    }
     case "position":
       if (parts[1] === "startpos") {
         if (parts.length === 2) return true;

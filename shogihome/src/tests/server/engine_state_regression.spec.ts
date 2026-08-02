@@ -104,6 +104,17 @@ describe("Engine State Regression Tests", () => {
     );
   });
 
+  it("should not emit an active state without an engine ID", () => {
+    tSession.engineState = EngineState.READY;
+    (tSession as unknown as { currentEngineId: string | null }).currentEngineId = null;
+
+    tSession.sendState();
+
+    expect(mockWs.send).toHaveBeenCalledWith(
+      expect.stringContaining('"state":"uninitialized","engineId":null'),
+    );
+  });
+
   it("should handle stop_engine outside postStopCommandQueue", () => {
     tSession.engineState = EngineState.STOPPING_SEARCH;
 
