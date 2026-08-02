@@ -4,6 +4,7 @@ import { Color, Position } from "tsshogi";
 import api from "@/renderer/ipc/api";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "@/renderer/players/usi_events";
 import { BookMoveSelectionRule } from "@/common/settings/usi";
+import { flippedSFEN } from "@/common/helpers/sfen";
 
 vi.mock("@/renderer/ipc/api");
 vi.mock("@/renderer/players/usi_events");
@@ -166,6 +167,41 @@ describe("searchBookMovesForPlayer", () => {
     expect(onMove).toBeCalledTimes(1);
     const calledMove = onMove.mock.calls[0][0];
     expect(["7g7f", "2g2f"]).toContain(calledMove.usi);
+  });
+
+  it("should search the flipped position when the direct book has no moves", async () => {
+    mockPosition.resetBySFEN("lnsgk1snl/1r4gb1/ppppppppp/9/7P1/9/PPPPPPP1P/1B5R1/LNSGKGSNL w - 4");
+    (api.searchBookMoves as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { usi: "2g2f", score: -66, depth: 80, comment: "" },
+        { usi: "7g7f", score: -200, depth: 80, comment: "" },
+      ]);
+
+    const onMove = vi.fn();
+    const result = await searchBookMovesForPlayer(
+      mockSessionID,
+      mockPosition,
+      mockBookSessionID,
+      mockEngineName,
+      {
+        ...uniformOptions,
+        turn: Color.WHITE,
+        maxEvalDiff: 50,
+        bookDepthLimit: 3,
+      },
+      mockUSI,
+      onMove,
+    );
+
+    expect(result).toBe(true);
+    expect(api.searchBookMoves).toHaveBeenNthCalledWith(1, mockPosition.sfen, mockBookSessionID);
+    expect(api.searchBookMoves).toHaveBeenNthCalledWith(
+      2,
+      flippedSFEN(mockPosition.sfen),
+      mockBookSessionID,
+    );
+    expect(onMove.mock.calls[0][0].usi).toBe("8c8d");
   });
 
   it("should filter moves correctly when maxEvalDiff is 0", async () => {

@@ -5,6 +5,7 @@ import { USIInfoCommand } from "@/common/game/usi";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "./usi_events";
 import { BookMove } from "@/common/book";
 import { BookMoveSelectionRule, DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE } from "@/common/settings/usi";
+import { flippedSFEN, flippedUSIMove } from "@/common/helpers/sfen";
 
 export interface BookSearchOptions {
   moveSelectionRule: BookMoveSelectionRule;
@@ -38,7 +39,16 @@ export async function searchBookMovesForPlayer(
   onMove: (move: Move) => void,
 ): Promise<boolean> {
   try {
-    const bookMoves = await api.searchBookMoves(position.sfen, bookSessionID);
+    let bookMoves = await api.searchBookMoves(position.sfen, bookSessionID);
+    if (bookMoves.length === 0) {
+      bookMoves = (await api.searchBookMoves(flippedSFEN(position.sfen), bookSessionID)).map(
+        (move) => ({
+          ...move,
+          usi: flippedUSIMove(move.usi),
+          ...(move.usi2 ? { usi2: flippedUSIMove(move.usi2) } : {}),
+        }),
+      );
+    }
     if (bookMoves.length === 0) {
       return false;
     }
