@@ -153,6 +153,12 @@ export interface KifuSearchResult {
   matched_sfen?: string;
 }
 
+export interface KifuPreviewRequest {
+  path: string;
+  matchedPly?: number;
+  matchedSfen?: string;
+}
+
 export interface KifuListEntry {
   name: string;
   path: string;

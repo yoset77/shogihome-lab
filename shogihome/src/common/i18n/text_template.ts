@@ -839,6 +839,14 @@ export type Texts = {
   fileNotFound: (path: string) => string;
   directoryNotFound: (path: string) => string;
   serverKifu: string;
+  preview: string;
+  loadingKifu: string;
+  failedToLoadKifu: string;
+  matchedPositionNotFound: string;
+  firstMove: string;
+  previousMove: string;
+  nextMove: string;
+  finalPosition: string;
   noKifuFound: string;
   noKifuFoundCheckKifuDir: string;
   enterFileName: string;
