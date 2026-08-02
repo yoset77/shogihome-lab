@@ -1234,4 +1234,31 @@ describe("store/index", () => {
       expect(store.appState).toBe(AppState.NORMAL);
     });
   });
+
+  describe("kifu preview", () => {
+    it("keeps the main record unchanged while preview is open", () => {
+      const store = createStore();
+      const originalSfen = store.record.position.sfen;
+      const request = {
+        path: "games/example.kif",
+        matchedPly: 4,
+        matchedSfen: "position",
+      };
+
+      store.showKifuPreviewDialog(request);
+      expect(store.kifuPreview).toBeUndefined();
+
+      store.showServerKifuDialog();
+      store.showKifuPreviewDialog(request);
+
+      expect(store.kifuPreview).toEqual(request);
+      expect(store.record.position.sfen).toBe(originalSfen);
+
+      store.closeKifuPreviewDialog();
+
+      expect(store.kifuPreview).toBeUndefined();
+      expect(store.appState).toBe(AppState.SERVER_KIFU_DIALOG);
+      expect(store.record.position.sfen).toBe(originalSfen);
+    });
+  });
 });

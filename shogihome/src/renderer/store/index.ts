@@ -63,6 +63,7 @@ import {
   RecordFileFormat,
   detectRecordFileFormatByPath,
   getStandardRecordFileFormats,
+  KifuPreviewRequest,
 } from "@/common/file/record";
 import { setOnStartSearchHandler, setOnUpdateUSIInfoHandler } from "@/renderer/players/usi";
 import { useErrorStore } from "./error.js";
@@ -217,6 +218,7 @@ class Store {
   private _isAnalysisDBManagerDialogVisible = false;
   private _isServerSideKifuEnabled = false;
   private _pvPreview?: PVPreview;
+  private _kifuPreview?: KifuPreviewRequest;
   private usiMonitor = new USIMonitor();
   private blackClock = new Clock();
   private whiteClock = new Clock();
@@ -467,6 +469,20 @@ class Store {
 
   closePVPreviewDialog(): void {
     this._pvPreview = undefined;
+  }
+
+  get kifuPreview(): KifuPreviewRequest | undefined {
+    return this._kifuPreview;
+  }
+
+  showKifuPreviewDialog(request: KifuPreviewRequest): void {
+    if (this.appState === AppState.SERVER_KIFU_DIALOG) {
+      this._kifuPreview = request;
+    }
+  }
+
+  closeKifuPreviewDialog(): void {
+    this._kifuPreview = undefined;
   }
 
   showPasteDialog(mode: "standard" | "mergeIntoRoot" | "mergeIntoCurrent" = "standard"): void {

@@ -55,9 +55,16 @@
             >
             <span v-else class="file-path">{{ entry.name }}</span>
           </div>
-          <button v-if="!entry.isDirectory" @click="open(entry.path)">
-            {{ t.open }}
-          </button>
+          <div v-if="!entry.isDirectory" class="result-actions row align-center">
+            <button :aria-label="t.preview" :title="t.preview" @click="preview(entry.path)">
+              <Icon v-if="isMobile" :icon="IconType.PV" />
+              <template v-else>{{ t.preview }}</template>
+            </button>
+            <button :aria-label="t.open" :title="t.open" @click="open(entry.path)">
+              <Icon v-if="isMobile" :icon="IconType.OPEN" />
+              <template v-else>{{ t.open }}</template>
+            </button>
+          </div>
         </div>
         <div v-if="list.length === 0" class="note">
           {{ t.noKifuFoundCheckKifuDir }}
@@ -191,9 +198,24 @@
                 </span>
               </div>
             </div>
-            <button @click="open(entry.file_path, entry.matched_ply, entry.matched_sfen)">
-              {{ t.open }}
-            </button>
+            <div class="result-actions row align-center">
+              <button
+                :aria-label="t.preview"
+                :title="t.preview"
+                @click="preview(entry.file_path, entry.matched_ply, entry.matched_sfen)"
+              >
+                <Icon v-if="isMobile" :icon="IconType.PV" />
+                <template v-else>{{ t.preview }}</template>
+              </button>
+              <button
+                :aria-label="t.open"
+                :title="t.open"
+                @click="open(entry.file_path, entry.matched_ply, entry.matched_sfen)"
+              >
+                <Icon v-if="isMobile" :icon="IconType.OPEN" />
+                <template v-else>{{ t.open }}</template>
+              </button>
+            </div>
           </div>
           <div v-if="searchResults.length === 0" class="note">
             {{ t.noKifuFound }}
@@ -349,6 +371,14 @@ function onReload() {
   updateList(true);
 }
 
+function preview(path: string, ply?: number, sfen?: string) {
+  store.showKifuPreviewDialog({
+    path,
+    matchedPly: ply,
+    matchedSfen: sfen,
+  });
+}
+
 async function updateIndexStatus() {
   try {
     indexStatus.value = await api.getServerKifuIndexStatus();
@@ -497,7 +527,7 @@ onUnmounted(() => {
   padding: 10px;
 }
 .form-group {
-  width: 600px;
+  width: 640px;
   max-width: 100%;
   box-sizing: border-box;
 }
@@ -508,7 +538,7 @@ onUnmounted(() => {
   min-height: 0;
 }
 .search-content {
-  width: 600px;
+  width: 640px;
   max-width: 100%;
   box-sizing: border-box;
   display: flex;
@@ -621,6 +651,16 @@ onUnmounted(() => {
   flex-shrink: 0;
   white-space: nowrap;
 }
+.result-actions {
+  flex-shrink: 0;
+  gap: 4px;
+}
+.result-actions button {
+  margin: 0;
+}
+.result-actions button .icon {
+  height: 1.4em;
+}
 .kifu-info {
   flex: 1;
   text-align: left;
@@ -633,6 +673,9 @@ onUnmounted(() => {
   overflow: hidden;
   max-width: 450px;
   min-width: 0;
+}
+.kifu-list > .kifu-list-entry > .kifu-header {
+  flex: 1;
 }
 .kifu-metadata {
   font-size: 0.75em;
@@ -702,6 +745,14 @@ onUnmounted(() => {
   }
   .search-content {
     gap: 6px;
+  }
+  .result-actions button {
+    display: inline-flex;
+    width: 40px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
   }
   .search-inputs {
     gap: 4px;

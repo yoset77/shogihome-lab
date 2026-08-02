@@ -121,7 +121,7 @@
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import { ImmutableRecord, ImmutableNode } from "tsshogi";
-import { computed, ref, PropType, onUpdated, watch } from "vue";
+import { computed, ref, PropType, onMounted, onUpdated, watch } from "vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { IconType } from "@/renderer/assets/icons";
 import ToggleButton from "./ToggleButton.vue";
@@ -337,20 +337,23 @@ const branches = computed(() => {
   }
 });
 
-onUpdated(() => {
+const scrollSelectedItems = () => {
   const moveListElement = moveList.value;
   moveListElement?.childNodes.forEach((elem) => {
     if (elem instanceof HTMLElement && elem.classList.contains("selected")) {
-      elem.scrollIntoView({ behavior: "auto", block: "nearest" });
+      elem.scrollIntoView?.({ behavior: "auto", block: "nearest" });
     }
   });
   const branchListElement = branchList.value as HTMLElement;
   branchListElement?.childNodes.forEach((elem) => {
     if (elem instanceof HTMLElement && elem.classList.contains("selected")) {
-      elem.scrollIntoView({ behavior: "auto", block: "nearest" });
+      elem.scrollIntoView?.({ behavior: "auto", block: "nearest" });
     }
   });
-});
+};
+
+onMounted(scrollSelectedItems);
+onUpdated(scrollSelectedItems);
 </script>
 
 <style scoped>
