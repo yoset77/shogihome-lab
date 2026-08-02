@@ -149,6 +149,15 @@ export class EngineSession {
         stateStr = "stopped";
         break;
     }
+    if (stateStr === "uninitialized" || stateStr === "stopped") {
+      this.sendToClient({ type: "state", state: stateStr, engineId: null });
+      return;
+    }
+    if (!this.currentEngineId) {
+      console.error(`Active engine state without an engine ID for session ${this.sessionId}`);
+      this.sendToClient({ type: "state", state: "uninitialized", engineId: null });
+      return;
+    }
     this.sendToClient({ type: "state", state: stateStr, engineId: this.currentEngineId });
   }
 

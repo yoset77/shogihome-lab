@@ -144,7 +144,7 @@ graph LR
 - **Server → Browser**: wire format は従来どおり discriminator なし JSON です。state は `{state, engineId, delay}`、エンジン出力は `{sfen, info, delay}`、error は `{error, delay}`、通知は `{info, delay}`、一覧は `{engineList}` です。互換性維持のため wire 上に `type` や `version` は追加しません。
 - **フィールドの意味**: エンジン出力の wire field `sfen` は裸の SFEN ではなく、探索結果に対応する `position ...` コマンド全体または `null` です。内部型では意味を明確にするため `positionCommand` として扱います。
 - **runtime validation**: `LanEngine` は受信フレームを一度だけ decode し、検証済みメッセージだけを `LanPlayer` や一時 listener へ渡します。`EngineSession` は受信テキストを一度だけ decode してから状態機械へ渡します。未知の追加 JSON property は将来互換のため許可しますが、未知の frame、型不正、複数 payload を併記した曖昧な frame は警告して破棄し、WebSocket 接続は維持します。
-- **状態同期**: wire state は `uninitialized` / `starting` / `ready` / `thinking` / `stopped` に限定し、state frame の `engineId` は `string | null` の必須フィールドです。これにより再接続時に要求エンジンとの一致を検証します。
+- **状態同期**: wire state は `uninitialized` / `starting` / `ready` / `thinking` / `stopped` に限定します。`starting` / `ready` / `thinking` の state frame は有効な `engineId` を必須とし、`uninitialized` / `stopped` は `engineId: null` を必須とします。これにより再接続時に要求エンジンとの一致を検証します。
 - **公開エンジン情報**: Browser へ公開する一覧は `id`、`name`、`type` のみで、`type` は `game` / `research` / `mate` に限定します。Wrapper の path や解析 DB 設定は server 内部の `EngineConfig` に留めます。
 - **対象外**: Middle Server と Python/Node Engine Wrapper 間の TCP プロトコルは別契約です。TypeScript の WebSocket 共有型には含めません。
 

@@ -20,6 +20,10 @@ describe("engine relay protocol", () => {
         { type: "state", state: "uninitialized", engineId: null },
       ],
       [
+        { state: "starting", engineId: "engine-1" },
+        { type: "state", state: "starting", engineId: "engine-1" },
+      ],
+      [
         { sfen: "position startpos", info: "bestmove 7g7f", delay: 4 },
         {
           type: "engineOutput",
@@ -87,6 +91,8 @@ describe("engine relay protocol", () => {
       ["invalid engineId", JSON.stringify({ state: "ready", engineId: 1 })],
       ["empty engineId", JSON.stringify({ state: "ready", engineId: "" })],
       ["malformed engineId", JSON.stringify({ state: "ready", engineId: "engine id" })],
+      ["active state without engineId", JSON.stringify({ state: "thinking", engineId: null })],
+      ["inactive state with engineId", JSON.stringify({ state: "stopped", engineId: "engine-1" })],
       ["invalid output sfen", JSON.stringify({ sfen: 1, info: "bestmove 7g7f" })],
       ["unknown notice", JSON.stringify({ info: "future notice" })],
       ["prototype constructor notice", JSON.stringify({ info: "constructor" })],
@@ -190,6 +196,9 @@ describe("engine relay protocol", () => {
       "start_engine engine id",
       "setoption name USI_Hash value 1024",
       "setoption name MultiPV",
+      "setoption name MultiPV value 0",
+      "setoption name MultiPV value 11",
+      "setoption name MultiPV value 999999999999999999999999999999999999999999999999",
       "go nodes 1000",
       "gameover invalid",
       "position invalid",

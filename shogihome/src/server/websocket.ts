@@ -18,6 +18,7 @@ export const createEngineWebSocketServer = (
 ) => {
   const wss = new WebSocketServer({
     server,
+    maxPayload: 1 * 1024 * 1024,
     perMessageDeflate: false,
     verifyClient: (info, cb) => {
       const origin = info.origin;
