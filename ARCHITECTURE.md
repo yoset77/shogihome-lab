@@ -268,11 +268,18 @@ graph LR
 ### 局面編集 Dialog
 - **非破壊編集**: 局面編集の開始時には棋譜を初期化せず、`POSITION_EDITING_DIALOG` 内で現在局面の clone を編集します。キャンセル時は元の棋譜、保存先、未保存状態を変更しません。OK 後の確認を承認した場合だけ `RecordManager.resetByPosition()` で棋譜を編集局面から初期化し、未保存として扱います。
 - **編集履歴**: Dialog 内の変更は SFEN 履歴として保持し、盤・駒台・駒箱の操作、手番変更、プリセット、paste を Undo/Redo できます。Undo 後に新しく編集した場合は Redo branch を破棄します。
-- **駒箱**: 数値による駒枚数変更 Dialog は廃止し、`PositionEditorCore.vue` が盤・駒台・`PieceBox.vue` 間の drag と tap-to-select を一元管理します。駒箱は標準40枚から未使用駒を算出し、新規追加では物理上限を超えられません。paste 等で読み込んだ過剰駒局面は警告して保持します。通常局面編集と Vision 局面編集は同じ editor core を共有し、駒箱の駒は固定40pxで表示します。
+- **駒箱**: 数値による駒枚数変更 Dialog は廃止し、`PositionEditorCore.vue` が盤・駒台・`PieceBox.vue` 間の drag と tap-to-select を一元管理します。駒箱は標準40枚から未使用駒を算出し、新規追加では物理上限を超えられません。paste 等で読み込んだ過剰駒局面は警告して保持します。通常局面編集と Vision 局面編集は同じ editor core を共有し、駒箱の表示サイズは標準40pxを基準に盤サイズから算出したscale（0.75〜1.5倍）で調整します。
 - **駒の初期色**: 駒箱から盤上へ追加する駒は、手番ではなく表示上の手前側（通常表示は先手、反転表示は後手）を初期色にします。玉は盤上に片方だけ存在する場合に限り不足している側の色を優先し、両方不在なら手前側として追加します。玉を駒台へ追加する操作は拒否します。
 - **盤サイズ**: `PositionEditorCore` は盤領域を `ResizeObserver` で実測し、`BoardView` の `maxSize` に渡します。盤scaleを親Dialogやstoreへ戻すフィードバック経路は持たず、CSSで確定した領域内へ収めます。
-- **desktop/mobile**: desktop は Vision 局面編集と同じ最大800pxのSTANDARD盤レイアウトを使用し、テキストのみの操作メニューを盤の上側に1段で配置します。狭幅時のみtoolbarの折り返しを許可します。mobile は向きに関係なく `100dvh` の専用 shell でPORTRAIT盤と下配置の駒箱を使用します。盤面反転を含む8操作は常時表示し、向きに関係なく4列×2段のtoolbarに配置します。反転状態は先手側を初期値とするDialog内だけの表示状態で、アプリ設定や編集履歴へは保存しません。
+- **desktop/mobile**: desktop は Vision 局面編集と同じSTANDARD盤を含む4:3の可変レイアウトを使用し、高さは `clamp(520px, 90dvh, 1400px)` で調整します。テキストのみの操作メニューを盤の上側に1段で配置し、狭幅時のみtoolbarの折り返しを許可します。mobile は向きに関係なく `100dvh` の専用 shell でPORTRAIT盤と下配置の駒箱を使用します。盤面反転を含む8操作は常時表示し、向きに関係なく4列×2段のtoolbarに配置します。反転状態は先手側を初期値とするDialog内だけの表示状態で、アプリ設定や編集履歴へは保存しません。
 - **Dialog 内 drag**: native `<dialog>` は top layer に描画されるため、`DialogFrame.vue` が dialog element を公開し、`BoardView.vue` の drag ghost は active dialog 内へ Teleport します。
+
+### PC版UIのレスポンシブ対応
+- **対応範囲**: PC版のダイアログは論理解像度 HD（1280×720）からWQHD（2560×1440）までを主な対応範囲とします。幅・高さを固定値だけで決めず、各解像度で利用可能領域に応じてフォーム、一覧、盤面を拡大します。
+- **サイズ方針**: `DialogFrame.vue` の共通レイアウトは変更せず、各ダイアログが自身の内容に応じたサイズ規則とoverflowを管理します。幅は `clamp(min, vw, max)` と `max-width`、`box-sizing: border-box` を組み合わせ、高さは `dvh` を基準に `clamp` で制限します。
+- **対応コンポーネント**: 一覧・フォーム系の `AddBookMovesDialog`、`AnalysisDBManagerDialog`、`AppSettingsDialog`、`BookSelectDialog`、`LoadRemoteFileDialog`、`RecordFileHistoryDialog`、`ServerKifuDialog`、`USIEngineMergeDialog`、盤面を含む `VisionScanDialog`、`ElapsedTimeChartDialog`、局面編集系の `PositionEditingDialog` / `VisionPositionEditDialog` を対象とします。Server Kifu の検索盤は表示領域に応じて盤面と操作部を拡大し、Elapsed Time Chart はResizeObserverでダイアログ内の盤面領域を実測します。
+- **モバイルとの境界**: 画面幅600px未満はモバイル表示として扱い、PC版の最小幅・拡大指定がモバイルのレイアウトを上書きしないことを原則とします。`max-width` とモバイル用media queryで縦積み・折り返しなど既存のモバイル固有レイアウトを維持します。
+- **回帰防止**: 対応ダイアログのサイズ上限・`dvh`利用・モバイル用レイアウトの契約は `src/tests/renderer/view/dialog/responsive_dialog.spec.ts` で検証します。
 
 ### モバイル最適化
 - **CSS**: ブラウザのツールバーによる表示崩れを防ぐため、`100vh` ではなく `100dvh` を使用しています。

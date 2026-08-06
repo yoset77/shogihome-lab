@@ -46,6 +46,7 @@
       <PieceBox
         ref="pieceBoxRef"
         :position="position"
+        :scale="pieceBoxScale"
         :accept-tap-drop="editSelection !== null"
         :selection="pieceBoxSelection"
         @dragstart="onPieceBoxDragStart"
@@ -70,6 +71,11 @@ import {
 import { useAppSettings } from "@/renderer/store/settings";
 import BoardView from "@/renderer/view/primitive/BoardView.vue";
 import PieceBox from "@/renderer/view/primitive/PieceBox.vue";
+import { portraitViewParams, standardViewParams } from "@/renderer/view/primitive/board/params";
+
+const PIECE_BOX_SCALE_STEP = 0.05;
+// Ignore layout jitter smaller than one quantization step.
+const PIECE_BOX_SCALE_HYSTERESIS = PIECE_BOX_SCALE_STEP;
 
 type PieceBoxExpose = {
   containsPoint(clientX: number, clientY: number): boolean;
@@ -111,6 +117,25 @@ const externalDrag = ref<ExternalDrag | null>(null);
 const pieceBoxSelection = ref<PieceType | null>(null);
 const editSelection = shallowRef<Square | Piece | null>(null);
 const hasViolation = computed(() => detectPieceCountViolations(props.position).length > 0);
+const calculatePieceBoxScale = (boardSize: RectSize, layoutType: BoardLayoutType): number => {
+  const frame =
+    layoutType === BoardLayoutType.PORTRAIT ? portraitViewParams.frame : standardViewParams.frame;
+  const boardScale = Math.min(boardSize.width / frame.width, boardSize.height / frame.height);
+  const defaultScale = Math.min(800 / frame.width, 600 / frame.height);
+  return Math.min(1.5, Math.max(0.75, boardScale / defaultScale));
+};
+const pieceBoxScale = ref(1);
+
+watch(
+  [boardMaxSize, () => props.layoutType],
+  ([boardSize, layoutType]) => {
+    const scale = calculatePieceBoxScale(boardSize, layoutType);
+    const quantizedScale = Math.round(scale / PIECE_BOX_SCALE_STEP) * PIECE_BOX_SCALE_STEP;
+    if (Math.abs(scale - pieceBoxScale.value) < PIECE_BOX_SCALE_HYSTERESIS) return;
+    pieceBoxScale.value = quantizedScale;
+  },
+  { immediate: true },
+);
 let resizeObserver: ResizeObserver | null = null;
 
 const clearInteraction = () => {

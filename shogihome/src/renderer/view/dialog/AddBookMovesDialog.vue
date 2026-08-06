@@ -509,11 +509,10 @@ const importMoves = () => {
 
 <style scoped>
 .form-group {
-  width: 580px;
+  width: clamp(580px, 35vw, 800px);
   max-width: 100%;
   box-sizing: border-box;
-  min-height: calc(80dvh - 200px);
-  max-height: 600px;
+  height: clamp(320px, calc(100dvh - 240px), 600px);
 }
 table.move-list td {
   font-size: 0.8em;
@@ -562,7 +561,7 @@ button.import {
   color: var(--text-color-sub);
 }
 .server-selection-scroll {
-  max-height: 400px;
+  max-height: min(400px, 45dvh);
   overflow-y: auto;
 }
 .server-selection-item {

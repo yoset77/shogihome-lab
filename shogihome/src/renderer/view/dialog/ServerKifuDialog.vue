@@ -1,5 +1,44 @@
+<script lang="ts">
+import { RectSize } from "@/common/assets/geometry";
+
+const MAX_DESKTOP_BOARD_SIZE = 720;
+const MIN_DESKTOP_BOARD_SIZE = 500;
+const DESKTOP_SEARCH_UI_HEIGHT = 220;
+const BASE_SEARCH_BOARD_SIZE = 500;
+const MAX_SEARCH_BOARD_CONTROL_SCALE = 1.35;
+const BOARD_SIZE_HEIGHT_RATIO = 0.55;
+
+export function getServerKifuBoardMaxSize(
+  viewportWidth: number,
+  viewportHeight: number,
+  isMobile: boolean,
+): RectSize {
+  if (isMobile) {
+    const size = viewportWidth * 0.9;
+    return new RectSize(size, size);
+  }
+
+  const dynamicMax = Math.min(
+    MAX_DESKTOP_BOARD_SIZE,
+    Math.max(MIN_DESKTOP_BOARD_SIZE, viewportHeight * BOARD_SIZE_HEIGHT_RATIO),
+  );
+  const size = Math.max(
+    0,
+    Math.min(dynamicMax, viewportWidth * 0.5, viewportHeight - DESKTOP_SEARCH_UI_HEIGHT),
+  );
+  return new RectSize(size, size);
+}
+
+export function getServerKifuBoardControlScale(boardSize: number, isMobile: boolean): number {
+  if (isMobile) {
+    return 1;
+  }
+  return Math.min(MAX_SEARCH_BOARD_CONTROL_SCALE, Math.max(1, boardSize / BASE_SEARCH_BOARD_SIZE));
+}
+</script>
+
 <template>
-  <DialogFrame @cancel="onCancel">
+  <DialogFrame ref="dialogFrame" @cancel="onCancel">
     <div class="title">{{ t.serverKifu }}</div>
     <div v-if="indexStatus && indexStatus.isIndexing" class="indexing-status">
       {{ t.indexingKifuProgress(indexStatus.total, indexStatus.indexed) }}
@@ -102,10 +141,11 @@
               :allow-edit="true"
               :drop-shadows="true"
               :next-move-label="t.nextTurn"
+              :ghost-teleport-target="ghostTeleportTarget"
               @move="onSearchBoardMove"
               @edit="onEditPosition"
             />
-            <div class="board-controls row">
+            <div class="board-controls row" :style="boardControlsStyle">
               <button class="thin" @click="syncPosition">{{ t.currentPosition }}</button>
               <button class="thin" @click="paste">{{ t.paste }}</button>
               <button class="thin" @click="swapTurn">{{ t.changeTurn }}</button>
@@ -248,7 +288,6 @@ import ComboBox from "@/renderer/view/primitive/ComboBox.vue";
 import BoardView from "@/renderer/view/primitive/BoardView.vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { normalizePath } from "@/common/helpers/path";
-import { RectSize } from "@/common/assets/geometry";
 import { Move, reverseColor, PositionChange, Record as TssRecord } from "tsshogi";
 import { useAppSettings } from "@/renderer/store/settings";
 import { getPieceImageURLTemplate } from "@/common/settings/app";
@@ -258,6 +297,8 @@ import { useServerKifuStore } from "@/renderer/store/serverKifu";
 import { KifuListEntry } from "@/common/file/record";
 
 const store = useStore();
+const dialogFrame = ref<InstanceType<typeof DialogFrame>>();
+const ghostTeleportTarget = computed(() => dialogFrame.value?.dialog ?? "body");
 const {
   activeTab,
   currentDir,
@@ -283,15 +324,27 @@ const indexStatus = ref<{ total: number; indexed: number; isIndexing: boolean } 
 let statusTimer: ReturnType<typeof setInterval> | null = null;
 
 const flip = ref(appSettings.boardFlipping);
+const windowSize = ref(new RectSize(window.innerWidth, window.innerHeight));
 
-const isMobile = computed(() => window.innerWidth < 600);
+const isMobile = computed(() => windowSize.value.width < 600);
 
-const maxBoardSize = computed(() => {
-  if (isMobile.value) {
-    return new RectSize(window.innerWidth * 0.9, window.innerWidth * 0.9);
-  }
-  return new RectSize(540, 540);
+const maxBoardSize = computed(() =>
+  getServerKifuBoardMaxSize(windowSize.value.width, windowSize.value.height, isMobile.value),
+);
+const boardControlsStyle = computed(() => {
+  const scale = getServerKifuBoardControlScale(maxBoardSize.value.width, isMobile.value);
+  return {
+    "--board-control-gap": `${isMobile.value ? 4 : 5 * scale}px`,
+    "--board-control-font-size": `${0.7 * scale}em`,
+    "--board-control-padding-y": `${2 * scale}px`,
+    "--board-control-padding-x": `${isMobile.value ? 6 : 8 * scale}px`,
+    "--board-control-icon-height": `${1.2 * scale}em`,
+  };
 });
+
+const updateWindowSize = () => {
+  windowSize.value = new RectSize(window.innerWidth, window.innerHeight);
+};
 
 const yearOptions = computed(() => {
   const currentYear = new Date().getFullYear();
@@ -470,6 +523,7 @@ function onCancel() {
 }
 
 onMounted(() => {
+  window.addEventListener("resize", updateWindowSize);
   updateList();
   updateIndexStatus();
   statusTimer = setInterval(() => {
@@ -495,6 +549,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener("resize", updateWindowSize);
   store.setOnPasteHandler(undefined);
   if (statusTimer) {
     clearInterval(statusTimer);
@@ -527,7 +582,7 @@ onUnmounted(() => {
   padding: 10px;
 }
 .form-group {
-  width: 640px;
+  width: clamp(640px, 40vw, 840px);
   max-width: 100%;
   box-sizing: border-box;
 }
@@ -538,7 +593,7 @@ onUnmounted(() => {
   min-height: 0;
 }
 .search-content {
-  width: 640px;
+  width: clamp(640px, 40vw, 840px);
   max-width: 100%;
   box-sizing: border-box;
   display: flex;
@@ -563,7 +618,7 @@ onUnmounted(() => {
 }
 
 .kifu-list {
-  height: calc(100vh - 350px);
+  height: clamp(320px, calc(100dvh - 350px), 750px);
   overflow-y: auto;
   background-color: var(--text-bg-color);
 }
@@ -604,19 +659,19 @@ onUnmounted(() => {
 }
 .board-controls {
   margin-top: 4px;
-  gap: 5px;
+  gap: var(--board-control-gap);
   flex-wrap: wrap;
   justify-content: center;
 }
 .board-controls button {
-  font-size: 0.7em;
-  padding: 2px 8px;
+  font-size: var(--board-control-font-size);
+  padding: var(--board-control-padding-y) var(--board-control-padding-x);
   display: flex;
   align-items: center;
   gap: 4px;
 }
 .board-controls button .icon {
-  height: 1.2em;
+  height: var(--board-control-icon-height);
 }
 
 .search-results-view {
@@ -637,7 +692,7 @@ onUnmounted(() => {
   color: var(--text-color-sub);
 }
 .search-results-container {
-  height: calc(100vh - 350px);
+  height: clamp(320px, calc(100dvh - 350px), 750px);
   overflow-y: auto;
   background-color: var(--text-bg-color);
 }

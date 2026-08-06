@@ -328,7 +328,7 @@ onMounted(async () => {
 
 <style scoped>
 .form-group {
-  width: 800px;
+  width: clamp(800px, 55vw, 1100px);
   max-width: calc(100vw - 30px);
   box-sizing: border-box;
 }
@@ -362,7 +362,7 @@ button.reload {
   width: 150px;
 }
 .game-list {
-  height: calc(100vh - 300px);
+  height: clamp(320px, calc(100dvh - 300px), 800px);
   overflow-y: auto;
   background-color: var(--text-bg-color);
   box-sizing: border-box;

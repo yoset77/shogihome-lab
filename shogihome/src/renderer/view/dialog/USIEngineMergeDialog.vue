@@ -149,15 +149,16 @@ const cancel = () => {
 
 <style scoped>
 .form-group {
-  width: 600px;
+  width: clamp(600px, 45vw, 960px);
   max-width: 100%;
+  box-sizing: border-box;
 }
 .select-area {
   width: 100%;
 }
 .option-area {
   width: 100%;
-  height: calc(100vh - 250px);
+  height: clamp(320px, calc(100dvh - 250px), 800px);
   overflow: auto;
 }
 .engine-column {

@@ -1,5 +1,5 @@
 <template>
-  <div ref="rootEl" class="piece-box" @pointerdown="onRootPointerDown">
+  <div ref="rootEl" class="piece-box" :style="style" @pointerdown="onRootPointerDown">
     <div class="piece-box-header">{{ t.pieceBox }}</div>
     <div class="piece-box-grid">
       <div
@@ -33,11 +33,15 @@ import { useAppSettings } from "@/renderer/store/settings";
 import { getPieceImageURLTemplate } from "@/common/settings/app";
 import { getPieceImageAssetName } from "@/common/assets/pieces";
 
-const props = defineProps<{
-  position: Position;
-  acceptTapDrop?: boolean;
-  selection?: PieceType | null;
-}>();
+const props = withDefaults(
+  defineProps<{
+    position: Position;
+    scale?: number;
+    acceptTapDrop?: boolean;
+    selection?: PieceType | null;
+  }>(),
+  { scale: 1, selection: null },
+);
 
 const emit = defineEmits<{
   dragstart: [
@@ -67,6 +71,17 @@ const pieceTypes = [
 const pieceBoxCounts = computed<PieceBoxCounts>(() => {
   return computePieceBoxCounts(props.position);
 });
+const style = computed(() => ({
+  "--piece-box-gap": `${4 * props.scale}px`,
+  "--piece-box-padding": `${4 * props.scale}px`,
+  "--piece-box-header-font-size": `${14 * props.scale}px`,
+  "--piece-box-item-gap": `${2 * props.scale}px`,
+  "--piece-box-item-padding": `${2 * props.scale}px`,
+  "--piece-box-item-min-width": `${48 * props.scale}px`,
+  "--piece-box-image-size": `${40 * props.scale}px`,
+  "--piece-box-count-font-size": `${12 * props.scale}px`,
+  "--piece-box-selected-radius": `${4 * props.scale}px`,
+}));
 
 const getCount = (pieceType: PieceType): number => {
   const key = pieceTypeToPieceBoxKey(pieceType);
@@ -118,16 +133,16 @@ defineExpose({ containsPoint });
 .piece-box {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--piece-box-gap);
   box-sizing: border-box;
-  padding: 4px;
+  padding: var(--piece-box-padding);
   max-width: 100%;
   background: var(--main-bg-color);
   border: 1px solid var(--main-color);
 }
 
 .piece-box-header {
-  font-size: 14px;
+  font-size: var(--piece-box-header-font-size);
   font-weight: bold;
   text-align: center;
 }
@@ -135,7 +150,7 @@ defineExpose({ containsPoint });
 .piece-box-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--piece-box-gap);
   justify-content: center;
 }
 
@@ -143,9 +158,9 @@ defineExpose({ containsPoint });
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
-  min-width: 48px;
+  gap: var(--piece-box-item-gap);
+  padding: var(--piece-box-item-padding);
+  min-width: var(--piece-box-item-min-width);
   touch-action: none;
 }
 
@@ -159,7 +174,7 @@ defineExpose({ containsPoint });
 
 .piece-box-item.selected {
   background-color: var(--main-color);
-  border-radius: 4px;
+  border-radius: var(--piece-box-selected-radius);
 }
 
 .piece-box-item.selected .piece-count {
@@ -167,12 +182,12 @@ defineExpose({ containsPoint });
 }
 
 .piece-box-item img {
-  width: 40px;
-  height: 40px;
+  width: var(--piece-box-image-size);
+  height: var(--piece-box-image-size);
 }
 
 .piece-count {
-  font-size: 12px;
+  font-size: var(--piece-box-count-font-size);
   font-weight: bold;
 }
 </style>

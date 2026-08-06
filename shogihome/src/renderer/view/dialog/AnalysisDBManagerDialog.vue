@@ -293,10 +293,9 @@ const migrate = async () => {
 <style scoped>
 /* Common Layout & Dialog */
 .root {
-  width: 800px;
+  width: clamp(800px, 55vw, 1100px);
   max-width: 90vw;
-  min-height: 300px;
-  max-height: 80vh;
+  height: clamp(400px, 70dvh, 800px);
 }
 .title {
   font-size: 1.2rem;

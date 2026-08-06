@@ -27,11 +27,15 @@ vi.mock("@/renderer/store/settings", () => ({
 
 let resizeObserverCallback: ResizeObserverCallback;
 
-const createWrapper = (position: Position, flip = false) =>
+const createWrapper = (
+  position: Position,
+  flip = false,
+  layoutType: BoardLayoutType = BoardLayoutType.PORTRAIT,
+) =>
   mount(PositionEditorCore, {
     props: {
       position,
-      layoutType: BoardLayoutType.PORTRAIT,
+      layoutType,
       ghostTeleportTarget: "#dialog",
       flip,
     },
@@ -44,6 +48,7 @@ const createWrapper = (position: Position, flip = false) =>
         },
         PieceBox: {
           name: "PieceBox",
+          props: ["scale"],
           template: "<div />",
           methods: { containsPoint: () => true },
         },
@@ -72,7 +77,7 @@ describe("PositionEditorCore", () => {
     expect(wrapper.findComponent(BoardView).props("ghostTeleportTarget")).toBe("#dialog");
   });
 
-  it("uses the measured board area without a fixed PieceBox height", async () => {
+  it("uses the measured board area and scales PieceBox with the board", async () => {
     const position = Position.newBySFEN(InitialPositionSFEN.EMPTY) as Position;
     const wrapper = createWrapper(position);
 
@@ -85,6 +90,27 @@ describe("PositionEditorCore", () => {
     const maxSize = wrapper.findComponent(BoardView).props("maxSize") as RectSize;
     expect(maxSize.width).toBe(320);
     expect(maxSize.height).toBe(480);
+    expect(wrapper.findComponent(PieceBox).props("scale")).toBe(0.75);
+  });
+
+  it("keeps PieceBox scale stable across one-pixel board-area jitter", async () => {
+    const position = Position.newBySFEN(InitialPositionSFEN.EMPTY) as Position;
+    const wrapper = createWrapper(position, false, BoardLayoutType.STANDARD);
+
+    resizeObserverCallback(
+      [{ contentRect: { width: 1400, height: 700 } } as ResizeObserverEntry],
+      {} as ResizeObserver,
+    );
+    await wrapper.vm.$nextTick();
+    const scale = wrapper.findComponent(PieceBox).props("scale");
+
+    resizeObserverCallback(
+      [{ contentRect: { width: 1400, height: 699 } } as ResizeObserverEntry],
+      {} as ResizeObserver,
+    );
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.findComponent(PieceBox).props("scale")).toBe(scale);
   });
 
   it("adds the missing king color from PieceBox", async () => {
