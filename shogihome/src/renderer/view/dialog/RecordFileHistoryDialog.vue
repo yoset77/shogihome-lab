@@ -122,9 +122,10 @@ const onClose = () => {
 
 <style scoped>
 .list-area {
-  max-width: 800px;
-  width: 80vw;
-  height: 70vh;
+  width: clamp(800px, 55vw, 1100px);
+  max-width: 100%;
+  box-sizing: border-box;
+  height: clamp(320px, 70dvh, 800px);
   background-color: var(--text-bg-color);
 }
 .entry {

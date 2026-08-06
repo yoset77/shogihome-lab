@@ -90,7 +90,7 @@ onMounted(() => {
 
 <style scoped>
 .form-group {
-  width: 600px;
+  width: clamp(600px, 45vw, 900px);
   max-width: 100%;
   box-sizing: border-box;
 }
@@ -126,7 +126,7 @@ button.reload {
   }
 }
 .book-list {
-  height: calc(100vh - 300px);
+  height: clamp(320px, calc(100dvh - 300px), 720px);
   overflow-y: auto;
   background-color: var(--text-bg-color);
 }

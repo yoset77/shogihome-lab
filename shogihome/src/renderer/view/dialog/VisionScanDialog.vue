@@ -226,7 +226,12 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  width: min(680px, calc(95vw - 30px));
+  width: clamp(600px, 45vw, 900px);
+  max-width: calc(95vw - 30px);
+  height: min(90dvh, 840px);
+  max-height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
 }
 .dialog-header {
   display: flex;
@@ -274,8 +279,8 @@ h2 {
   align-items: center;
   justify-content: center;
   width: 100%;
-  aspect-ratio: 4 / 3;
-  min-height: 220px;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
   border: 1px solid var(--dialog-border-color);
   background-color: var(--main-bg-color);
@@ -291,5 +296,22 @@ h2 {
 }
 button:disabled {
   opacity: 0.5;
+}
+
+@media (max-width: 600px) {
+  .vision-scan-dialog {
+    gap: 12px;
+    width: min(680px, calc(95vw - 30px));
+    max-width: none;
+    height: auto;
+    max-height: none;
+    min-height: initial;
+    box-sizing: content-box;
+  }
+  .preview-area {
+    flex: initial;
+    aspect-ratio: 4 / 3;
+    min-height: 220px;
+  }
 }
 </style>

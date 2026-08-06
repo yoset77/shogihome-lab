@@ -1,7 +1,7 @@
 <template>
   <DialogFrame limited @cancel="onClose">
     <div class="title">{{ t.elapsedTimeChart }}</div>
-    <div class="content" :class="{ mobile: isMobile }">
+    <div ref="contentRef" class="content" :class="{ mobile: isMobile }">
       <div class="board-area">
         <SimpleBoardView
           :max-size="boardMaxSize"
@@ -41,13 +41,44 @@
   </DialogFrame>
 </template>
 
+<script lang="ts">
+import { RectSize } from "@/common/assets/geometry";
+
+export function getElapsedTimeChartBoardMaxSize(
+  contentWidth: number,
+  contentHeight: number,
+  isMobile: boolean,
+): RectSize {
+  if (isMobile) {
+    const size = Math.min(contentWidth * 0.8, contentHeight * 0.35);
+    return new RectSize(size, size);
+  }
+
+  const size = Math.max(0, Math.min(contentWidth * 0.3, contentHeight - 30, 480));
+  return new RectSize(size, size);
+}
+
+export function getElapsedTimeChartBoardSize(
+  viewportWidth: number,
+  viewportHeight: number,
+  contentWidth: number,
+  contentHeight: number,
+  isMobile: boolean,
+): RectSize {
+  return getElapsedTimeChartBoardMaxSize(
+    isMobile ? viewportWidth : contentWidth,
+    isMobile ? viewportHeight : contentHeight,
+    isMobile,
+  );
+}
+</script>
+
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { Move, ImmutablePosition } from "tsshogi";
 import { useStore } from "@/renderer/store";
 import { useAppSettings } from "@/renderer/store/settings";
 import { t } from "@/common/i18n";
-import { RectSize } from "@/common/assets/geometry";
 import DialogFrame from "./DialogFrame.vue";
 import SimpleBoardView from "@/renderer/view/primitive/SimpleBoardView.vue";
 import ElapsedTimeChart from "@/renderer/view/primitive/ElapsedTimeChart.vue";
@@ -59,26 +90,37 @@ const store = useStore();
 const appSettings = useAppSettings();
 
 const windowSize = ref({ width: window.innerWidth, height: window.innerHeight });
+const contentRef = ref<HTMLElement>();
+const contentSize = ref(new RectSize(window.innerWidth, window.innerHeight));
+let resizeObserver: ResizeObserver | undefined;
 const updateWindowSize = () => {
   windowSize.value = { width: window.innerWidth, height: window.innerHeight };
 };
 
 onMounted(() => {
   window.addEventListener("resize", updateWindowSize);
+  if (!contentRef.value) return;
+  resizeObserver = new ResizeObserver(([entry]) => {
+    contentSize.value = new RectSize(entry.contentRect.width, entry.contentRect.height);
+  });
+  resizeObserver.observe(contentRef.value);
 });
 
 onUnmounted(() => {
   window.removeEventListener("resize", updateWindowSize);
+  resizeObserver?.disconnect();
 });
 
 const isMobile = computed(() => windowSize.value.width < 600);
 
 const boardMaxSize = computed(() => {
-  if (isMobile.value) {
-    const size = Math.min(windowSize.value.width * 0.8, windowSize.value.height * 0.35);
-    return new RectSize(size, size);
-  }
-  return new RectSize(200, 200);
+  return getElapsedTimeChartBoardSize(
+    windowSize.value.width,
+    windowSize.value.height,
+    contentSize.value.width,
+    contentSize.value.height,
+    isMobile.value,
+  );
 });
 
 const shortcutKeys = computed(() => getRecordShortcutKeys(appSettings.recordShortcutKeys));

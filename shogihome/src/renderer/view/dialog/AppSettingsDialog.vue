@@ -1141,8 +1141,10 @@ const cancel = () => {
 
 <style scoped>
 .settings {
-  max-width: 590px;
-  max-height: 540px;
+  width: clamp(590px, 42vw, 800px);
+  max-width: 100%;
+  box-sizing: border-box;
+  height: clamp(360px, calc(100dvh - 180px), 760px);
 }
 .section {
   margin: 20px 0px 20px 0px;
@@ -1151,10 +1153,10 @@ const cancel = () => {
   font-size: 1.1em;
 }
 input.file-path {
-  width: 250px;
+  width: min(320px, 100%);
 }
 input.file-path.full-width {
-  width: 400px;
+  width: min(520px, 100%);
 }
 .server-prefix {
   margin-right: 5px;
@@ -1170,10 +1172,14 @@ input.file-path.full-width {
     width: 100% !important;
     margin-bottom: 5px;
   }
+  .settings .selector {
+    width: auto;
+    max-width: 400px;
+  }
 }
 .image-selector {
   display: inline-block;
-  width: 200px;
+  width: min(260px, 100%);
 }
 .color-selector {
   display: inline-block;
@@ -1181,7 +1187,8 @@ input.file-path.full-width {
   margin-left: 5px;
 }
 .selector {
-  max-width: 400px;
+  width: min(520px, 100%);
+  max-width: calc(100% - 170px);
 }
 button.auxiliary {
   margin-left: 5px;

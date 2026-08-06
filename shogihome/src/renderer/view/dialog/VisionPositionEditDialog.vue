@@ -186,14 +186,21 @@ const onCancel = () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  width: min(800px, calc(95vw - 30px));
+  width: auto;
+  min-width: min(800px, calc(95vw - 30px));
+  max-width: calc(95vw - 30px);
+  height: clamp(520px, 90dvh, 1400px);
+  aspect-ratio: 4 / 3;
+  align-self: center;
 }
 
 .vision-position-edit-dialog.mobile {
   width: 100%;
+  min-width: 0;
   height: 100%;
   max-width: 100%;
   max-height: calc(100dvh - 2em - 33px);
+  aspect-ratio: auto;
   overflow: hidden;
   gap: 0;
 }
@@ -256,22 +263,25 @@ h2 {
 
 .position-tab {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
 }
 
 .source-tab {
   display: flex;
+  flex: 1;
   align-items: center;
   justify-content: center;
-  min-height: 320px;
+  min-height: 0;
   overflow: hidden;
 }
 
 .source-image {
   display: block;
   max-width: 100%;
-  max-height: calc(100vh - 190px);
+  max-height: 100%;
   object-fit: contain;
 }
 
@@ -291,9 +301,11 @@ h2 {
 
 .content {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 12px;
   align-items: center;
+  min-height: 0;
 }
 
 .main-buttons {

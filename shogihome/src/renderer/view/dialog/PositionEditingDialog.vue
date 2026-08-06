@@ -220,7 +220,12 @@ const onCancel = () => store.closePositionEditingDialog();
   display: flex;
   flex-direction: column;
   gap: 12px;
-  width: min(800px, calc(95vw - 30px));
+  width: auto;
+  min-width: min(800px, calc(95vw - 30px));
+  max-width: calc(95vw - 30px);
+  height: clamp(520px, 90dvh, 1400px);
+  aspect-ratio: 4 / 3;
+  align-self: center;
 }
 
 .desktop-toolbar {
@@ -234,12 +239,13 @@ const onCancel = () => store.closePositionEditingDialog();
 .desktop-toolbar button {
   min-width: 0;
   padding: 5px 7px;
-  font-size: 13px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
 .desktop-editor {
   display: flex;
+  flex: 1;
   min-width: 0;
   min-height: 0;
 }
