@@ -88,7 +88,7 @@ import { useStore } from "@/renderer/store";
 import { SearchInfoSenderType } from "@/renderer/store/record";
 import { CommentBehavior } from "@/common/settings/comment";
 import { AppState } from "@/common/control/state";
-import { useMessageStore } from "@/renderer/store/message";
+import { useToastStore } from "@/renderer/store/toast";
 import DialogFrame from "./DialogFrame.vue";
 import { getRecordShortcutKeys } from "@/renderer/view/primitive/board/shortcut";
 
@@ -148,7 +148,7 @@ const emit = defineEmits<{
 }>();
 
 const store = useStore();
-const messageStore = useMessageStore();
+const toastStore = useToastStore();
 const appSettings = useAppSettings();
 const maxSize = reactive(new RectSize(0, 0));
 const record = reactive(new Record());
@@ -276,9 +276,7 @@ const insertToRecord = () => {
   const n = store.appendMovesSilently(props.pv, {
     ignoreValidation: true,
   });
-  messageStore.enqueue({
-    text: t.insertedNMovesToRecord(n),
-  });
+  toastStore.success(t.insertedNMovesToRecord(n));
 };
 
 const insertToComment = () => {
@@ -293,9 +291,7 @@ const insertToComment = () => {
     CommentBehavior.APPEND,
     { engineName: props.name },
   );
-  messageStore.enqueue({
-    text: t.insertedComment,
-  });
+  toastStore.success(t.insertedComment);
 };
 </script>
 

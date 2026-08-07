@@ -51,12 +51,14 @@ graph LR
 | `src/common/api/rpc.ts` | Hono RPC の `AppType` を renderer へ type-only で共有する境界。runtime 依存は持たせません。ESLint (`import-x/no-restricted-paths`) で `renderer`/`common` → `server` の import は遮断しており、このファイルが唯一の公式例外です。 |
 | `src/node/` | **Node 実行環境共有ユーティリティ**。server、command、旧 background から共有されるログ、実行環境パスを保持します。ブラウザー向け renderer/common からは参照しません。 |
 | `src/renderer/store/index.ts` | **状態管理**。アプリ全体のステートを保持し、対局・検討・編集などの各マネージャー（`GameManager`, `ResearchManager` 等）を統合します。検討停止は `ResearchState.STOPPING` を経由する非同期ライフサイクルとして扱い、停止完了前に UI を `IDLE` 扱いしないようにしています。 |
+| `src/renderer/store/toast.ts` | **非ブロッキング通知状態**。info/success/warning/error を最大3件まで保持し、同一通知を集約して種別ごとの時間（2/2/4/4秒）で自動消去します。 |
 | `src/renderer/players/lan_player.ts` | **リモートプレイヤー**。USIプロトコルの同期制御（Stop待ち、コマンド送信）を実装し、通信経由でエンジンを操作する実体です。 |
 | `src/renderer/network/lan_engine.ts` | **リモートエンジン通信クライアント**。WebSocket接続とコマンド送信、エンジンリスト取得を管理。 |
 | `src/renderer/api/client.ts` | **Hono RPC client**。JSON API 向けに `hc<AppType>`、timeout、`X-Book-Session-Id` 付与、共通レスポンス処理を提供します。バイナリ/Blob/WebSocket 通信は従来の fetch/WebSocket を使用します。 |
 | `src/renderer/view/` | **Vueコンポーネント**: |
 | - `main/` | `BoardPane` (盤面), `RecordPane` (棋譜), `ControlPane` (操作パネル) など、メイン画面の構成要素。 |
 | - `dialog/` | `GameDialog` (対局設定), `ResearchDialog` (検討設定), `AppSettingsDialog` (設定) など、モーダルダイアログ群。 |
+| - `toast/` | `ToastMessage`。通信断・再接続や単純な成功通知を、操作を遮らずに表示します。通知キーによる状態更新に対応し、モバイルWebは `HorizontalSelector` の上部に最大2件、PC/ネイティブは右上に最大3件配置します。モーダルDialog表示中は最前面のDialogへTeleportし、上部に配置します。 |
 | - `menu/` | `MobileGameMenu` (モバイル用メニュー) など、メニュー関連コンポーネント。 |
 | `public/puzzles/` | 次の一手問題データ（JSON）。 |
 | `scripts/build-puzzles.ts` | ビルド時にパズルデータを集計し、マニフェストファイルを生成するスクリプト。 |

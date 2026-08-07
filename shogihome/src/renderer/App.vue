@@ -9,6 +9,7 @@
     <CustomLayout v-else-if="store.customLayout" :profile="store.customLayout" />
     <StandardLayout v-else class="full" />
 
+    <ToastMessage />
     <!-- Dialogs -->
     <BusyMessage v-if="busyState.isBusy" />
     <InfoMessage v-if="messageStore.hasMessage" />
@@ -158,6 +159,7 @@ import api, { isMobileWebApp, isNative } from "./ipc/api";
 import { openCopyright } from "./helpers/copyright";
 import { installHotKeyForMainWindow } from "./devices/hotkey";
 import { DialogPosition } from "@/common/settings/layout";
+import ToastMessage from "./view/toast/ToastMessage.vue";
 
 const clipboard = ref();
 const appSettings = useAppSettings();

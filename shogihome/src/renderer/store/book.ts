@@ -4,6 +4,7 @@ import api from "@/renderer/ipc/api";
 import { useErrorStore } from "./error.js";
 import { useBusyState } from "./busy.js";
 import { useMessageStore } from "./message.js";
+import { useToastStore } from "./toast.js";
 import { useAppSettings } from "./settings.js";
 import { useConfirmationStore } from "./confirm.js";
 import { BookImportSettings } from "@/common/settings/book";
@@ -179,7 +180,7 @@ export class BookStore {
       api
         .saveBook(this._path)
         .then(() => {
-          useMessageStore().enqueue({ text: t.bookDataWasSaved });
+          useToastStore().success(t.bookDataWasSaved);
         })
         .catch((e) => {
           useErrorStore().add(e);
@@ -199,7 +200,7 @@ export class BookStore {
         if (path) {
           await api.saveBook(path);
           this._path = path;
-          useMessageStore().enqueue({ text: t.bookDataWasSaved });
+          useToastStore().success(t.bookDataWasSaved);
         }
       })
       .catch((e) => {
@@ -224,7 +225,7 @@ export class BookStore {
         if (path) {
           await api.saveBook(path);
           this._path = path;
-          useMessageStore().enqueue({ text: t.bookDataWasSaved });
+          useToastStore().success(t.bookDataWasSaved);
         }
       })
       .catch((e) => {

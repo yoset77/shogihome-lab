@@ -412,6 +412,51 @@ describe("LanEngine", () => {
     });
   });
 
+  it("should keep the transport connected while refreshing after a visibility change", async () => {
+    const oldWs = mockWs;
+    const newWs: MockWebSocket = {
+      readyState: 0,
+      send: vi.fn(),
+      close: vi.fn(),
+      onopen: null,
+      onerror: null,
+      onclose: null,
+      onmessage: null,
+    };
+    installWebSocketSequence(oldWs, newWs);
+
+    const engine = new LanEngine("test-session");
+    const statuses: string[] = [];
+    engine.subscribeStatus((status) => statuses.push(status));
+    const connectPromise = engine.connect();
+    oldWs.readyState = WebSocket.OPEN;
+    oldWs.onopen?.();
+    await connectPromise;
+    statuses.length = 0;
+
+    const originalVisibilityState = document.visibilityState;
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      writable: true,
+      configurable: true,
+    });
+    const onVisibilityChange = (engine as unknown as { onVisibilityChange: () => void })
+      .onVisibilityChange;
+    onVisibilityChange();
+
+    expect(statuses).toEqual(["connecting"]);
+    newWs.readyState = WebSocket.OPEN;
+    newWs.onopen?.();
+    expect(statuses).toEqual(["connecting", "connected"]);
+
+    Object.defineProperty(document, "visibilityState", {
+      value: originalVisibilityState,
+      writable: true,
+      configurable: true,
+    });
+    engine.disconnect();
+  });
+
   it("should ignore state messages from a replaced socket", async () => {
     const oldWs = mockWs;
     const newWs: MockWebSocket = {

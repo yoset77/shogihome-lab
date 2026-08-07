@@ -1,6 +1,7 @@
 <template>
   <div class="root full" :class="appSettings.thema">
     <MonitorView :size="windowSize" />
+    <ToastMessage />
     <ErrorMessage v-if="errorStore.hasError" />
     <ConfirmDialog v-if="confirmation.message" />
   </div>
@@ -16,6 +17,7 @@ import ErrorMessage from "@/renderer/view/dialog/ErrorMessage.vue";
 import ConfirmDialog from "@/renderer/view/dialog/ConfirmDialog.vue";
 import { useErrorStore } from "@/renderer/store/error";
 import { useConfirmationStore } from "@/renderer/store/confirm";
+import ToastMessage from "@/renderer/view/toast/ToastMessage.vue";
 
 const lazyUpdateDelay = 100;
 

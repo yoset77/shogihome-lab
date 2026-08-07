@@ -493,6 +493,10 @@ export type Texts = {
   stop: string;
   resume: string;
   connecting: string;
+  connectionLostRetrying: string;
+  reconnected: string;
+  copiedToClipboard: string;
+  recordAnalysisCompleted: string;
   noHandicap: string;
   lanceHandicap: string;
   rightLanceHandicap: string;
@@ -853,6 +857,8 @@ export type Texts = {
   loadFromServer: string;
   saveToServer: string;
   search: string;
+  analysisDBSearchTimedOut: string;
+  analysisDBSearchFailed: string;
   results: string;
   bookDataWasSaved: string;
   openBook: string;

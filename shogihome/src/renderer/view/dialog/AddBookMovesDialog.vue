@@ -181,7 +181,7 @@ import {
 } from "@/common/settings/book";
 import DialogFrame from "./DialogFrame.vue";
 import { useConfirmationStore } from "@/renderer/store/confirm";
-import { useMessageStore } from "@/renderer/store/message";
+import { useToastStore } from "@/renderer/store/toast";
 import {
   RecordFileFormat,
   getStandardRecordFileFormats,
@@ -385,9 +385,7 @@ const registerAllMoves = () => {
           added++;
         }
       }
-      useMessageStore().enqueue({
-        text: t.importedMoves(added),
-      });
+      useToastStore().success(t.importedMoves(added));
     },
   });
 };

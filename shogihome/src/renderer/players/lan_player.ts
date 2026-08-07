@@ -11,6 +11,7 @@ import api from "@/renderer/ipc/api";
 import { normalizeUSIEngineExtraBookConfig, USIEngineExtraBookConfig } from "@/common/settings/usi";
 import { searchBookMovesForPlayer } from "./book_search";
 import AsyncLock from "async-lock";
+import { useToastStore } from "@/renderer/store/toast";
 
 import { generateSessionId } from "@/renderer/helpers/unique";
 
@@ -72,8 +73,14 @@ export class LanPlayer implements Player {
   private sessionLost = false;
   private pendingSessionLoss = false;
   private reportedErrorAwaitingState = false;
+  private transportConnected = false;
+  private transportInterrupted = false;
   private releaseResourcesPromise: Promise<void> | null = null;
   private closePromise: Promise<void> | null = null;
+
+  private get connectionToastKey(): string {
+    return `lan-connection-${this._sessionID}`;
+  }
 
   constructor(
     sessionKey: string,
@@ -110,8 +117,21 @@ export class LanPlayer implements Player {
     this.lanEngine = new LanEngine(getSessionId(sessionKey, this.engineId));
     this.unsubscribeStatus = this.lanEngine.subscribeStatus((status) => {
       if (status === "disconnected") {
+        if (this.hasLaunched && this.transportConnected && !this.isClosing && !this.sessionLost) {
+          this.transportInterrupted = true;
+          useToastStore().warning(t.connectionLostRetrying, { key: this.connectionToastKey });
+        }
         this.handleTransportDisconnect();
+      } else if (status === "connecting") {
+        if (this.transportConnected) {
+          this.handleTransportDisconnect();
+        }
       } else if (status === "connected") {
+        if (this.transportInterrupted && !this.isClosing) {
+          this.transportInterrupted = false;
+          useToastStore().success(t.reconnected, { key: this.connectionToastKey });
+        }
+        this.transportConnected = true;
         this.handleTransportReconnect();
       }
     });
@@ -169,10 +189,10 @@ export class LanPlayer implements Player {
       this.hasLaunched = true;
       lanPlayers[this._sessionID] = this;
     } catch (e) {
-      this.lanEngine.stopEngine();
-      this.lanEngine.disconnect();
       this.unsubscribeStatus?.();
       this.unsubscribeStatus = undefined;
+      this.lanEngine.stopEngine();
+      this.lanEngine.disconnect();
       if (this.bookSessionID) {
         api.closeBook(this.bookSessionID);
         this.bookSessionID = undefined;
