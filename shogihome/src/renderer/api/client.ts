@@ -3,6 +3,22 @@ import type { AppType } from "@/common/api/rpc";
 
 const REQUEST_TIMEOUT_HEADER = "X-ShogiHome-Request-Timeout-Ms";
 const BOOK_SESSION_HEADER = "X-Book-Session-Id";
+export const DEFAULT_API_TIMEOUT_MS = 10000;
+const REQUEST_TIMEOUT_MESSAGE = "Request timeout";
+
+export class RequestTimeoutError extends Error {
+  constructor() {
+    super(REQUEST_TIMEOUT_MESSAGE);
+    this.name = "RequestTimeoutError";
+  }
+}
+
+export function isRequestTimeoutError(error: unknown): boolean {
+  return (
+    error instanceof RequestTimeoutError ||
+    (error instanceof Error && error.message === REQUEST_TIMEOUT_MESSAGE)
+  );
+}
 
 type ApiClientOptions = {
   timeoutMs?: number;
@@ -38,8 +54,8 @@ export const createHonoApiClient = (options: ApiClientOptions = {}) => {
       const timeoutHeader = headers.get(REQUEST_TIMEOUT_HEADER);
       headers.delete(REQUEST_TIMEOUT_HEADER);
       const id = setTimeout(
-        () => controller.abort(new Error("Request timeout")),
-        timeoutHeader ? Number(timeoutHeader) : (options.timeoutMs ?? 10000),
+        () => controller.abort(new RequestTimeoutError()),
+        timeoutHeader ? Number(timeoutHeader) : (options.timeoutMs ?? DEFAULT_API_TIMEOUT_MS),
       );
       const bookSessionId = options.getBookSessionId?.();
       if (bookSessionId && !headers.has(BOOK_SESSION_HEADER)) {

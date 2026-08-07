@@ -40,8 +40,21 @@
           </tbody>
         </table>
         <div v-else class="no-data full column center">
-          <div v-if="!searching">
-            <div v-if="!isAutoSearchEnabled && !searched" class="control">
+          <div v-if="searchStatus === 'searching'" aria-busy="true"></div>
+          <div v-else-if="searchStatus === 'timeout'" class="search-status">
+            <div>{{ t.analysisDBSearchTimedOut }}</div>
+            <button class="large" @click="fetchResults">
+              <span>{{ t.search }}</span>
+            </button>
+          </div>
+          <div v-else-if="searchStatus === 'error'" class="search-status">
+            <div>{{ t.analysisDBSearchFailed }}</div>
+            <button class="large" @click="fetchResults">
+              <span>{{ t.search }}</span>
+            </button>
+          </div>
+          <div v-else>
+            <div v-if="!isAutoSearchEnabled && searchStatus === 'idle'" class="control">
               <button class="large" @click="fetchResults">
                 <span>{{ t.search }}</span>
               </button>
@@ -79,8 +92,21 @@
           </div>
         </div>
         <div v-else class="no-data full column center">
-          <div v-if="!searching">
-            <div v-if="!isAutoSearchEnabled && !searched" class="control">
+          <div v-if="searchStatus === 'searching'" aria-busy="true"></div>
+          <div v-else-if="searchStatus === 'timeout'" class="search-status">
+            <div>{{ t.analysisDBSearchTimedOut }}</div>
+            <button class="large" @click="fetchResults">
+              <span>{{ t.search }}</span>
+            </button>
+          </div>
+          <div v-else-if="searchStatus === 'error'" class="search-status">
+            <div>{{ t.analysisDBSearchFailed }}</div>
+            <button class="large" @click="fetchResults">
+              <span>{{ t.search }}</span>
+            </button>
+          </div>
+          <div v-else>
+            <div v-if="!isAutoSearchEnabled && searchStatus === 'idle'" class="control">
               <button class="large" @click="fetchResults">
                 <span>{{ t.search }}</span>
               </button>
@@ -109,6 +135,12 @@ import { Move, Color } from "tsshogi";
 import { formatDisplayPV } from "@/renderer/helpers/pv";
 import { ScoreBound } from "@/common/game/usi";
 import { getDisplayEvaluation } from "@/renderer/helpers/evaluation";
+import {
+  assertOkResponse,
+  createHonoApiClient,
+  isRequestTimeoutError,
+  parseJsonResponse,
+} from "@/renderer/api/client";
 
 defineProps({
   size: { type: RectSize, required: true },
@@ -149,12 +181,15 @@ interface FormattedInfo {
   scoreBound: ScoreBound;
 }
 
+type SearchStatus = "idle" | "searching" | "success" | "empty" | "timeout" | "error";
+
 const store = useStore();
 const appSettings = useAppSettings();
+const apiClient = createHonoApiClient();
 const results = ref<DBRecord[]>([]);
-const searched = ref(false);
-const searching = ref(false);
+const searchStatus = ref<SearchStatus>("idle");
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let searchRequestId = 0;
 
 const isGame = computed(() => {
   return store.appState === AppState.GAME || store.appState === AppState.CSA_GAME;
@@ -178,49 +213,52 @@ const isAutoSearchEnabled = computed(() => {
 onUnmounted(() => {
   if (debounceTimer) {
     clearTimeout(debounceTimer);
+    debounceTimer = null;
   }
+  searchRequestId += 1;
 });
 
 const fetchResults = async () => {
+  const requestId = ++searchRequestId;
   const requestedSfen = store.record.position.sfen;
-  searching.value = true;
+  searchStatus.value = "searching";
   try {
-    const url = `/api/analysis?sfen=${encodeURIComponent(requestedSfen)}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const data = await response.json();
-    if (store.record.position.sfen === requestedSfen) {
-      results.value = data;
-      searched.value = true;
-    }
+    const response = await apiClient.api.analysis.$get({
+      query: { sfen: requestedSfen },
+    });
+    const data = await parseJsonResponse<DBRecord[]>(response);
+    if (requestId !== searchRequestId || store.record.position.sfen !== requestedSfen) return;
+    results.value = data;
+    searchStatus.value = data.length > 0 ? "success" : "empty";
   } catch (e) {
     console.error("Failed to fetch DB results:", e);
-    if (store.record.position.sfen === requestedSfen) {
-      results.value = [];
-      searched.value = true;
-    }
-  } finally {
-    if (store.record.position.sfen === requestedSfen) {
-      searching.value = false;
-    }
+    if (requestId !== searchRequestId || store.record.position.sfen !== requestedSfen) return;
+    results.value = [];
+    searchStatus.value = isRequestTimeoutError(e) ? "timeout" : "error";
   }
 };
 
 watch(
   [() => store.record.position.sfen, isAutoSearchEnabled],
   ([sfen, autoSearchEnabled], [oldSfen]) => {
-    if (sfen !== oldSfen) {
-      results.value = [];
-      searched.value = false;
+    const hadPendingSearch = debounceTimer !== null;
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
     }
-    if (debounceTimer) clearTimeout(debounceTimer);
-    if (autoSearchEnabled && !searched.value) {
-      searching.value = true;
-      debounceTimer = setTimeout(fetchResults, 300);
-    } else {
-      searching.value = false;
+    if (sfen !== oldSfen) {
+      searchRequestId += 1;
+      results.value = [];
+      searchStatus.value = "idle";
+    }
+    if (autoSearchEnabled && searchStatus.value === "idle") {
+      searchStatus.value = "searching";
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        void fetchResults();
+      }, 300);
+    } else if (hadPendingSearch && searchStatus.value === "searching") {
+      searchStatus.value = "idle";
     }
   },
   { immediate: true },
@@ -328,18 +366,14 @@ const deleteRecord = (info: FormattedInfo) => {
     message: t.deleteThisAnalysisResult,
     onOk: async () => {
       try {
-        const response = await fetch("/api/analysis/delete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const response = await apiClient.api.analysis.delete.$post({
+          json: {
             sfen,
             engineId: info.engineId,
             multipv: info.multipv,
-          }),
+          },
         });
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
+        await assertOkResponse(response);
         await fetchResults();
       } catch (e) {
         useErrorStore().add(e);
@@ -357,6 +391,13 @@ const deleteRecord = (info: FormattedInfo) => {
 }
 .control {
   box-sizing: border-box;
+}
+.search-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
 }
 .list-area {
   width: 100%;
