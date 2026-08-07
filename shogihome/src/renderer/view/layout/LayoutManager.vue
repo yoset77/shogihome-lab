@@ -333,6 +333,7 @@
         </div>
       </div>
     </div>
+    <ToastMessage />
     <InfoMessage v-if="messageStore.hasMessage" />
     <ErrorMessage v-if="errorStore.hasError" />
     <ConfirmDialog v-if="confirmation.message" />
@@ -361,6 +362,8 @@ import { useConfirmationStore } from "@/renderer/store/confirm";
 import InfoMessage from "@/renderer/view/dialog/InfoMessage.vue";
 import ErrorMessage from "@/renderer/view/dialog/ErrorMessage.vue";
 import ConfirmDialog from "@/renderer/view/dialog/ConfirmDialog.vue";
+import ToastMessage from "@/renderer/view/toast/ToastMessage.vue";
+import { useToastStore } from "@/renderer/store/toast";
 
 const appSettings = useAppSettings();
 const messageStore = useMessageStore();
@@ -406,7 +409,7 @@ const exportProfile = () => {
   if (profile) {
     const data = serializeLayoutProfile(profile);
     navigator.clipboard.writeText(data);
-    messageStore.enqueue({ text: t.profileExportedToClipboard });
+    useToastStore().success(t.profileExportedToClipboard);
   }
 };
 
@@ -415,7 +418,7 @@ const importProfile = async () => {
     const data = await navigator.clipboard.readText();
     const profile = deserializeLayoutProfile(data);
     store.addCustomProfile(profile);
-    messageStore.enqueue({ text: t.profileImported });
+    useToastStore().success(t.profileImported);
   } catch {
     errorStore.add(new Error(t.failedToImportProfile));
   }

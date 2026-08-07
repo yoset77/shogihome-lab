@@ -42,6 +42,7 @@ import { ResearchSettings } from "@/common/settings/research";
 import { USIPlayerMonitor, USIMonitor } from "./usi.js";
 import { AppState, ResearchState } from "@/common/control/state";
 import { useMessageStore } from "./message.js";
+import { useToastStore } from "./toast.js";
 import * as uri from "@/common/uri";
 import { humanPlayer } from "@/renderer/players/human";
 import { AnalysisManager } from "./analysis.js";
@@ -1276,7 +1277,7 @@ class Store {
 
   private onFinish(): void {
     if (this.appState === AppState.ANALYSIS) {
-      useMessageStore().enqueue({ text: "棋譜解析が終了しました。" });
+      useMessageStore().enqueue({ text: t.recordAnalysisCompleted });
       this._appState = AppState.NORMAL;
     }
   }
@@ -1604,7 +1605,7 @@ class Store {
   private async copyTextToClipboard(text: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(text);
-      useMessageStore().enqueue({ text: "クリップボードにコピーしました。" }); // TODO: i18n
+      useToastStore().success(t.copiedToClipboard);
     } catch {
       // クリップボードへのアクセスに失敗した場合 (HTTP環境など)
       // Web Share API によるテキスト共有を試みる

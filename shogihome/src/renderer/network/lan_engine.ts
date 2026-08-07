@@ -85,7 +85,6 @@ export class LanEngine {
           oldWs.onmessage = null;
         }
         this.ws = null;
-        this.setStatus("disconnected");
         oldWs.close();
       }
       this.connect().catch((e) => {

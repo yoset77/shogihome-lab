@@ -160,6 +160,43 @@ describe("LanPlayer resilience", () => {
     expect(rejected).toBe(true);
   });
 
+  it("should pause stop acknowledgement timeout while refreshing the transport", async () => {
+    const player = new LanPlayer("research_main", "test-engine", "Test Engine");
+    await launchPlayer(player);
+    updateStatus("connected");
+
+    const usi = "position startpos";
+    const record = Record.newByUSI(usi) as Record;
+    await player.startResearch(record.position, usi);
+
+    const stopPromise = player.stop();
+    let rejected = false;
+    stopPromise.catch(() => {
+      rejected = true;
+    });
+    const stopResult = expect(stopPromise).rejects.toThrow(
+      "Timed out waiting for stop acknowledgement",
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    expect(
+      (player as unknown as { stopPromiseTimeoutId: number | null }).stopPromiseTimeoutId,
+    ).not.toBeNull();
+    updateStatus("connecting");
+    expect(
+      (player as unknown as { stopPromiseTimeoutId: number | null }).stopPromiseTimeoutId,
+    ).toBe(null);
+
+    await vi.advanceTimersByTimeAsync(16000);
+    expect(rejected).toBe(false);
+    expect(
+      (player as unknown as { stopPromiseTimeoutId: number | null }).stopPromiseTimeoutId,
+    ).toBe(null);
+
+    updateStatus("connected");
+    await vi.advanceTimersByTimeAsync(15000);
+    await stopResult;
+  });
+
   it("should fail a stale ready state if bestmove replay never arrives", async () => {
     const onError = vi.fn();
     const player = new LanPlayer(
