@@ -20,6 +20,12 @@ import { sendError } from "@/server/errors";
 import { createBodyLimit, DEFAULT_JSON_BODY_LIMIT, type AppEnv } from "@/server/hono";
 import { getString } from "@/server/routes/query";
 
+type AnalysisDeleteRequest = {
+  sfen?: unknown;
+  engineId?: unknown;
+  multipv?: unknown;
+};
+
 export const analysisRoutes = new Hono<AppEnv>()
   .get(
     "/",
@@ -68,27 +74,32 @@ export const analysisRoutes = new Hono<AppEnv>()
     return c.text("ok");
   })
 
-  .post("/delete", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
-    const body = await c.req.json<{ sfen?: unknown; engineId?: unknown; multipv?: unknown }>();
-    const sfen = body.sfen;
-    const engineId = body.engineId;
-    const multipv = body.multipv;
-    if (typeof sfen !== "string") {
-      return sendError(c, 400, "sfen is required");
-    }
-    if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
-      return sendError(c, 400, "engineId must be a positive integer");
-    }
-    if (typeof multipv !== "number" || !Number.isInteger(multipv) || multipv < 1) {
-      return sendError(c, 400, "multipv must be a positive integer");
-    }
-    const parsed = getNormalizedSfenAndHash(sfen);
-    if (!parsed) {
-      return sendError(c, 400, "invalid sfen");
-    }
-    deleteAnalysisResult(parsed.hash, parsed.sfen, engineId, multipv);
-    return c.text("ok");
-  })
+  .post(
+    "/delete",
+    createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
+    validator("json", (value) => value as AnalysisDeleteRequest),
+    async (c) => {
+      const body = c.req.valid("json");
+      const sfen = body.sfen;
+      const engineId = body.engineId;
+      const multipv = body.multipv;
+      if (typeof sfen !== "string") {
+        return sendError(c, 400, "sfen is required");
+      }
+      if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
+        return sendError(c, 400, "engineId must be a positive integer");
+      }
+      if (typeof multipv !== "number" || !Number.isInteger(multipv) || multipv < 1) {
+        return sendError(c, 400, "multipv must be a positive integer");
+      }
+      const parsed = getNormalizedSfenAndHash(sfen);
+      if (!parsed) {
+        return sendError(c, 400, "invalid sfen");
+      }
+      deleteAnalysisResult(parsed.hash, parsed.sfen, engineId, multipv);
+      return c.text("ok");
+    },
+  )
 
   .post("/export", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
     const body = await c.req.json<{ engineId?: unknown; filename?: unknown }>();
