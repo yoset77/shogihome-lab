@@ -20,10 +20,8 @@
   "scripts": {
     "audit:scripts": "tsx scripts/audit-scripts.ts",
     "install:esbuild": "npm run audit:scripts && node node_modules/esbuild/install.js",
-    "compile": "npm run install:esbuild && vite build",
     "serve": "npm run install:esbuild && vite -c vite.config-pwa.mts",
     "build": "tsx scripts/build-puzzles.ts && npm run install:esbuild && vite build -c vite.config-pwa.mts --outDir docs/webapp && npm run license && node scripts/copy-licenses.mjs",
-    "build:dev": "npm run install:esbuild && vite build -c vite.config-pwa.mts --outDir docs/webapp-dev",
     "preview": "npm run install:esbuild && vite preview",
     "test": "npm run install:esbuild && vitest run",
     "bench": "npm run install:esbuild && vitest bench",
@@ -31,19 +29,10 @@
     "test:ui": "npm run install:esbuild && vitest --ui --coverage",
     "lint": "vue-tsc --noEmit && eslint --fix --max-warnings 0 . && prettier --write .",
     "license": "node scripts/report-license.mjs",
-    "license:commit": "npm run license && git add . && git commit -m \"license\" || git diff",
     "docs": "tsx scripts/build-docs-templates.ts",
-    "release": "npm run build && npm run build:dev && git add . && git commit -m \"release\"",
-    "release:patch": "npm run license:commit && npm version patch && tsx scripts/publish-release.ts && npm run docs && npm run release",
-    "release:minor": "npm run license:commit && npm version minor && tsx scripts/publish-release.ts && npm run docs && npm run release",
-    "release:alpha": "npm run license:commit && npm version preminor --preid alpha",
-    "release:beta": "npm run license:commit && npm version preminor --preid beta",
-    "release:pre": "npm run license:commit && npm version prerelease",
-    "release:stable": "tsx scripts/publish-release.ts stable && npm run docs && git add . && git commit -m \"update stable version\"",
     "server:start": "tsx server.ts",
     "server:build": "node scripts/build-server.mjs",
-    "server:runtime": "npm run server:build && node scripts/build-server-runtime.mjs",
-    "server:exe": "npm run server:runtime"
+    "server:runtime": "npm run server:build && node scripts/build-server-runtime.mjs"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.13.0",
