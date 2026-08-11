@@ -40,10 +40,7 @@ const MAX_POSITION_CANDIDATES = 5;
 const MIN_PROBABILITY = 1e-9;
 
 type BoardRankingWarningCode =
-  | "KING_COUNT_INVALID"
-  | "PIECE_COUNT_INVALID"
-  | "ILLEGAL_PAWN"
-  | "IMMOBILE_PIECE";
+  "KING_COUNT_INVALID" | "PIECE_COUNT_INVALID" | "ILLEGAL_PAWN" | "IMMOBILE_PIECE";
 
 interface BoardRankingWarning extends VisionWarning {
   code: BoardRankingWarningCode;

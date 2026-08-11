@@ -76,15 +76,7 @@ type ControlGroup2 = {
 
 export type UIComponent = UIComponentCommon &
   (
-    | Board
-    | Record
-    | Book
-    | Chart
-    | Analytics
-    | Comment
-    | RecordInfo
-    | ControlGroup1
-    | ControlGroup2
+    Board | Record | Book | Chart | Analytics | Comment | RecordInfo | ControlGroup1 | ControlGroup2
   );
 
 export enum DialogPosition {
