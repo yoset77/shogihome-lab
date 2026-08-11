@@ -264,9 +264,6 @@ class AppSettingsStore {
   get enableUSILog(): boolean {
     return this.merged.enableUSILog;
   }
-  get enableCSALog(): boolean {
-    return this.merged.enableCSALog;
-  }
   get logLevel(): LogLevel {
     return this.merged.logLevel;
   }

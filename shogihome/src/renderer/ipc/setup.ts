@@ -14,14 +14,6 @@ import { bridge } from "@/renderer/ipc/api";
 import { MenuEvent } from "@/common/control/menu";
 import { USIInfoCommand } from "@/common/game/usi";
 import { AppState, ResearchState } from "@/common/control/state";
-import {
-  onCSAClose,
-  onCSAGameResult,
-  onCSAGameSummary,
-  onCSAMove,
-  onCSAReject,
-  onCSAStart,
-} from "@/renderer/store/csa";
 import { useAppSettings } from "@/renderer/store/settings";
 import { t } from "@/common/i18n/index";
 import { LogLevel } from "@/common/log";
@@ -186,9 +178,6 @@ export function setup(): void {
       case MenuEvent.START_GAME:
         store.showGameDialog();
         break;
-      case MenuEvent.START_CSA_GAME:
-        store.showCSAGameDialog();
-        break;
       case MenuEvent.STOP_GAME:
         store.stopGame();
         break;
@@ -213,9 +202,6 @@ export function setup(): void {
             humanPlayer.win();
           },
         });
-        break;
-      case MenuEvent.LOGOUT:
-        store.cancelCSAGame();
         break;
       case MenuEvent.CALCULATE_POINTS:
         store.showJishogiPoints();
@@ -247,9 +233,6 @@ export function setup(): void {
       case MenuEvent.LAUNCH_USI_ENGINE:
         store.showLaunchUSIEngineDialog();
         break;
-      case MenuEvent.CONNECT_TO_CSA_SERVER:
-        store.showConnectToCSAServerDialog();
-        break;
     }
   });
 
@@ -278,20 +261,6 @@ export function setup(): void {
     const info = JSON.parse(json) as USIInfoCommand;
     onUSIInfo(sessionID, usi, info);
   });
-
-  // CSA
-  bridge.onCSAGameSummary((sessionID: number, gameSummary: string): void => {
-    onCSAGameSummary(sessionID, JSON.parse(gameSummary));
-  });
-  bridge.onCSAReject(onCSAReject);
-  bridge.onCSAStart((sessionID: number, playerStates: string): void => {
-    onCSAStart(sessionID, JSON.parse(playerStates));
-  });
-  bridge.onCSAMove((sessionID: number, move: string, playerStates: string): void => {
-    onCSAMove(sessionID, move, JSON.parse(playerStates));
-  });
-  bridge.onCSAGameResult(onCSAGameResult);
-  bridge.onCSAClose(onCSAClose);
 
   // MISC
   bridge.onProgress((progress: number) => {

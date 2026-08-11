@@ -10,12 +10,6 @@ import { AppState, ResearchState } from "@/common/control/state";
 import { AnalysisManager } from "@/renderer/store/analysis";
 import { analysisSettings } from "@/tests/mock/analysis";
 import { researchSettings } from "@/tests/mock/research";
-import {
-  csaGameSettings,
-  emptyCSAGameSettingsHistory,
-  singleCSAGameSettingsHistory,
-} from "@/tests/mock/csa";
-import { CSAGameManager } from "@/renderer/store/csa";
 import { convert } from "encoding-japanese";
 import { Mocked, MockedClass } from "vitest";
 import { useAppSettings } from "@/renderer/store/settings";
@@ -33,7 +27,6 @@ import type { VisionEditSession } from "@/renderer/vision/types";
 vi.mock("@/renderer/devices/audio.js");
 vi.mock("@/renderer/ipc/api.js");
 vi.mock("@/renderer/store/game.js");
-vi.mock("@/renderer/store/csa.js");
 vi.mock("@/renderer/store/analysis.js");
 vi.mock("@/renderer/store/mate.js");
 vi.mock("@/renderer/store/book.ts", () => ({
@@ -66,7 +59,6 @@ vi.mock("@/renderer/store/research.js", () => {
 const mockAudio = audio as Mocked<typeof audio>;
 const mockAPI = api as Mocked<API>;
 const mockGameManager = GameManager as MockedClass<typeof GameManager>;
-const mockCSAGameManager = CSAGameManager as MockedClass<typeof CSAGameManager>;
 const mockAnalysisManager = AnalysisManager as MockedClass<typeof AnalysisManager>;
 const mockMateSearchManager = MateSearchManager as MockedClass<typeof MateSearchManager>;
 const mockResearchManager = new ResearchManager() as Mocked<ResearchManager>;
@@ -173,7 +165,6 @@ describe("store/index", () => {
   beforeEach(() => {
     localStorage.clear();
     mockGameManager.prototype.on.mockReturnThis();
-    mockCSAGameManager.prototype.on.mockReturnThis();
     mockAnalysisManager.prototype.on.mockReturnThis();
     mockMateSearchManager.prototype.on.mockReturnThis();
   });
@@ -449,50 +440,6 @@ describe("store/index", () => {
     store.startGame(gameSettings10m30s);
     expect(useBusyState().isBusy).toBeFalsy();
     expect(store.appState).toBe(AppState.ANALYSIS_DIALOG);
-  });
-
-  it("loginCSAGame/success", async () => {
-    mockAPI.loadCSAGameSettingsHistory.mockResolvedValue(emptyCSAGameSettingsHistory);
-    mockAPI.saveCSAGameSettingsHistory.mockResolvedValue();
-    mockCSAGameManager.prototype.login.mockResolvedValue();
-    const store = createStore();
-    store.showCSAGameDialog();
-    store.loginCSAGame(csaGameSettings, { saveHistory: true });
-    expect(useBusyState().isBusy).toBeTruthy();
-    await new Promise((resolve) => setTimeout(resolve));
-    expect(useBusyState().isBusy).toBeFalsy();
-    expect(store.appState).toBe(AppState.CSA_GAME);
-    expect(mockAPI.loadCSAGameSettingsHistory).toBeCalledTimes(1);
-    expect(mockAPI.saveCSAGameSettingsHistory).toBeCalledTimes(1);
-    expect(mockAPI.saveCSAGameSettingsHistory.mock.calls[0][0]).toStrictEqual(
-      singleCSAGameSettingsHistory,
-    );
-    expect(mockCSAGameManager.prototype.login).toBeCalledTimes(1);
-    expect(mockCSAGameManager.prototype.login.mock.calls[0][0]).toBe(csaGameSettings);
-  });
-
-  it("loginCSAGame/doNotSaveHistory", async () => {
-    mockAPI.loadCSAGameSettingsHistory.mockResolvedValue(emptyCSAGameSettingsHistory);
-    mockAPI.saveCSAGameSettingsHistory.mockResolvedValue();
-    mockCSAGameManager.prototype.login.mockResolvedValue();
-    const store = createStore();
-    store.showCSAGameDialog();
-    store.loginCSAGame(csaGameSettings, { saveHistory: false });
-    expect(useBusyState().isBusy).toBeTruthy();
-    await new Promise((resolve) => setTimeout(resolve));
-    expect(useBusyState().isBusy).toBeFalsy();
-    expect(store.appState).toBe(AppState.CSA_GAME);
-    expect(mockAPI.loadCSAGameSettingsHistory).toBeCalledTimes(0);
-    expect(mockAPI.saveCSAGameSettingsHistory).toBeCalledTimes(0);
-    expect(mockCSAGameManager.prototype.login).toBeCalledTimes(1);
-    expect(mockCSAGameManager.prototype.login.mock.calls[0][0]).toBe(csaGameSettings);
-  });
-
-  it("loginCSAGame/invalidState", () => {
-    const store = createStore();
-    store.loginCSAGame(csaGameSettings, { saveHistory: true });
-    expect(useBusyState().isBusy).toBeFalsy();
-    expect(store.appState).toBe(AppState.NORMAL);
   });
 
   it("startResearch/success", async () => {

@@ -49,9 +49,7 @@ import { AnalysisManager } from "./analysis.js";
 import { AnalysisSettings } from "@/common/settings/analysis";
 import { MateSearchSettings } from "@/common/settings/mate";
 import { LogLevel } from "@/common/log";
-import { CSAGameManager, CSAGameState } from "./csa.js";
 import { Clock } from "./clock.js";
-import { CSAGameSettings, appendCSAGameSettingsHistory } from "@/common/settings/csa";
 import { defaultPlayerBuilder } from "@/renderer/players/builder";
 import { type USIInfoCommand } from "@/common/game/usi";
 import { ResearchManager } from "./research.js";
@@ -222,7 +220,6 @@ class Store {
   private blackClock = new Clock();
   private whiteClock = new Clock();
   private gameManager = new GameManager(this.recordManager, this.blackClock, this.whiteClock);
-  private csaGameManager = new CSAGameManager(this.recordManager, this.blackClock, this.whiteClock);
   private analysisManager = new AnalysisManager(this.recordManager);
   private mateSearchManager = new MateSearchManager();
   private _researchState = ResearchState.IDLE;
@@ -280,17 +277,6 @@ class Store {
       .on("error", (e) => {
         useErrorStore().add(e);
         refs.stopGame({ force: true });
-      });
-    this.csaGameManager
-      .on("saveRecord", this.onSaveRecord.bind(refs))
-      .on("gameEnd", this.onCSAGameEnd.bind(refs))
-      .on("flipBoard", this.onFlipBoard.bind(refs))
-      .on("pieceBeat", () => playPieceBeat(useAppSettings().pieceVolume))
-      .on("beepShort", this.onBeepShort.bind(refs))
-      .on("beepUnlimited", this.onBeepUnlimited.bind(refs))
-      .on("stopBeep", stopBeep)
-      .on("error", (e) => {
-        useErrorStore().add(e);
       });
     this.researchManager
       .on("updateSearchInfo", this.onUpdateSearchInfo.bind(refs))
@@ -521,12 +507,6 @@ class Store {
     }
   }
 
-  showCSAGameDialog(): void {
-    if (this.appState === AppState.NORMAL) {
-      this._appState = AppState.CSA_GAME_DIALOG;
-    }
-  }
-
   showAnalysisDialog(): void {
     if (this.appState === AppState.NORMAL) {
       this._appState = AppState.ANALYSIS_DIALOG;
@@ -569,18 +549,8 @@ class Store {
     }
   }
 
-  showConnectToCSAServerDialog(): void {
-    if (this.appState === AppState.NORMAL) {
-      this._appState = AppState.CONNECT_TO_CSA_SERVER_DIALOG;
-    }
-  }
-
   showLoadRemoteFileDialog(): void {
-    if (
-      this.appState === AppState.NORMAL ||
-      this.appState === AppState.GAME ||
-      this.appState === AppState.CSA_GAME
-    ) {
+    if (this.appState === AppState.NORMAL || this.appState === AppState.GAME) {
       this._lastAppState = this.appState;
       this._appState = AppState.LOAD_REMOTE_FILE_DIALOG;
     }
@@ -599,11 +569,7 @@ class Store {
   }
 
   showServerKifuDialog(): void {
-    if (
-      this.appState === AppState.NORMAL ||
-      this.appState === AppState.GAME ||
-      this.appState === AppState.CSA_GAME
-    ) {
+    if (this.appState === AppState.NORMAL || this.appState === AppState.GAME) {
       this._lastAppState = this.appState;
       this._appState = AppState.SERVER_KIFU_DIALOG;
     }
@@ -654,11 +620,7 @@ class Store {
   }
 
   showBookSelectDialog(): void {
-    if (
-      this.appState === AppState.NORMAL ||
-      this.appState === AppState.GAME ||
-      this.appState === AppState.CSA_GAME
-    ) {
+    if (this.appState === AppState.NORMAL || this.appState === AppState.GAME) {
       this._lastAppState = this.appState;
       this._appState = AppState.BOOK_SELECT_DIALOG;
     }
@@ -705,7 +667,6 @@ class Store {
     if (
       this.appState === AppState.PASTE_DIALOG ||
       this.appState === AppState.GAME_DIALOG ||
-      this.appState === AppState.CSA_GAME_DIALOG ||
       this.appState === AppState.ANALYSIS_DIALOG ||
       this.appState === AppState.MATE_SEARCH_DIALOG ||
       this.appState === AppState.USI_ENGINES_DIALOG ||
@@ -713,7 +674,6 @@ class Store {
       this.appState === AppState.RECORD_FILE_HISTORY_DIALOG ||
       this.appState === AppState.BATCH_CONVERSION_DIALOG ||
       this.appState === AppState.LAUNCH_USI_ENGINE_DIALOG ||
-      this.appState === AppState.CONNECT_TO_CSA_SERVER_DIALOG ||
       this.appState === AppState.LOAD_REMOTE_FILE_DIALOG ||
       this.appState === AppState.SHARE_DIALOG ||
       this.appState === AppState.ADD_BOOK_MOVES_DIALOG ||
@@ -898,64 +858,6 @@ class Store {
     return this.gameManager.results;
   }
 
-  get csaGameState(): CSAGameState {
-    return this.csaGameManager.state;
-  }
-
-  get csaServerSessionID(): number {
-    return this.csaGameManager.sessionID;
-  }
-
-  get csaGameSettings(): CSAGameSettings {
-    return this.csaGameManager.settings;
-  }
-
-  get usiSessionIDs(): number[] {
-    if (this.appState == AppState.CSA_GAME) {
-      return [this.csaGameManager.usiSessionID].filter((id) => id);
-    }
-    return [];
-  }
-
-  loginCSAGame(settings: CSAGameSettings, opt: { saveHistory: boolean }): void {
-    if (this.appState !== AppState.CSA_GAME_DIALOG || useBusyState().isBusy) {
-      return;
-    }
-    useBusyState().retain();
-    Promise.resolve()
-      .then(async () => {
-        if (opt.saveHistory) {
-          const latestHistory = await api.loadCSAGameSettingsHistory();
-          const history = appendCSAGameSettingsHistory(latestHistory, settings);
-          await api.saveCSAGameSettingsHistory(history);
-        }
-      })
-      .then(() => {
-        const appSettings = useAppSettings();
-        const builder = defaultPlayerBuilder(appSettings.engineTimeoutSeconds);
-        return this.csaGameManager.login(settings, builder);
-      })
-      .then(() => (this._appState = AppState.CSA_GAME))
-      .catch((e) => {
-        useErrorStore().add(e);
-      })
-      .finally(() => {
-        useBusyState().release();
-      });
-  }
-
-  cancelCSAGame(): void {
-    if (this.appState !== AppState.CSA_GAME) {
-      return;
-    }
-    if (this.csaGameManager.state === CSAGameState.GAME) {
-      useErrorStore().add("対局が始まっているため通信対局をキャンセルできませんでした。"); // TODO: i18n
-      return;
-    }
-    this.csaGameManager.logout();
-    this._appState = AppState.NORMAL;
-  }
-
   stopGame(options?: { force: boolean }): void {
     if (options?.force) {
       this.isForceStopping = true;
@@ -970,17 +872,6 @@ class Store {
           });
         } else {
           this.gameManager.stop();
-        }
-        break;
-      case AppState.CSA_GAME:
-        // 確認ダイアログを表示する。
-        if (!options?.force) {
-          this.showConfirmation({
-            message: t.areYouSureWantToRequestQuit,
-            onOk: () => this.csaGameManager.stop(),
-          });
-        } else {
-          this.csaGameManager.stop();
         }
         break;
     }
@@ -1022,7 +913,7 @@ class Store {
   }
 
   resign(): void {
-    if (this.appState === AppState.GAME || this.appState === AppState.CSA_GAME) {
+    if (this.appState === AppState.GAME) {
       this.showConfirmation({
         message: t.areYouSureWantToResign,
         onOk: () => {
@@ -1030,13 +921,6 @@ class Store {
         },
       });
     }
-  }
-
-  private onCSAGameEnd(): void {
-    if (this.appState !== AppState.CSA_GAME) {
-      return;
-    }
-    this._appState = AppState.NORMAL;
   }
 
   private onFlipBoard(flip: boolean): void {
@@ -1969,10 +1853,6 @@ class Store {
           (this.recordManager.record.position.color === Color.BLACK
             ? this.gameManager.settings.black.uri
             : this.gameManager.settings.white.uri) === uri.ES_HUMAN
-        );
-      case AppState.CSA_GAME:
-        return (
-          this.csaGameManager.isMyTurn && this.csaGameManager.settings.player.uri === uri.ES_HUMAN
         );
     }
     return false;

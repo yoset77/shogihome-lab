@@ -1,7 +1,6 @@
 export enum LogType {
   APP = "app",
   USI = "usi",
-  CSA = "csa",
 }
 
 export enum LogLevel {

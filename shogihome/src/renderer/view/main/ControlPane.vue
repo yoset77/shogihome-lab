@@ -38,7 +38,7 @@
         </button>
         <!-- 対局中断 -->
         <button
-          v-show="store.appState === AppState.GAME || store.appState === AppState.CSA_GAME"
+          v-show="store.appState === AppState.GAME"
           class="control-item close"
           @click="onStop"
         >
@@ -49,9 +49,8 @@
         <button
           v-show="
             store.isMovableByUser &&
-            (store.appState === AppState.CSA_GAME ||
-              (store.appState === AppState.GAME &&
-                DeclarableJishogiRules.includes(store.gameSettings.jishogiRule)))
+            store.appState === AppState.GAME &&
+            DeclarableJishogiRules.includes(store.gameSettings.jishogiRule)
           "
           class="control-item close"
           @click="onWin"
@@ -61,10 +60,7 @@
         </button>
         <!-- 投了 -->
         <button
-          v-show="
-            (store.appState === AppState.GAME || store.appState === AppState.CSA_GAME) &&
-            store.isMovableByUser
-          "
+          v-show="store.appState === AppState.GAME && store.isMovableByUser"
           class="control-item close"
           @click="onResign"
         >
@@ -73,7 +69,7 @@
         </button>
         <!-- 持将棋の点数 -->
         <button
-          v-show="store.appState === AppState.GAME || store.appState === AppState.CSA_GAME"
+          v-show="store.appState === AppState.GAME"
           class="control-item"
           @click="onJishogiPoints"
         >
