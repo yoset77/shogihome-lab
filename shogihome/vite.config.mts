@@ -53,15 +53,12 @@ export default defineConfig({
         "**/*.vue",
 
         // 定義/設定
-        "src/common/ipc/**/*.ts",
         "src/common/control/**/*.ts",
         "src/common/i18n/**/*.ts",
-        "src/command/common/preload.ts",
 
         // IPC
         "src/renderer/ipc/api.ts",
         "src/renderer/ipc/bridge.ts",
-        "src/renderer/ipc/preload.ts",
         "src/renderer/ipc/web.ts",
         "src/renderer/ipc/setup.ts",
 

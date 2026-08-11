@@ -50,5 +50,4 @@ export enum MenuEvent {
   FLIP_BOARD = "flipBoard",
   APP_SETTINGS_DIALOG = "appSettings",
   USI_ENGINES_DIALOG = "usiEngines",
-  LAUNCH_USI_ENGINE = "launchUsiEngine",
 }

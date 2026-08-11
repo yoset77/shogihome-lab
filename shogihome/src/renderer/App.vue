@@ -25,7 +25,6 @@
     <ElapsedTimeChartDialog v-if="store.appState === AppState.ELAPSED_TIME_CHART_DIALOG" />
     <AnalysisDBManagerDialog v-if="store.isAnalysisDBManagerDialogVisible" />
     <PasteDialog v-if="store.appState === AppState.PASTE_DIALOG" />
-    <LaunchUSIEngineDialog v-if="store.appState === AppState.LAUNCH_USI_ENGINE_DIALOG" />
     <LoadRemoteFileDialog v-if="store.appState === AppState.LOAD_REMOTE_FILE_DIALOG" />
     <ShareDialog v-if="store.appState === AppState.SHARE_DIALOG" />
     <AddBookMovesDialog v-if="store.appState === AppState.ADD_BOOK_MOVES_DIALOG" />
@@ -122,7 +121,6 @@ import PVPreviewDialog from "./view/dialog/PVPreviewDialog.vue";
 import PVPreviewDialogMobile from "./view/dialog/PVPreviewDialogMobile.vue";
 import RecordFileHistoryDialog from "./view/dialog/RecordFileHistoryDialog.vue";
 import BatchConversionDialog from "./view/dialog/BatchConversionDialog.vue";
-import LaunchUSIEngineDialog from "./view/dialog/LaunchUSIEngineDialog.vue";
 import PositionEditingDialog from "./view/dialog/PositionEditingDialog.vue";
 import LoadRemoteFileDialog from "./view/dialog/LoadRemoteFileDialog.vue";
 import ShareDialog from "./view/dialog/ShareDialog.vue";

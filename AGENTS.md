@@ -44,7 +44,7 @@
 - **Separation of Concerns**: 関心の分離を徹底する。
     - **Frontend vs Logic**: UIコンポーネントには表示ロジックのみを持たせ、複雑なステート管理は store/ に分離する。
     - **Server vs Wrapper**: server.ts がUSIプロトコルのステートマシンとして機能し、engine-wrapper はステートレスなTCP/Processブリッジ（土管）に徹すること。
-    - **Module Boundaries**: `src/renderer/`, `src/background/`, `src/common/`, `src/command/` の各モジュール間の境界を厳密に守ること（ESLintにより強制）。
+    - **Module Boundaries**: `src/renderer/`, `src/common/`, `src/node/`, `src/server/` の各モジュール間の境界を厳密に守ること（ESLintにより強制）。
 - **Internationalization (i18n)**: ユーザーに表示するメッセージはハードコードせず、必ず `src/common/i18n/` のリソースを使用すること。
 
 ### B. Python Project Maintenance

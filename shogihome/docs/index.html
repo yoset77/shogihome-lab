@@ -50,7 +50,7 @@
       <ul>
         <li><a href="#whatis">ShogiHomeとは</a></li>
         <li><a href="#license">ライセンス</a></li>
-        <li><a href="#pcapp">PCアプリ</a></li>
+        <li><a href="#pcapp">PCパッケージ</a></li>
         <li><a href="#webapp">ブラウザアプリ</a></li>
         <li><a href="#howtouse">使い方</a></li>
         <li><a href="#milestones">開発予定</a></li>
@@ -94,7 +94,7 @@
           昨今では2in1
           タブレットやコンバーチブル型PCの普及により、PC向けのOSでもタッチパネルを使って将棋の対局ができるようになりました。
           ShogiHomeでは多くの機能を大きめのボタンで操作でき、様々な環境で扱いやすい画面構成になっています。
-          また、Electronを使うことでOSへの依存を最小限にしているため、どのOSでも変わらない見た目と操作性を実現しています。
+          ブラウザで動作するため、PCやタブレットなど様々な環境で利用できます。
         </div>
         <div class="slides">
           <iframe
@@ -143,13 +143,11 @@
         <div class="long-text">
           使用しているWeb系のライブラリは
           <a href="./third-party-licenses.html">THIRD PARTY LICENSES</a>
-          を参照してください。<br />
-          Electron と Electron Builder、Chromium
-          については上記に含まれていません。PCアプリと一緒にライセンスファイルがインストールされます。
+          を参照してください。
         </div>
       </section>
       <section id="pcapp">
-        <h2>PCアプリ</h2>
+        <h2>PCパッケージ</h2>
         <div class="images">
           <a href="./screenshots/screenshot001.png"
             ><img class="wide" src="./screenshots/screenshot001.png?202405051100" alt="PC"
@@ -173,8 +171,7 @@
           </li>
         </ul>
         <div class="long-text">
-          Windowsは末尾 <b>-win.zip</b> 、MacOSは末尾 <b>-mac.zip</b> 、Linux は末尾
-          <b>-linux.zip</b> のファイルをダウンロードしてください。 バージョンを選ぶ際は<a
+          Windows向けのパッケージはリリースページからダウンロードできます。パッケージにはWebアプリ、サーバー、エンジン連携用のランタイムが含まれます。バージョンを選ぶ際は<a
             href="https://github.com/sunfish-shogi/shogihome/wiki/%E3%83%90%E3%83%BC%E3%82%B8%E3%83%A7%E3%83%B3%E3%81%AE%E9%81%B8%E3%81%B3%E6%96%B9"
             >「バージョンの選び方」</a
           >を参考にしてください。
@@ -260,16 +257,16 @@
             </ul>
           </li>
           <li>
-            Q. CSAプロトコルとは何ですか？
+            Q. CSA形式の棋譜を扱えますか？
             <ul>
               <li>
                 A.
-                CSAプロトコルはコンピューター将棋協会(CSA)が策定した将棋AIのための通信規格です。主に将棋エンジン開発者の方が利用します。CSAプロトコルで対局するにはShogiHomeとは別でCSAサーバーが必要です。
+                CSA形式の棋譜を読み込み、保存、変換できます。FloodgateやWCSCの棋譜も読み込めます。CSAサーバーを利用したオンライン対局には対応していません。
               </li>
             </ul>
           </li>
           <li>
-            Q. CSA や USI プロトコルの通信ログはどこに保存されますか？
+            Q. USIプロトコルの通信ログはどこに保存されますか？
             <ul>
               <li>
                 A. ログ出力はデフォルトで無効です。<a

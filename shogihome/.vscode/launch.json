@@ -2,26 +2,6 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug Main Process",
-      "type": "node",
-      "request": "launch",
-      "cwd": "${workspaceFolder}",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "electron:serve"],
-      "outputCapture": "std"
-    },
-    {
-      "name": "Debug Renderer Process",
-      "port": 9223,
-      "request": "attach",
-      "type": "chrome",
-      "webRoot": "${workspaceFolder}/src/renderer",
-      "timeout": 60000,
-      "presentation": {
-        "hidden": true
-      }
-    },
-    {
       "name": "Debug Test",
       "type": "node",
       "request": "launch",
@@ -29,15 +9,6 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["test"],
       "outputCapture": "std"
-    }
-  ],
-  "compounds": [
-    {
-      "name": "Debug All",
-      "configurations": ["Debug Main Process", "Debug Renderer Process"],
-      "presentation": {
-        "order": 1
-      }
     }
   ]
 }
