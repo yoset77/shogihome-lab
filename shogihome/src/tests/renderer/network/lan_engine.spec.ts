@@ -517,6 +517,44 @@ describe("LanEngine", () => {
     expect(mockWs.close).not.toHaveBeenCalled();
   });
 
+  it("should reset reconnect backoff when returning to the foreground", async () => {
+    const retryWs: MockWebSocket = {
+      readyState: 0,
+      send: vi.fn(),
+      close: vi.fn(),
+      onopen: null,
+      onerror: null,
+      onclose: null,
+      onmessage: null,
+    };
+    const MockWS = installWebSocketSequence(mockWs, retryWs);
+    const engine = new LanEngine("test-session");
+    engine.connect().catch(() => {});
+    (engine as unknown as { reconnectAttempts: number }).reconnectAttempts = 5;
+
+    const originalVisibilityState = document.visibilityState;
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      writable: true,
+      configurable: true,
+    });
+    (engine as unknown as { onVisibilityChange: () => void }).onVisibilityChange();
+
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(MockWS).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(MockWS).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(MockWS).toHaveBeenCalledTimes(2);
+
+    Object.defineProperty(document, "visibilityState", {
+      value: originalVisibilityState,
+      writable: true,
+      configurable: true,
+    });
+    engine.disconnect();
+  });
+
   it("should not let an old heartbeat timeout close the replacement socket", async () => {
     const oldWs = mockWs;
     const newWs: MockWebSocket = {
