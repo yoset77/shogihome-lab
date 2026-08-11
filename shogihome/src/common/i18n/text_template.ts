@@ -78,8 +78,6 @@ export type Texts = {
   pc: string;
   mobile: string;
   reloadRequiredToApplyUIMode: string;
-  openLayoutManager: string;
-  openMonitorWindow: string;
   toggleFullScreen: string;
   defaultFontSize: string;
   increaseFontSize: string;
@@ -591,15 +589,6 @@ export type Texts = {
   top: string;
   width: string;
   height: string;
-  newCustomProfile: string;
-  addCustomLayoutProfile: string;
-  duplicateCurrentProfile: string;
-  removeCurrentProfile: string;
-  exportProfileToClipboard: string;
-  importProfileFromClipboard: string;
-  profileExportedToClipboard: string;
-  profileImported: string;
-  failedToImportProfile: string;
   rightControlBox: string;
   leftControlBox: string;
   topControlBox: string;
@@ -646,13 +635,6 @@ export type Texts = {
   lastReceived: string;
   protocolVersion: string;
   prompt: string;
-  openPrompt: string;
-  forceQuit: string;
-  forceClose: string;
-  blankLine: string;
-  autoScroll: string;
-  showTimestamp: string;
-  highlightByPartialMatch: string;
   csaServer: string;
   usiEngine: string;
   noRunningUSIEngine: string;

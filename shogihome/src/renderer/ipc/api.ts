@@ -20,12 +20,8 @@ import {
   KifuListEntry,
 } from "@/common/file/record";
 import { VersionStatus } from "@/common/version";
-import { SessionStates } from "@/common/advanced/monitor";
-import { PromptTarget } from "@/common/advanced/prompt";
-import { CommandHistory, CommandType } from "@/common/advanced/command";
 import { Bridge } from "./bridge.js";
 import { TimeStates } from "@/common/game/time";
-import { LayoutProfileList } from "@/common/settings/layout";
 import { BookImportSummary, BookLoadingMode, BookLoadingOptions, BookMove } from "@/common/book";
 import { BookImportSettings } from "@/common/settings/book";
 
@@ -116,26 +112,11 @@ export interface API {
   csaWin(sessionID: number): Promise<void>;
   csaStop(sessionID: number): Promise<void>;
 
-  // Sessions
-  collectSessionStates(): Promise<SessionStates>;
-  setupPrompt(target: PromptTarget, sessionID: number): Promise<CommandHistory>;
-  openPrompt(target: PromptTarget, sessionID: number, name: string): void;
-  invokePromptCommand(
-    target: PromptTarget,
-    sessionID: number,
-    type: CommandType,
-    command: string,
-  ): void;
-
   // Images
   showSelectImageDialog(defaultURL?: string): Promise<string>;
   cropPieceImage(srcURL: string, deleteMargin: boolean): Promise<string>;
   exportCaptureAsPNG(rect: Rect): Promise<void>;
   exportCaptureAsJPEG(rect: Rect): Promise<void>;
-
-  // Layout
-  loadLayoutProfileList(): Promise<[string, LayoutProfileList]>;
-  updateLayoutProfileList(uri: string, profileList: LayoutProfileList): void;
 
   // Log
   openLogFile(logType: LogType): void;
@@ -330,29 +311,12 @@ const api: API = {
     return bridge.csaLogin(JSON.stringify(settings));
   },
 
-  // Sessions
-  async collectSessionStates(): Promise<SessionStates> {
-    return JSON.parse(await bridge.collectSessionStates());
-  },
-  async setupPrompt(target: PromptTarget, sessionID: number): Promise<CommandHistory> {
-    return JSON.parse(await bridge.setupPrompt(target, sessionID));
-  },
-
   // Images
   exportCaptureAsPNG(rect: Rect): Promise<void> {
     return bridge.exportCaptureAsPNG(rect.json);
   },
   exportCaptureAsJPEG(rect: Rect): Promise<void> {
     return bridge.exportCaptureAsJPEG(rect.json);
-  },
-
-  // Layout
-  async loadLayoutProfileList(): Promise<[string, LayoutProfileList]> {
-    const [uri, json] = await bridge.loadLayoutProfileList();
-    return [uri, JSON.parse(json)];
-  },
-  updateLayoutProfileList(uri: string, profileList: LayoutProfileList): void {
-    bridge.updateLayoutProfileList(uri, JSON.stringify(profileList));
   },
 
   // MISC

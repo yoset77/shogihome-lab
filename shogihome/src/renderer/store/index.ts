@@ -70,7 +70,6 @@ import { setOnStartSearchHandler, setOnUpdateUSIInfoHandler } from "@/renderer/p
 import { useErrorStore } from "./error.js";
 import { useBusyState } from "./busy.js";
 import { Confirmation, useConfirmationStore } from "./confirm.js";
-import { LayoutProfile, LayoutProfileList } from "@/common/settings/layout";
 import { clearURLParams, loadRecordForWebApp, saveRecordForWebApp } from "./webapp.js";
 import { useBookStore } from "./book.js";
 import { CommentBehavior } from "@/common/settings/comment";
@@ -214,7 +213,6 @@ class Store {
   private recordManager = new RecordManager(loadRecordForWebApp());
   private _appState = AppState.NORMAL;
   private _lastAppState = AppState.NORMAL;
-  private _customLayout: LayoutProfile | null = null;
   private _isAppSettingsDialogVisible = false;
   private _isAnalysisDBManagerDialogVisible = false;
   private _isServerSideKifuEnabled = false;
@@ -446,14 +444,6 @@ class Store {
 
   get researchState(): ResearchState {
     return this._researchState;
-  }
-
-  get customLayout() {
-    return this._customLayout;
-  }
-
-  updateLayoutProfileList(uri: string, profileList: LayoutProfileList): void {
-    this._customLayout = profileList.profiles.find((p) => p.uri === uri) || null;
   }
 
   get pvPreview(): PVPreview | undefined {

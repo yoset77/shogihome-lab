@@ -60,7 +60,6 @@
 </template>
 
 <script setup lang="ts">
-import { PromptTarget } from "@/common/advanced/prompt";
 import { t } from "@/common/i18n";
 import { CSAProtocolVersion, validateCSAServerSettings } from "@/common/settings/csa";
 import api from "@/renderer/ipc/api";
@@ -96,8 +95,7 @@ const onStart = () => {
     useErrorStore().add(error);
     return;
   }
-  api.csaLogin(settings).then((sessionID: number) => {
-    api.openPrompt(PromptTarget.CSA, sessionID, `${settings.host}:${settings.port}`);
+  api.csaLogin(settings).then(() => {
     useAppSettings().updateAppSettings({ tab: Tab.MONITOR });
     store.closeModalDialog();
   });
