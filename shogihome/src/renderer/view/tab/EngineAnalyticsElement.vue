@@ -282,7 +282,6 @@ const paused = computed(() => {
   }
   return (
     store.appState !== AppState.GAME &&
-    store.appState !== AppState.CSA_GAME &&
     store.appState !== AppState.ANALYSIS &&
     store.appState !== AppState.MATE_SEARCH
   );

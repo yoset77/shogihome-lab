@@ -18,7 +18,7 @@
       :last-move="lastMove"
       :candidates="store.candidates"
       :flip="appSettings.boardFlipping"
-      :hide-clock="store.appState !== AppState.GAME && store.appState !== AppState.CSA_GAME"
+      :hide-clock="store.appState !== AppState.GAME"
       :mobile="isMobileWebApp()"
       :allow-move="store.isMovableByUser"
       :enable-drag-and-drop="appSettings.enableDragAndDrop"
@@ -61,7 +61,6 @@ import { useStore } from "@/renderer/store";
 import ControlPane, { ControlGroup } from "@/renderer/view/main/ControlPane.vue";
 import { AppState } from "@/common/control/state.js";
 import { humanPlayer } from "@/renderer/players/human";
-import { CSAGameState } from "@/renderer/store/csa";
 import { isMobileWebApp } from "@/renderer/ipc/api.js";
 import { useAppSettings } from "@/renderer/store/settings";
 import {
@@ -103,7 +102,7 @@ const appSettings = useAppSettings();
 const onResize = (size: RectSize) => emit("resize", size);
 
 const onMove = (move: Move) => {
-  if (store.appState === AppState.GAME || store.appState === AppState.CSA_GAME) {
+  if (store.appState === AppState.GAME) {
     humanPlayer.doMove(move);
   } else {
     store.doMove(move);
@@ -119,7 +118,7 @@ const blackPlayerName = computed(() => getBlackPlayerName(store.record.metadata)
 const whitePlayerName = computed(() => getWhitePlayerName(store.record.metadata) || t.gote);
 
 const clock = computed(() => {
-  if (store.appState === AppState.GAME || store.csaGameState === CSAGameState.GAME) {
+  if (store.appState === AppState.GAME) {
     return {
       black: {
         time: store.blackTime,

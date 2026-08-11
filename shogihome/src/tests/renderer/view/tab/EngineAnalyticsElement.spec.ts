@@ -93,11 +93,6 @@ describe("EngineAnalyticsElement", () => {
     mockStore.appState = AppState.GAME;
     await vm.$nextTick();
     expect(vm.paused).toBe(false);
-
-    // Game engine, app in CSA game -> should NOT be paused
-    mockStore.appState = AppState.CSA_GAME;
-    await vm.$nextTick();
-    expect(vm.paused).toBe(false);
   });
 
   it("should render the stored PV text on mobile without reformatting", () => {

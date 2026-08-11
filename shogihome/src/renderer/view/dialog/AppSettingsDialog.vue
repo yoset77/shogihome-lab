@@ -865,11 +865,6 @@
           <div class="form-item-label-wide">{{ t.enableUSILog }}</div>
           <ToggleButton v-model:value="update.enableUSILog" />
         </div>
-        <!-- CSA通信ログを出力 -->
-        <div class="form-item">
-          <div class="form-item-label-wide">{{ t.enableCSALog }}</div>
-          <ToggleButton v-model:value="update.enableCSALog" />
-        </div>
         <!-- ログレベル -->
         <div class="form-item">
           <div class="form-item-label-wide">{{ t.logLevel }}</div>
@@ -1035,7 +1030,6 @@ const update = ref({
   branchListMode: org.branchListMode,
   enableAppLog: org.enableAppLog,
   enableUSILog: org.enableUSILog,
-  enableCSALog: org.enableCSALog,
   logLevel: org.logLevel,
   enableHardwareAcceleration: org.enableHardwareAcceleration,
   showBookTableOnMobile: org.showBookTableOnMobile,

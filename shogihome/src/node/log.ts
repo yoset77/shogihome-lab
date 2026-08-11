@@ -31,8 +31,6 @@ function getFilePath(type: LogType): string {
       return getLogPath(`app-${datetime}.log`);
     case LogType.USI:
       return getLogPath(`usi-${datetime}.log`);
-    case LogType.CSA:
-      return getLogPath(`csa-${datetime}.log`);
   }
 }
 
@@ -41,13 +39,11 @@ const defaultAppender = isTest() ? "recording" : "stdout";
 const appenders = {
   [LogType.APP]: [defaultAppender] as string[],
   [LogType.USI]: [defaultAppender] as string[],
-  [LogType.CSA]: [defaultAppender] as string[],
 };
 
 const levels = {
   [LogType.APP]: LogLevel.INFO,
   [LogType.USI]: LogLevel.INFO,
-  [LogType.CSA]: LogLevel.INFO,
 };
 
 export type LogDestination = "file" | "stdout" | "recording";
@@ -92,10 +88,6 @@ export function getAppLogger(): Logger {
 
 export function getUSILogger(): Logger {
   return getLogger(LogType.USI);
-}
-
-export function getCSALogger(): Logger {
-  return getLogger(LogType.CSA);
 }
 
 export function shutdownLoggers(): void {

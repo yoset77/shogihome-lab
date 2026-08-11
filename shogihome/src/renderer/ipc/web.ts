@@ -6,7 +6,6 @@ import { USIEngines } from "@/common/settings/usi";
 import { LogLevel } from "@/common/log";
 import { Bridge } from "@/renderer/ipc/bridge";
 import { t } from "@/common/i18n/index";
-import { defaultCSAGameSettingsHistory } from "@/common/settings/csa";
 import { defaultMateSearchSettings } from "@/common/settings/mate";
 import { defaultBatchConversionSettings } from "@/common/settings/conversion";
 import { defaultBookImportSettings, normalizeBookImportSettings } from "@/common/settings/book";
@@ -33,7 +32,6 @@ enum STORAGE_KEY {
   ANALYSIS_SETTINGS = "analysisSetting",
   GAME_SETTINGS = "gameSetting",
   MATE_SEARCH_SETTINGS = "mateSearchSetting",
-  CSA_GAME_SETTINGS_HISTORY = "csaGameSettingHistory",
   BOOK_IMPORT_SETTINGS = "bookImportSetting",
 }
 
@@ -166,19 +164,6 @@ export const webAPI: Bridge = {
   },
   async saveGameSettings(json: string): Promise<void> {
     localStorage.setItem(STORAGE_KEY.GAME_SETTINGS, json);
-  },
-  async loadCSAGameSettingsHistory(): Promise<string> {
-    const json = localStorage.getItem(STORAGE_KEY.CSA_GAME_SETTINGS_HISTORY);
-    if (!json) {
-      return JSON.stringify(defaultCSAGameSettingsHistory());
-    }
-    return JSON.stringify({
-      ...defaultCSAGameSettingsHistory(),
-      ...JSON.parse(json),
-    });
-  },
-  async saveCSAGameSettingsHistory(json: string): Promise<void> {
-    localStorage.setItem(STORAGE_KEY.CSA_GAME_SETTINGS_HISTORY, json);
   },
   async loadMateSearchSettings(): Promise<string> {
     const json = localStorage.getItem(STORAGE_KEY.MATE_SEARCH_SETTINGS);
@@ -584,47 +569,6 @@ export const webAPI: Bridge = {
     // Do Nothing
   },
   onUSIInfo(): void {
-    // Do Nothing
-  },
-
-  // CSA
-  async csaLogin(): Promise<number> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
-  },
-  async csaLogout(): Promise<void> {
-    // Do Nothing
-  },
-  async csaAgree(): Promise<void> {
-    // Do Nothing
-  },
-  async csaMove(): Promise<void> {
-    // Do Nothing
-  },
-  async csaResign(): Promise<void> {
-    // Do Nothing
-  },
-  async csaWin(): Promise<void> {
-    // Do Nothing
-  },
-  async csaStop(): Promise<void> {
-    // Do Nothing
-  },
-  onCSAGameSummary(): void {
-    // Do Nothing
-  },
-  onCSAReject(): void {
-    // Do Nothing
-  },
-  onCSAStart(): void {
-    // Do Nothing
-  },
-  onCSAMove(): void {
-    // Do Nothing
-  },
-  onCSAGameResult(): void {
-    // Do Nothing
-  },
-  onCSAClose(): void {
     // Do Nothing
   },
 

@@ -93,7 +93,7 @@ const onUpdateFlippedBook = (value: boolean) => {
 };
 
 const playBookMove = (move: Move) => {
-  if (store.appState === AppState.GAME || store.appState === AppState.CSA_GAME) {
+  if (store.appState === AppState.GAME) {
     humanPlayer.doMove(move);
   } else {
     store.doMove(move);

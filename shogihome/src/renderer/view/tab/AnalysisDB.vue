@@ -192,7 +192,7 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let searchRequestId = 0;
 
 const isGame = computed(() => {
-  return store.appState === AppState.GAME || store.appState === AppState.CSA_GAME;
+  return store.appState === AppState.GAME;
 });
 
 const isAutoSearchEnabled = computed(() => {
