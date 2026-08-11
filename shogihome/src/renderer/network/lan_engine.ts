@@ -69,6 +69,7 @@ export class LanEngine {
     if (document.visibilityState === "visible" && !this.isExplicitlyClosed) {
       console.log(`Foreground detected. Refreshing session ${this.sessionId}...`);
       this.clearReconnect();
+      this.reconnectAttempts = 0;
       if (this.ws) {
         if (this.ws.readyState === WebSocket.CONNECTING) {
           return;
