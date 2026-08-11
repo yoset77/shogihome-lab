@@ -173,8 +173,7 @@ describe("AnalysisDB", () => {
     await wrapper.find("button.icon-only").trigger("click");
 
     const confirmation = confirmShowMock.mock.calls[0]?.[0] as
-      | { onOk: () => Promise<void> }
-      | undefined;
+      { onOk: () => Promise<void> } | undefined;
     expect(confirmation).toBeDefined();
 
     await confirmation!.onOk();
