@@ -17,7 +17,7 @@ jobs:
       run:
         working-directory: shogihome
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: 26
@@ -57,7 +57,7 @@ jobs:
       run:
         working-directory: engine-wrapper
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install uv
         run: curl -LsSf https://astral.sh/uv/install.sh | sh
       - name: Set up Python
