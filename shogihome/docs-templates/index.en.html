@@ -50,7 +50,7 @@
       <ul>
         <li><a href="#whatis">What's ShogiHome</a></li>
         <li><a href="#license">License</a></li>
-        <li><a href="#pcapp">Desktop App</a></li>
+        <li><a href="#pcapp">PC Package</a></li>
         <li><a href="#webapp">Web App</a></li>
         <li><a href="#howtouse">How to Use</a></li>
         <li><a href="#milestones">Milestones</a></li>
@@ -92,8 +92,8 @@
         </div>
         <div class="long-text">
           These days, 2-in-1 laptops are becoming popular. We can use desktop Shogi apps with a
-          touch screen. This app is designed to be operated by touch screen too. Also, the Electron
-          framework gets this app to minimize OS dependency.
+          touch screen. This app is designed to be operated by touch screen too. ShogiHome runs in a
+          web browser and can be used in a variety of environments.
         </div>
         <div class="slides">
           <iframe
@@ -142,13 +142,11 @@
         <div class="long-text">
           See
           <a href="./third-party-licenses.html">THIRD PARTY LICENSES</a>
-          for the licenses of the third-party libraries used in this app. However, this list does
-          not include the licenses of Electron, Electron Builder, and Chromium. Those licenses are
-          included in the desktop app.
+          for the licenses of the third-party libraries used in this app.
         </div>
       </section>
       <section id="pcapp">
-        <h2>Desktop App</h2>
+        <h2>PC Package</h2>
         <div class="images">
           <a href="./screenshots/screenshot001.png"
             ><img class="wide" src="./screenshots/screenshot001.png?202405051100" alt="PC"
@@ -172,8 +170,8 @@
           </li>
         </ul>
         <div class="long-text">
-          Please download the file with the suffix <b>-win.zip</b> for Windows, <b>-mac.zip</b> for
-          macOS, or <b>-linux.zip</b> for Linux. See
+          The Windows package can be downloaded from the release page. It includes the web app,
+          server, and runtime required for engine integration. See
           <a
             href="https://github.com/sunfish-shogi/shogihome/wiki/%E3%83%90%E3%83%BC%E3%82%B8%E3%83%A7%E3%83%B3%E3%81%AE%E9%81%B8%E3%81%B3%E6%96%B9"
             >"How to select version"</a
@@ -270,17 +268,17 @@
             </ul>
           </li>
           <li>
-            Q. What's the CSA protocol?
+            Q. Can I use CSA game records?
             <ul>
               <li>
-                A. CSA protocol is a TCP-based communication protocol for shogi AI. It is mainly
-                used by shogi engine developers. To play a game with CSA protocol, you need a CSA
-                server in addition to ShogiHome.
+                A. ShogiHome can import, export, and convert CSA game records. Floodgate and WCSC
+                records can also be browsed and imported. Online play through a CSA server is not
+                supported.
               </li>
             </ul>
           </li>
           <li>
-            Q. Where is the log file of the CSA protocol and USI protocol?
+            Q. Where is the USI protocol log file?
             <ul>
               <li>
                 A. Logging is disabled by default. Please refer to

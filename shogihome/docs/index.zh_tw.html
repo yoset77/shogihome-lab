@@ -50,7 +50,7 @@
       <ul>
         <li><a href="#whatis">ShogiHome是什麼？</a></li>
         <li><a href="#license">授權條款</a></li>
-        <li><a href="#pcapp">電腦應用程式</a></li>
+        <li><a href="#pcapp">電腦套件</a></li>
         <li><a href="#webapp">網頁應用程式</a></li>
         <li><a href="#howtouse">使用方法</a></li>
         <li><a href="#milestones">開發期程</a></li>
@@ -64,11 +64,7 @@
       <section id="whatis">
         <h2>ShogiHome是什麼？</h2>
         <div class="long-text">
-          ShogiHome 是一款使用
-          <a href="https://www.electronjs.org/" target="_blank"
-            >Electron<img class="small-icon" src="./icons/open_in_new_black_24dp.svg"
-          /></a>
-          框架開發的開源將棋應用程式， 並可以在 Windows、macOS、Linux 作業系統上運行。
+          ShogiHome 是一款在瀏覽器中運作的開源將棋應用程式，可以在各種環境中使用。
           任何人都可以參與開發或創建自己的版本並發布。
         </div>
         <div class="images">
@@ -98,8 +94,7 @@
         <div class="long-text">
           近日由於二合一的平板電腦的普及，即使是在 PC 上也可以使用觸控螢幕進行將棋對局了。
           ShogiHome的大部分功能都使用大型按鈕來操作，構成了在各種環境下都能輕鬆使用的介面。
-          此外，由於使用 Electron
-          來開發，本軟體最小化了對作業系統的依賴，實現了在任何作業系統下都能使用相同的介面與操作性。
+          ShogiHome 在網頁瀏覽器中運作，因此可以在各種環境中使用。
         </div>
         <div class="slides">
           <iframe
@@ -148,12 +143,10 @@
         <div class="long-text">
           本程式使用的 Web 函式庫的授權請參考
           <a href="./third-party-licenses.html">THIRD PARTY LICENSES</a>。
-          <br />
-          Electron、Electron Builder 及 Chromium 的授權並不包含於上方連結，但會與本程式一同安裝。
         </div>
       </section>
       <section id="pcapp">
-        <h2>電腦應用程式</h2>
+        <h2>電腦套件</h2>
         <div class="images">
           <a href="./screenshots/screenshot001.png"
             ><img class="wide" src="./screenshots/screenshot001.png?202405051100" alt="PC"
@@ -178,8 +171,7 @@
         </ul>
         <div class="long-text">
           Windows
-          作業系統請使用<b>-win.zip</b>、MacOS請使用<b>-mac.zip</b>、Linux請使用<b>-linux.zip</b>結尾的檔案進行下載。
-          選擇版本時請參考<a
+          套件可以從版本發布頁面下載。套件包含網頁應用程式、伺服器，以及引擎整合所需的執行環境。選擇版本時請參考<a
             href="https://github.com/sunfish-shogi/shogihome/wiki/%E3%83%90%E3%83%BC%E3%82%B8%E3%83%A7%E3%83%B3%E3%81%AE%E9%81%B8%E3%81%B3%E6%96%B9"
             >「バージョンの選び方」</a
           >使用。
@@ -248,17 +240,16 @@
             </ul>
           </li>
           <li>
-            Q. CSA 協定是什麼呢？
+            Q. 可以使用 CSA 格式的棋譜嗎？
             <ul>
               <li>
-                A. CSA協定是電腦將棋協會(CSA)所制定，用於將棋 AI
-                的通訊規格，主要在將棋引擎的開發者間使用。若要使用 CSA
-                協定對局，在Electron將棋外還需要其他的 CSA 伺服器。
+                A. ShogiHome 可以讀取、儲存及轉換 CSA 格式的棋譜，也可以瀏覽並讀取 Floodgate 和 WCSC
+                的棋譜。不支援透過 CSA 伺服器進行線上對局。
               </li>
             </ul>
           </li>
           <li>
-            Q. CSA 與 USI 的通訊紀錄 (log) 在哪邊儲存呢？
+            Q. USI 通訊紀錄 (log) 在哪邊儲存呢？
             <ul>
               <li>
                 A. 預設設定為不輸出紀錄 (log) 。請參考<a

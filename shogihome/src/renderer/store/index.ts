@@ -543,12 +543,6 @@ class Store {
     }
   }
 
-  showLaunchUSIEngineDialog(): void {
-    if (this.appState === AppState.NORMAL) {
-      this._appState = AppState.LAUNCH_USI_ENGINE_DIALOG;
-    }
-  }
-
   showLoadRemoteFileDialog(): void {
     if (this.appState === AppState.NORMAL || this.appState === AppState.GAME) {
       this._lastAppState = this.appState;
@@ -673,7 +667,6 @@ class Store {
       this.appState === AppState.EXPORT_POSITION_IMAGE_DIALOG ||
       this.appState === AppState.RECORD_FILE_HISTORY_DIALOG ||
       this.appState === AppState.BATCH_CONVERSION_DIALOG ||
-      this.appState === AppState.LAUNCH_USI_ENGINE_DIALOG ||
       this.appState === AppState.LOAD_REMOTE_FILE_DIALOG ||
       this.appState === AppState.SHARE_DIALOG ||
       this.appState === AppState.ADD_BOOK_MOVES_DIALOG ||

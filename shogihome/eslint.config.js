@@ -56,18 +56,6 @@ export default defineConfigWithVueTs([
           zones: [
             {
               from: "./src/renderer",
-              target: "./src/background",
-            },
-            {
-              from: "./src/background",
-              target: "./src/renderer",
-            },
-            {
-              from: "./src/renderer",
-              target: "./src/common",
-            },
-            {
-              from: "./src/background",
               target: "./src/common",
             },
             {
@@ -80,14 +68,6 @@ export default defineConfigWithVueTs([
             },
             {
               from: "./src/renderer",
-              target: "./src/node",
-            },
-            {
-              from: "./src/background",
-              target: "./src/node",
-            },
-            {
-              from: "./src/command",
               target: "./src/node",
             },
             {
@@ -96,14 +76,6 @@ export default defineConfigWithVueTs([
             },
             {
               from: "./src/renderer",
-              target: "./src/server",
-            },
-            {
-              from: "./src/background",
-              target: "./src/server",
-            },
-            {
-              from: "./src/command",
               target: "./src/server",
             },
             {

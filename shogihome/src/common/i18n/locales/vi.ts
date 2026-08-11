@@ -96,14 +96,6 @@ export const vi: Texts = {
   copyAppLogTailCommand: "Sao chép lệnh kết thúc log ứng dụng",
   copyUSILogTailCommand: "Sao chép lệnh kết thúc log USI",
   reloadCustomPieceImage: "Tải lại ảnh quân tùy chỉnh",
-  launchUSIEngine: "Khởi động phần mềm shogi",
-  adminMode: "Chế độ nâng cao",
-  inAdminModeManuallyInvokeCommandsAtPrompt:
-    "Trong chế độ nâng cao, bạn phải tự nhập lệnh tại ô nhắc lệnh.",
-  setoptionAndPrecedingCommandsAreSentAutomatically:
-    '"setoption" và các lệnh trước đó sẽ được gửi tự động',
-  serverMustSupportShogiServerX1ModeLogIn:
-    "Máy chủ phải hỗ trợ phương thức đăng nhập x1-mode của shogi-server.",
   folders: "Thư mục",
   notification: "Thông báo",
   notificationTest: "Thử thông báo",
@@ -155,12 +147,6 @@ export const vi: Texts = {
   significance1pc: "Độ nổi bật 1%",
   gameEnded: "Ván đã kết thúc",
   offlineGame: "Ván ngoại tuyến",
-  host: "Tên máy chủ",
-  portNumber: "Cổng",
-  password: "Mật khẩu",
-  revealPassword: "Hiện mật khẩu",
-  keepaliveInitialDelay: "Trì hoãn keepalive ban đầu",
-  logout: "Đăng xuất",
   calculateJishogiPoints: "Tính điểm bế tắc",
   jishogiPoints: "Điểm bế tắc",
   gameStoppedBecauseLanDisconnected: "Ván đấu đã bị dừng do mất kết nối LAN.",
@@ -569,31 +555,10 @@ export const vi: Texts = {
   installed: "Được cài đặt",
   stable: "Ổn định",
   latest: "Mới nhất",
-  backgroundColor: "Màu nền",
-  dialogPosition: "ダイアログ表示位置", // TODO: Translate
-  alignLeft: "左", // TODO: Translate
-  alignRight: "右", // TODO: Translate
-  alignCenter: "中央", // TODO: Translate
-  dialogBackdrop: "Nền hộp thoại",
   record: "Kỳ phổ",
   book: "Định thức",
   chart: "Đồ thị",
-  analytics: "Phân tích",
-  controlGroup: "Menu",
-  left: "Trái",
-  top: "Trên",
-  width: "Chiều rộng",
-  height: "Chiều cao",
-  rightControlBox: "Menu bên phải",
-  leftControlBox: "Menu bên trái",
-  topControlBox: "Menu bên trên",
-  legends: "Chú giải",
-  historyMode: "Chế độ lịch sử",
-  headers: "Đầu đề",
-  playButton: "Nút phát lại",
   insert: "Chèn",
-  bringForward: "Đưa lên trên",
-  sendBackward: "Đẩy xuống dưới",
   move: "Nước đi",
   bookMove: "Nước định thức",
   play: "Chơi",
@@ -626,22 +591,9 @@ export const vi: Texts = {
   moveEntry: "Nước đã được lưu",
   updatedAt: "Cập nhật lúc",
   createdAt: "Tạo lúc",
-  lastSent: "Gửi lần cuối",
-  lastReceived: "Nhận lần cuối",
-  protocolVersion: "Phiên bản phương thức",
-  prompt: "Nhắc lệnh",
-  usiEngine: "Phần mềm USI",
-  noRunningUSIEngine: "Không có phần mềm USI đang chạy.",
-  willBeRemovedFromTheListSoon: "Trình này đã đóng và sắp bị xóa khỏi danh sách.",
-  typeCommandHereAndPressEnter: "Nhập lệnh tại đây và nhấn Enter.",
-  allowBlankLine: "Cho phép dòng trống",
-  removeSpaceFromBothEnds: "Xóa dấu cách ở hai đầu",
-  collapseSequentialSpaces: "Gộp dấu cách liền nhau",
   typeCustomTitleHere: "Nhập tiêu đề",
   displayEmptyElements: "Hiện các mục trống",
   share: "Chia sẻ",
-  waitingForNewGame: "Đang chờ ván mới.",
-  waitingForPlayerSetup: "Đang chờ người chơi chuẩn bị.",
   insertedComment: "Đã chèn bình luận.",
   conversionCompleted: "Chuyển đổi hoàn tất.",
   human: "Người",
@@ -671,16 +623,6 @@ export const vi: Texts = {
     'Tính năng tính nhanh gửi lệnh "ponderhit" với các tùy chọn riêng củaYaneuraOu.',
   ifYourEngineNotSupportTheOptionsItMayCauseUnexpectedBehavior:
     "Phần mềm của bạn có thể báo lỗi nếu không hỗ trợ cài đặt này.",
-  someLogsDisabled: "Một số tùy chọn log đã bị tắt.",
-  pleaseEnableLogsAndRestart: "Vui lòng bật tùy chọn log và khởi động lại ứng dụng.",
-  passwordWillSavedPlaintextBecauseOSSideEncryptionNotAvailable:
-    "Mật khẩu sẽ được lưu thô vì hệ điều hành không hỗ trợ mã hóa.",
-  pleaseUncheckSaveHistoryIfNotWantSave: "Vui lòng bỏ chọn lưu lịch sử nếu không muốn lưu.",
-  floodgatePasswordShouldStartWithGameName:
-    "Floodgateのパスワードはゲーム名で始まる必要があります。", // TODO: Translate
-  thisIsNotFloodgateOfficialGameName: "これはFloodgate公式のゲーム名ではありません。", // TODO: Translate
-  yourPasswordDoesNotMeetFloodgateRequirementsDoYouStillWantToContinue:
-    "パスワードがFloodgateの要件を満たしていない可能性があります。続行しますか？", // TODO: Translate
   whenNewVersionIsAvailableItWillBeNotified: "Sẽ có thông báo khi có phiên bản mới.",
   pleaseCheckMessageThisIsTestNotificationByAboveButton:
     'Vui lòng thử tin nhắn "Đây là thông báo thử." bằng nút trên.',
@@ -760,13 +702,6 @@ export const vi: Texts = {
   bothTimeLimitAndByoyomiAreNotSet: "Thời gian và byoyomi chưa được đặt.",
   canNotUseByoyomiWithFischer: "Bạn không thể dùng byoyomi với chế độ Fischer.",
   repeatsMustBeOneIfHumanPlayerIncluded: "Nếu có người chơi, số lần lặp lại phải là 1.",
-  protocolVersionNotSelected: "Chưa chọn phiên bản phương thức.",
-  hostNameIsEmpty: "Tên máy chủ trống.",
-  invalidPortNumber: "Cổng không hợp lệ.",
-  idIsEmpty: "Tên người dùng trống.",
-  idContainsSpace: "Tên người dùng chứa dấu cách.",
-  passwordContainsSpace: "Mật khẩu chứa dấu cách.",
-  tcpKeepaliveInitialDelayMustBePositive: "Trì hoãn giữ kết nối TCP ban đầu phải dương.",
   engineNotSelected: "Chưa chọn phần mềm.",
   forExportingConversionLogPleaseEnableAppLogsAndSetLogLevelDebugAndRestart:
     "Để xuất log chuyển đổi, vui lòng bật log ứng dụng, đặt cấp độ log thành DEBUG và khởi động lại ứng dụng.",

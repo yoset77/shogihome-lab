@@ -230,9 +230,6 @@ export function setup(): void {
       case MenuEvent.USI_ENGINES_DIALOG:
         store.showUsiEngineManagementDialog();
         break;
-      case MenuEvent.LAUNCH_USI_ENGINE:
-        store.showLaunchUSIEngineDialog();
-        break;
     }
   });
 

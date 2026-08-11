@@ -917,6 +917,18 @@ describe("store/index", () => {
     expect(store.isRecordFileUnsaved).toBeFalsy();
   });
 
+  it("saveRecord/csaV3", async () => {
+    mockAPI.showSaveRecordDialog.mockResolvedValue("/test/sample.csa");
+    mockAPI.saveRecord.mockResolvedValue();
+    await useAppSettings().updateAppSettings({ useCSAV3: true });
+    const store = createStore();
+
+    await store.saveRecord();
+
+    const data = new TextDecoder().decode(mockAPI.saveRecord.mock.calls[0][1]);
+    expect(data).toMatch(/^'CSA encoding=UTF-8\r\nV3\.0\r\n/);
+  });
+
   it("saveRecord/invalidState", () => {
     const store = createStore();
     store.showGameDialog();

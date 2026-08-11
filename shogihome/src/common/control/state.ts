@@ -12,7 +12,6 @@ export enum AppState {
   USI_ENGINES_DIALOG = "usiEnginesDialog",
   RECORD_FILE_HISTORY_DIALOG = "recordFileHistoryDialog",
   BATCH_CONVERSION_DIALOG = "batchConversionDialog",
-  LAUNCH_USI_ENGINE_DIALOG = "launchUsiEngineDialog",
   LOAD_REMOTE_FILE_DIALOG = "loadRemoteFileDialog",
   SHARE_DIALOG = "shareDialog",
   ADD_BOOK_MOVES_DIALOG = "addBookMovesDialog",

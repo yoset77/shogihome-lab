@@ -16,6 +16,3 @@ export const dataDir = path.join(getDataRootPath(), "data");
 export function getUserDataPath(): string {
   return dataDir;
 }
-
-export const electronLicensePath = ""; // Not used in Web/LAN version
-export const chromiumLicensePath = ""; // Not used in Web/LAN version
