@@ -17,12 +17,6 @@
         </span>
       </div>
     </div>
-    <div v-if="store.usiSessionIDs.length" class="main-buttons">
-      <button @click="onOpenEnginePrompt()">{{ t.prompt }}({{ t.usiEngine }})</button>
-    </div>
-    <div v-if="store.csaServerSessionID" class="main-buttons">
-      <button @click="onOpenServerPrompt()">{{ t.prompt }}({{ t.csaServer }})</button>
-    </div>
     <div
       v-if="
         store.csaGameState === CSAGameState.READY ||
@@ -46,9 +40,6 @@ import { useStore } from "@/renderer/store";
 import { installHotKeyForDialog, uninstallHotKeyForDialog } from "@/renderer/devices/hotkey";
 import { CSAGameState, loginRetryIntervalSeconds } from "@/renderer/store/csa";
 import { t } from "@/common/i18n";
-import api from "@/renderer/ipc/api";
-import { PromptTarget } from "@/common/advanced/prompt";
-import { useErrorStore } from "@/renderer/store/error";
 
 const store = useStore();
 const dialog = ref();
@@ -79,21 +70,5 @@ watch(() => store.csaGameState, onCSAGameStateUpdated);
 
 const onLogout = () => {
   store.cancelCSAGame();
-};
-
-const onOpenEnginePrompt = () => {
-  const sessionIDs = store.usiSessionIDs;
-  if (sessionIDs.length === 0) {
-    useErrorStore().add("USI session is not found.");
-    return;
-  }
-  const settings = store.csaGameSettings;
-  api.openPrompt(PromptTarget.USI, sessionIDs[0], settings.player.name);
-};
-
-const onOpenServerPrompt = () => {
-  const settings = store.csaGameSettings;
-  const name = `${settings.server.host}:${settings.server.port}`;
-  api.openPrompt(PromptTarget.CSA, store.csaServerSessionID, name);
 };
 </script>

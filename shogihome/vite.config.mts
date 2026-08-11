@@ -8,13 +8,7 @@ const pkg = JSON.parse(fs.readFileSync(resolve(import.meta.dirname, "package.jso
 
 export default defineConfig({
   resolve: {
-    alias: [
-      { find: "@", replacement: "/src" },
-      {
-        find: "electron",
-        replacement: resolve(import.meta.dirname, "src/tests/mock/electron.ts"),
-      },
-    ],
+    alias: [{ find: "@", replacement: "/src" }],
   },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
@@ -25,9 +19,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(import.meta.dirname, "index.html"),
-        prompt: resolve(import.meta.dirname, "prompt.html"),
-        monitor: resolve(import.meta.dirname, "monitor.html"),
-        "layout-manager": resolve(import.meta.dirname, "layout-manager.html"),
       },
     },
     outDir: resolve(import.meta.dirname, "dist"),
@@ -74,20 +65,11 @@ export default defineConfig({
         "src/renderer/ipc/web.ts",
         "src/renderer/ipc/setup.ts",
 
-        // UI/Window
-        "src/background/index.ts",
-        "src/background/window/ipc.ts",
-        "src/background/window/main.ts",
-        "src/background/window/menu.ts",
-        "src/background/window/prompt.ts",
-        "src/background/window/layout.ts",
+        // UI
         "src/renderer/index.ts",
         "src/renderer/assets/icons.ts",
         "src/renderer/devices/audio.ts",
         "src/renderer/devices/hotkey.ts",
-
-        // コマンド
-        "src/command/usi-csa-bridge/index.ts",
       ],
     },
   },

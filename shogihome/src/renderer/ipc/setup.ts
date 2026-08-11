@@ -1,7 +1,6 @@
 import { watch } from "vue";
 import { SpecialMoveType } from "tsshogi";
 import { useStore } from "@/renderer/store/index";
-import { useStore as usePromptStore } from "@/renderer/prompt/store";
 import {
   onUSIBestMove,
   onUSICheckmate,
@@ -294,20 +293,8 @@ export function setup(): void {
   bridge.onCSAGameResult(onCSAGameResult);
   bridge.onCSAClose(onCSAClose);
 
-  // Layout
-  bridge.onUpdateLayoutProfileList((uri, json) => {
-    store.updateLayoutProfileList(uri, JSON.parse(json));
-  });
-
   // MISC
   bridge.onProgress((progress: number) => {
     busyState.updateProgress(progress);
-  });
-}
-
-export function setupPrompt(): void {
-  const store = usePromptStore();
-  bridge.onPromptCommand((command: string) => {
-    store.onCommand(JSON.parse(command));
   });
 }

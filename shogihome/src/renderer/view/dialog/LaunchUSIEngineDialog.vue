@@ -40,7 +40,6 @@ import PlayerSelector from "./PlayerSelector.vue";
 import { USIEngines } from "@/common/settings/usi";
 import api from "@/renderer/ipc/api";
 import { useAppSettings } from "@/renderer/store/settings";
-import { PromptTarget } from "@/common/advanced/prompt";
 import { Tab } from "@/common/settings/app";
 import { useErrorStore } from "@/renderer/store/error";
 import { useBusyState } from "@/renderer/store/busy";
@@ -71,8 +70,7 @@ const onStart = async () => {
     useErrorStore().add(t.engineNotSelected);
     return;
   }
-  const sessionID = await api.usiLaunch(settings, appSettings.engineTimeoutSeconds);
-  api.openPrompt(PromptTarget.USI, sessionID, settings.name);
+  await api.usiLaunch(settings, appSettings.engineTimeoutSeconds);
   useAppSettings().updateAppSettings({ tab: Tab.MONITOR });
   store.closeModalDialog();
 };

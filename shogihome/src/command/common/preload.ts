@@ -300,23 +300,6 @@ const bridge: Bridge = {
     // Do Nothing
   },
 
-  // Sessions
-  async collectSessionStates(): Promise<string> {
-    throw new Error("This feature is not available on command line tool");
-  },
-  async setupPrompt(): Promise<string> {
-    throw new Error("This feature is not available on command line tool");
-  },
-  async openPrompt() {
-    throw new Error("This feature is not available on command line tool");
-  },
-  invokePromptCommand(): void {
-    throw new Error("This feature is not available on command line tool");
-  },
-  onPromptCommand(): void {
-    // Do Nothing
-  },
-
   // Images
   async showSelectImageDialog(): Promise<string> {
     throw new Error("This feature is not available on command line tool");
@@ -329,17 +312,6 @@ const bridge: Bridge = {
   },
   async exportCaptureAsJPEG(): Promise<void> {
     throw new Error("This feature is not available on command line tool");
-  },
-
-  // Layout
-  async loadLayoutProfileList(): Promise<[string, string]> {
-    throw new Error("This feature is not available on command line tool");
-  },
-  updateLayoutProfileList(): void {
-    // Do Nothing
-  },
-  onUpdateLayoutProfileList(): void {
-    // Do Nothing
   },
 
   // Log

@@ -13,8 +13,6 @@ import { defaultBookImportSettings, normalizeBookImportSettings } from "@/common
 import { getEmptyHistory } from "@/common/file/history";
 import { BookLoadingMode } from "@/common/book";
 import { VersionStatus } from "@/common/version";
-import { SessionStates } from "@/common/advanced/monitor";
-import { emptyLayoutProfileList } from "@/common/settings/layout";
 import * as uri from "@/common/uri";
 import { normalizePath } from "@/common/helpers/path";
 import { KifuSearchResult, KifuListEntry } from "@/common/file/record";
@@ -630,26 +628,6 @@ export const webAPI: Bridge = {
     // Do Nothing
   },
 
-  // Sessions
-  async collectSessionStates(): Promise<string> {
-    return JSON.stringify({
-      usiSessions: [],
-      csaSessions: [],
-    } as SessionStates);
-  },
-  async setupPrompt(): Promise<string> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
-  },
-  async openPrompt() {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
-  },
-  invokePromptCommand(): void {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
-  },
-  onPromptCommand(): void {
-    // Do Nothing
-  },
-
   // Images
   async showSelectImageDialog(): Promise<string> {
     throw new Error(t.thisFeatureNotAvailableOnWebApp);
@@ -685,17 +663,6 @@ export const webAPI: Bridge = {
         }),
       rectJson,
     );
-  },
-
-  // Layout
-  async loadLayoutProfileList(): Promise<[string, string]> {
-    return [uri.ES_STANDARD_LAYOUT_PROFILE, JSON.stringify(emptyLayoutProfileList())];
-  },
-  updateLayoutProfileList(): void {
-    // Do Nothing
-  },
-  onUpdateLayoutProfileList(): void {
-    // Do Nothing
   },
 
   // Log

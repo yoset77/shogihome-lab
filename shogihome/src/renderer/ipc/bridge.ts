@@ -1,5 +1,3 @@
-import { CommandType } from "@/common/advanced/command";
-import { PromptTarget } from "@/common/advanced/prompt";
 import { BookLoadingMode } from "@/common/book";
 import { MenuEvent } from "@/common/control/menu";
 import { AppState, ResearchState } from "@/common/control/state";
@@ -110,28 +108,11 @@ export interface Bridge {
   ): void;
   onCSAClose(callback: (sessionID: number) => void): void;
 
-  // Sessions
-  collectSessionStates(): Promise<string>;
-  setupPrompt(target: PromptTarget, sessionID: number): Promise<string>;
-  openPrompt(target: PromptTarget, sessionID: number, name: string): void;
-  invokePromptCommand(
-    target: PromptTarget,
-    sessionID: number,
-    type: CommandType,
-    command: string,
-  ): void;
-  onPromptCommand(callback: (command: string) => void): void;
-
   // Images
   showSelectImageDialog(defaultURL?: string): Promise<string>;
   cropPieceImage(srcURL: string, deleteMargin: boolean): Promise<string>;
   exportCaptureAsPNG(json: string): Promise<void>;
   exportCaptureAsJPEG(json: string): Promise<void>;
-
-  // Layout
-  loadLayoutProfileList(): Promise<[string, string]>;
-  updateLayoutProfileList(uri: string, profileList: string): void;
-  onUpdateLayoutProfileList(callback: (uri: string, json: string) => void): void;
 
   // Log
   openLogFile(logType: LogType): void;

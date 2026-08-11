@@ -6,7 +6,6 @@
   >
     <!-- Main Contents -->
     <MobileLayout v-if="isMobileWebApp()" />
-    <CustomLayout v-else-if="store.customLayout" :profile="store.customLayout" />
     <StandardLayout v-else class="full" />
 
     <ToastMessage />
@@ -153,12 +152,10 @@ import { useBusyState } from "./store/busy";
 import { useMessageStore } from "./store/message";
 import { useErrorStore } from "./store/error";
 import { useConfirmationStore } from "./store/confirm";
-import CustomLayout from "./view/main/CustomLayout.vue";
 import MobileLayout from "./view/main/MobileLayout.vue";
 import api, { isMobileWebApp, isNative } from "./ipc/api";
 import { openCopyright } from "./helpers/copyright";
 import { installHotKeyForMainWindow } from "./devices/hotkey";
-import { DialogPosition } from "@/common/settings/layout";
 import ToastMessage from "./view/toast/ToastMessage.vue";
 
 const clipboard = ref();
@@ -218,19 +215,8 @@ onMounted(() => {
   });
 });
 
-const dialogPosition = computed(() =>
-  !store.customLayout?.dialogPosition || store.customLayout.dialogPosition === DialogPosition.CENTER
-    ? "dialog-position-center"
-    : store.customLayout.dialogPosition === DialogPosition.LEFT
-      ? "dialog-position-left"
-      : "dialog-position-right",
-);
-
-const dialogBackdrop = computed(() =>
-  !store.customLayout || store.customLayout.dialogBackdrop
-    ? "dialog-backdrop"
-    : "dialog-no-backdrop",
-);
+const dialogPosition = "dialog-position-center";
+const dialogBackdrop = "dialog-backdrop";
 
 const style = computed(() => {
   const style: { [key: string]: string } = {};
@@ -252,9 +238,6 @@ const style = computed(() => {
     }
     style["background-image"] = `url("${appSettings.backgroundImageFileURL}")`;
     style["background-size"] = size;
-  }
-  if (store.customLayout?.backgroundColor) {
-    style["background-color"] = store.customLayout.backgroundColor;
   }
   return style;
 });
