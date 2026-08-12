@@ -824,6 +824,22 @@ export const vi: Texts = {
   indexingKifuProgress(total: number, indexed: number) {
     return `Đang tạo chỉ mục kỳ phổ (${indexed}/${total})...`;
   },
+  showingFirstKifu: (n: number) => `Hiển thị ${n} kết quả đầu`,
+  exportSearchResultsAsSfen: "Chuyển đổi sang SFEN",
+  convertingToSfen: "Đang chuyển đổi sang SFEN",
+  saveDestination: "Nơi lưu",
+  maximumMoves: "Số nước tối đa",
+  leaveBlankForUnlimited: "Để trống nếu không giới hạn",
+  standardInitialPositionOnly: "Chỉ kỳ phổ bắt đầu từ thế cờ ban đầu tiêu chuẩn",
+  exportingKifuProgress: (processed: number, total: number) =>
+    `Đang chuyển đổi sang SFEN: ${processed} / ${total} kỳ phổ`,
+  nSfenLinesExported: (n: number) => `Đã xuất ${n} dòng`,
+  maximumMovesMustBePositive: "Số nước tối đa phải là số nguyên dương.",
+  sfenExportCompleted: (path: string) => `Đã lưu tệp SFEN: ${path}`,
+  sfenExportCompletedWithWarnings: (failedFiles: number) =>
+    `Đã lưu tệp SFEN. Tuy nhiên, không thể chuyển đổi ${failedFiles} tệp.`,
+  sfenExportFailed: "Không thể xuất tệp SFEN.",
+  sfenExportJobNotFound: "Không thể xác định trạng thái xuất SFEN. Vui lòng bắt đầu lại.",
   player1: "Người chơi 1",
   player2: "Người chơi 2",
   distinguishSenteGote: "Phân biệt Tiên/Hậu",

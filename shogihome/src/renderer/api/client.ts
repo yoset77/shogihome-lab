@@ -13,6 +13,16 @@ export class RequestTimeoutError extends Error {
   }
 }
 
+export class ApiResponseError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiResponseError";
+    this.status = status;
+  }
+}
+
 export function isRequestTimeoutError(error: unknown): boolean {
   return (
     error instanceof RequestTimeoutError ||
@@ -77,13 +87,13 @@ export const createHonoApiClient = (options: ApiClientOptions = {}) => {
 
 export const parseJsonResponse = async <T>(response: Response): Promise<T> => {
   if (!response.ok) {
-    throw new Error(await response.text());
+    throw new ApiResponseError(response.status, await response.text());
   }
   return (await response.json()) as T;
 };
 
 export const assertOkResponse = async (response: Response): Promise<void> => {
   if (!response.ok) {
-    throw new Error(await response.text());
+    throw new ApiResponseError(response.status, await response.text());
   }
 };

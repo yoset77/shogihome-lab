@@ -832,6 +832,23 @@ export const en: Texts = {
   indexingKifuProgress(total: number, indexed: number) {
     return `Indexing kifu (${indexed}/${total})...`;
   },
+  showingFirstKifu: (n: number) => `Showing first ${n}`,
+  exportSearchResultsAsSfen: "Convert to SFEN",
+  convertingToSfen: "Converting to SFEN",
+  saveDestination: "Save Destination",
+  maximumMoves: "Maximum Moves",
+  leaveBlankForUnlimited: "Blank for unlimited",
+  standardInitialPositionOnly: "Records starting from the standard initial position only",
+  exportingKifuProgress: (processed: number, total: number) =>
+    `Converting to SFEN: ${processed} / ${total} records`,
+  nSfenLinesExported: (n: number) => `${n} lines exported`,
+  maximumMovesMustBePositive: "Maximum moves must be a positive integer.",
+  sfenExportCompleted: (path: string) => `SFEN file saved: ${path}`,
+  sfenExportCompletedWithWarnings: (failedFiles: number) =>
+    `SFEN file saved. However, ${failedFiles} file(s) could not be converted.`,
+  sfenExportFailed: "Failed to export the SFEN file.",
+  sfenExportJobNotFound:
+    "The SFEN export status is no longer available. Please start the export again.",
   player1: "Player 1",
   player2: "Player 2",
   distinguishSenteGote: "Distinguish Sente/Gote",

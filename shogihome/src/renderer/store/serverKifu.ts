@@ -1,6 +1,7 @@
 import { ref, shallowRef, triggerRef, watch } from "vue";
 import { KifuSearchResult } from "@/common/file/record";
 import { Record as TssRecord } from "tsshogi";
+import type { KifuSearchQuery, SfenExportJobStatus } from "@/common/file/sfen_export";
 
 export type ServerKifuTab = "list" | "search" | "results";
 
@@ -17,6 +18,12 @@ const searchByPosition = ref(localStorage.getItem("serverKifuSearchByPosition") 
 const searchYear = ref("");
 const searchMonth = ref("");
 const searchResults = ref<KifuSearchResult[]>([]);
+const searchResultCount = ref(0);
+const lastExecutedSearch = ref<KifuSearchQuery>();
+const sfenExportJob = ref<SfenExportJobStatus>();
+const sfenExportStandardInitialOnly = ref(
+  localStorage.getItem("serverKifuSfenExportStandardInitialOnly") === "true",
+);
 const searchRecord = shallowRef(new TssRecord());
 
 function getArrayFromLocalStorage(key: string): string[] {
@@ -44,6 +51,9 @@ watch(isStrictTurn, (val) => {
 });
 watch(searchByPosition, (val) => {
   localStorage.setItem("serverKifuSearchByPosition", String(val));
+});
+watch(sfenExportStandardInitialOnly, (val) => {
+  localStorage.setItem("serverKifuSfenExportStandardInitialOnly", String(val));
 });
 watch(
   keywordHistory,
@@ -99,6 +109,10 @@ export function useServerKifuStore() {
     searchYear,
     searchMonth,
     searchResults,
+    searchResultCount,
+    lastExecutedSearch,
+    sfenExportJob,
+    sfenExportStandardInitialOnly,
     searchRecord,
     keywordHistory,
     playerHistory,

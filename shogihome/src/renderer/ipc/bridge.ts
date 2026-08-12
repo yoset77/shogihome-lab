@@ -4,6 +4,11 @@ import { AppState, ResearchState } from "@/common/control/state";
 import { RecordFileFormat, KifuSearchResult, KifuListEntry } from "@/common/file/record";
 import { GameResult } from "@/common/game/result";
 import { LogLevel, LogType } from "@/common/log";
+import type {
+  KifuSearchQuery,
+  SfenExportJobStatus,
+  SfenExportRequest,
+} from "@/common/file/sfen_export";
 
 export interface Bridge {
   // Core
@@ -119,6 +124,10 @@ export interface Bridge {
     limit?: number;
     offset?: number;
   }): Promise<KifuSearchResult[]>;
+  countServerKifu(params: KifuSearchQuery): Promise<number>;
+  startServerKifuSfenExport(params: SfenExportRequest): Promise<SfenExportJobStatus>;
+  getServerKifuSfenExport(jobId: string): Promise<SfenExportJobStatus>;
+  cancelServerKifuSfenExport(jobId: string): Promise<void>;
   getServerKifuIndexStatus(): Promise<{
     total: number;
     indexed: number;

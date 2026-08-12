@@ -6,6 +6,8 @@ import {
   deleteKifuFile,
   getKifuFileByPath,
   searchKifu,
+  getKifuSearchCount,
+  getKifuSearchFilePaths,
   KifuFileMetadata,
 } from "@/server/database/kifu_index";
 import fs from "node:fs";
@@ -139,6 +141,86 @@ describe("background/database/kifu_index", () => {
     const file2 = results.find((r) => r.file_path === "test2.kif");
     expect(file1?.matched_ply).toBe(12);
     expect(file2?.matched_ply).toBe(25);
+  });
+
+  it("uses the same combined filters and ordering for search, count, and file paths", () => {
+    const matchingPosition = { sfen_hash: 200n, sfen: "shared", ply: 7 };
+    const matchingMetadata = {
+      ...makeMetadata("matching.kif"),
+      black_name: "Sato",
+      white_name: "Tanaka",
+      start_date: "2024/05/01",
+      event: "Championship Final",
+    };
+    upsertKifuFile(matchingMetadata, [matchingPosition]);
+    upsertKifuFile(
+      {
+        ...matchingMetadata,
+        file_path: "newest.kif",
+        start_date: "2024/05/02",
+      },
+      [matchingPosition],
+    );
+    upsertKifuFile(
+      {
+        ...matchingMetadata,
+        file_path: "wrong-player.kif",
+        black_name: "Tanaka",
+        white_name: "Sato",
+      },
+      [matchingPosition],
+    );
+    upsertKifuFile(
+      {
+        ...matchingMetadata,
+        file_path: "wrong-event.kif",
+        event: "Qualifier",
+      },
+      [matchingPosition],
+    );
+    upsertKifuFile({ ...matchingMetadata, file_path: "wrong-position.kif" }, [
+      { sfen_hash: 300n, sfen: "other", ply: 2 },
+    ]);
+
+    const params = {
+      sfenHash: 200n,
+      sfen: "shared",
+      keyword: "Championship Final",
+      player1: "Sato",
+      player2: "Tanaka",
+      isStrictTurn: true,
+      startDate: "2024/05",
+    };
+
+    const results = searchKifu(params);
+    expect(results.map((result) => result.file_path)).toEqual(["newest.kif", "matching.kif"]);
+    expect(results.map((result) => result.matched_ply)).toEqual([7, 7]);
+    expect(results.map((result) => result.matched_sfen)).toEqual(["shared", "shared"]);
+    expect(getKifuSearchCount(params)).toBe(2);
+    expect(getKifuSearchFilePaths(params)).toEqual(["newest.kif", "matching.kif"]);
+  });
+
+  it("returns every matching file path while preserving the default search limit", () => {
+    for (let index = 0; index < 125; index += 1) {
+      upsertKifuFile(
+        {
+          ...makeMetadata(`bulk-${index.toString().padStart(3, "0")}.kif`),
+          start_date: "2024/06/01",
+          event: "Bulk Export",
+        },
+        [],
+      );
+    }
+
+    const params = { keyword: "Bulk Export" };
+    const results = searchKifu(params);
+    const filePaths = getKifuSearchFilePaths(params);
+
+    expect(results).toHaveLength(100);
+    expect(getKifuSearchCount(params)).toBe(125);
+    expect(filePaths).toHaveLength(125);
+    expect(results.map((result) => result.file_path)).toEqual(filePaths.slice(0, 100));
+    expect(new Set(filePaths).size).toBe(125);
   });
 
   it("removes only positions orphaned by an upsert", () => {
