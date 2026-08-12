@@ -798,6 +798,7 @@ export const zh_tw: Texts = {
   analysisDBSearchTimedOut: "資料庫搜尋逾時。",
   analysisDBSearchFailed: "資料庫搜尋失敗。",
   results: "搜尋結果",
+  recordDataWasSaved: "棋譜已儲存。",
   bookDataWasSaved: "定跡檔案已儲存。",
   openBook: "開啟定跡",
   showBookTableOnMobile: "顯示定跡分頁",

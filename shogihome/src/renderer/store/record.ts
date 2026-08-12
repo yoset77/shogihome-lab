@@ -465,13 +465,15 @@ export class RecordManager {
     if (!format) {
       return new Error(`${t.unknownFileExtension}: ${path}`);
     }
-    const result = exportRecordAsBuffer(this._record, format, opt);
+    return exportRecordAsBuffer(this._record, format, opt);
+  }
+
+  markAsSaved(path: string): void {
     if (path.startsWith("server://")) {
       this.updateServerKifuPath(path.substring(9));
     } else {
       this.updateRecordFilePath(path);
     }
-    return result;
   }
 
   goForward(): void {

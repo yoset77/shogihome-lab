@@ -53,7 +53,7 @@
             :white-player-name="whitePlayerName || t.gote"
           >
             <template #right-control>
-              <div v-if="!isMobile" class="full column desktop-controls">
+              <div v-if="!isMobile" :ref="setPreviewControls" class="full column desktop-controls">
                 <div class="row control-row">
                   <button
                     class="control-item"
@@ -124,7 +124,7 @@
               </div>
             </template>
           </BoardView>
-          <div v-if="isMobile" class="mobile-controls">
+          <div v-if="isMobile" :ref="setPreviewControls" class="mobile-controls">
             <button
               class="control-item"
               type="button"
@@ -220,6 +220,7 @@ import {
   RecordMetadataKey,
 } from "tsshogi";
 import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, shallowRef } from "vue";
+import { install, uninstall } from "@github/hotkey";
 import { t } from "@/common/i18n";
 import { BoardLayoutType } from "@/common/settings/layout";
 import { TextDecodingRule, getPieceImageURLTemplate } from "@/common/settings/app";
@@ -259,6 +260,8 @@ const currentPosition = shallowRef<ImmutablePosition>(new Record().position);
 const lastMove = shallowRef<Move | null>(null);
 const flip = ref(appSettings.boardFlipping);
 const maxSize = reactive(new RectSize(0, 0));
+const installedHotKeyElements: HTMLElement[] = [];
+let previewControls: HTMLElement | undefined;
 let cancelled = false;
 
 const RECORD_LIST_WIDTH = 300;
@@ -400,6 +403,17 @@ function onClose() {
   emit("close");
 }
 
+function setPreviewControls(controls: unknown) {
+  if (cancelled || !(controls instanceof HTMLElement)) return;
+  if (controls === previewControls) return;
+  previewControls = controls;
+  for (const element of controls.querySelectorAll<HTMLElement>("[data-hotkey]")) {
+    install(element);
+    installedHotKeyElements.push(element);
+  }
+  controls.querySelector<HTMLElement>("[autofocus]")?.focus();
+}
+
 async function loadRecord() {
   try {
     busyState.retain();
@@ -438,6 +452,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   cancelled = true;
+  for (const element of installedHotKeyElements) {
+    uninstall(element);
+  }
   window.removeEventListener("resize", updateSize);
 });
 </script>

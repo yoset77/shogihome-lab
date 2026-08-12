@@ -813,6 +813,7 @@ export const en: Texts = {
   analysisDBSearchTimedOut: "The analysis DB search timed out.",
   analysisDBSearchFailed: "The analysis DB search failed.",
   results: "Results",
+  recordDataWasSaved: "Record data was saved.",
   bookDataWasSaved: "Book data was saved.",
   openBook: "Open Book",
   showBookTableOnMobile: "Show Book Tab",

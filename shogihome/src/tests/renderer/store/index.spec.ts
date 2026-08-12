@@ -23,6 +23,8 @@ import { mateSearchSettings } from "@/tests/mock/mate";
 import { MateSearchManager } from "@/renderer/store/mate";
 import { ResearchManager } from "@/renderer/store/research";
 import type { VisionEditSession } from "@/renderer/vision/types";
+import { useToastStore } from "@/renderer/store/toast";
+import { t } from "@/common/i18n";
 
 vi.mock("@/renderer/devices/audio.js");
 vi.mock("@/renderer/ipc/api.js");
@@ -176,6 +178,7 @@ describe("store/index", () => {
       useMessageStore().dequeue();
     }
     useErrorStore().clear();
+    useToastStore().clear();
     await useAppSettings().updateAppSettings(defaultAppSettings());
   });
 
@@ -915,6 +918,47 @@ describe("store/index", () => {
     const data = new TextDecoder().decode(mockAPI.saveRecord.mock.calls[0][1]);
     expect(data).toMatch(/^V2\.2/);
     expect(store.isRecordFileUnsaved).toBeFalsy();
+    expect(useToastStore().toasts).toMatchObject([
+      { type: "success", message: t.recordDataWasSaved },
+    ]);
+  });
+
+  it("saveRecord/serverOverwrite", async () => {
+    mockAPI.openRecord.mockResolvedValue(
+      new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "SJIS" })),
+    );
+    mockAPI.saveServerKifu.mockResolvedValue();
+    const store = createStore();
+    await store.openRecord("server://games/sample.kif");
+
+    await store.saveRecord({ overwrite: true });
+
+    expect(mockAPI.showSaveRecordDialog).not.toHaveBeenCalled();
+    expect(mockAPI.saveServerKifu).toHaveBeenCalledWith("games/sample.kif", expect.any(Uint8Array));
+    expect(store.serverKifuPath).toBe("games/sample.kif");
+    expect(store.isRecordFileUnsaved).toBeFalsy();
+    expect(useToastStore().toasts).toMatchObject([
+      { type: "success", message: t.recordDataWasSaved },
+    ]);
+  });
+
+  it("saveRecord/failureKeepsRecordUnsavedAndOriginalPath", async () => {
+    mockAPI.openRecord.mockResolvedValue(
+      new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "SJIS" })),
+    );
+    mockAPI.saveServerKifu.mockRejectedValue(new Error("write failed"));
+    const store = createStore();
+    await store.openRecord("server://games/original.kif");
+    const move = store.record.position.createMoveByUSI("2g2f");
+    if (!move) throw new Error("Failed to create a test move");
+    store.doMove(move);
+
+    await store.saveRecord({ path: "server://games/new.kif" });
+
+    expect(store.serverKifuPath).toBe("games/original.kif");
+    expect(store.isRecordFileUnsaved).toBeTruthy();
+    expect(useToastStore().toasts).toHaveLength(0);
+    expect(useErrorStore().hasError).toBeTruthy();
   });
 
   it("saveRecord/csaV3", async () => {

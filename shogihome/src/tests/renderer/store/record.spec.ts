@@ -572,8 +572,13 @@ describe("store/record", () => {
     expect(recordManager.serverKifuPath).toBe("folder/棋譜.kif");
     expect(recordManager.unsaved).toBeFalsy();
 
-    // エクスポート時のパス更新
+    // Exporting alone must not update the save destination or saved state.
     recordManager.exportRecordAsBuffer("server://new/path.jkf", {});
+    expect(recordManager.serverKifuPath).toBe("folder/棋譜.kif");
+    expect(recordManager.unsaved).toBeFalsy();
+
+    // Commit the save destination only after the write succeeds.
+    recordManager.markAsSaved("server://new/path.jkf");
     expect(recordManager.serverKifuPath).toBe("new/path.jkf");
     expect(recordManager.unsaved).toBeFalsy();
   });

@@ -756,6 +756,7 @@ export type Texts = {
   analysisDBSearchTimedOut: string;
   analysisDBSearchFailed: string;
   results: string;
+  recordDataWasSaved: string;
   bookDataWasSaved: string;
   openBook: string;
   showBookTableOnMobile: string;
