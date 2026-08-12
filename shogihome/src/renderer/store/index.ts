@@ -1669,6 +1669,7 @@ class Store {
         return;
       }
       await this.saveRecordByPath(path, { detectGarbled: true });
+      useToastStore().success(t.recordDataWasSaved);
       const actualPath = path.startsWith("server://") ? path.substring(9) : path;
       const fileFormat = detectRecordFileFormatByPath(actualPath) as RecordFileFormat;
       const props = detectUnsupportedRecordProperties(this.recordManager.record, fileFormat);
@@ -1717,6 +1718,7 @@ class Store {
       } else {
         await api.saveRecord(path, result.data);
       }
+      this.recordManager.markAsSaved(path);
       if (result.garbled && !this.garbledNotified) {
         useMessageStore().enqueue({
           text: `${t.recordSavedWithGarbledCharacters}\n${t.pleaseConsiderToUseKIFU}\n${t.youCanChangeDefaultRecordFileFormatFromAppSettings}`,

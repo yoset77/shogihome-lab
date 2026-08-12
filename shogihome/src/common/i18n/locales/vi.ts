@@ -805,6 +805,7 @@ export const vi: Texts = {
   analysisDBSearchTimedOut: "Đã hết thời gian tìm kiếm cơ sở dữ liệu phân tích.",
   analysisDBSearchFailed: "Tìm kiếm cơ sở dữ liệu phân tích thất bại.",
   results: "Kết quả",
+  recordDataWasSaved: "Đã lưu dữ liệu kỳ phổ.",
   bookDataWasSaved: "Đã lưu dữ liệu định thức.",
   openBook: "Mở định thức",
   showBookTableOnMobile: "Hiện thẻ định thức",

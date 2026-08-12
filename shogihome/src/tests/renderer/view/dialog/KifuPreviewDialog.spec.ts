@@ -9,6 +9,8 @@ const openRecord = vi.hoisted(() => vi.fn());
 const isMobileWebApp = vi.hoisted(() => vi.fn(() => false));
 const importRecordFromBuffer = vi.hoisted(() => vi.fn());
 const detectRecordFileFormatByPath = vi.hoisted(() => vi.fn(() => ".kif"));
+const installHotKey = vi.hoisted(() => vi.fn());
+const uninstallHotKey = vi.hoisted(() => vi.fn());
 let parsedRecord: Record;
 
 vi.mock("@/renderer/ipc/api", () => ({
@@ -26,6 +28,7 @@ vi.mock("@/common/file/record", async (importOriginal) => {
 vi.mock("@/renderer/store/busy", () => ({
   useBusyState: () => ({ retain: vi.fn(), release: vi.fn() }),
 }));
+vi.mock("@github/hotkey", () => ({ install: installHotKey, uninstall: uninstallHotKey }));
 
 const mountDialog = (props?: { matchedPly?: number; matchedSfen?: string }) =>
   shallowMount(KifuPreviewDialog, {
@@ -68,6 +71,8 @@ describe("KifuPreviewDialog", () => {
     loadServerKifu.mockReset();
     openRecord.mockReset();
     importRecordFromBuffer.mockReset();
+    installHotKey.mockReset();
+    uninstallHotKey.mockReset();
     detectRecordFileFormatByPath.mockClear();
     isMobileWebApp.mockReturnValue(false);
 
@@ -117,6 +122,22 @@ describe("KifuPreviewDialog", () => {
 
     await buttons[2].trigger("click");
     expect(parsedRecord.current.ply).toBe(0);
+  });
+
+  it("installs hotkeys for controls rendered after loading", async () => {
+    const wrapper = mountDialog({ matchedPly: 1 });
+
+    expect(installHotKey).not.toHaveBeenCalled();
+    await flushPromises();
+
+    const buttons = wrapper.findAll(".desktop-controls button");
+    await vi.waitFor(() => expect(installHotKey).toHaveBeenCalledTimes(buttons.length));
+    expect(installHotKey.mock.calls.map(([element]) => element)).toEqual(
+      buttons.map((button) => button.element),
+    );
+
+    wrapper.unmount();
+    expect(uninstallHotKey).toHaveBeenCalledTimes(buttons.length);
   });
 
   it("updates hand pieces after a capture and a drop", async () => {

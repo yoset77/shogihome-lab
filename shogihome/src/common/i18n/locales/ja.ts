@@ -804,6 +804,7 @@ export const ja: Texts = {
   analysisDBSearchTimedOut: "DB検索がタイムアウトしました。",
   analysisDBSearchFailed: "DB検索に失敗しました。",
   results: "検索結果",
+  recordDataWasSaved: "棋譜を保存しました。",
   bookDataWasSaved: "定跡データを保存しました。",
   openBook: "定跡を開く",
   showBookTableOnMobile: "定跡タブを表示",
