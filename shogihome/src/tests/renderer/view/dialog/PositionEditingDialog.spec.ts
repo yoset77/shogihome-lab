@@ -16,6 +16,7 @@ import { BoardLayoutType } from "@/common/settings/layout";
 
 const closePositionEditingDialog = vi.hoisted(() => vi.fn());
 const addError = vi.hoisted(() => vi.fn());
+const showSuccessToast = vi.hoisted(() => vi.fn());
 const isMobileWebApp = vi.hoisted(() => vi.fn(() => false));
 const store = vi.hoisted(() => ({
   record: { position: null as unknown as Position },
@@ -24,6 +25,9 @@ const store = vi.hoisted(() => ({
 
 vi.mock("@/renderer/store", () => ({ useStore: () => store }));
 vi.mock("@/renderer/store/error", () => ({ useErrorStore: () => ({ add: addError }) }));
+vi.mock("@/renderer/store/toast", () => ({
+  useToastStore: () => ({ success: showSuccessToast }),
+}));
 vi.mock("@/renderer/ipc/api", () => ({ isMobileWebApp }));
 
 const mountDialog = () =>
@@ -40,6 +44,7 @@ describe("PositionEditingDialog", () => {
   beforeEach(() => {
     closePositionEditingDialog.mockReset();
     addError.mockReset();
+    showSuccessToast.mockReset();
     isMobileWebApp.mockReturnValue(false);
     store.record.position = Position.newBySFEN(InitialPositionSFEN.STANDARD) as Position;
     Object.defineProperty(navigator, "clipboard", {
@@ -204,6 +209,16 @@ describe("PositionEditingDialog", () => {
     await flushPromises();
 
     expect(addError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.any(String) }));
+    expect(showSuccessToast).not.toHaveBeenCalled();
+  });
+
+  it("notifies when a position is copied", async () => {
+    const wrapper = mountDialog();
+
+    await wrapper.find('[data-test="copy-sfen"]').trigger("click");
+    await flushPromises();
+
+    expect(showSuccessToast).toHaveBeenCalledOnce();
   });
 
   it("rejects malformed clipboard text", async () => {

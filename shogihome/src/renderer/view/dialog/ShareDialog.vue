@@ -33,6 +33,8 @@ import { IconType } from "@/renderer/assets/icons";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { shogiPlaygroundURL } from "@/common/links/mogproject";
 import { useAppSettings } from "@/renderer/store/settings";
+import { useErrorStore } from "@/renderer/store/error";
+import { useToastStore } from "@/renderer/store/toast";
 import { piyoShogiURL } from "@/common/links/piyoshogi";
 import DialogFrame from "./DialogFrame.vue";
 
@@ -66,8 +68,13 @@ const list = computed(() => {
   ];
 });
 
-const copy = (url: string) => {
-  navigator.clipboard.writeText(url);
+const copy = async (url: string) => {
+  try {
+    await navigator.clipboard.writeText(url);
+    useToastStore().success(t.copiedToClipboard);
+  } catch {
+    useErrorStore().add(new Error(t.clipboardOperationFailed));
+  }
 };
 
 const onClose = () => {

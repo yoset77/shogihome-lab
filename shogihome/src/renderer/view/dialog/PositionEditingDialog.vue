@@ -108,6 +108,7 @@ import { t } from "@/common/i18n";
 import { BoardLayoutType } from "@/common/settings/layout";
 import { useStore } from "@/renderer/store";
 import { useErrorStore } from "@/renderer/store/error";
+import { useToastStore } from "@/renderer/store/toast";
 import { isMobileWebApp } from "@/renderer/ipc/api";
 import DialogFrame from "@/renderer/view/dialog/DialogFrame.vue";
 import PositionEditorCore from "@/renderer/view/dialog/PositionEditorCore.vue";
@@ -168,6 +169,7 @@ const onSelectPreset = (sfen: string) => {
 const writeClipboard = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text);
+    useToastStore().success(t.copiedToClipboard);
   } catch {
     useErrorStore().add(new Error(t.clipboardOperationFailed));
   }
