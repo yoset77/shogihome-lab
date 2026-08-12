@@ -217,8 +217,14 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
       <div class="search-results-view column">
         <div class="results-header row align-center">
           <div class="results-count">
-            {{ t.nKifuFound(searchResults.length) }}
+            <span>{{ t.nKifuFound(searchResultCount) }}</span>
+            <span v-if="searchResultCount > searchResults.length" class="note">
+              {{ t.showingFirstKifu(searchResults.length) }}
+            </span>
           </div>
+          <button v-if="searchResultCount > 0" class="thin" @click="showSfenExportDialog = true">
+            {{ isSfenExportRunning ? t.convertingToSfen : t.exportSearchResultsAsSfen }}
+          </button>
         </div>
         <div class="form-group search-results-container">
           <div
@@ -263,7 +269,6 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
         </div>
       </div>
     </div>
-
     <div class="main-buttons">
       <button v-if="activeTab === 'search'" class="execute-search-btn" @click="search">
         {{ t.search }}
@@ -273,6 +278,11 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
       </button>
     </div>
   </DialogFrame>
+  <SfenExportDialog
+    v-if="showSfenExportDialog"
+    @close="showSfenExportDialog = false"
+    @completed="updateList(true)"
+  />
 </template>
 
 <script setup lang="ts">
@@ -295,6 +305,8 @@ import { BoardLayoutType } from "@/common/settings/layout";
 import { IconType } from "@/renderer/assets/icons";
 import { useServerKifuStore } from "@/renderer/store/serverKifu";
 import { KifuListEntry } from "@/common/file/record";
+import type { KifuSearchQuery } from "@/common/file/sfen_export";
+import SfenExportDialog from "./SfenExportDialog.vue";
 
 const store = useStore();
 const dialogFrame = ref<InstanceType<typeof DialogFrame>>();
@@ -310,6 +322,9 @@ const {
   searchYear,
   searchMonth,
   searchResults,
+  searchResultCount,
+  lastExecutedSearch,
+  sfenExportJob,
   searchRecord,
   keywordHistory,
   playerHistory,
@@ -319,6 +334,10 @@ const {
 const appSettings = useAppSettings();
 const busyState = useBusyState();
 const list = ref<KifuListEntry[]>([]);
+const showSfenExportDialog = ref(false);
+const isSfenExportRunning = computed(() =>
+  sfenExportJob.value ? ["queued", "running"].includes(sfenExportJob.value.state) : false,
+);
 
 const indexStatus = ref<{ total: number; indexed: number; isIndexing: boolean } | null>(null);
 let statusTimer: ReturnType<typeof setInterval> | null = null;
@@ -460,14 +479,21 @@ async function search() {
       startDate = searchYear.value;
     }
 
-    searchResults.value = await api.searchServerKifu({
+    const params: KifuSearchQuery = {
       keyword: keyword.value,
       player1: player1.value,
       player2: player2.value,
       isStrictTurn: isStrictTurn.value,
       sfen: sfen,
       startDate: startDate,
-    });
+    };
+    const [results, count] = await Promise.all([
+      api.searchServerKifu(params),
+      api.countServerKifu(params),
+    ]);
+    searchResults.value = results;
+    searchResultCount.value = count;
+    lastExecutedSearch.value = params;
     addHistory(keyword.value, player1.value, player2.value);
     activeTab.value = "results";
   } catch (e) {
@@ -690,6 +716,14 @@ onUnmounted(() => {
 .results-count {
   font-size: 0.85em;
   color: var(--text-color-sub);
+}
+@media (max-width: 600px) {
+  .results-count > span {
+    display: block;
+  }
+  .results-count .note {
+    margin-top: 2px;
+  }
 }
 .search-results-container {
   height: clamp(320px, calc(100dvh - 350px), 750px);

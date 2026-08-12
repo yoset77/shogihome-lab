@@ -8,6 +8,11 @@ import { Bridge } from "@/renderer/ipc/bridge";
 import { t } from "@/common/i18n/index";
 import { defaultMateSearchSettings } from "@/common/settings/mate";
 import { defaultBatchConversionSettings } from "@/common/settings/conversion";
+import type {
+  KifuSearchQuery,
+  SfenExportJobStatus,
+  SfenExportRequest,
+} from "@/common/file/sfen_export";
 import { defaultBookImportSettings, normalizeBookImportSettings } from "@/common/settings/book";
 import { getEmptyHistory } from "@/common/file/history";
 import { BookLoadingMode } from "@/common/book";
@@ -20,10 +25,20 @@ import { toJpeg, toPng } from "html-to-image";
 import dayjs from "dayjs";
 import { Rect } from "@/common/assets/geometry";
 import {
+  assertOkResponse,
   createApiRequestOptions,
   createHonoApiClient,
   parseJsonResponse,
 } from "@/renderer/api/client";
+
+const toKifuSearchQuery = (params: KifuSearchQuery) => ({
+  sfen: params.sfen,
+  keyword: params.keyword,
+  player1: params.player1,
+  player2: params.player2,
+  isStrictTurn: params.isStrictTurn ? "true" : "",
+  startDate: params.startDate,
+});
 
 enum STORAGE_KEY {
   APP_SETTINGS = "appSetting",
@@ -700,6 +715,25 @@ export const webAPI: Bridge = {
       },
     });
     return await parseJsonResponse<KifuSearchResult[]>(response);
+  },
+  async countServerKifu(params: KifuSearchQuery): Promise<number> {
+    const response = await apiClient.api.kifu.search.count.$get({
+      query: toKifuSearchQuery(params),
+    });
+    return (await parseJsonResponse<{ count: number }>(response)).count;
+  },
+  async startServerKifuSfenExport(params: SfenExportRequest): Promise<SfenExportJobStatus> {
+    return await parseJsonResponse(await apiClient.api.kifu.export.sfen.$post({ json: params }));
+  },
+  async getServerKifuSfenExport(jobId: string): Promise<SfenExportJobStatus> {
+    return await parseJsonResponse(
+      await apiClient.api.kifu.export.sfen[":jobId"].$get({ param: { jobId } }),
+    );
+  },
+  async cancelServerKifuSfenExport(jobId: string): Promise<void> {
+    await assertOkResponse(
+      await apiClient.api.kifu.export.sfen[":jobId"].$delete({ param: { jobId } }),
+    );
   },
   async getServerKifuIndexStatus(): Promise<{
     total: number;

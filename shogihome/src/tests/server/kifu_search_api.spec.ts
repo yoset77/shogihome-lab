@@ -15,6 +15,13 @@ const kifuIndexMock = vi.hoisted(() => ({
   closeDatabase: vi.fn(),
   getKifuCount: vi.fn(() => 0),
   searchKifu: vi.fn(() => [] as unknown[]),
+  getKifuSearchCount: vi.fn(() => 0),
+}));
+
+const exportJobMock = vi.hoisted(() => ({
+  startSfenExportJob: vi.fn(),
+  getSfenExportJob: vi.fn(),
+  cancelSfenExportJob: vi.fn(),
 }));
 
 const sqliteMock = vi.hoisted(() => ({
@@ -42,6 +49,7 @@ vi.mock("@/server/database/kifu_index.js", () => kifuIndexMock);
 vi.mock("@/server/database/sqlite.js", () => sqliteMock);
 vi.mock("@/server/usi/sfen.js", () => sfenMock);
 vi.mock("@/server/kifu_index/sync.js", () => kifuIndexSyncMock);
+vi.mock("@/server/kifu_export/job.js", () => exportJobMock);
 
 import { app } from "@/server/main";
 
@@ -134,5 +142,49 @@ describe("Kifu search API", () => {
       limit: undefined,
       offset: undefined,
     });
+  });
+
+  it("returns the uncapped search result count", async () => {
+    kifuIndexMock.getKifuSearchCount.mockReturnValue(2431);
+
+    const response = await requestApp(app, "GET", "/api/kifu/search/count?keyword=title", {
+      host,
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ count: 2431 });
+    expect(kifuIndexMock.getKifuSearchCount).toHaveBeenCalledWith(
+      expect.objectContaining({ keyword: "title" }),
+    );
+  });
+
+  it("rejects invalid SFEN export options", async () => {
+    const response = await requestApp(app, "POST", "/api/kifu/export/sfen", {
+      host,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        filename: "result.txt",
+        search: {},
+        maxMoves: 0,
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(exportJobMock.startSfenExportJob).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed export search fields", async () => {
+    const response = await requestApp(app, "POST", "/api/kifu/export/sfen", {
+      host,
+      json: {
+        filename: "result.sfen",
+        search: { keyword: 123 },
+        standardInitialOnly: false,
+        overwrite: false,
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(exportJobMock.startSfenExportJob).not.toHaveBeenCalled();
   });
 });

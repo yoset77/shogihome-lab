@@ -38,4 +38,11 @@ describe("ServerKifuDialog", () => {
     expect(source).toContain(':ghost-teleport-target="ghostTeleportTarget"');
     expect(source).toContain('dialogFrame.value?.dialog ?? "body"');
   });
+
+  it("opens SFEN conversion settings in a dedicated dialog", () => {
+    const source = readFileSync("src/renderer/view/dialog/ServerKifuDialog.vue", "utf-8");
+
+    expect(source).toContain("<SfenExportDialog");
+    expect(source).not.toContain('class="sfen-export-panel');
+  });
 });

@@ -163,6 +163,29 @@ export interface KifuPositionData {
   ply: number;
 }
 
+export interface KifuSearchParams {
+  sfenHash?: bigint;
+  sfen?: string;
+  keyword?: string;
+  player1?: string;
+  player2?: string;
+  isStrictTurn?: boolean;
+  startDate?: string;
+  limit?: number;
+  offset?: number;
+}
+
+type KifuSearchValue = string | number | bigint;
+
+interface KifuSearchSql {
+  from: string;
+  where: string;
+  args: KifuSearchValue[];
+  isPositionSearch: boolean;
+}
+
+const KIFU_SEARCH_ORDER = " ORDER BY f.start_date DESC NULLS LAST, f.indexed_at DESC, f.id DESC";
+
 function getKifuPositionIds(kifuId: number): number[] {
   const rows = getKifuPositionIdsStmt?.all(kifuId) ?? [];
   return rows
@@ -277,34 +300,17 @@ export function getAllKifuFilePaths(): string[] {
   return rows.map((r) => r.file_path);
 }
 
-export function searchKifu(params: {
-  sfenHash?: bigint;
-  sfen?: string;
-  keyword?: string;
-  player1?: string;
-  player2?: string;
-  isStrictTurn?: boolean;
-  startDate?: string;
-  limit?: number;
-  offset?: number;
-}) {
-  if (!db) return [];
-  const limit = params.limit ?? 100;
-  const offset = params.offset ?? 0;
+function buildKifuSearchSql(params: KifuSearchParams): KifuSearchSql {
   const isPositionSearch = params.sfenHash !== undefined && params.sfen !== undefined;
-
-  let query = `
-    SELECT f.*${isPositionSearch ? ", MIN(kp.ply) as matched_ply, p.sfen as matched_sfen" : ""}
-    FROM kifu_files f
-  `;
+  let from = " FROM kifu_files f";
   const conditions: string[] = [];
-  const args: (string | number | bigint)[] = [];
+  const args: KifuSearchValue[] = [];
 
   if (isPositionSearch) {
-    query += ` JOIN kifu_positions kp ON f.id = kp.kifu_id
-               JOIN positions p ON kp.position_id = p.id `;
+    from += ` JOIN kifu_positions kp ON f.id = kp.kifu_id
+              JOIN positions p ON kp.position_id = p.id`;
     conditions.push("p.sfen_hash = ? AND p.sfen = ?");
-    args.push(params.sfenHash!, params.sfen!);
+    args.push(params.sfenHash as bigint, params.sfen as string);
   }
 
   if (params.keyword) {
@@ -355,22 +361,67 @@ export function searchKifu(params: {
     args.push(`${params.startDate}%`);
   }
 
-  if (conditions.length > 0) {
-    query += " WHERE " + conditions.join(" AND ");
-  }
+  return {
+    from,
+    where: conditions.length > 0 ? " WHERE " + conditions.join(" AND ") : "",
+    args,
+    isPositionSearch,
+  };
+}
 
-  if (isPositionSearch) {
+export function searchKifu(params: KifuSearchParams) {
+  if (!db) return [];
+  const limit = params.limit ?? 100;
+  const offset = params.offset ?? 0;
+  const searchSql = buildKifuSearchSql(params);
+
+  let query = `SELECT f.*${
+    searchSql.isPositionSearch ? ", MIN(kp.ply) as matched_ply, p.sfen as matched_sfen" : ""
+  }${searchSql.from}${searchSql.where}`;
+
+  if (searchSql.isPositionSearch) {
     query += " GROUP BY f.id";
   }
 
-  query += " ORDER BY f.start_date DESC NULLS LAST, f.indexed_at DESC LIMIT ? OFFSET ?";
-  args.push(limit, offset);
+  query += KIFU_SEARCH_ORDER + " LIMIT ? OFFSET ?";
 
   try {
     const stmt = db.prepare(query);
-    return stmt.all(...args);
+    return stmt.all(...searchSql.args, limit, offset);
   } catch (e) {
     console.error("Failed to search kifu:", e);
+    return [];
+  }
+}
+
+export function getKifuSearchCount(params: KifuSearchParams): number {
+  if (!db) return 0;
+  const searchSql = buildKifuSearchSql(params);
+  const query = `SELECT COUNT(DISTINCT f.id) as count${searchSql.from}${searchSql.where}`;
+
+  try {
+    const result = db.prepare(query).get(...searchSql.args) as { count: number } | undefined;
+    return result?.count ?? 0;
+  } catch (e) {
+    console.error("Failed to count kifu search results:", e);
+    return 0;
+  }
+}
+
+export function getKifuSearchFilePaths(params: KifuSearchParams): string[] {
+  if (!db) return [];
+  const searchSql = buildKifuSearchSql(params);
+  let query = `SELECT f.file_path${searchSql.from}${searchSql.where}`;
+  if (searchSql.isPositionSearch) {
+    query += " GROUP BY f.id";
+  }
+  query += KIFU_SEARCH_ORDER;
+
+  try {
+    const rows = db.prepare(query).all(...searchSql.args) as { file_path: string }[];
+    return rows.map((row) => row.file_path);
+  } catch (e) {
+    console.error("Failed to get kifu search file paths:", e);
     return [];
   }
 }

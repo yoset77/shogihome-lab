@@ -11,6 +11,11 @@ import { Rect } from "@/common/assets/geometry";
 import { MateSearchSettings, normalizeMateSearchSettings } from "@/common/settings/mate";
 import { BatchConversionSettings } from "@/common/settings/conversion";
 import { BatchConversionResult } from "@/common/file/conversion";
+import type {
+  KifuSearchQuery,
+  SfenExportJobStatus,
+  SfenExportRequest,
+} from "@/common/file/sfen_export";
 import { RecordFileHistory } from "@/common/file/history";
 import {
   InitialRecordFileRequest,
@@ -133,6 +138,10 @@ export interface API {
     limit?: number;
     offset?: number;
   }): Promise<KifuSearchResult[]>;
+  countServerKifu(params: KifuSearchQuery): Promise<number>;
+  startServerKifuSfenExport(params: SfenExportRequest): Promise<SfenExportJobStatus>;
+  getServerKifuSfenExport(jobId: string): Promise<SfenExportJobStatus>;
+  cancelServerKifuSfenExport(jobId: string): Promise<void>;
   getServerKifuIndexStatus(): Promise<{
     total: number;
     indexed: number;
@@ -316,6 +325,18 @@ const api: API = {
     offset?: number;
   }): Promise<KifuSearchResult[]> {
     return await bridge.searchServerKifu(params);
+  },
+  countServerKifu(params: KifuSearchQuery): Promise<number> {
+    return bridge.countServerKifu(params);
+  },
+  startServerKifuSfenExport(params: SfenExportRequest): Promise<SfenExportJobStatus> {
+    return bridge.startServerKifuSfenExport(params);
+  },
+  getServerKifuSfenExport(jobId: string): Promise<SfenExportJobStatus> {
+    return bridge.getServerKifuSfenExport(jobId);
+  },
+  cancelServerKifuSfenExport(jobId: string): Promise<void> {
+    return bridge.cancelServerKifuSfenExport(jobId);
   },
   async getServerKifuIndexStatus(): Promise<{
     total: number;

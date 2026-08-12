@@ -817,6 +817,22 @@ export const zh_tw: Texts = {
   indexingKifuProgress(total: number, indexed: number) {
     return `正在索引棋譜 (${indexed}/${total})...`;
   },
+  showingFirstKifu: (n: number) => `顯示前 ${n} 筆`,
+  exportSearchResultsAsSfen: "轉換為 SFEN",
+  convertingToSfen: "正在轉換為 SFEN",
+  saveDestination: "儲存位置",
+  maximumMoves: "最大手數",
+  leaveBlankForUnlimited: "留空表示無限制",
+  standardInitialPositionOnly: "僅限從平手初始局面開始的棋譜",
+  exportingKifuProgress: (processed: number, total: number) =>
+    `正在轉換為 SFEN：${processed} / ${total} 棋譜`,
+  nSfenLinesExported: (n: number) => `已匯出 ${n} 行`,
+  maximumMovesMustBePositive: "最大手數必須是正整數。",
+  sfenExportCompleted: (path: string) => `已儲存 SFEN 檔案：${path}`,
+  sfenExportCompletedWithWarnings: (failedFiles: number) =>
+    `SFEN 檔案已儲存。但有 ${failedFiles} 局棋譜無法轉換。`,
+  sfenExportFailed: "SFEN 檔案匯出失敗。",
+  sfenExportJobNotFound: "無法取得 SFEN 匯出的狀態，請重新開始匯出。",
   player1: "對局者1",
   player2: "對局者2",
   distinguishSenteGote: "區分先後",

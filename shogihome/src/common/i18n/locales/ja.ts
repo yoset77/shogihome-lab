@@ -823,6 +823,22 @@ export const ja: Texts = {
   indexingKifuProgress(total: number, indexed: number) {
     return `棋譜インデックス作成中 (${indexed}/${total})...`;
   },
+  showingFirstKifu: (n: number) => `先頭${n}件を表示`,
+  exportSearchResultsAsSfen: "SFENへ変換",
+  convertingToSfen: "SFENへ変換中",
+  saveDestination: "保存先",
+  maximumMoves: "最大手数",
+  leaveBlankForUnlimited: "空欄で無制限",
+  standardInitialPositionOnly: "平手初期局面から始まる棋譜のみ",
+  exportingKifuProgress: (processed: number, total: number) =>
+    `SFENへ変換中: ${processed} / ${total}棋譜`,
+  nSfenLinesExported: (n: number) => `${n}行を出力`,
+  maximumMovesMustBePositive: "最大手数は正の整数で指定してください。",
+  sfenExportCompleted: (path: string) => `SFENファイルを保存しました: ${path}`,
+  sfenExportCompletedWithWarnings: (failedFiles: number) =>
+    `SFENファイルを保存しました。ただし、${failedFiles}件の棋譜を変換できませんでした。`,
+  sfenExportFailed: "SFENファイルの出力に失敗しました。",
+  sfenExportJobNotFound: "SFEN出力の状態を確認できなくなりました。もう一度出力を開始してください。",
   player1: "対局者1",
   player2: "対局者2",
   distinguishSenteGote: "先後を区別",
