@@ -45,4 +45,12 @@ describe("ServerKifuDialog", () => {
     expect(source).toContain("<SfenExportDialog");
     expect(source).not.toContain('class="sfen-export-panel');
   });
+
+  it("adds a sente/gote swap button that is enabled only for strict turn searches", () => {
+    const source = readFileSync("src/renderer/view/dialog/ServerKifuDialog.vue", "utf-8");
+
+    expect(source).toContain('@click="swapPlayers"');
+    expect(source).toContain(':disabled="!isStrictTurn"');
+    expect(source).toContain("[player1.value, player2.value] = [player2.value, player1.value]");
+  });
 });

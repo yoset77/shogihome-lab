@@ -196,6 +196,9 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
             <div class="search-row row align-center">
               <div class="label">{{ t.distinguishSenteGote }}</div>
               <ToggleButton v-model:value="isStrictTurn" />
+              <button class="thin swap-players-btn" :disabled="!isStrictTurn" @click="swapPlayers">
+                {{ t.swapSenteGote }}
+              </button>
             </div>
             <div class="search-row row align-center">
               <div class="label">{{ t.startDateTime }}</div>
@@ -407,6 +410,10 @@ function swapTurn() {
   position.setColor(reverseColor(position.color));
   searchRecord.value.clear(position);
   triggerSearchRecord();
+}
+
+function swapPlayers() {
+  [player1.value, player2.value] = [player2.value, player1.value];
 }
 
 function toggleFlip() {
@@ -664,6 +671,11 @@ onUnmounted(() => {
 }
 .search-row .separator {
   color: var(--text-color-sub);
+}
+.swap-players-btn {
+  padding-right: 10px;
+  padding-left: 10px;
+  white-space: nowrap;
 }
 .main-buttons {
   gap: 20px;
