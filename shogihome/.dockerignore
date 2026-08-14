@@ -19,6 +19,14 @@ dev-dist
 # ビルド出力 (コンテナ内で生成するため不要)
 dist
 
+# 実行時データとテスト成果物
+/data/
+/coverage/
+
+# コンテナ内で生成するフロントエンド成果物
+/docs/webapp/
+/docs/webapp-dev/
+
 # ログファイル
 *.log
 
@@ -35,11 +43,8 @@ npm-debug.log*
 
 # スクリプトやドキュメント類 (実行に不要なもの)
 # /scripts
-/docs-templates
 /README.md
 /README.en.md
-/GEMINI.md
-docker-deploy.ps1
 compose.yaml
 
 # 不要なエンジンラッパー

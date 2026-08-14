@@ -29,7 +29,6 @@
     "test:ui": "npm run install:esbuild && vitest --ui --coverage",
     "lint": "vue-tsc --noEmit && eslint --fix --max-warnings 0 . && prettier --write .",
     "license": "node scripts/report-license.mjs",
-    "docs": "tsx scripts/build-docs-templates.ts",
     "server:start": "tsx server.ts",
     "server:build": "node scripts/build-server.mjs",
     "server:runtime": "npm run server:build && node scripts/build-server-runtime.mjs"
