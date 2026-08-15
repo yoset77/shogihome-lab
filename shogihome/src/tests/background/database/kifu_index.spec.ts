@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import {
   initDatabase,
   closeDatabase,
@@ -8,6 +8,8 @@ import {
   searchKifu,
   getKifuSearchCount,
   getKifuSearchFilePaths,
+  getKifuCount,
+  updateKifuFileStrategy,
   KifuFileMetadata,
 } from "@/server/database/kifu_index";
 import fs from "node:fs";
@@ -76,6 +78,115 @@ describe("background/database/kifu_index", () => {
     expect(results.length).toBe(1);
     expect(results[0].file_path).toBe("test1.kif");
     expect(results[0].matched_ply).toBe(5);
+  });
+
+  it("stores internal inference metadata but exposes only the search-safe strategy fields", () => {
+    const metadata = makeMetadata("strategy.kif");
+    metadata.strategy = "角換わり";
+    metadata.strategy_source = "inferred";
+    metadata.strategy_score = 0.99;
+    metadata.strategy_classifier_version = "v3-12-24-moves";
+    metadata.strategy_index_version = 1;
+    upsertKifuFile(metadata, [{ sfen_hash: 100n, sfen: "pos1", ply: 0 }]);
+
+    const results = searchKifu({ strategy: "角換わり" });
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      strategy: "角換わり",
+      strategy_source: "inferred",
+    });
+    expect(results[0]).not.toHaveProperty("strategy_score");
+    expect(getKifuFileByPath("strategy.kif")).toMatchObject({
+      strategy_score: 0.99,
+      strategy_classifier_version: "v3-12-24-moves",
+    });
+    expect(getKifuSearchCount({ strategy: "相掛かり" })).toBe(0);
+    expect(getKifuSearchFilePaths({ strategy: "角換わり" })).toEqual(["strategy.kif"]);
+  });
+
+  it("migrates an existing index and marks legacy rows for strategy backfill", () => {
+    closeDatabase();
+    fs.rmSync(path.join(testDataDir, "kifu_index.db"), { force: true });
+    const legacyDb = new DatabaseSync(path.join(testDataDir, "kifu_index.db"));
+    legacyDb.exec(`
+      CREATE TABLE IF NOT EXISTS kifu_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_path TEXT UNIQUE NOT NULL,
+        mtime INTEGER NOT NULL,
+        size INTEGER NOT NULL,
+        black_name TEXT,
+        white_name TEXT,
+        start_date TEXT,
+        event TEXT,
+        strategy TEXT,
+        strategy_source TEXT,
+        strategy_score REAL,
+        strategy_model_version TEXT,
+        strategy_alternatives TEXT,
+        indexed_at INTEGER NOT NULL
+      );
+      INSERT INTO kifu_files (file_path, mtime, size, strategy, strategy_source, indexed_at)
+      VALUES ('legacy.kif', 1, 1, 'experimental-label', 'experimental', 1);
+    `);
+    legacyDb.close();
+
+    initDatabase(testDataDir);
+    const migratedDb = new DatabaseSync(path.join(testDataDir, "kifu_index.db"));
+    try {
+      const row = migratedDb
+        .prepare(
+          "SELECT strategy, strategy_raw, strategy_source, strategy_score, strategy_classifier_version, strategy_index_version FROM kifu_files",
+        )
+        .get() as Record<string, null>;
+      expect(row).toEqual({
+        strategy: null,
+        strategy_raw: null,
+        strategy_source: null,
+        strategy_score: null,
+        strategy_classifier_version: null,
+        strategy_index_version: 0,
+      });
+      expect(migratedDb.prepare("PRAGMA user_version").get()).toEqual({ user_version: 1 });
+    } finally {
+      migratedDb.close();
+    }
+  });
+
+  it("keeps the index disabled when its schema version is newer", () => {
+    closeDatabase();
+    fs.rmSync(path.join(testDataDir, "kifu_index.db"), { force: true });
+    const futureDb = new DatabaseSync(path.join(testDataDir, "kifu_index.db"));
+    futureDb.exec("PRAGMA user_version = 2");
+    futureDb.close();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      expect(() => initDatabase(testDataDir)).not.toThrow();
+      expect(getKifuCount()).toBe(0);
+      expect(searchKifu({})).toEqual([]);
+
+      fs.rmSync(path.join(testDataDir, "kifu_index.db"), { force: true });
+      initDatabase(testDataDir);
+      upsertKifuFile(makeMetadata("recovered.kif"), []);
+      expect(getKifuCount()).toBe(1);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("updates only strategy fields during a backfill", () => {
+    const metadata = makeMetadata("backfill.kif");
+    upsertKifuFile(metadata, [{ sfen_hash: 100n, sfen: "pos1", ply: 0 }]);
+    updateKifuFileStrategy({
+      ...metadata,
+      strategy: "角換わり",
+      strategy_source: "rule",
+      strategy_classifier_version: "rules-v2",
+      strategy_index_version: 1,
+    });
+
+    expect(searchKifu({ strategy: "角換わり" })).toHaveLength(1);
+    expect(searchKifu({ sfenHash: 100n, sfen: "pos1" })).toHaveLength(1);
   });
 
   it("should return MIN(ply) when same position appears multiple times", () => {

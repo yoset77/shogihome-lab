@@ -207,6 +207,15 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
               <ComboBox v-model="searchMonth" :options="monthOptions" free-text-label="Month" />
             </div>
             <div class="search-row row align-center">
+              <div class="label">{{ t.strategy }}</div>
+              <ComboBox
+                v-model="searchStrategy"
+                class="flex-1"
+                :options="strategyOptions"
+                :allow-free-text="false"
+              />
+            </div>
+            <div class="search-row row align-center">
               <div class="label">{{ t.searchByPosition }}</div>
               <ToggleButton v-model:value="searchByPosition" />
             </div>
@@ -244,6 +253,22 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
                 <span v-if="entry.event" class="metadata-item">{{ entry.event }}</span>
                 <span v-if="entry.black_name || entry.white_name" class="metadata-item">
                   {{ entry.black_name || "?" }} vs {{ entry.white_name || "?" }}
+                </span>
+                <span v-if="entry.strategy" class="metadata-item">
+                  {{ t.strategy }}:
+                  {{
+                    entry.strategy_source === "metadata"
+                      ? entry.strategy_raw
+                      : getStrategyName(entry.strategy)
+                  }}
+                  <template
+                    v-if="entry.strategy_source === 'rule' || entry.strategy_source === 'inferred'"
+                  >
+                    ({{ t.automaticallyInferredStrategy }})
+                  </template>
+                </span>
+                <span v-else-if="entry.strategy_raw" class="metadata-item">
+                  {{ t.strategy }}: {{ entry.strategy_raw }}
                 </span>
               </div>
             </div>
@@ -308,6 +333,7 @@ import { BoardLayoutType } from "@/common/settings/layout";
 import { IconType } from "@/renderer/assets/icons";
 import { useServerKifuStore } from "@/renderer/store/serverKifu";
 import { KifuListEntry } from "@/common/file/record";
+import { getStrategyName, searchableStrategies } from "@/common/kifu/strategy";
 import type { KifuSearchQuery } from "@/common/file/sfen_export";
 import SfenExportDialog from "./SfenExportDialog.vue";
 
@@ -324,6 +350,7 @@ const {
   searchByPosition,
   searchYear,
   searchMonth,
+  searchStrategy,
   searchResults,
   searchResultCount,
   lastExecutedSearch,
@@ -385,6 +412,14 @@ const monthOptions = computed(() => {
   }
   return options;
 });
+
+const strategyOptions = computed(() => [
+  { value: "", label: t.all },
+  ...searchableStrategies.map((strategy) => ({
+    value: strategy,
+    label: getStrategyName(strategy),
+  })),
+]);
 
 const searchPosition = computed(() => searchRecord.value.position);
 const searchLastMove = computed(() => {
@@ -493,6 +528,7 @@ async function search() {
       isStrictTurn: isStrictTurn.value,
       sfen: sfen,
       startDate: startDate,
+      strategy: searchStrategy.value || undefined,
     };
     const [results, count] = await Promise.all([
       api.searchServerKifu(params),

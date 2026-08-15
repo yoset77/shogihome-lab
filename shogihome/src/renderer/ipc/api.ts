@@ -141,6 +141,7 @@ export interface API {
     player2?: string;
     isStrictTurn?: boolean;
     startDate?: string;
+    strategy?: string;
     limit?: number;
     offset?: number;
   }): Promise<KifuSearchResult[]>;
@@ -328,13 +329,9 @@ const api: API = {
   async listServerKifu(dir?: string, reload?: boolean): Promise<KifuListEntry[]> {
     return await bridge.listServerKifu(dir, reload);
   },
-  async searchServerKifu(params: {
-    sfen?: string;
-    keyword?: string;
-    startDate?: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<KifuSearchResult[]> {
+  async searchServerKifu(
+    params: KifuSearchQuery & { limit?: number; offset?: number },
+  ): Promise<KifuSearchResult[]> {
     return await bridge.searchServerKifu(params);
   },
   countServerKifu(params: KifuSearchQuery): Promise<number> {

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { parseAndIndexFile } from "@/server/kifu_index/engine";
+import { STRATEGY_INDEX_VERSION } from "@/server/kifu_index/strategy";
 import {
   initDatabase,
   closeDatabase,
@@ -33,6 +34,7 @@ describe("background/kifu_index/engine", () => {
       "対局ID：123",
       "開始日時：2023/10/01 10:00:00",
       "棋戦：テスト棋戦",
+      "戦型：角換わり",
       "先手：先手太郎",
       "後手：後手次郎",
       "手合割：平手",
@@ -56,6 +58,10 @@ describe("background/kifu_index/engine", () => {
     expect(result.metadata.white_name).toBe("後手次郎");
     expect(result.metadata.start_date).toBe("2023/10/01");
     expect(result.metadata.event).toBe("テスト棋戦");
+    expect(result.metadata.strategy).toBe("角換わり");
+    expect(result.metadata.strategy_raw).toBe("角換わり");
+    expect(result.metadata.strategy_source).toBe("metadata");
+    expect(result.metadata.strategy_index_version).toBe(STRATEGY_INDEX_VERSION);
 
     // ply 0 (initial), 1 (76歩), 2 (34歩), 3 (26歩), 3-branch (78金)
     // Total 5 positions
@@ -91,6 +97,24 @@ describe("background/kifu_index/engine", () => {
 
     expect(result.metadata.black_name).toBe("下手太郎");
     expect(result.metadata.white_name).toBe("上手次郎");
+  });
+
+  it("preserves an unsearchable manual strategy without automatic classification", async () => {
+    const kifPath = "manual-unknown.kif";
+    fs.writeFileSync(
+      path.join(tempDir, kifPath),
+      "戦型：未判定\n手合割：平手\n手数----指手----\n1 ７六歩(77)\n",
+    );
+
+    const result = await parseAndIndexFile(tempDir, kifPath);
+
+    expect(result?.metadata).toMatchObject({
+      strategy_raw: "未判定",
+      strategy_source: "metadata",
+      strategy_index_version: STRATEGY_INDEX_VERSION,
+    });
+    expect(result?.metadata.strategy).toBeUndefined();
+    expect(result?.metadata.strategy_classifier_version).toBeUndefined();
   });
 
   it("should index and search by position", async () => {

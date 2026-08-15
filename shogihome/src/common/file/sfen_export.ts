@@ -5,6 +5,7 @@ export interface KifuSearchQuery {
   player2?: string;
   isStrictTurn?: boolean;
   startDate?: string;
+  strategy?: string;
 }
 
 export interface SfenExportRequest {

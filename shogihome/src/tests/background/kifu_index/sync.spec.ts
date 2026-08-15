@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { DatabaseSync } from "node:sqlite";
+import { STRATEGY_INDEX_VERSION } from "@/server/kifu_index/strategy";
 
 describe("background/kifu_index/sync", () => {
   let tempDir: string;
@@ -136,6 +137,37 @@ describe("background/kifu_index/sync", () => {
     const indexedAt3 = getKifuFileByPath(kifPath)!.indexed_at;
     expect(indexedAt3).toBeGreaterThan(indexedAt1); // Should have been re-indexed
     expect(getKifuFileByPath(kifPath)?.black_name).toBe("C");
+  });
+
+  it("backfills strategy fields when the pipeline version changes without rebuilding positions", async () => {
+    const kifPath = "strategy-backfill.kif";
+    fs.writeFileSync(
+      path.join(tempDir, kifPath),
+      "戦型：角換わり\n手数----指手----\n1 ７六歩(77)\n",
+    );
+    await syncKifuDirectory(tempDir);
+    const before = getKifuFileByPath(kifPath);
+    const testDb = new DatabaseSync(path.join(dbDir, "kifu_index.db"));
+    try {
+      testDb
+        .prepare(
+          `UPDATE kifu_files
+           SET strategy = NULL,
+               strategy_source = NULL,
+               strategy_classifier_version = NULL,
+               strategy_index_version = ?
+           WHERE file_path = ?`,
+        )
+        .run(STRATEGY_INDEX_VERSION - 1, kifPath);
+    } finally {
+      testDb.close();
+    }
+
+    await syncKifuDirectory(tempDir);
+    const after = getKifuFileByPath(kifPath);
+    expect(after?.strategy).toBe("角換わり");
+    expect(after?.strategy_index_version).toBe(STRATEGY_INDEX_VERSION);
+    expect(after?.indexed_at).toBeGreaterThanOrEqual(before!.indexed_at);
   });
 
   it("should sync many files without blocking (non-blocking loop check)", async () => {

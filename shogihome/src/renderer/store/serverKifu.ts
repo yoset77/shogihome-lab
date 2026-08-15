@@ -17,6 +17,7 @@ const isStrictTurn = ref(localStorage.getItem("serverKifuIsStrictTurn") === "tru
 const searchByPosition = ref(localStorage.getItem("serverKifuSearchByPosition") !== "false");
 const searchYear = ref("");
 const searchMonth = ref("");
+const searchStrategy = ref("");
 const searchResults = ref<KifuSearchResult[]>([]);
 const searchResultCount = ref(0);
 const lastExecutedSearch = ref<KifuSearchQuery>();
@@ -108,6 +109,7 @@ export function useServerKifuStore() {
     searchByPosition,
     searchYear,
     searchMonth,
+    searchStrategy,
     searchResults,
     searchResultCount,
     lastExecutedSearch,

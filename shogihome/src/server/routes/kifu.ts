@@ -22,6 +22,7 @@ import {
 } from "@/server/hono";
 import { getOptionalInt, getString } from "@/server/routes/query";
 import type { KifuSearchQuery, SfenExportRequest } from "@/common/file/sfen_export";
+import { searchableStrategies, type SearchableStrategy } from "@/common/kifu/strategy_taxonomy";
 import {
   cancelSfenExportJob,
   getSfenExportJob,
@@ -29,6 +30,9 @@ import {
 } from "@/server/kifu_export/job";
 
 function normalizeSearchQuery(query: KifuSearchQuery) {
+  if (hasInvalidStrategy(query)) {
+    return null;
+  }
   let sfen = query.sfen;
   let sfenHash: bigint | undefined;
   if (sfen) {
@@ -47,13 +51,18 @@ function normalizeSearchQuery(query: KifuSearchQuery) {
     player2: query.player2,
     isStrictTurn: query.isStrictTurn,
     startDate: query.startDate,
+    strategy: query.strategy as SearchableStrategy | undefined,
   };
+}
+
+function hasInvalidStrategy(query: KifuSearchQuery): boolean {
+  return !!query.strategy && !searchableStrategies.includes(query.strategy as SearchableStrategy);
 }
 
 function parseSearchQuery(value: unknown): KifuSearchQuery | null {
   if (!value || typeof value !== "object") return null;
   const query = value as Record<string, unknown>;
-  const stringKeys = ["sfen", "keyword", "player1", "player2", "startDate"] as const;
+  const stringKeys = ["sfen", "keyword", "player1", "player2", "startDate", "strategy"] as const;
   for (const key of stringKeys) {
     if (query[key] !== undefined && typeof query[key] !== "string") return null;
   }
@@ -64,6 +73,7 @@ function parseSearchQuery(value: unknown): KifuSearchQuery | null {
     player1: query.player1 as string | undefined,
     player2: query.player2 as string | undefined,
     startDate: query.startDate as string | undefined,
+    strategy: query.strategy as string | undefined,
     isStrictTurn: query.isStrictTurn as boolean | undefined,
   };
 }
@@ -137,6 +147,7 @@ export const kifuRoutes = new Hono<AppEnv>()
       player2: getString(value.player2),
       isStrictTurn: value.isStrictTurn === "true",
       startDate: getString(value.startDate),
+      strategy: getString(value.strategy),
       limit: getOptionalInt(value.limit),
       offset: getOptionalInt(value.offset),
     })),
@@ -147,7 +158,7 @@ export const kifuRoutes = new Hono<AppEnv>()
       }
       const search = normalizeSearchQuery(query);
       if (!search) {
-        return sendError(c, 400, "Invalid sfen");
+        return sendError(c, 400, hasInvalidStrategy(query) ? "Invalid strategy" : "Invalid sfen");
       }
 
       const results = kifuIndexDB.searchKifu({
@@ -168,14 +179,16 @@ export const kifuRoutes = new Hono<AppEnv>()
       player2: getString(value.player2),
       isStrictTurn: value.isStrictTurn === "true",
       startDate: getString(value.startDate),
+      strategy: getString(value.strategy),
     })),
     (c) => {
       if (!KIFU_DIR) {
         return sendError(c, 404, "KIFU_DIR is not configured");
       }
-      const search = normalizeSearchQuery(c.req.valid("query"));
+      const query = c.req.valid("query");
+      const search = normalizeSearchQuery(query);
       if (!search) {
-        return sendError(c, 400, "Invalid sfen");
+        return sendError(c, 400, hasInvalidStrategy(query) ? "Invalid strategy" : "Invalid sfen");
       }
       return c.json({ count: kifuIndexDB.getKifuSearchCount(search) });
     },
@@ -205,7 +218,11 @@ export const kifuRoutes = new Hono<AppEnv>()
     }
     const search = normalizeSearchQuery(searchQuery);
     if (!search) {
-      return sendError(c, 400, "Invalid sfen");
+      return sendError(
+        c,
+        400,
+        hasInvalidStrategy(searchQuery) ? "Invalid strategy" : "Invalid sfen",
+      );
     }
     const job = startSfenExportJob({
       kifuDir: KIFU_DIR,

@@ -1,6 +1,7 @@
 import esbuild from "esbuild";
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 
 const projectRoot = path.resolve(import.meta.dirname, "..");
 const serverOutDir = path.join(projectRoot, "dist", "server");
@@ -48,6 +49,7 @@ async function build() {
     });
     copyOnnxRuntimeAssets();
     copyVisionModels();
+    copyStrategyModel();
     console.log("✓ Server built successfully (ESM).");
   } catch (err) {
     console.error("✗ Server build failed:", err);
@@ -86,6 +88,39 @@ function copyVisionModels() {
       assertRealOnnxModel(sourcePath);
       fs.copyFileSync(sourcePath, path.join(targetDir, fileName));
     }
+  }
+}
+
+function copyStrategyModel() {
+  const sourceDir = path.join(projectRoot, "src", "server", "kifu_index", "models");
+  const targetDir = path.join(serverOutDir, "models", "strategy");
+  const files = ["manifest.json", "weights.f64"];
+  if (!fs.existsSync(sourceDir)) {
+    throw new Error(`Strategy model directory not found: ${sourceDir}`);
+  }
+  fs.mkdirSync(targetDir, { recursive: true });
+  for (const fileName of files) {
+    const sourcePath = path.join(sourceDir, fileName);
+    if (!fs.existsSync(sourcePath) || fs.statSync(sourcePath).size === 0) {
+      throw new Error(`Strategy model asset not found: ${sourcePath}`);
+    }
+    fs.copyFileSync(sourcePath, path.join(targetDir, fileName));
+  }
+  const manifest = JSON.parse(fs.readFileSync(path.join(sourceDir, "manifest.json"), "utf8"));
+  const weights = fs.readFileSync(path.join(sourceDir, "weights.f64"));
+  const coefficientBytes =
+    manifest.coefficientShape[0] * manifest.coefficientShape[1] * Float64Array.BYTES_PER_ELEMENT;
+  const coefficientHash = createHash("sha256")
+    .update(weights.subarray(0, coefficientBytes))
+    .digest("hex");
+  const interceptHash = createHash("sha256")
+    .update(weights.subarray(coefficientBytes))
+    .digest("hex");
+  if (
+    coefficientHash !== manifest.coefficientSha256 ||
+    interceptHash !== manifest.interceptSha256
+  ) {
+    throw new Error("Strategy model weights checksum is invalid");
   }
 }
 

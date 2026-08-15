@@ -98,6 +98,7 @@ describe("Kifu search API", () => {
       player2: undefined,
       isStrictTurn: false,
       startDate: undefined,
+      strategy: undefined,
       limit: undefined,
       offset: undefined,
     });
@@ -120,6 +121,7 @@ describe("Kifu search API", () => {
       player2: "Fujii",
       isStrictTurn: true,
       startDate: undefined,
+      strategy: undefined,
       limit: undefined,
       offset: undefined,
     });
@@ -139,6 +141,7 @@ describe("Kifu search API", () => {
       player2: undefined,
       isStrictTurn: false,
       startDate: undefined,
+      strategy: undefined,
       limit: undefined,
       offset: undefined,
     });
@@ -156,6 +159,31 @@ describe("Kifu search API", () => {
     expect(kifuIndexMock.getKifuSearchCount).toHaveBeenCalledWith(
       expect.objectContaining({ keyword: "title" }),
     );
+  });
+
+  it("passes an allowed strategy filter to the database search", async () => {
+    const response = await requestApp(
+      app,
+      "GET",
+      "/api/kifu/search?strategy=%E8%A7%92%E6%8F%9B%E3%82%8F%E3%82%8A",
+      {
+        host,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(kifuIndexMock.searchKifu).toHaveBeenCalledWith(
+      expect.objectContaining({ strategy: "角換わり" }),
+    );
+  });
+
+  it("rejects unsupported strategy filters", async () => {
+    const response = await requestApp(app, "GET", "/api/kifu/search?strategy=unsupported", {
+      host,
+    });
+
+    expect(response.status).toBe(400);
+    expect(kifuIndexMock.searchKifu).not.toHaveBeenCalled();
   });
 
   it("rejects invalid SFEN export options", async () => {
