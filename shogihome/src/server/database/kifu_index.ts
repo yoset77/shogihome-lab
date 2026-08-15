@@ -1,10 +1,12 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import path from "node:path";
 import fs from "node:fs";
+import type { SearchableStrategy, StrategySource } from "@/common/kifu/strategy_taxonomy";
 
 let db: DatabaseSync | null = null;
 let insertKifuFileStmt: StatementSync | null = null;
 let updateKifuFileStmt: StatementSync | null = null;
+let updateKifuStrategyStmt: StatementSync | null = null;
 let deleteKifuFileStmt: StatementSync | null = null;
 let getKifuFileIdStmt: StatementSync | null = null;
 let getKifuFileByPathStmt: StatementSync | null = null;
@@ -32,6 +34,7 @@ export function initDatabase(dataDir: string) {
     db.exec("PRAGMA journal_mode = WAL;");
     db.exec("PRAGMA synchronous = NORMAL;");
 
+    db.exec("BEGIN IMMEDIATE");
     db.exec(`
       CREATE TABLE IF NOT EXISTS kifu_files (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,9 +45,16 @@ export function initDatabase(dataDir: string) {
         white_name TEXT,
         start_date TEXT,
         event TEXT,
+        strategy TEXT,
+        strategy_raw TEXT,
+        strategy_source TEXT,
+        strategy_score REAL,
+        strategy_classifier_version TEXT,
+        strategy_index_version INTEGER NOT NULL DEFAULT 0,
         indexed_at INTEGER NOT NULL
       )
     `);
+    migrateKifuIndexSchema();
 
     db.exec(
       "CREATE INDEX IF NOT EXISTS idx_kifu_files_metadata ON kifu_files(black_name, white_name, start_date, event);",
@@ -53,6 +63,7 @@ export function initDatabase(dataDir: string) {
     db.exec(
       "CREATE INDEX IF NOT EXISTS idx_kifu_files_sort ON kifu_files(start_date DESC, indexed_at DESC);",
     );
+    db.exec("CREATE INDEX IF NOT EXISTS idx_kifu_files_strategy ON kifu_files(strategy);");
 
     db.exec(`
       CREATE TABLE IF NOT EXISTS positions (
@@ -76,14 +87,27 @@ export function initDatabase(dataDir: string) {
     `);
 
     db.exec("CREATE INDEX IF NOT EXISTS idx_kifu_positions_lookup ON kifu_positions(position_id);");
+    db.exec("COMMIT");
 
     insertKifuFileStmt = db.prepare(`
-      INSERT INTO kifu_files (file_path, mtime, size, black_name, white_name, start_date, event, indexed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO kifu_files (
+        file_path, mtime, size, black_name, white_name, start_date, event,
+        strategy, strategy_raw, strategy_source, strategy_score, strategy_classifier_version,
+        strategy_index_version, indexed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     updateKifuFileStmt = db.prepare(`
-      UPDATE kifu_files SET mtime = ?, size = ?, black_name = ?, white_name = ?, start_date = ?, event = ?, indexed_at = ?
+      UPDATE kifu_files SET
+        mtime = ?, size = ?, black_name = ?, white_name = ?, start_date = ?, event = ?,
+        strategy = ?, strategy_raw = ?, strategy_source = ?, strategy_score = ?,
+        strategy_classifier_version = ?, strategy_index_version = ?, indexed_at = ?
       WHERE id = ?
+    `);
+    updateKifuStrategyStmt = db.prepare(`
+      UPDATE kifu_files SET
+        strategy = ?, strategy_raw = ?, strategy_source = ?, strategy_score = ?,
+        strategy_classifier_version = ?, strategy_index_version = ?, indexed_at = ?
+      WHERE file_path = ?
     `);
     deleteKifuFileStmt = db.prepare("DELETE FROM kifu_files WHERE file_path = ?");
     getKifuFileIdStmt = db.prepare("SELECT id FROM kifu_files WHERE file_path = ?");
@@ -108,9 +132,15 @@ export function initDatabase(dataDir: string) {
     `);
     getKifuCountStmt = db.prepare("SELECT COUNT(*) as count FROM kifu_files");
   } catch (e) {
+    try {
+      db?.close();
+    } catch {
+      // Preserve the initialization error.
+    }
     console.error("Failed to initialize kifu index database:", e);
     insertKifuFileStmt = null;
     updateKifuFileStmt = null;
+    updateKifuStrategyStmt = null;
     deleteKifuFileStmt = null;
     getKifuFileIdStmt = null;
     getKifuFileByPathStmt = null;
@@ -129,6 +159,7 @@ export function initDatabase(dataDir: string) {
 export function closeDatabase() {
   insertKifuFileStmt = null;
   updateKifuFileStmt = null;
+  updateKifuStrategyStmt = null;
   deleteKifuFileStmt = null;
   getKifuFileIdStmt = null;
   getKifuFileByPathStmt = null;
@@ -154,7 +185,22 @@ export interface KifuFileMetadata {
   white_name?: string;
   start_date?: string;
   event?: string;
+  strategy?: SearchableStrategy;
+  strategy_raw?: string;
+  strategy_source?: StrategySource;
+  strategy_score?: number;
+  strategy_classifier_version?: string;
+  strategy_index_version?: number;
   indexed_at: number;
+}
+
+interface KifuSearchResult extends Omit<
+  KifuFileMetadata,
+  "strategy_score" | "strategy_classifier_version" | "strategy_index_version"
+> {
+  id: number;
+  matched_ply?: number;
+  matched_sfen?: string;
 }
 
 export interface KifuPositionData {
@@ -171,6 +217,7 @@ export interface KifuSearchParams {
   player2?: string;
   isStrictTurn?: boolean;
   startDate?: string;
+  strategy?: SearchableStrategy;
   limit?: number;
   offset?: number;
 }
@@ -191,6 +238,44 @@ function getKifuPositionIds(kifuId: number): number[] {
   return rows
     .map((row) => Number(row.position_id))
     .filter((positionId) => Number.isSafeInteger(positionId));
+}
+
+const KIFU_INDEX_SCHEMA_VERSION = 1;
+
+function migrateKifuIndexSchema() {
+  if (!db) return;
+  const currentVersion = Number(db.prepare("PRAGMA user_version").get()?.user_version ?? 0);
+  if (currentVersion > KIFU_INDEX_SCHEMA_VERSION) {
+    throw new Error(`Unsupported kifu index schema version: ${currentVersion}`);
+  }
+  if (currentVersion === KIFU_INDEX_SCHEMA_VERSION) return;
+  const columns = db.prepare("PRAGMA table_info(kifu_files)").all() as { name: string }[];
+  const columnNames = new Set(columns.map((column) => column.name));
+  const additions = [
+    ["strategy", "TEXT"],
+    ["strategy_raw", "TEXT"],
+    ["strategy_source", "TEXT"],
+    ["strategy_score", "REAL"],
+    ["strategy_classifier_version", "TEXT"],
+    ["strategy_index_version", "INTEGER NOT NULL DEFAULT 0"],
+  ] as const;
+  for (const [name, type] of additions) {
+    if (!columnNames.has(name)) {
+      db.exec(`ALTER TABLE kifu_files ADD COLUMN ${name} ${type}`);
+    }
+  }
+  // Earlier experimental columns may contain unvalidated labels or rejected candidates.
+  // Force every existing row through the current pipeline before exposing strategy filters.
+  db.exec(`
+    UPDATE kifu_files
+    SET strategy = NULL,
+        strategy_raw = NULL,
+        strategy_source = NULL,
+        strategy_score = NULL,
+        strategy_classifier_version = NULL,
+        strategy_index_version = 0
+  `);
+  db.exec(`PRAGMA user_version = ${KIFU_INDEX_SCHEMA_VERSION}`);
 }
 
 export function upsertKifuFile(
@@ -220,6 +305,12 @@ export function upsertKifuFile(
         metadata.white_name ?? null,
         metadata.start_date ?? null,
         metadata.event ?? null,
+        metadata.strategy ?? null,
+        metadata.strategy_raw ?? null,
+        metadata.strategy_source ?? null,
+        metadata.strategy_score ?? null,
+        metadata.strategy_classifier_version ?? null,
+        metadata.strategy_index_version ?? 0,
         now,
         kifuId,
       );
@@ -232,6 +323,12 @@ export function upsertKifuFile(
         metadata.white_name ?? null,
         metadata.start_date ?? null,
         metadata.event ?? null,
+        metadata.strategy ?? null,
+        metadata.strategy_raw ?? null,
+        metadata.strategy_source ?? null,
+        metadata.strategy_score ?? null,
+        metadata.strategy_classifier_version ?? null,
+        metadata.strategy_index_version ?? 0,
         now,
       );
       kifuId = Number(result?.lastInsertRowid);
@@ -257,6 +354,25 @@ export function upsertKifuFile(
       // ignore rollback errors to preserve original error
     }
     console.error("Failed to upsert kifu file to DB:", e);
+    throw e;
+  }
+}
+
+export function updateKifuFileStrategy(metadata: Omit<KifuFileMetadata, "indexed_at">) {
+  if (!db || metadata.strategy_index_version === undefined) return;
+  try {
+    updateKifuStrategyStmt?.run(
+      metadata.strategy ?? null,
+      metadata.strategy_raw ?? null,
+      metadata.strategy_source ?? null,
+      metadata.strategy_score ?? null,
+      metadata.strategy_classifier_version ?? null,
+      metadata.strategy_index_version,
+      Date.now(),
+      metadata.file_path,
+    );
+  } catch (e) {
+    console.error("Failed to update kifu strategy:", e);
     throw e;
   }
 }
@@ -361,6 +477,11 @@ function buildKifuSearchSql(params: KifuSearchParams): KifuSearchSql {
     args.push(`${params.startDate}%`);
   }
 
+  if (params.strategy) {
+    conditions.push("f.strategy = ?");
+    args.push(params.strategy);
+  }
+
   return {
     from,
     where: conditions.length > 0 ? " WHERE " + conditions.join(" AND ") : "",
@@ -375,9 +496,10 @@ export function searchKifu(params: KifuSearchParams) {
   const offset = params.offset ?? 0;
   const searchSql = buildKifuSearchSql(params);
 
-  let query = `SELECT f.*${
-    searchSql.isPositionSearch ? ", MIN(kp.ply) as matched_ply, p.sfen as matched_sfen" : ""
-  }${searchSql.from}${searchSql.where}`;
+  let query = `SELECT f.id, f.file_path, f.mtime, f.size, f.black_name, f.white_name, f.start_date,
+    f.event, f.strategy, f.strategy_raw, f.strategy_source, f.indexed_at${
+      searchSql.isPositionSearch ? ", MIN(kp.ply) as matched_ply, p.sfen as matched_sfen" : ""
+    }${searchSql.from}${searchSql.where}`;
 
   if (searchSql.isPositionSearch) {
     query += " GROUP BY f.id";
@@ -387,7 +509,7 @@ export function searchKifu(params: KifuSearchParams) {
 
   try {
     const stmt = db.prepare(query);
-    return stmt.all(...searchSql.args, limit, offset);
+    return stmt.all(...searchSql.args, limit, offset) as unknown as KifuSearchResult[];
   } catch (e) {
     console.error("Failed to search kifu:", e);
     return [];

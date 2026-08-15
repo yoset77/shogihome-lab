@@ -38,6 +38,7 @@ const toKifuSearchQuery = (params: KifuSearchQuery) => ({
   player2: params.player2,
   isStrictTurn: params.isStrictTurn ? "true" : "",
   startDate: params.startDate,
+  strategy: params.strategy,
 });
 
 enum STORAGE_KEY {
@@ -695,16 +696,9 @@ export const webAPI: Bridge = {
       }),
     );
   },
-  async searchServerKifu(params: {
-    sfen?: string;
-    keyword?: string;
-    player1?: string;
-    player2?: string;
-    isStrictTurn?: boolean;
-    startDate?: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<KifuSearchResult[]> {
+  async searchServerKifu(
+    params: KifuSearchQuery & { limit?: number; offset?: number },
+  ): Promise<KifuSearchResult[]> {
     const response = await apiClient.api.kifu.search.$get({
       query: {
         sfen: params.sfen,
@@ -713,6 +707,7 @@ export const webAPI: Bridge = {
         player2: params.player2,
         isStrictTurn: params.isStrictTurn ? "true" : "",
         startDate: params.startDate,
+        strategy: params.strategy,
         limit: params.limit,
         offset: params.offset,
       },

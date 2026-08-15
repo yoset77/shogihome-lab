@@ -6,11 +6,13 @@ import {
   getKifuFileByPath,
   getAllKifuFilePaths,
   upsertKifuFile,
+  updateKifuFileStrategy,
   deleteKifuFile,
   getKifuCount,
   cleanupOrphanedPositions,
 } from "@/server/database/kifu_index";
 import { parseAndIndexFile } from "./engine.js";
+import { STRATEGY_INDEX_VERSION } from "./strategy.js";
 
 export interface SyncStatus {
   total: number;
@@ -64,6 +66,8 @@ export async function syncKifuDirectory(kifuDir: string) {
 
       if (!existing || existing.mtime !== stats.mtimeMs || existing.size !== stats.size) {
         filesToIndex.push(relPath);
+      } else if (existing.strategy_index_version !== STRATEGY_INDEX_VERSION) {
+        filesToIndex.push(relPath);
       }
 
       if (i % 100 === 0) {
@@ -87,7 +91,16 @@ export async function syncKifuDirectory(kifuDir: string) {
       try {
         const result = await parseAndIndexFile(kifuDir, relPath);
         if (result) {
-          upsertKifuFile(result.metadata, result.positions);
+          const existing = getKifuFileByPath(relPath);
+          if (
+            existing &&
+            existing.mtime === result.metadata.mtime &&
+            existing.size === result.metadata.size
+          ) {
+            updateKifuFileStrategy(result.metadata);
+          } else {
+            upsertKifuFile(result.metadata, result.positions);
+          }
         }
       } catch (e) {
         console.error(`Failed to index file: ${relPath}`, e);

@@ -53,4 +53,14 @@ describe("ServerKifuDialog", () => {
     expect(source).toContain(':disabled="!isStrictTurn"');
     expect(source).toContain("[player1.value, player2.value] = [player2.value, player1.value]");
   });
+
+  it("provides a closed strategy filter without exposing inference scores", () => {
+    const source = readFileSync("src/renderer/view/dialog/ServerKifuDialog.vue", "utf-8");
+
+    expect(source).toContain('v-model="searchStrategy"');
+    expect(source).toContain(':allow-free-text="false"');
+    expect(source).toContain("getStrategyName(entry.strategy)");
+    expect(source).toContain("t.automaticallyInferredStrategy");
+    expect(source).not.toContain("strategy_score");
+  });
 });

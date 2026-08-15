@@ -5,6 +5,14 @@ import { importRecordFromBuffer, detectRecordFileFormatByPath } from "@/common/f
 import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
 import { KifuFileMetadata, KifuPositionData } from "@/server/database/kifu_index";
 import { getRecordTitleFromMetadata } from "@/common/helpers/metadata";
+import { normalizeManualStrategy } from "@/common/kifu/strategy_taxonomy";
+import {
+  inferStrategy,
+  inferStrategyByRule,
+  isStrategyModelAvailable,
+  requiresStrategyInference,
+  STRATEGY_INDEX_VERSION,
+} from "@/server/kifu_index/strategy";
 
 function normalizeDate(dateStr?: string): string | undefined {
   if (!dateStr) return undefined;
@@ -51,6 +59,24 @@ export async function parseAndIndexFile(
     return null;
   }
 
+  const manualStrategy = normalizeManualStrategy(
+    record.metadata.getStandardMetadata(RecordMetadataKey.STRATEGY),
+  );
+  const ruleStrategy = manualStrategy.raw ? undefined : inferStrategyByRule(record.first);
+  let inferredStrategy;
+  let strategyIndexVersion: number | undefined = STRATEGY_INDEX_VERSION;
+  if (!manualStrategy.raw && !ruleStrategy && requiresStrategyInference(record.first)) {
+    if (!isStrategyModelAvailable()) {
+      strategyIndexVersion = undefined;
+    } else {
+      try {
+        inferredStrategy = inferStrategy(record.first);
+      } catch (error) {
+        console.error(`Failed to infer strategy for kifu file: ${relativePath}`, error);
+        strategyIndexVersion = undefined;
+      }
+    }
+  }
   const metadata: Omit<KifuFileMetadata, "indexed_at"> = {
     file_path: relativePath,
     mtime: stats.mtimeMs,
@@ -62,6 +88,18 @@ export async function parseAndIndexFile(
         record.metadata.getStandardMetadata(RecordMetadataKey.DATE),
     ),
     event: getRecordTitleFromMetadata(record.metadata),
+    strategy: manualStrategy.strategy || ruleStrategy?.strategy || inferredStrategy?.strategy,
+    strategy_raw: manualStrategy.raw,
+    strategy_source: manualStrategy.raw
+      ? "metadata"
+      : ruleStrategy
+        ? "rule"
+        : inferredStrategy
+          ? "inferred"
+          : undefined,
+    strategy_score: inferredStrategy?.score,
+    strategy_classifier_version: ruleStrategy?.ruleVersion || inferredStrategy?.modelVersion,
+    strategy_index_version: strategyIndexVersion,
   };
 
   const positions: KifuPositionData[] = [];

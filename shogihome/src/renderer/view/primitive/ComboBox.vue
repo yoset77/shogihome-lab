@@ -5,7 +5,7 @@
         <option v-for="option in options" :key="option.value" :value="option.value">
           {{ option.label }}
         </option>
-        <option value="__FREE_TEXT__">{{ freeTextLabel }}</option>
+        <option v-if="allowFreeText" value="__FREE_TEXT__">{{ freeTextLabel }}</option>
       </select>
       <input v-show="selected === '__FREE_TEXT__'" v-model="freeInput" type="text" />
     </div>
@@ -33,6 +33,10 @@ const props = defineProps({
     type: String,
     default: "自由入力",
   },
+  allowFreeText: {
+    type: Boolean,
+    default: true,
+  },
 });
 
 const emit = defineEmits(["update:modelValue"]);
@@ -40,7 +44,9 @@ const emit = defineEmits(["update:modelValue"]);
 const selected = ref(
   props.options.some((option) => option.value === props.modelValue)
     ? props.modelValue
-    : "__FREE_TEXT__",
+    : props.allowFreeText
+      ? "__FREE_TEXT__"
+      : props.options[0]?.value,
 );
 const freeInput = ref(props.modelValue);
 
@@ -66,7 +72,7 @@ watch(
     if (props.options.some((option) => option.value === newValue)) {
       selected.value = newValue;
       freeInput.value ||= newValue;
-    } else {
+    } else if (props.allowFreeText) {
       selected.value = "__FREE_TEXT__";
       freeInput.value = newValue;
     }

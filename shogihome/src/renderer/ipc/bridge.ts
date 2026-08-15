@@ -117,13 +117,9 @@ export interface Bridge {
   // Server Kifu (LAN only)
   isServerKifuEnabled(): Promise<boolean>;
   listServerKifu(dir?: string, reload?: boolean): Promise<KifuListEntry[]>;
-  searchServerKifu(params: {
-    sfen?: string;
-    keyword?: string;
-    startDate?: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<KifuSearchResult[]>;
+  searchServerKifu(
+    params: KifuSearchQuery & { limit?: number; offset?: number },
+  ): Promise<KifuSearchResult[]>;
   countServerKifu(params: KifuSearchQuery): Promise<number>;
   startServerKifuSfenExport(params: SfenExportRequest): Promise<SfenExportJobStatus>;
   getServerKifuSfenExport(jobId: string): Promise<SfenExportJobStatus>;

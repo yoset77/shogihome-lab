@@ -11,6 +11,7 @@ import {
   exportJKFString,
   importJKFString,
 } from "tsshogi";
+import type { SearchableStrategy, StrategySource } from "@/common/kifu/strategy_taxonomy";
 
 export enum RecordFileFormat {
   KIF = ".kif",
@@ -148,6 +149,9 @@ export interface KifuSearchResult {
   white_name?: string;
   start_date?: string;
   event?: string;
+  strategy?: SearchableStrategy;
+  strategy_raw?: string;
+  strategy_source?: StrategySource;
   indexed_at: number;
   matched_ply?: number;
   matched_sfen?: string;
