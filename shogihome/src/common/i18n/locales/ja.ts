@@ -505,6 +505,7 @@ export const ja: Texts = {
   strategyKakukokanFuribisha: "角交換型振り飛車",
   strategyGangi: "雁木",
   strategyOther: "その他",
+  unclassified: "未判定",
   automaticallyInferredStrategy: "自動判定",
   gameTitle: "表題",
   timeLimit: "持ち時間",

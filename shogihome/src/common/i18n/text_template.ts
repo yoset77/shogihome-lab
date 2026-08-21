@@ -503,6 +503,7 @@ export type Texts = {
   strategyKakukokanFuribisha: string;
   strategyGangi: string;
   strategyOther: string;
+  unclassified: string;
   automaticallyInferredStrategy: string;
   gameTitle: string;
   timeLimit: string;

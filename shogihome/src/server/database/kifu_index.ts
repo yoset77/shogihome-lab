@@ -1,7 +1,12 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import path from "node:path";
 import fs from "node:fs";
-import type { SearchableStrategy, StrategySource } from "@/common/kifu/strategy_taxonomy";
+import {
+  UNCLASSIFIED_STRATEGY,
+  type SearchableStrategy,
+  type StrategySearchFilter,
+  type StrategySource,
+} from "@/common/kifu/strategy_taxonomy";
 
 let db: DatabaseSync | null = null;
 let insertKifuFileStmt: StatementSync | null = null;
@@ -217,7 +222,7 @@ export interface KifuSearchParams {
   player2?: string;
   isStrictTurn?: boolean;
   startDate?: string;
-  strategy?: SearchableStrategy;
+  strategy?: StrategySearchFilter;
   limit?: number;
   offset?: number;
 }
@@ -477,7 +482,9 @@ function buildKifuSearchSql(params: KifuSearchParams): KifuSearchSql {
     args.push(`${params.startDate}%`);
   }
 
-  if (params.strategy) {
+  if (params.strategy === UNCLASSIFIED_STRATEGY) {
+    conditions.push("f.strategy IS NULL AND f.strategy_raw IS NULL");
+  } else if (params.strategy) {
     conditions.push("f.strategy = ?");
     args.push(params.strategy);
   }

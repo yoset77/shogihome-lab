@@ -177,6 +177,17 @@ describe("Kifu search API", () => {
     );
   });
 
+  it("passes the unclassified strategy filter to the database search", async () => {
+    const response = await requestApp(app, "GET", "/api/kifu/search?strategy=unclassified", {
+      host,
+    });
+
+    expect(response.status).toBe(200);
+    expect(kifuIndexMock.searchKifu).toHaveBeenCalledWith(
+      expect.objectContaining({ strategy: "unclassified" }),
+    );
+  });
+
   it("rejects unsupported strategy filters", async () => {
     const response = await requestApp(app, "GET", "/api/kifu/search?strategy=unsupported", {
       host,

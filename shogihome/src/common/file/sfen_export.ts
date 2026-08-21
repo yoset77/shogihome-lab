@@ -1,3 +1,5 @@
+import type { StrategySearchFilter } from "@/common/kifu/strategy_taxonomy";
+
 export interface KifuSearchQuery {
   sfen?: string;
   keyword?: string;
@@ -5,7 +7,7 @@ export interface KifuSearchQuery {
   player2?: string;
   isStrictTurn?: boolean;
   startDate?: string;
-  strategy?: string;
+  strategy?: StrategySearchFilter;
 }
 
 export interface SfenExportRequest {

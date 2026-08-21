@@ -1,6 +1,11 @@
 import { t } from "@/common/i18n";
 
-export { searchableStrategies, type SearchableStrategy } from "./strategy_taxonomy";
+export {
+  searchableStrategies,
+  UNCLASSIFIED_STRATEGY,
+  type SearchableStrategy,
+  type StrategySearchFilter,
+} from "./strategy_taxonomy";
 
 export function getStrategyName(strategy: string): string {
   switch (strategy) {
