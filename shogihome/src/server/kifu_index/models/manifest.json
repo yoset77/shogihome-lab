@@ -2301,10 +2301,7 @@
     "source=9g",
     "source=9i"
   ],
-  "coefficientShape": [
-    12,
-    2278
-  ],
+  "coefficientShape": [12, 2278],
   "coefficientSha256": "c5a34811c0b2707d6462dc2223edc8838fbdb460ef1c6639a185c03cbcf1b7e4",
   "interceptSha256": "92e322c2c8fcb326284ffb90abf559e6132f99480a40617e94cea0592e363ca8",
   "acceptanceThresholds": {
@@ -2316,8 +2313,8 @@
     "四間飛車": 0.8,
     "横歩取り": 0.95,
     "相振り飛車": 0.95,
-    "矢倉": 0.8,
-    "角交換型振り飛車": 0.9,
-    "雁木": 0.8
+    "矢倉": 0.7,
+    "角交換型振り飛車": 0.8,
+    "雁木": 0.7
   }
 }
