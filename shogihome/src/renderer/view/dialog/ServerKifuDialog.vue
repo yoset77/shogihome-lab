@@ -270,6 +270,9 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
                 <span v-else-if="entry.strategy_raw" class="metadata-item">
                   {{ t.strategy }}: {{ entry.strategy_raw }}
                 </span>
+                <span v-else class="metadata-item">
+                  {{ t.strategy }}: {{ t.unclassified }}
+                </span>
               </div>
             </div>
             <div class="result-actions row align-center">
@@ -333,7 +336,11 @@ import { BoardLayoutType } from "@/common/settings/layout";
 import { IconType } from "@/renderer/assets/icons";
 import { useServerKifuStore } from "@/renderer/store/serverKifu";
 import { KifuListEntry } from "@/common/file/record";
-import { getStrategyName, searchableStrategies } from "@/common/kifu/strategy";
+import {
+  getStrategyName,
+  searchableStrategies,
+  UNCLASSIFIED_STRATEGY,
+} from "@/common/kifu/strategy";
 import type { KifuSearchQuery } from "@/common/file/sfen_export";
 import SfenExportDialog from "./SfenExportDialog.vue";
 
@@ -419,6 +426,7 @@ const strategyOptions = computed(() => [
     value: strategy,
     label: getStrategyName(strategy),
   })),
+  { value: UNCLASSIFIED_STRATEGY, label: t.unclassified },
 ]);
 
 const searchPosition = computed(() => searchRecord.value.position);

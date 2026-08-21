@@ -104,6 +104,23 @@ describe("background/database/kifu_index", () => {
     expect(getKifuSearchFilePaths({ strategy: "角換わり" })).toEqual(["strategy.kif"]);
   });
 
+  it("searches only files without strategy metadata as unclassified", () => {
+    const unclassified = makeMetadata("unclassified.kif");
+    const rawOnly = makeMetadata("raw-only.kif");
+    rawOnly.strategy_raw = "未判定";
+    const classified = makeMetadata("classified.kif");
+    classified.strategy = "その他";
+
+    upsertKifuFile(unclassified, []);
+    upsertKifuFile(rawOnly, []);
+    upsertKifuFile(classified, []);
+
+    const results = searchKifu({ strategy: "unclassified" });
+    expect(results.map((result) => result.file_path)).toEqual(["unclassified.kif"]);
+    expect(getKifuSearchCount({ strategy: "unclassified" })).toBe(1);
+    expect(getKifuSearchFilePaths({ strategy: "unclassified" })).toEqual(["unclassified.kif"]);
+  });
+
   it("migrates an existing index and marks legacy rows for strategy backfill", () => {
     closeDatabase();
     fs.rmSync(path.join(testDataDir, "kifu_index.db"), { force: true });

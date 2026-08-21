@@ -507,6 +507,7 @@ export const vi: Texts = {
   strategyKakukokanFuribisha: "Xe dao động đổi tượng",
   strategyGangi: "Gangi",
   strategyOther: "Khác",
+  unclassified: "Chưa phân loại",
   automaticallyInferredStrategy: "Tự động nhận diện",
   gameTitle: "Tiêu đề",
   timeLimit: "Thời gian",

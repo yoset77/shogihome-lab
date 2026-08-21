@@ -2,6 +2,7 @@ import { ref, shallowRef, triggerRef, watch } from "vue";
 import { KifuSearchResult } from "@/common/file/record";
 import { Record as TssRecord } from "tsshogi";
 import type { KifuSearchQuery, SfenExportJobStatus } from "@/common/file/sfen_export";
+import type { StrategySearchFilter } from "@/common/kifu/strategy_taxonomy";
 
 export type ServerKifuTab = "list" | "search" | "results";
 
@@ -17,7 +18,7 @@ const isStrictTurn = ref(localStorage.getItem("serverKifuIsStrictTurn") === "tru
 const searchByPosition = ref(localStorage.getItem("serverKifuSearchByPosition") !== "false");
 const searchYear = ref("");
 const searchMonth = ref("");
-const searchStrategy = ref("");
+const searchStrategy = ref<StrategySearchFilter | "">("");
 const searchResults = ref<KifuSearchResult[]>([]);
 const searchResultCount = ref(0);
 const lastExecutedSearch = ref<KifuSearchQuery>();

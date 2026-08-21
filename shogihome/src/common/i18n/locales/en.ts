@@ -509,6 +509,7 @@ export const en: Texts = {
   strategyKakukokanFuribisha: "Bishop-Exchange Ranging Rook",
   strategyGangi: "Snowroof",
   strategyOther: "Other",
+  unclassified: "Unclassified",
   automaticallyInferredStrategy: "Automatically inferred",
   gameTitle: "Title",
   timeLimit: "Time Limit",

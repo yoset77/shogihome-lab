@@ -22,14 +22,20 @@ import {
 } from "@/server/hono";
 import { getOptionalInt, getString } from "@/server/routes/query";
 import type { KifuSearchQuery, SfenExportRequest } from "@/common/file/sfen_export";
-import { searchableStrategies, type SearchableStrategy } from "@/common/kifu/strategy_taxonomy";
+import {
+  searchableStrategies,
+  UNCLASSIFIED_STRATEGY,
+  type StrategySearchFilter,
+} from "@/common/kifu/strategy_taxonomy";
 import {
   cancelSfenExportJob,
   getSfenExportJob,
   startSfenExportJob,
 } from "@/server/kifu_export/job";
 
-function normalizeSearchQuery(query: KifuSearchQuery) {
+type RawKifuSearchQuery = Omit<KifuSearchQuery, "strategy"> & { strategy?: string };
+
+function normalizeSearchQuery(query: RawKifuSearchQuery) {
   if (hasInvalidStrategy(query)) {
     return null;
   }
@@ -51,12 +57,16 @@ function normalizeSearchQuery(query: KifuSearchQuery) {
     player2: query.player2,
     isStrictTurn: query.isStrictTurn,
     startDate: query.startDate,
-    strategy: query.strategy as SearchableStrategy | undefined,
+    strategy: query.strategy as StrategySearchFilter | undefined,
   };
 }
 
-function hasInvalidStrategy(query: KifuSearchQuery): boolean {
-  return !!query.strategy && !searchableStrategies.includes(query.strategy as SearchableStrategy);
+function hasInvalidStrategy(query: RawKifuSearchQuery): boolean {
+  return (
+    !!query.strategy &&
+    query.strategy !== UNCLASSIFIED_STRATEGY &&
+    !searchableStrategies.some((strategy) => strategy === query.strategy)
+  );
 }
 
 function parseSearchQuery(value: unknown): KifuSearchQuery | null {
@@ -73,7 +83,7 @@ function parseSearchQuery(value: unknown): KifuSearchQuery | null {
     player1: query.player1 as string | undefined,
     player2: query.player2 as string | undefined,
     startDate: query.startDate as string | undefined,
-    strategy: query.strategy as string | undefined,
+    strategy: query.strategy as StrategySearchFilter | undefined,
     isStrictTurn: query.isStrictTurn as boolean | undefined,
   };
 }

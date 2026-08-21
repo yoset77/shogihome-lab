@@ -14,6 +14,8 @@ export const searchableStrategies = [
 ] as const;
 
 export type SearchableStrategy = (typeof searchableStrategies)[number];
+export const UNCLASSIFIED_STRATEGY = "unclassified" as const;
+export type StrategySearchFilter = SearchableStrategy | typeof UNCLASSIFIED_STRATEGY;
 export type StrategySource = "metadata" | "rule" | "inferred";
 
 const EXACT_STRATEGIES: Record<string, SearchableStrategy> = {

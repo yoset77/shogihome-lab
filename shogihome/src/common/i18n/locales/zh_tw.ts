@@ -507,6 +507,7 @@ export const zh_tw: Texts = {
   strategyKakukokanFuribisha: "角交換型振飛車",
   strategyGangi: "雁木",
   strategyOther: "其他",
+  unclassified: "未判定",
   automaticallyInferredStrategy: "自動判定",
   gameTitle: "標題",
   timeLimit: "限時",
