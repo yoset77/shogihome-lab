@@ -235,7 +235,7 @@ describe("background/kifu_index/strategy", () => {
 });
 
 describe("background/kifu_index/strategy selectStrategy", () => {
-  const YAGURA_GANGI_THRESHOLDS = { 矢倉: 0.8, 雁木: 0.8 };
+  const YAGURA_GANGI_THRESHOLDS = { 矢倉: 0.7, 雁木: 0.7 };
 
   it("accepts a non-その他 top class that clears its threshold", () => {
     const classes = ["矢倉", "その他"];
@@ -276,7 +276,35 @@ describe("background/kifu_index/strategy selectStrategy", () => {
 
   it("rejects the fallback when its score is below the threshold", () => {
     const classes = ["x", "矢倉", "その他", "y"];
-    const logits = new Float64Array([0, 5, 6, 4]);
+    const logits = new Float64Array([0, 2.8, 5, 2]);
+
+    const result = selectStrategy(logits, classes, YAGURA_GANGI_THRESHOLDS, "m");
+
+    expect(result).toBeNull();
+  });
+
+  it("accepts the higher Yagura candidate when Yagura and Gangi combine to high confidence", () => {
+    const classes = ["矢倉", "雁木", "その他"];
+    const logits = new Float64Array([3, 2.9, 0]);
+
+    const result = selectStrategy(logits, classes, YAGURA_GANGI_THRESHOLDS, "m");
+
+    expect(result?.strategy).toBe("矢倉");
+    expect(result?.score).toBeLessThan(0.7);
+  });
+
+  it("accepts the higher Gangi candidate when Yagura and Gangi combine to high confidence", () => {
+    const classes = ["矢倉", "雁木", "その他"];
+    const logits = new Float64Array([2.9, 3, 0]);
+
+    const result = selectStrategy(logits, classes, YAGURA_GANGI_THRESHOLDS, "m");
+
+    expect(result?.strategy).toBe("雁木");
+  });
+
+  it("does not rescue Yagura and Gangi when their combined confidence is too low", () => {
+    const classes = ["矢倉", "雁木", "その他"];
+    const logits = new Float64Array([0.5, 0.4, 0]);
 
     const result = selectStrategy(logits, classes, YAGURA_GANGI_THRESHOLDS, "m");
 
@@ -286,7 +314,7 @@ describe("background/kifu_index/strategy selectStrategy", () => {
   it("uses the manifest acceptance thresholds for Yagura and Gangi", () => {
     const manifest = loadManifest();
     expect(manifest.classes).toContain("その他");
-    expect(manifest.acceptanceThresholds["矢倉"]).toBe(0.8);
-    expect(manifest.acceptanceThresholds["雁木"]).toBe(0.8);
+    expect(manifest.acceptanceThresholds["矢倉"]).toBe(0.7);
+    expect(manifest.acceptanceThresholds["雁木"]).toBe(0.7);
   });
 });

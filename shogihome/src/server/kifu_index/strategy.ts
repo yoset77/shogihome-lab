@@ -8,6 +8,7 @@ import { searchableStrategies, type SearchableStrategy } from "@/common/kifu/str
 const RULE_VERSION = "rules-v2";
 export const STRATEGY_INDEX_VERSION = 1;
 const RULE_LOGIT_BONUS = 0.8;
+const YAGURA_GANGI_COMBINED_THRESHOLD = 0.8;
 const STANDARD_INITIAL_SFEN = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
 
 const STRATEGY_RULES = [
@@ -417,6 +418,19 @@ function pickTopStrategy(
   return { index: bestIndex, score: 1 / denominator };
 }
 
+function getSoftmaxScore(logits: Float64Array, targetIndex: number): number {
+  let maxLogit = -Infinity;
+  for (const logit of logits) {
+    maxLogit = Math.max(maxLogit, logit);
+  }
+
+  let denominator = 0;
+  for (const logit of logits) {
+    denominator += Math.exp(logit - maxLogit);
+  }
+  return Math.exp(logits[targetIndex] - maxLogit) / denominator;
+}
+
 export function selectStrategy(
   logits: Float64Array,
   classes: readonly string[],
@@ -448,6 +462,20 @@ export function selectStrategy(
           };
         }
       }
+    }
+  }
+
+  const yaguraIndex = classes.indexOf("矢倉");
+  const gangiIndex = classes.indexOf("雁木");
+  if (
+    (top.index === yaguraIndex || top.index === gangiIndex) &&
+    yaguraIndex >= 0 &&
+    gangiIndex >= 0
+  ) {
+    const combinedScore =
+      getSoftmaxScore(logits, yaguraIndex) + getSoftmaxScore(logits, gangiIndex);
+    if (combinedScore >= YAGURA_GANGI_COMBINED_THRESHOLD) {
+      return { strategy: topStrategy as SearchableStrategy, score: top.score, modelVersion };
     }
   }
   return null;
