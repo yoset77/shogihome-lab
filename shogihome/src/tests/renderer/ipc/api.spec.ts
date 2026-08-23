@@ -88,4 +88,23 @@ describe("renderer/ipc/api", () => {
       "Only server-side books are supported",
     );
   });
+
+  it("closes a generated book session when opening fails", async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("open failed"))
+      .mockResolvedValueOnce(new Response("ok", { status: 200 })) as unknown as typeof fetch;
+    const { default: api } = await import("@/renderer/ipc/api.js");
+
+    await expect(api.openBookAsNewSession("server://books/test.db", {})).rejects.toThrow(
+      "open failed",
+    );
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    const mockFn = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const closeCall = mockFn.mock.calls[1];
+    const closeUrl = new URL(closeCall[0] as string);
+    expect(closeUrl.pathname).toBe("/api/book/close");
+    expect(closeCall[1]).toHaveProperty("method", "POST");
+  });
 });

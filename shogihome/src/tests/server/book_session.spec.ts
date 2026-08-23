@@ -34,6 +34,7 @@ vi.mock("@/server/book/index.js", () => {
     clearBook: vi.fn((session: number) => {
       sessions.delete(session);
     }),
+    getBookFormat: vi.fn(() => "sbk"),
     updateBookMove: vi.fn(),
     removeBookMove: vi.fn(),
     updateBookMoveOrder: vi.fn(),
@@ -159,6 +160,17 @@ describe("Book Session API", () => {
 
     expect(response.status).toBe(200);
     expect(bookAPI.searchBookMoves).toHaveBeenCalled();
+  });
+
+  it("should preserve the book format when clearing a session", async () => {
+    const response = await requestApp(app, "POST", "/api/book/clear", {
+      host,
+      headers: { "X-Book-Session-Id": "clear-client" },
+    });
+
+    expect(response.status).toBe(200);
+    const session = vi.mocked(bookAPI.getBookFormat).mock.calls[0][0];
+    expect(bookAPI.clearBook).toHaveBeenCalledWith(session, "sbk");
   });
 
   it("should ignore client-provided on-the-fly threshold", async () => {

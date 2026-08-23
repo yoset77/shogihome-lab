@@ -2,6 +2,7 @@
   <DialogFrame @cancel="onCancel">
     <div class="root">
       <div class="title">{{ t.bookMove }}</div>
+      <div v-if="bookPath" class="book-path" :title="bookPath">{{ bookPath }}</div>
       <div class="form-group">
         <div class="form-item">
           <div class="form-item-label">{{ t.move }}</div>
@@ -94,6 +95,7 @@ const props = defineProps<{
   comment: string;
   evaluation?: SbkMoveEvaluation;
   format: BookFormat;
+  bookPath?: string;
 }>();
 
 const emits = defineEmits<{
@@ -128,6 +130,19 @@ const onCancel = () => {
   emits("cancel");
 };
 </script>
+
+<style scoped>
+.book-path {
+  max-width: 420px;
+  margin: -8px auto 10px;
+  overflow: hidden;
+  color: var(--text-color-sub);
+  font-size: 0.8em;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>
 
 <style scoped>
 .form-item > input {

@@ -76,7 +76,14 @@ const displayPath = (file: string) => {
 
 async function open(relPath: string) {
   store.closeModalDialog();
-  bookStore.openBook("server://" + relPath);
+  busyState.retain();
+  try {
+    await bookStore.openBook("server://" + relPath);
+  } catch (e) {
+    useErrorStore().add(e);
+  } finally {
+    busyState.release();
+  }
 }
 
 function onCancel() {

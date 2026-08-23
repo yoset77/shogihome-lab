@@ -612,6 +612,7 @@ export const zh_tw: Texts = {
   hasNoOldLogCleanUpFeature: "※現在並沒有舊紀錄的自動刪除機制。",
   shouldRestartToApplyLowLevelSettings: "※低レベルの設定を反映するにはアプリの再起動が必要です。", // TODO: Translate
   processingPleaseWait: "現在處理中。請稍待一會。",
+  bookSessionIsNoLongerAvailable: "定跡工作階段已無法使用。請重新開啟定跡。",
   importingFollowingRecordOrPosition: "將匯入以下棋譜（局面）。",
   supportsKIF_KI2_CSA_USI_SFEN_JKF_USEN: "※支援KIF/KI2/CSA/USI/SFEN/JKF/USEN形式。",
   pleasePasteRecordIntoTextArea: "※請在文字輸入區域貼上您的棋譜。",
@@ -708,6 +709,10 @@ export const zh_tw: Texts = {
   bookMovesWereImported: "已完成匯入定跡。",
   anyBookMovesAreUnsavedDoYouReallyWantToDiscardThemAndCloseTheApp:
     "存在尚未保存的定跡。您確定要捨棄並關閉本程式嗎？",
+  anyBookMovesAreUnsavedDoYouReallyWantToDiscardThemAndCloseTheBook:
+    "存在尚未保存的定跡。您確定要捨棄並關閉此定跡嗎？",
+  selectedBookFileIsAlreadyOpen: "選擇的定跡檔案已開啟。",
+  saveOrClearCurrentBookBeforeOpeningAnother: "開啟其他定跡前，請先儲存或重置目前的定跡。",
   cannotOverwriteOnTheFlyBook: "Cannot overwrite the book being loaded in on-the-fly mode.",
   pleaseSpecifyOtherFileName: "Please specify other file name.",
   sourceRecordFileNotSet: "尚未指定棋譜檔案。",

@@ -4,6 +4,7 @@ import type { BookImportSettings } from "@/common/settings/book";
 import { getBookList, resolveKifuPath } from "@/server/helpers/kifu";
 import {
   clearBook,
+  getBookFormat,
   importBookMoves,
   isBookOnTheFly,
   openBook,
@@ -104,7 +105,7 @@ export const bookRoutes = new Hono<AppEnv>()
   })
 
   .post("/clear", async (c) => {
-    await runBookOperation(c, (bookSession) => clearBook(bookSession));
+    await runBookOperation(c, (bookSession) => clearBook(bookSession, getBookFormat(bookSession)));
     return c.text("ok");
   })
 
