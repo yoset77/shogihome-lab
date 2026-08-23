@@ -611,6 +611,7 @@ export const ja: Texts = {
   hasNoOldLogCleanUpFeature: "※現在、古いログファイルの自動削除機能はありません。",
   shouldRestartToApplyLowLevelSettings: "※低レベルの設定を反映するにはアプリの再起動が必要です。",
   processingPleaseWait: "処理中です。お待ちください。",
+  bookSessionIsNoLongerAvailable: "定跡セッションが利用できません。定跡を開き直してください。",
   importingFollowingRecordOrPosition: "以下の棋譜(または局面)を取り込みます。",
   supportsKIF_KI2_CSA_USI_SFEN_JKF_USEN:
     "※KIF形式/KI2形式/CSA形式/USI/SFEN/JKF/USENに対応しています。",
@@ -712,6 +713,11 @@ export const ja: Texts = {
   bookMovesWereImported: "定跡データをインポートしました。",
   anyBookMovesAreUnsavedDoYouReallyWantToDiscardThemAndCloseTheApp:
     "保存されていない定跡があります。破棄してアプリを終了しますか？",
+  anyBookMovesAreUnsavedDoYouReallyWantToDiscardThemAndCloseTheBook:
+    "保存されていない定跡があります。破棄してこの定跡を閉じますか？",
+  selectedBookFileIsAlreadyOpen: "選択した定跡ファイルは既に開かれています。",
+  saveOrClearCurrentBookBeforeOpeningAnother:
+    "別の定跡を開く前に、現在の定跡を保存または初期化してください。",
   cannotOverwriteOnTheFlyBook: "On-the-fly モードで読み込み中の定跡は上書き保存できません。",
   pleaseSpecifyOtherFileName: "別のファイル名を指定してください。",
   sourceRecordFileNotSet: "棋譜ファイルが指定されていません。",

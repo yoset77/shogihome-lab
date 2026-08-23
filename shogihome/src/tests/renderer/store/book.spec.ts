@@ -1,148 +1,352 @@
 import api, { API } from "@/renderer/ipc/api";
+import { BookSessionStore, BookStore } from "@/renderer/store/book";
 import { defaultAppSettings } from "@/common/settings/app";
-import { BookMove } from "@/common/book";
-import { BookStore } from "@/renderer/store/book";
+import { defaultBookImportSettings } from "@/common/settings/book";
 import { useAppSettings } from "@/renderer/store/settings";
+import { useConfirmationStore } from "@/renderer/store/confirm";
+import { t } from "@/common/i18n";
 import { Record } from "tsshogi";
+import { effect } from "vue";
 import { Mocked } from "vitest";
 
 vi.mock("@/renderer/ipc/api.js");
 
 const mockAPI = api as Mocked<API>;
+const sfen = "lr5nl/3g1kg2/2n1p1sp1/p1ppspp1p/1p3P1P1/P1PPS1P1P/1PS1P1N2/2GK1G3/LN5RL w Bb 1";
+const flippedSfen =
+  "lr5nl/3g1kg2/2n1p1sp1/p1p1spp1p/1p1p3P1/P1PPSPP1P/1PS1P1N2/2GK1G3/LN5RL b Bb 1";
 
 describe("store/book", () => {
   afterEach(async () => {
+    useConfirmationStore().cancel();
+    vi.useRealTimers();
     vi.clearAllMocks();
     await useAppSettings().updateAppSettings(defaultAppSettings());
   });
 
-  describe("searchMoves", () => {
-    const sfen = "lr5nl/3g1kg2/2n1p1sp1/p1ppspp1p/1p3P1P1/P1PPS1P1P/1PS1P1N2/2GK1G3/LN5RL w Bb 1";
-    const sfen_r = "lr5nl/3g1kg2/2n1p1sp1/p1p1spp1p/1p1p3P1/P1PPSPP1P/1PS1P1N2/2GK1G3/LN5RL b Bb 1";
+  it("searches each session with its own ID", async () => {
+    mockAPI.searchBookMoves.mockResolvedValue([{ usi: "8a4a", comment: "foo" }]);
+    const first = new BookSessionStore("first", "server://first.db");
+    const second = new BookSessionStore("second", "server://second.db");
 
-    it("match", async () => {
-      await useAppSettings().updateAppSettings({
-        flippedBook: true,
-      });
-      mockAPI.searchBookMoves.mockResolvedValue([
-        { usi: "8a4a", comment: "foo" },
-        { usi: "4d4e", comment: "bar" },
-      ]);
-      const record = new Record();
-      const store = new BookStore(record);
-      const moves = store.searchMoves(sfen);
-      await expect(moves).resolves.toEqual([
-        { usi: "8a4a", comment: "foo" },
-        { usi: "4d4e", comment: "bar" },
-      ]);
-      expect(mockAPI.searchBookMoves).toHaveBeenCalledTimes(1);
-      expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(1, sfen);
-    });
+    await expect(first.searchMoves(sfen)).resolves.toEqual([{ usi: "8a4a", comment: "foo" }]);
+    await expect(second.searchMoves(sfen)).resolves.toEqual([{ usi: "8a4a", comment: "foo" }]);
 
-    it("match/flipped", async () => {
-      await useAppSettings().updateAppSettings({
-        flippedBook: true,
-      });
-      mockAPI.searchBookMoves.mockResolvedValueOnce([]);
-      mockAPI.searchBookMoves.mockResolvedValueOnce([
-        { usi: "8a4a", comment: "foo" },
-        { usi: "4d4e", comment: "bar" },
-      ]);
-      const record = new Record();
-      const store = new BookStore(record);
-      const moves = store.searchMoves(sfen_r);
-      await expect(moves).resolves.toEqual([
-        { usi: "2i6i", comment: "foo" },
-        { usi: "6f6e", comment: "bar" },
-      ]);
-      expect(mockAPI.searchBookMoves).toHaveBeenCalledTimes(2);
-      expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(1, sfen_r);
-      expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(2, sfen);
-    });
-
-    it("no match", async () => {
-      await useAppSettings().updateAppSettings({
-        flippedBook: false,
-      });
-      mockAPI.searchBookMoves.mockResolvedValue([]);
-      const record = new Record();
-      const store = new BookStore(record);
-      const moves = store.searchMoves(sfen);
-      await expect(moves).resolves.toEqual([]);
-      expect(mockAPI.searchBookMoves).toHaveBeenCalledTimes(1);
-      expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(1, sfen);
-    });
+    expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(1, sfen, "first");
+    expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(2, sfen, "second");
   });
 
-  describe("onChangePosition", () => {
-    beforeEach(() => {
-      vi.useFakeTimers();
+  it("searches the default session without a session ID", async () => {
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const defaultSession = new BookSessionStore();
+
+    await expect(defaultSession.searchMoves(sfen)).resolves.toEqual([]);
+    expect(mockAPI.searchBookMoves).toHaveBeenCalledWith(sfen, undefined);
+  });
+
+  it("searches the flipped position in the same session", async () => {
+    await useAppSettings().updateAppSettings({ flippedBook: true });
+    mockAPI.searchBookMoves
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ usi: "8a4a", comment: "foo" }]);
+    const book = new BookSessionStore("book", "server://book.db");
+
+    await expect(book.searchMoves(flippedSfen)).resolves.toEqual([{ usi: "2i6i", comment: "foo" }]);
+    expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(1, flippedSfen, "book");
+    expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(2, sfen, "book");
+  });
+
+  it("reloads every open book after a position change", async () => {
+    vi.useFakeTimers();
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first").mockResolvedValueOnce("second");
+    mockAPI.searchBookMoves.mockResolvedValue([{ usi: "7g7f", comment: "" }]);
+    const record = new Record();
+    const store = new BookStore(record);
+    await store.openBook("server://first.db");
+    await store.openBook("server://second.db");
+    mockAPI.searchBookMoves.mockClear();
+
+    record.append(record.position.createMoveByUSI("7g7f")!);
+    store.onChangePosition(record);
+    expect(store.books.every((book) => book.moves.length === 0)).toBe(true);
+
+    vi.advanceTimersByTime(200);
+    await vi.runAllTicks();
+    await Promise.resolve();
+
+    expect(mockAPI.searchBookMoves).toHaveBeenCalledTimes(2);
+    expect(mockAPI.searchBookMoves).toHaveBeenCalledWith(record.position.sfen, "first");
+    expect(mockAPI.searchBookMoves).toHaveBeenCalledWith(record.position.sfen, "second");
+  });
+
+  it("searches the replaced record after loading another record", async () => {
+    vi.useFakeTimers();
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first");
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const store = new BookStore(new Record());
+    await store.openBook("server://first.db");
+    mockAPI.searchBookMoves.mockClear();
+
+    const replaced = new Record();
+    replaced.append(replaced.position.createMoveByUSI("7g7f")!);
+    store.onChangePosition(replaced);
+    vi.advanceTimersByTime(200);
+    await vi.runAllTicks();
+    await Promise.resolve();
+
+    expect(mockAPI.searchBookMoves).toHaveBeenCalledWith(replaced.position.sfen, "first");
+  });
+
+  it("ignores a search result started before the record was replaced", async () => {
+    let resolveSearch!: (moves: { usi: string; comment: string }[]) => void;
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first");
+    mockAPI.searchBookMoves.mockResolvedValueOnce([]);
+    const store = new BookStore(new Record());
+    await store.openBook("server://first.db");
+    mockAPI.searchBookMoves.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSearch = resolve;
+        }),
+    );
+
+    const reload = store.reloadBookMoves();
+    store.onChangePosition(new Record());
+    resolveSearch([{ usi: "7g7f", comment: "stale" }]);
+    await reload;
+
+    expect(store.books[0].moves).toEqual([]);
+  });
+
+  it("activates an already open book instead of opening the same path twice", async () => {
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first").mockResolvedValueOnce("second");
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const store = new BookStore(new Record());
+    const first = await store.openBook("server://book.db");
+    await store.openBook("server://other.db");
+
+    const reopened = await store.openBook("server://book.db");
+
+    expect(reopened).toBe(first);
+    expect(store.books).toHaveLength(2);
+    expect(store.activeBookId).toBe("first");
+    expect(mockAPI.openBookAsNewSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares an in-flight open for the same path", async () => {
+    let resolveOpen!: (sessionId: string) => void;
+    mockAPI.openBookAsNewSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveOpen = resolve;
+        }),
+    );
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const store = new BookStore(new Record());
+
+    const first = store.openBook("server://books/./book.db");
+    const second = store.openBook("server://books/book.db");
+    resolveOpen("first");
+    await Promise.all([first, second]);
+
+    expect(mockAPI.openBookAsNewSession).toHaveBeenCalledTimes(1);
+    expect(store.books).toHaveLength(1);
+    expect(store.books[0].path).toBe("server://books/book.db");
+  });
+
+  it("keeps a successful concurrent open active when another open fails", async () => {
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first").mockResolvedValueOnce("second");
+    mockAPI.searchBookMoves.mockImplementation(async (_sfen, sessionId) => {
+      if (sessionId === "second") {
+        throw new Error("search failed");
+      }
+      return [];
+    });
+    const store = new BookStore(new Record());
+
+    const results = await Promise.allSettled([
+      store.openBook("server://first.db"),
+      store.openBook("server://second.db"),
+    ]);
+
+    expect(results[0].status).toBe("fulfilled");
+    expect(results[1].status).toBe("rejected");
+    expect(store.books.map((book) => book.sessionId)).toEqual(["first"]);
+    expect(store.activeBookId).toBe("first");
+  });
+
+  it("requires unsaved default data to be saved or cleared before opening", async () => {
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const store = new BookStore(new Record());
+    await store.updateMove(sfen, { usi: "8a4a", comment: "new" });
+
+    await expect(store.openBook("server://first.db")).rejects.toThrow();
+
+    expect(mockAPI.openBookAsNewSession).not.toHaveBeenCalled();
+  });
+
+  it("reports when an external book session is no longer available", async () => {
+    const store = new BookStore(new Record());
+
+    await expect(
+      store.updateMove(sfen, { usi: "8a4a", comment: "new" }, "missing"),
+    ).rejects.toThrow(t.bookSessionIsNoLongerAvailable);
+  });
+
+  it("closes only the selected session", async () => {
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first").mockResolvedValueOnce("second");
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const store = new BookStore(new Record());
+    const first = await store.openBook("server://first.db");
+    await store.openBook("server://second.db");
+
+    await store.closeBook(first.sessionId!);
+
+    expect(store.books).toHaveLength(1);
+    expect(store.books[0].sessionId).toBe("second");
+    expect(mockAPI.closeBook).toHaveBeenCalledWith("first");
+  });
+
+  it("keeps a session open when closing it fails", async () => {
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first");
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    mockAPI.closeBook.mockRejectedValueOnce(new Error("close failed"));
+    const store = new BookStore(new Record());
+    await store.openBook("server://first.db");
+
+    await store.closeBook("first");
+
+    expect(store.books).toHaveLength(1);
+    expect(store.activeBookId).toBe("first");
+  });
+
+  it("confirms before closing a session with unsaved changes", async () => {
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first");
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const store = new BookStore(new Record());
+    await store.openBook("server://first.db");
+    await store.updateMove(sfen, { usi: "8a4a", comment: "edited" });
+
+    await store.closeBook("first");
+
+    expect(mockAPI.closeBook).not.toHaveBeenCalled();
+    expect(store.books).toHaveLength(1);
+    useConfirmationStore().ok();
+    await vi.waitFor(() => expect(mockAPI.closeBook).toHaveBeenCalledWith("first"));
+    await vi.waitFor(() => expect(store.books).toHaveLength(0));
+  });
+
+  it("rejects saving over another open book", async () => {
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first").mockResolvedValueOnce("second");
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    mockAPI.showSaveBookDialog.mockResolvedValue("server://books/../second.db");
+    const store = new BookStore(new Record());
+    await store.openBook("server://first.db");
+    await store.openBook("server://second.db");
+    store.setActiveBook("first");
+
+    await store.saveBookFileAs();
+
+    expect(mockAPI.saveBook).not.toHaveBeenCalled();
+    expect(store.books.map((book) => book.path)).toEqual([
+      "server://first.db",
+      "server://second.db",
+    ]);
+  });
+
+  it("promotes the default session after saving it", async () => {
+    mockAPI.showSaveBookDialog.mockResolvedValue("server://new.db");
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("promoted");
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const store = new BookStore(new Record());
+
+    await store.saveBookFileAs();
+
+    expect(mockAPI.saveBook).toHaveBeenCalledWith("server://new.db", undefined);
+    expect(mockAPI.clearBook).toHaveBeenCalledWith();
+    expect(store.activeBookId).toBe("promoted");
+    expect(store.path).toBe("server://new.db");
+  });
+
+  it("does not mark an import with no new entries as unsaved", async () => {
+    mockAPI.importBookMoves.mockResolvedValue({
+      successFileCount: 1,
+      errorFileCount: 0,
+      skippedFileCount: 0,
+      entryCount: 0,
+      duplicateCount: 1,
+    });
+    const book = new BookSessionStore("first", "server://first.db");
+
+    await book.importBookMoves(defaultBookImportSettings());
+
+    expect(book.isUnsaved).toBe(false);
+  });
+
+  it("updates the session captured by an edit dialog", async () => {
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first").mockResolvedValueOnce("second");
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const store = new BookStore(new Record());
+    await store.openBook("server://first.db");
+    await store.openBook("server://second.db");
+
+    await store.updateMove(sfen, { usi: "8a4a", comment: "edited" }, "first");
+
+    expect(mockAPI.updateBookMove).toHaveBeenCalledWith(
+      sfen,
+      { usi: "8a4a", comment: "edited" },
+      "first",
+    );
+  });
+
+  it("notifies reactive observers when a book is opened", async () => {
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first");
+    mockAPI.searchBookMoves.mockResolvedValue([{ usi: "7g7f", comment: "" }]);
+    const store = new BookStore(new Record()).reactive;
+    let observedMoves = 0;
+    const runner = effect(() => {
+      observedMoves = store.books.reduce((sum, book) => sum + book.moves.length, 0);
     });
 
-    afterEach(() => {
-      vi.useRealTimers();
-    });
+    await store.openBook("server://book.db");
 
-    it("clears moves immediately and reloads after delay", async () => {
-      mockAPI.searchBookMoves.mockResolvedValue([{ usi: "7g7f", comment: "" }]);
-      const record = new Record();
-      const store = new BookStore(record);
+    expect(store.books[0].moves).toHaveLength(1);
+    expect(observedMoves).toBe(1);
+    runner.effect.stop();
+  });
 
-      // Initial state
-      expect(store.moves).toHaveLength(0);
+  it("updates the path after saving a book file as", async () => {
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first");
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    mockAPI.showSaveBookDialog.mockResolvedValue("/tmp/renamed.db");
+    const store = new BookStore(new Record());
+    await store.openBook("server://first.db");
+    mockAPI.showSaveBookDialog.mockClear();
 
-      // Change position
-      store.onChangePosition(record);
-      expect(store.moves).toHaveLength(0);
+    await store.saveBookFileAs();
 
-      // After 200ms
-      vi.advanceTimersByTime(200);
-      await vi.runAllTicks(); // Process microtasks
-      await Promise.resolve();
-      expect(mockAPI.searchBookMoves).toHaveBeenCalledTimes(1);
-      expect(store.moves).toHaveLength(1);
-      expect(store.moves[0].usi).toBe("7g7f");
+    expect(store.activeBook.path).toBe("/tmp/renamed.db");
+    expect(mockAPI.showSaveBookDialog).toHaveBeenCalledWith("first.db");
+  });
 
-      // Change position again
-      record.append(record.position.createMoveByUSI("7g7f")!);
-      store.onChangePosition(record);
-      expect(store.moves).toHaveLength(0); // Cleared immediately
+  it("edits only the active session", async () => {
+    await useAppSettings().updateAppSettings({ flippedBook: false });
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first").mockResolvedValueOnce("second");
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const record = new Record();
+    const store = new BookStore(record);
+    await store.openBook("server://book.db");
+    await store.openBook("server://other.db");
+    store.setActiveBook("first");
+    mockAPI.searchBookMoves.mockClear();
 
-      mockAPI.searchBookMoves.mockResolvedValue([{ usi: "3c3d", comment: "" }]);
-      vi.advanceTimersByTime(200);
-      await vi.runAllTicks();
-      await Promise.resolve();
-      expect(store.moves).toHaveLength(1);
-      expect(store.moves[0].usi).toBe("3c3d");
-    });
+    store.removeMove(sfen, "8a4a");
+    await vi.waitFor(() =>
+      expect(mockAPI.removeBookMove).toHaveBeenCalledWith(sfen, "8a4a", "first"),
+    );
+    await vi.waitFor(() => expect(mockAPI.searchBookMoves).toHaveBeenCalledTimes(1));
 
-    it("does not update moves if position changed during search", async () => {
-      let resolveSearch: (value: BookMove[]) => void;
-      const searchPromise = new Promise<BookMove[]>((resolve) => {
-        resolveSearch = resolve;
-      });
-      mockAPI.searchBookMoves.mockReturnValue(searchPromise);
-
-      const record = new Record();
-      const store = new BookStore(record);
-
-      store.onChangePosition(record);
-      vi.advanceTimersByTime(200);
-      await vi.runAllTicks();
-      await Promise.resolve();
-      expect(mockAPI.searchBookMoves).toHaveBeenCalledTimes(1);
-
-      // Position changes while searching
-      const oldSfen = record.position.sfen;
-      record.append(record.position.createMoveByUSI("7g7f")!);
-      expect(record.position.sfen).not.toBe(oldSfen);
-
-      // Search finishes
-      resolveSearch!([{ usi: "7g7f", comment: "" }]);
-      await vi.runAllTicks();
-      await Promise.resolve();
-
-      expect(store.moves).toHaveLength(0); // Should not be updated
-    });
+    const positionSfen = record.position.sfen;
+    expect(mockAPI.searchBookMoves).toHaveBeenCalledWith(positionSfen, "first");
   });
 });

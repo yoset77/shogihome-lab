@@ -10,6 +10,15 @@
           <button class="thin" @click="isMenuVisible = true">
             {{ t.edit }}
           </button>
+          <button
+            v-if="bookStore.activeBookId"
+            class="thin"
+            :title="t.close"
+            :aria-label="t.close"
+            @click="onCloseBook"
+          >
+            &#x2715;
+          </button>
         </div>
       </div>
       <BookView
@@ -32,7 +41,8 @@
         :count="editingData.count"
         :comment="editingData.comment"
         :evaluation="editingData.evaluation"
-        :format="bookStore.format"
+        :format="editingData.format"
+        :book-path="editingData.bookPath"
         @ok="onEditBookMove"
         @cancel="onCancelEditBookMove"
       />
@@ -59,7 +69,7 @@
 </template>
 
 <script setup lang="ts">
-import { BookMove } from "@/common/book";
+import { BookFormat, BookMove } from "@/common/book";
 import { RectSize } from "@/common/assets/geometry";
 import { AppState } from "@/common/control/state";
 import { t } from "@/common/i18n";
@@ -92,6 +102,9 @@ const editingData = ref<
   BookMove & {
     sfen: string;
     move: string;
+    bookId?: string;
+    bookPath?: string;
+    format: BookFormat;
   }
 >();
 const isMenuVisible = ref(false);
@@ -106,6 +119,13 @@ const onPlayBookMove = (move: Move) => {
 
 const onOpenBook = () => {
   bookStore.openBookFile();
+};
+
+const onCloseBook = () => {
+  const sessionId = bookStore.activeBookId;
+  if (sessionId) {
+    bookStore.closeBook(sessionId);
+  }
 };
 
 const onResetBook = () => {
@@ -134,17 +154,21 @@ const editBookMove = (move: Move) => {
   editingData.value = {
     sfen: store.record.position.sfen,
     move: formatMove(store.record.position, move),
+    bookId: bookStore.activeBookId,
+    bookPath: bookStore.path,
+    format: bookStore.format,
     ...target,
   };
 };
 
 const removeBookMove = (move: Move) => {
   const sfen = store.record.position.sfen;
+  const bookId = bookStore.activeBookId;
   const name = formatMove(store.record.position, move);
   useConfirmationStore().show({
     message: t.doYouReallyWantToRemoveBookMove(name),
     onOk: () => {
-      bookStore.removeMove(sfen, move.usi);
+      bookStore.removeMove(sfen, move.usi, bookId);
     },
   });
 };
@@ -158,10 +182,14 @@ const onEditBookMove = async (data: EditResult) => {
     return;
   }
   try {
-    await bookStore.updateMove(editingData.value.sfen, {
-      usi: editingData.value.usi,
-      ...data,
-    });
+    await bookStore.updateMove(
+      editingData.value.sfen,
+      {
+        usi: editingData.value.usi,
+        ...data,
+      },
+      editingData.value.bookId,
+    );
     editingData.value = undefined;
   } catch (e) {
     useErrorStore().add(e);
@@ -204,6 +232,12 @@ const onCancelEditBookMove = () => {
 }
 
 .header-controls > button {
+  height: 25px;
+  padding: 2px 10px;
   white-space: nowrap;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 </style>

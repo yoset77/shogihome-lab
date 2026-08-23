@@ -607,6 +607,7 @@ export type Texts = {
   hasNoOldLogCleanUpFeature: string;
   shouldRestartToApplyLowLevelSettings: string;
   processingPleaseWait: string;
+  bookSessionIsNoLongerAvailable: string;
   importingFollowingRecordOrPosition: string;
   supportsKIF_KI2_CSA_USI_SFEN_JKF_USEN: string;
   pleasePasteRecordIntoTextArea: string;
@@ -692,6 +693,9 @@ export type Texts = {
   anyUnsavedDataWillBeLostDoYouReallyWantToResetBookData: string;
   bookMovesWereImported: string;
   anyBookMovesAreUnsavedDoYouReallyWantToDiscardThemAndCloseTheApp: string;
+  anyBookMovesAreUnsavedDoYouReallyWantToDiscardThemAndCloseTheBook: string;
+  selectedBookFileIsAlreadyOpen: string;
+  saveOrClearCurrentBookBeforeOpeningAnother: string;
   cannotOverwriteOnTheFlyBook: string;
   pleaseSpecifyOtherFileName: string;
   sourceRecordFileNotSet: string;

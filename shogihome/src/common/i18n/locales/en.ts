@@ -615,6 +615,8 @@ export const en: Texts = {
   hasNoOldLogCleanUpFeature: "*This app has no clean-up feature. Please remove old logs manually.",
   shouldRestartToApplyLowLevelSettings: "*You should restart this app to apply low-level settings.",
   processingPleaseWait: "Processing, please wait.",
+  bookSessionIsNoLongerAvailable:
+    "The book session is no longer available. Please reopen the book.",
   importingFollowingRecordOrPosition: "Importing the following record(or position).",
   supportsKIF_KI2_CSA_USI_SFEN_JKF_USEN: "*Supports KIF, KI2, CSA, USI, SFEN, JKF, and USEN.",
   pleasePasteRecordIntoTextArea: "*Please paste record data into the text area.",
@@ -718,6 +720,11 @@ export const en: Texts = {
   bookMovesWereImported: "Book moves were imported.",
   anyBookMovesAreUnsavedDoYouReallyWantToDiscardThemAndCloseTheApp:
     "Any book moves are unsaved. Do you really want to discard them and close the app?",
+  anyBookMovesAreUnsavedDoYouReallyWantToDiscardThemAndCloseTheBook:
+    "Book moves are unsaved. Do you really want to discard them and close this book?",
+  selectedBookFileIsAlreadyOpen: "The selected book file is already open.",
+  saveOrClearCurrentBookBeforeOpeningAnother:
+    "Save or clear the current book before opening another one.",
   cannotOverwriteOnTheFlyBook: "Cannot overwrite the book being loaded in on-the-fly mode.",
   pleaseSpecifyOtherFileName: "Please specify other file name.",
   sourceRecordFileNotSet: "Source record file is not set.",

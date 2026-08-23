@@ -232,8 +232,13 @@ const api: API = {
     window.crypto.getRandomValues(randomArray);
     const randomToken = randomArray[0].toString(36);
     const sessionId = `ext-book-${Date.now()}-${randomToken}`;
-    await bridge.openBook(path, JSON.stringify(options), sessionId);
-    return sessionId;
+    try {
+      await bridge.openBook(path, JSON.stringify(options), sessionId);
+      return sessionId;
+    } catch (error) {
+      await bridge.closeBookSession(sessionId).catch(() => undefined);
+      throw error;
+    }
   },
   async saveBook(path: string, sessionId?: string): Promise<void> {
     if (!path.startsWith("server://")) {

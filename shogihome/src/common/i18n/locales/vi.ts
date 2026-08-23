@@ -613,6 +613,7 @@ export const vi: Texts = {
   hasNoOldLogCleanUpFeature: "*Ứng dụng này không có tính năng dọn dẹp. Vui lòng tự xóa log cũ.",
   shouldRestartToApplyLowLevelSettings: "※低レベルの設定を反映するにはアプリの再起動が必要です。", // TODO: Translate
   processingPleaseWait: "Đang tải, vui lòng chờ.",
+  bookSessionIsNoLongerAvailable: "Định thức không còn khả dụng. Vui lòng mở lại định thức.",
   importingFollowingRecordOrPosition: "Đang nhập kỳ phổ (hoặc thế cờ) dưới đây.",
   supportsKIF_KI2_CSA_USI_SFEN_JKF_USEN: "*Hỗ trợ KIF, KI2, CSA, USI, SFEN, JKF, và USEN.",
   pleasePasteRecordIntoTextArea: "*Dán dữ liệu kỳ phổ vào vùng nhập chữ.",
@@ -714,6 +715,11 @@ export const vi: Texts = {
   bookMovesWereImported: "Dữ liệu định thức đã được nhập thành công.",
   anyBookMovesAreUnsavedDoYouReallyWantToDiscardThemAndCloseTheApp:
     "Có các nước định thức chưa lưu. Bạn có muốn hủy bỏ chúng và đóng ứng dụng?",
+  anyBookMovesAreUnsavedDoYouReallyWantToDiscardThemAndCloseTheBook:
+    "Có các nước định thức chưa lưu. Bạn có muốn hủy bỏ chúng và đóng định thức này?",
+  selectedBookFileIsAlreadyOpen: "Tệp định thức đã chọn đang được mở.",
+  saveOrClearCurrentBookBeforeOpeningAnother:
+    "Hãy lưu hoặc xóa định thức hiện tại trước khi mở định thức khác.",
   cannotOverwriteOnTheFlyBook: "Cannot overwrite the book being loaded in on-the-fly mode.",
   pleaseSpecifyOtherFileName: "Please specify other file name.",
   sourceRecordFileNotSet: "Chưa chỉ định tệp kỳ phổ gốc.",

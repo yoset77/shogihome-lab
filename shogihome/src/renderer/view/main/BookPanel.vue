@@ -1,19 +1,35 @@
 <template>
   <div>
     <div class="full column">
-      <BookView
-        class="book-list"
-        :position="store.record.position"
-        :moves="bookStore.moves"
-        :path="bookStore.path"
-        :format="bookStore.format"
-        :playable="store.isMovableByUser"
-        :editable="bookEditable"
-        @play="playBookMove"
-        @edit="editBookMove"
-        @remove="removeBookMove"
-        @order="updateBookMoveOrder"
-      />
+      <div v-if="bookStore.books.length === 0" class="book-area">
+        <BookView
+          class="book-list"
+          :position="store.record.position"
+          :moves="bookStore.moves"
+          :path="bookStore.path"
+          :format="bookStore.format"
+          :playable="store.isMovableByUser"
+          :editable="bookEditable"
+          @play="playBookMove"
+          @edit="editBookMove"
+          @remove="removeBookMove"
+          @order="updateBookMoveOrder"
+        />
+      </div>
+      <div v-else class="book-columns">
+        <BookComparisonColumn
+          v-for="book in bookStore.books"
+          :key="book.sessionId"
+          :book="book"
+          :active="book.sessionId === bookStore.activeBookId"
+          @activate="bookStore.setActiveBook($event)"
+          @close="bookStore.closeBook($event)"
+          @play="playBookMove"
+          @edit="editBookMove"
+          @remove="removeBookMove"
+          @order="updateBookMoveOrder"
+        />
+      </div>
       <div class="row control">
         <button @click="onResetBook">{{ t.clear }}</button>
         <button @click="onOpenBook">{{ t.open }}</button>
@@ -33,7 +49,8 @@
         :count="editingData.count"
         :comment="editingData.comment"
         :evaluation="editingData.evaluation"
-        :format="bookStore.format"
+        :format="editingData.format"
+        :book-path="editingData.bookPath"
         @ok="onEditBookMove"
         @cancel="onCancelEditBookMove"
       />
@@ -42,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { BookMove } from "@/common/book";
+import { BookFormat, BookMove } from "@/common/book";
 import { AppState } from "@/common/control/state";
 import { useStore } from "@/renderer/store";
 import { useBookStore } from "@/renderer/store/book";
@@ -56,6 +73,7 @@ import BookView from "@/renderer/view/primitive/BookView.vue";
 import { useErrorStore } from "@/renderer/store/error";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import { useAppSettings } from "@/renderer/store/settings";
+import BookComparisonColumn from "./BookComparisonColumn.vue";
 
 const store = useStore();
 const bookStore = useBookStore();
@@ -67,6 +85,9 @@ const editingData = ref<
   BookMove & {
     sfen: string;
     move: string;
+    bookId?: string;
+    bookPath?: string;
+    format: BookFormat;
   }
 >();
 
@@ -108,17 +129,21 @@ const editBookMove = (move: Move) => {
   editingData.value = {
     sfen: store.record.position.sfen,
     move: formatMove(store.record.position, move),
+    bookId: bookStore.activeBookId,
+    bookPath: bookStore.path,
+    format: bookStore.format,
     ...target,
   };
 };
 
 const removeBookMove = (move: Move) => {
   const sfen = store.record.position.sfen;
+  const bookId = bookStore.activeBookId;
   const name = formatMove(store.record.position, move);
   useConfirmationStore().show({
     message: t.doYouReallyWantToRemoveBookMove(name),
     onOk: () => {
-      bookStore.removeMove(sfen, move.usi);
+      bookStore.removeMove(sfen, move.usi, bookId);
     },
   });
 };
@@ -132,10 +157,14 @@ const onEditBookMove = async (data: EditResult) => {
     return;
   }
   try {
-    await bookStore.updateMove(editingData.value.sfen, {
-      usi: editingData.value.usi,
-      ...data,
-    });
+    await bookStore.updateMove(
+      editingData.value.sfen,
+      {
+        usi: editingData.value.usi,
+        ...data,
+      },
+      editingData.value.bookId,
+    );
     editingData.value = undefined;
   } catch (e) {
     useErrorStore().add(e);
@@ -161,8 +190,18 @@ const onCancelEditBookMove = () => {
 .control > :not(:first-child) {
   margin-left: 8px;
 }
-.book-list {
+.book-area {
   height: calc(100% - 27px);
   margin-bottom: 2px;
+}
+.book-list {
+  height: 100%;
+}
+.book-columns {
+  display: flex;
+  height: calc(100% - 27px);
+  margin-bottom: 2px;
+  min-height: 0;
+  gap: 4px;
 }
 </style>

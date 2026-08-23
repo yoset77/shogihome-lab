@@ -1,6 +1,7 @@
 <template>
   <DialogFrame limited @cancel="onClose">
     <div class="title">{{ t.addBookMoves }}</div>
+    <div v-if="bookPath" class="book-path" :title="bookPath">{{ bookPath }}</div>
     <div>
       <HorizontalSelector v-model:value="activeTab" :items="sourceTypeOptions" />
     </div>
@@ -224,6 +225,8 @@ const sourceTypeFromTab = (tab: Tab): SourceType | undefined => {
 
 const store = useStore();
 const bookStore = useBookStore();
+const bookSessionId = bookStore.activeBookId;
+const bookPath = bookStore.path;
 const errorStore = useErrorStore();
 const busyState = useBusyState();
 const activeTab = ref<Tab>(tabs.includes(storedTab as Tab) ? (storedTab as Tab) : "memory");
@@ -315,7 +318,7 @@ const setupInMemoryList = async () => {
     }
   });
 
-  const bookMovesMap = await bookStore.searchMovesBatch(Array.from(sfens));
+  const bookMovesMap = await bookStore.searchMovesBatch(Array.from(sfens), bookSessionId);
 
   for (const { node, sfen } of nodes) {
     if (!node.isFirstBranch) {
@@ -393,16 +396,24 @@ const registerAllMoves = () => {
 const registerMove = async (move: InMemoryMove) => {
   try {
     if (importScoreDepth.value) {
-      await bookStore.updateMove(move.sfen, {
-        ...move.book,
-        score: move.score,
-        depth: move.depth,
-      });
+      await bookStore.updateMove(
+        move.sfen,
+        {
+          ...move.book,
+          score: move.score,
+          depth: move.depth,
+        },
+        bookSessionId,
+      );
     } else {
-      await bookStore.updateMove(move.sfen, {
-        usi: move.book.usi,
-        comment: move.book.comment,
-      });
+      await bookStore.updateMove(
+        move.sfen,
+        {
+          usi: move.book.usi,
+          comment: move.book.comment,
+        },
+        bookSessionId,
+      );
     }
     move.exists = true;
     move.scoreUpdatable = false;
@@ -501,11 +512,21 @@ const importMoves = () => {
     useErrorStore().add(error);
     return;
   }
-  bookStore.importBookMoves(settings.value);
+  bookStore.importBookMoves(settings.value, bookSessionId);
 };
 </script>
 
 <style scoped>
+.book-path {
+  max-width: 420px;
+  margin: -8px auto 10px;
+  overflow: hidden;
+  color: var(--text-color-sub);
+  font-size: 0.8em;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .form-group {
   width: clamp(580px, 35vw, 800px);
   max-width: 100%;
