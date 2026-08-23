@@ -34,7 +34,12 @@
       :path="store.kifuPreview.path"
       :matched-ply="store.kifuPreview.matchedPly"
       :matched-sfen="store.kifuPreview.matchedSfen"
+      :targets="store.kifuPreview.targets"
+      :target-index="store.kifuPreview.targetIndex"
       @close="store.closeKifuPreviewDialog()"
+      @open="store.openKifuPreviewRecord()"
+      @previous="store.moveKifuPreview(-1)"
+      @next="store.moveKifuPreview(1)"
     />
     <BookSelectDialog v-if="store.appState === AppState.BOOK_SELECT_DIALOG" />
     <DuplicatePositionsDialog

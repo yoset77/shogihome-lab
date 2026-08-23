@@ -6,6 +6,8 @@ export const en: Texts = {
   shogiHomeLab: "ShogiHome Lab",
   clear: "Clear",
   open: "Open",
+  previousKifu: "Previous Record",
+  nextKifu: "Next Record",
   openNewInstance: "Open New ShogiHome Instance",
   saveOverwrite: "Overwrite",
   newRecord: "New Record",

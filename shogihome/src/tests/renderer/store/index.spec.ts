@@ -1263,5 +1263,26 @@ describe("store/index", () => {
       expect(store.appState).toBe(AppState.SERVER_KIFU_DIALOG);
       expect(store.record.position.sfen).toBe(originalSfen);
     });
+
+    it("moves within the preview targets without changing the main record", () => {
+      const store = createStore();
+      const originalSfen = store.record.position.sfen;
+      store.showServerKifuDialog();
+      store.showKifuPreviewDialog({
+        path: "games/second.kif",
+        targets: [{ path: "games/first.kif" }, { path: "games/second.kif" }],
+        targetIndex: 1,
+      });
+
+      store.moveKifuPreview(-1);
+      expect(store.kifuPreview).toMatchObject({ path: "games/first.kif", targetIndex: 0 });
+
+      store.moveKifuPreview(-1);
+      expect(store.kifuPreview).toMatchObject({ path: "games/first.kif", targetIndex: 0 });
+
+      store.moveKifuPreview(1);
+      expect(store.kifuPreview).toMatchObject({ path: "games/second.kif", targetIndex: 1 });
+      expect(store.record.position.sfen).toBe(originalSfen);
+    });
   });
 });

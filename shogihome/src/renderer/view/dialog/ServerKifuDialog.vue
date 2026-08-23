@@ -81,7 +81,7 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
       </div>
       <div class="form-group kifu-list">
         <div
-          v-for="entry in displayEntries"
+          v-for="(entry, index) in displayEntries"
           :key="entry.path"
           class="kifu-list-entry row align-center"
         >
@@ -95,7 +95,7 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
             <span v-else class="file-path">{{ entry.name }}</span>
           </div>
           <div v-if="!entry.isDirectory" class="result-actions row align-center">
-            <button :aria-label="t.preview" :title="t.preview" @click="preview(entry.path)">
+            <button :aria-label="t.preview" :title="t.preview" @click="previewListEntry(index)">
               <Icon v-if="isMobile" :icon="IconType.PV" />
               <template v-else>{{ t.preview }}</template>
             </button>
@@ -240,7 +240,7 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
         </div>
         <div class="form-group search-results-container">
           <div
-            v-for="entry in searchResults"
+            v-for="(entry, index) in searchResults"
             :key="entry.id"
             class="kifu-list-entry row align-center"
           >
@@ -270,16 +270,14 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
                 <span v-else-if="entry.strategy_raw" class="metadata-item">
                   {{ t.strategy }}: {{ entry.strategy_raw }}
                 </span>
-                <span v-else class="metadata-item">
-                  {{ t.strategy }}: {{ t.unclassified }}
-                </span>
+                <span v-else class="metadata-item"> {{ t.strategy }}: {{ t.unclassified }} </span>
               </div>
             </div>
             <div class="result-actions row align-center">
               <button
                 :aria-label="t.preview"
                 :title="t.preview"
-                @click="preview(entry.file_path, entry.matched_ply, entry.matched_sfen)"
+                @click="previewSearchResult(index)"
               >
                 <Icon v-if="isMobile" :icon="IconType.PV" />
                 <template v-else>{{ t.preview }}</template>
@@ -335,7 +333,7 @@ import { getPieceImageURLTemplate } from "@/common/settings/app";
 import { BoardLayoutType } from "@/common/settings/layout";
 import { IconType } from "@/renderer/assets/icons";
 import { useServerKifuStore } from "@/renderer/store/serverKifu";
-import { KifuListEntry } from "@/common/file/record";
+import { KifuListEntry, KifuPreviewTarget } from "@/common/file/record";
 import {
   getStrategyName,
   searchableStrategies,
@@ -493,11 +491,14 @@ function onReload() {
   updateList(true);
 }
 
-function preview(path: string, ply?: number, sfen?: string) {
+function preview(targets: KifuPreviewTarget[], targetIndex: number) {
+  const target = targets[targetIndex];
+  if (!target) return;
+
   store.showKifuPreviewDialog({
-    path,
-    matchedPly: ply,
-    matchedSfen: sfen,
+    ...target,
+    targets,
+    targetIndex,
   });
 }
 
@@ -569,6 +570,27 @@ const breadcrumbs = computed(() => {
 });
 
 const displayEntries = computed(() => list.value);
+const listPreviewTargets = computed(() =>
+  displayEntries.value.filter((entry) => !entry.isDirectory).map((entry) => ({ path: entry.path })),
+);
+const searchPreviewTargets = computed(() =>
+  searchResults.value.map((entry) => ({
+    path: entry.file_path,
+    matchedPly: entry.matched_ply,
+    matchedSfen: entry.matched_sfen,
+  })),
+);
+
+function previewListEntry(index: number) {
+  const targetIndex = displayEntries.value
+    .slice(0, index)
+    .filter((entry) => !entry.isDirectory).length;
+  preview(listPreviewTargets.value, targetIndex);
+}
+
+function previewSearchResult(index: number) {
+  preview(searchPreviewTargets.value, index);
+}
 
 async function open(relPath: string, ply?: number, sfen?: string) {
   let fileURI: string;

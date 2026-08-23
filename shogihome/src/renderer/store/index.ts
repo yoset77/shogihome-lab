@@ -462,6 +462,41 @@ class Store {
     this._kifuPreview = undefined;
   }
 
+  moveKifuPreview(offset: -1 | 1): void {
+    const preview = this._kifuPreview;
+    if (!preview?.targets) return;
+
+    const targetIndex = (preview.targetIndex ?? 0) + offset;
+    const target = preview.targets[targetIndex];
+    if (!target) return;
+
+    this._kifuPreview = {
+      ...preview,
+      ...target,
+      targetIndex,
+    };
+  }
+
+  async openKifuPreviewRecord(): Promise<void> {
+    const preview = this._kifuPreview;
+    if (!preview) return;
+
+    let fileURI: string;
+    try {
+      useBusyState().retain();
+      fileURI = await api.loadServerKifu(preview.path);
+    } catch (e) {
+      useErrorStore().add(e);
+      return;
+    } finally {
+      useBusyState().release();
+    }
+
+    this.closeKifuPreviewDialog();
+    this.closeModalDialog();
+    await this.openRecord(fileURI, { ply: preview.matchedPly, sfen: preview.matchedSfen });
+  }
+
   showPasteDialog(mode: "standard" | "mergeIntoRoot" | "mergeIntoCurrent" = "standard"): void {
     if (this.appState !== AppState.NORMAL && this.appState !== AppState.SERVER_KIFU_DIALOG) {
       return;

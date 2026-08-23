@@ -13,6 +13,14 @@ const installHotKey = vi.hoisted(() => vi.fn());
 const uninstallHotKey = vi.hoisted(() => vi.fn());
 let parsedRecord: Record;
 
+function createDeferred<T>() {
+  let resolve: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve: resolve! };
+}
+
 vi.mock("@/renderer/ipc/api", () => ({
   default: { loadServerKifu, openRecord },
   isMobileWebApp,
@@ -30,7 +38,12 @@ vi.mock("@/renderer/store/busy", () => ({
 }));
 vi.mock("@github/hotkey", () => ({ install: installHotKey, uninstall: uninstallHotKey }));
 
-const mountDialog = (props?: { matchedPly?: number; matchedSfen?: string }) =>
+const mountDialog = (props?: {
+  matchedPly?: number;
+  matchedSfen?: string;
+  targets?: { path: string; matchedPly?: number; matchedSfen?: string }[];
+  targetIndex?: number;
+}) =>
   shallowMount(KifuPreviewDialog, {
     props: {
       path: "games/example.kif",
@@ -54,7 +67,7 @@ const mountDialog = (props?: { matchedPly?: number; matchedSfen?: string }) =>
             return { blackHandCount };
           },
           template:
-            '<div class="board-view-stub"><span class="black-hand-count">{{ blackHandCount }}</span><slot name="right-control" /></div>',
+            '<div class="board-view-stub"><span class="black-hand-count">{{ blackHandCount }}</span><slot name="left-control" /><slot name="right-control" /></div>',
         },
         RecordView: {
           name: "RecordView",
@@ -98,6 +111,64 @@ describe("KifuPreviewDialog", () => {
     expect(wrapper.find(".board-view-stub").exists()).toBe(true);
   });
 
+  it("reloads the preview when the selected target changes", async () => {
+    const secondRecord = new Record();
+    const move = secondRecord.position.createMoveByUSI("2g2f");
+    if (!move) throw new Error("Failed to create test move");
+    secondRecord.append(move);
+
+    loadServerKifu.mockImplementation(async (path: string) => `server://${path}`);
+    importRecordFromBuffer.mockReturnValueOnce(parsedRecord).mockReturnValueOnce(secondRecord);
+    const wrapper = mountDialog();
+    await flushPromises();
+
+    await wrapper.setProps({ path: "games/second.kif" });
+    await flushPromises();
+
+    expect(loadServerKifu).toHaveBeenLastCalledWith("games/second.kif");
+    expect(openRecord).toHaveBeenLastCalledWith("server://games/second.kif");
+    expect(wrapper.find(".file-path").text()).toBe("second.kif");
+    expect(wrapper.findComponent({ name: "BoardView" }).props("position").sfen).toBe(
+      secondRecord.position.sfen,
+    );
+  });
+
+  it("keeps the latest preview when an earlier load completes late", async () => {
+    const firstLoad = createDeferred<Uint8Array>();
+    const secondLoad = createDeferred<Uint8Array>();
+    const firstRecord = new Record();
+    const firstMove = firstRecord.position.createMoveByUSI("7g7f");
+    if (!firstMove) throw new Error("Failed to create test move");
+    firstRecord.append(firstMove);
+    const secondRecord = new Record();
+    const secondMove = secondRecord.position.createMoveByUSI("2g2f");
+    if (!secondMove) throw new Error("Failed to create test move");
+    secondRecord.append(secondMove);
+
+    loadServerKifu.mockImplementation(async (path: string) => `server://${path}`);
+    openRecord.mockImplementation((uri: string) =>
+      uri.endsWith("example.kif") ? firstLoad.promise : secondLoad.promise,
+    );
+    importRecordFromBuffer.mockImplementation((data: Uint8Array) =>
+      data[0] === 1 ? firstRecord : secondRecord,
+    );
+
+    const wrapper = mountDialog();
+    await vi.waitFor(() => expect(openRecord).toHaveBeenCalledWith("server://games/example.kif"));
+
+    await wrapper.setProps({ path: "games/second.kif" });
+    await vi.waitFor(() => expect(openRecord).toHaveBeenCalledWith("server://games/second.kif"));
+
+    secondLoad.resolve(new Uint8Array([2]));
+    await flushPromises();
+    firstLoad.resolve(new Uint8Array([1]));
+    await flushPromises();
+
+    expect(wrapper.findComponent({ name: "BoardView" }).props("position").sfen).toBe(
+      secondRecord.position.sfen,
+    );
+  });
+
   it("provides PV preview controls on desktop", async () => {
     const wrapper = mountDialog({ matchedPly: 1 });
     await flushPromises();
@@ -122,6 +193,31 @@ describe("KifuPreviewDialog", () => {
 
     await buttons[2].trigger("click");
     expect(parsedRecord.current.ply).toBe(0);
+  });
+
+  it("provides desktop actions for opening and navigating preview targets", async () => {
+    const wrapper = mountDialog({
+      targets: [
+        { path: "games/first.kif" },
+        { path: "games/example.kif", matchedPly: 1 },
+        { path: "games/last.kif" },
+      ],
+      targetIndex: 1,
+    });
+    await flushPromises();
+
+    const buttons = wrapper.findAll(".desktop-preview-actions button");
+    expect(buttons).toHaveLength(3);
+    expect(buttons[1].attributes("disabled")).toBeUndefined();
+    expect(buttons[2].attributes("disabled")).toBeUndefined();
+
+    await buttons[0].trigger("click");
+    await buttons[1].trigger("click");
+    await buttons[2].trigger("click");
+
+    expect(wrapper.emitted("open")).toHaveLength(1);
+    expect(wrapper.emitted("previous")).toHaveLength(1);
+    expect(wrapper.emitted("next")).toHaveLength(1);
   });
 
   it("installs hotkeys for controls rendered after loading", async () => {
@@ -225,5 +321,6 @@ describe("KifuPreviewDialog", () => {
     );
     expect(wrapper.find(".preview-dialog").classes()).toContain("preview-dialog-constrained");
     expect(wrapper.findAll(".mobile-controls button")).toHaveLength(6);
+    expect(wrapper.find(".desktop-preview-actions").exists()).toBe(false);
   });
 });

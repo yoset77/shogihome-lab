@@ -3,6 +3,8 @@ export type Texts = {
   shogiHomeLab: string;
   clear: string;
   open: string;
+  previousKifu: string;
+  nextKifu: string;
   openNewInstance: string;
   saveOverwrite: string;
   newRecord: string;
