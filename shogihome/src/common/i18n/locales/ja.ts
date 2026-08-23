@@ -5,6 +5,8 @@ export const ja: Texts = {
   shogiHomeLab: "ShogiHome Lab",
   clear: "初期化",
   open: "開く",
+  previousKifu: "前の棋譜",
+  nextKifu: "次の棋譜",
   openNewInstance: "新しい ShogiHome ウィンドウを開く",
   saveOverwrite: "上書き保存",
   newRecord: "新規棋譜",

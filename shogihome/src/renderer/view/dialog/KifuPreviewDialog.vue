@@ -52,6 +52,42 @@
             :black-player-name="blackPlayerName || t.sente"
             :white-player-name="whitePlayerName || t.gote"
           >
+            <template #left-control>
+              <div v-if="!isMobile" class="full column desktop-preview-actions">
+                <button
+                  class="preview-action"
+                  type="button"
+                  :aria-label="t.open"
+                  :title="t.open"
+                  @click="onOpen"
+                >
+                  <Icon :icon="IconType.OPEN" />
+                  <span>{{ t.open }}</span>
+                </button>
+                <button
+                  class="preview-action"
+                  type="button"
+                  :disabled="!canGoPrevious"
+                  :aria-label="t.previousKifu"
+                  :title="t.previousKifu"
+                  @click="onPrevious"
+                >
+                  <Icon :icon="IconType.BACK" />
+                  <span>{{ t.previousKifu }}</span>
+                </button>
+                <button
+                  class="preview-action"
+                  type="button"
+                  :disabled="!canGoNext"
+                  :aria-label="t.nextKifu"
+                  :title="t.nextKifu"
+                  @click="onNext"
+                >
+                  <Icon :icon="IconType.NEXT" />
+                  <span>{{ t.nextKifu }}</span>
+                </button>
+              </div>
+            </template>
             <template #right-control>
               <div v-if="!isMobile" :ref="setPreviewControls" class="full column desktop-controls">
                 <div class="row control-row">
@@ -219,13 +255,26 @@ import {
   Record,
   RecordMetadataKey,
 } from "tsshogi";
-import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, shallowRef } from "vue";
+import {
+  computed,
+  markRaw,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  shallowRef,
+  watch,
+} from "vue";
 import { install, uninstall } from "@github/hotkey";
 import { t } from "@/common/i18n";
 import { BoardLayoutType } from "@/common/settings/layout";
 import { TextDecodingRule, getPieceImageURLTemplate } from "@/common/settings/app";
 import { normalizeSfen } from "@/common/usi/sfen";
-import { detectRecordFileFormatByPath, importRecordFromBuffer } from "@/common/file/record";
+import {
+  detectRecordFileFormatByPath,
+  importRecordFromBuffer,
+  type KifuPreviewTarget,
+} from "@/common/file/record";
 import { getRecordTitleFromMetadata } from "@/common/helpers/metadata";
 import { useAppSettings } from "@/renderer/store/settings";
 import { useBusyState } from "@/renderer/store/busy";
@@ -242,10 +291,15 @@ const props = defineProps<{
   path: string;
   matchedPly?: number;
   matchedSfen?: string;
+  targets?: KifuPreviewTarget[];
+  targetIndex?: number;
 }>();
 
 const emit = defineEmits<{
   close: [];
+  open: [];
+  previous: [];
+  next: [];
 }>();
 
 const appSettings = useAppSettings();
@@ -263,6 +317,7 @@ const maxSize = reactive(new RectSize(0, 0));
 const installedHotKeyElements: HTMLElement[] = [];
 let previewControls: HTMLElement | undefined;
 let cancelled = false;
+let loadVersion = 0;
 
 const RECORD_LIST_WIDTH = 300;
 const PREVIEW_CONTENT_GAP = 15;
@@ -270,6 +325,11 @@ const DIALOG_CONTENT_MARGIN = 30;
 
 const shortcutKeys = computed(() => getRecordShortcutKeys(appSettings.recordShortcutKeys));
 const fileName = computed(() => props.path.split(/[\\/]/).pop() || props.path);
+const canGoPrevious = computed(() => (props.targetIndex ?? 0) > 0);
+const canGoNext = computed(() => {
+  const targetIndex = props.targetIndex ?? 0;
+  return targetIndex < (props.targets?.length ?? 1) - 1;
+});
 
 const blackPlayerName = computed(() =>
   record.value ? getBlackPlayerName(record.value.metadata) : undefined,
@@ -403,6 +463,18 @@ function onClose() {
   emit("close");
 }
 
+function onOpen() {
+  emit("open");
+}
+
+function onPrevious() {
+  emit("previous");
+}
+
+function onNext() {
+  emit("next");
+}
+
 function setPreviewControls(controls: unknown) {
   if (cancelled || !(controls instanceof HTMLElement)) return;
   if (controls === previewControls) return;
@@ -415,6 +487,14 @@ function setPreviewControls(controls: unknown) {
 }
 
 async function loadRecord() {
+  const version = ++loadVersion;
+  loading.value = true;
+  errorMessage.value = undefined;
+  matchedPositionNotFound.value = false;
+  record.value = undefined;
+  currentPosition.value = new Record().position;
+  lastMove.value = null;
+
   try {
     busyState.retain();
     const fileURI = await api.loadServerKifu(props.path);
@@ -429,25 +509,34 @@ async function loadRecord() {
     if (parsed instanceof Error) {
       throw parsed;
     }
-    if (cancelled) return;
+    if (cancelled || version !== loadVersion) return;
 
     selectInitialPosition(parsed);
     record.value = markRaw(parsed);
     touchNavigation();
   } catch {
-    if (!cancelled) {
+    if (!cancelled && version === loadVersion) {
       errorMessage.value = t.failedToLoadKifu;
     }
   } finally {
-    loading.value = false;
+    if (!cancelled && version === loadVersion) {
+      loading.value = false;
+    }
     busyState.release();
   }
 }
 
+watch(
+  () => [props.path, props.matchedPly, props.matchedSfen],
+  () => {
+    void loadRecord();
+  },
+  { immediate: true },
+);
+
 onMounted(() => {
   updateSize();
   window.addEventListener("resize", updateSize);
-  void loadRecord();
 });
 
 onBeforeUnmount(() => {
@@ -581,6 +670,36 @@ onBeforeUnmount(() => {
 .control-item .icon {
   width: auto;
   height: 80%;
+}
+
+.desktop-preview-actions {
+  justify-content: flex-end;
+}
+
+.preview-action {
+  display: inline-flex;
+  width: 100%;
+  height: 19%;
+  flex: 0 0 19%;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8%;
+  margin: 0;
+  padding: 0 5%;
+  font-size: 90%;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.preview-action:not(:first-child) {
+  margin-top: 1%;
+}
+
+.preview-action .icon {
+  width: auto;
+  height: 68%;
 }
 
 .mobile-controls {

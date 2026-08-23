@@ -161,6 +161,14 @@ export interface KifuPreviewRequest {
   path: string;
   matchedPly?: number;
   matchedSfen?: string;
+  targets?: KifuPreviewTarget[];
+  targetIndex?: number;
+}
+
+export interface KifuPreviewTarget {
+  path: string;
+  matchedPly?: number;
+  matchedSfen?: string;
 }
 
 export interface KifuListEntry {

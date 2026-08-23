@@ -5,6 +5,8 @@ export const vi: Texts = {
   shogiHomeLab: "ShogiHome Lab",
   clear: "Ván mới",
   open: "Mở",
+  previousKifu: "Kỳ phổ trước",
+  nextKifu: "Kỳ phổ tiếp theo",
   openNewInstance: "Mở một cửa sổ ShogiHome mới",
   saveOverwrite: "Ghi đè",
   newRecord: "Kỳ phổ mới",
