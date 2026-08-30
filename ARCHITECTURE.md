@@ -1,298 +1,158 @@
-# Architecture & Implementation Details for ShogiHome Lab
+# ShogiHome Lab Architecture
 
-このファイルは、本プロジェクトのシステム構造、ディレクトリ構成、および各機能の詳細な実装仕様を記述したドキュメントです。
+この文書は、ShogiHome Lab の実行時構成、モジュール責務、信頼境界、および変更時に維持すべき設計上の不変条件を示します。個別機能の操作方法や、コードから取得できる設定値・プロトコルフィールド・UI詳細は扱いません。
 
-## 1. アーキテクチャ概要
+## Sources of Truth
 
-システムは以下の3つの主要コンポーネントで構成されています。
+文書と実装が異なる場合は、次の実行可能な契約を優先します。
+
+| 対象                                         | 正本                                                         |
+| -------------------------------------------- | ------------------------------------------------------------ |
+| モジュール責務と依存方向                     | この文書と `shogihome/eslint.config.js`                      |
+| Browser と Middle Server 間の relay protocol | `shogihome/src/common/engine/relay_protocol.ts` と関連テスト |
+| HTTP API                                     | `shogihome/src/server/routes/`、共有型、runtime validator    |
+| 設定名・既定値・制約                         | `shogihome/src/server/config.ts`、各 `.env.example`          |
+| DB schema と migration                       | `shogihome/src/server/database/` と関連テスト                |
+| ビルド・配布物                               | `shogihome/scripts/`、Dockerfile、GitHub Actions workflow    |
+
+アーキテクチャ、プロトコル、またはモジュール責務を変更する場合は、この文書と該当する詳細文書を更新します。局所的な実装変更や設定値の変更だけで、この文書へ値を複製しないでください。
+
+## System Context
+
+ShogiHome Lab は、PC 上の USI 将棋エンジンをブラウザーから利用する ShogiHome の派生アプリケーションです。信頼できるプライベートネットワーク内での個人利用を主な運用モデルとし、インターネットへ直接公開するサービスとしては設計していません。
+
+実行時は次の要素から構成されます。
+
+- **Browser**: Vue renderer を実行し、HTTP API と WebSocket を通じて Middle Server を利用します。
+- **Middle Server**: Hono API、静的配信、WebSocket session、USI state machine、永続化、および外部プロセス管理を所有します。
+- **Engine Wrapper**: 設定された USI engine process を起動し、TCP と stdin/stdout を中継します。Python 版と Node.js 版があります。
+- **USI Engine**: YaneuraOu などの外部将棋エンジンです。
+- **Vision Worker**: Middle Server が子プロセスとして管理する画像認識 worker です。独立サービスでも Engine Wrapper の一部でもありません。
+
+## Runtime Topology
 
 ```mermaid
-graph LR
-    A["Browser (Frontend)"] -- "WebSocket (ws)" --> B["Middle Server (Node.js)"]
-    B -- "TCP Socket (run <id>)" --> C["Engine Wrapper"]
-    C -- "Stdin/Stdout" --> D["USI Engine (YaneuraOu, etc.)"]
-    B -- "Worker process (image scan)" --> E["Vision Backend (Node.js)"]
+flowchart LR
+    Browser["Browser<br/>Vue Renderer"]
+    Server["Middle Server<br/>Node.js / Hono"]
+    Wrapper["Engine Wrapper<br/>Python or Node.js"]
+    Engine["USI Engine"]
+    Vision["Vision Worker<br/>Node.js subprocess"]
+    Files["KIFU_DIR / data stores"]
+
+    Browser <-->|"HTTP / WebSocket"| Server
+    Server <-->|"TCP line protocol"| Wrapper
+    Wrapper <-->|"stdin / stdout"| Engine
+    Server <-->|"JSON Lines / subprocess"| Vision
+    Server <-->|"validated file access"| Files
 ```
 
-1.  **Frontend (`shogihome/src`)**: Vue.js 3 + TypeScript。ユーザーインターフェース。複数エンジンからID指定で起動可能。
-2.  **Middle Server (`shogihome/server.ts`, `shogihome/src/server/`)**: Node.js。
-    - `server.ts` は起動互換性のための薄いエントリポイントです。
-    - 実装本体は `src/server/` に分割され、Hono API、セキュリティ設定、WebSocket/TCPブリッジ、USIセッション管理、Vision backend を構成します。`start_engine <id>` コマンドを Wrapper の `run <id>` へ変換。
-3.  **Engine Wrapper (`engine-wrapper/`)**: Python。
-    - `engines.json` に基づき、指定されたIDのエンジンプロセスを起動・中継。
+`shogihome/server.ts` は互換性のための薄い entry point です。サーバーの構築と起動処理は `shogihome/src/server/main.ts` が所有します。
 
-## 2. 主要ディレクトリ構成
+## Component Responsibilities
 
-### A. Web Server & Frontend (`shogihome/`)
+| 領域                                       | 責務                                                                        |
+| ------------------------------------------ | --------------------------------------------------------------------------- |
+| `shogihome/src/renderer/`                  | UI、browser-local state、ユーザー操作、HTTP/WebSocket client                |
+| `shogihome/src/common/`                    | Browser と Server が共有する純粋な型、codec、domain utility                 |
+| `shogihome/src/node/`                      | Node.js runtime に依存する共有 utility                                      |
+| `shogihome/src/server/`                    | HTTP、WebSocket、engine session、filesystem、database、worker orchestration |
+| `engine-wrapper/`                          | engine 設定の読み込み、process 起動、TCP/stdio relay、process cleanup       |
+| `shogihome/src/server/vision/node-worker/` | 画像推論、盤面幾何処理、候補生成、診断 warning                              |
 
-| パス | 説明 |
-| :--- | :--- |
-| `server.ts` | **サーバー起動エントリ**。既存テスト・起動コマンドとの互換性を保つため、`src/server/main.ts` の公開 API を再exportし、直接実行時にサーバーを起動します。 |
-| `src/server/` | **中核サーバー実装**。Hono アプリ構築、HTTP API、静的配信、WebSocket 接続、エンジン中継ロジックを保持します。 |
-| `src/server/routes/` | **HTTP API ルート定義**。棋譜、定跡、検討結果DB、履歴、外部棋譜取得、静的配信を責務別に定義します。JSON API は Hono RPC の型推論を活かすため、各 module が Hono route tree を export し、`src/server/main.ts` で prefix ごとに合成します。 |
-| `src/server/routes/vision.ts` | **Vision API**。画像を受け取り、Vision worker を呼び出して SFEN 候補を返します。 |
-| `src/server/config.ts` | `.env` 読み込み、基準パス、ポート、許可 Origin/Host、KIFU_DIR、エンジン接続先などのサーバー設定。 |
-| `src/server/security.ts` | Host ヘッダー検証、unsafe HTTP method の Origin allowlist 検証、Hono secure-headers による CSP、rate limit などの HTTP/WebSocket 共通セキュリティ設定。 |
-| `src/server/hono.ts` | Hono の共有型、body size limit 定数、body limit middleware factory。 |
-| `src/server/bookSessionManager.ts` | Web/LAN 定跡編集用のセッション ID と内部 book session の対応、上限管理、期限切れクリーンアップ。 |
-| `src/server/websocket.ts` | WebSocket サーバーの生成、Origin/Host 検証、sessionId 検証、ハートビート、セッションへの接続委譲。 |
-| `src/server/engine/` | Wrapper 認証、エンジン設定キャッシュ、エンジン一覧取得、`EngineState` などのエンジン通信関連モジュール。 |
-| `src/server/engine/session.ts` | WebSocket/TCP 間の USI セッション本体。エンジン起動、状態遷移、停止キュー、解析結果DB保存を管理します。 |
-| `src/server/book/` | Web/LAN 定跡編集 API で使う定跡ファイル読み書き、検索、インポート処理。 |
-| `src/server/helpers/` | サーバー専用の棋譜ディレクトリ操作、外部棋譜取得、LAN IP 検出、rate limit ヘルパー。 |
-| `src/server/database/` | サーバー側の検討結果DBと棋譜検索インデックスDB。 |
-| `src/server/kifu_index/` | `KIFU_DIR` の棋譜インデックス作成・同期処理。 |
-| `src/server/file/` | サーバー側の atomic write と棋譜履歴・バックアップ永続化。 |
-| `src/server/settings.ts` | サーバー/CLI で使う ShogiHome 設定ファイルの読み書き。 |
-| `src/server/usi/sfen.ts` | サーバー側の SFEN 正規化と局面ハッシュ計算。 |
-| `src/server/vision/` | 画像認識バックエンドの Node.js worker と呼び出しアダプタ。レスポンスの形と SFEN 妥当性を検証します。 |
-| `src/common/vision/` | Vision API の共有型定義。 |
-| `src/common/engine/relay_protocol.ts` | Browser と Middle Server 間の WebSocket 中継プロトコル契約。現行 wire format の codec、runtime validator、共有 state・公開エンジン情報型を保持します。Node.js 固有依存は持ちません。 |
-| `src/common/api/rpc.ts` | Hono RPC の `AppType` を renderer へ type-only で共有する境界。runtime 依存は持たせません。ESLint (`import-x/no-restricted-paths`) で `renderer`/`common` → `server` の import は遮断しており、このファイルが唯一の公式例外です。 |
-| `src/node/` | **Node 実行環境共有ユーティリティ**。server で使うログ、実行環境パスを保持します。ブラウザー向け renderer/common からは参照しません。 |
-| `src/renderer/store/index.ts` | **状態管理**。アプリ全体のステートを保持し、対局・検討・編集などの各マネージャー（`GameManager`, `ResearchManager` 等）を統合します。検討停止は `ResearchState.STOPPING` を経由する非同期ライフサイクルとして扱い、停止完了前に UI を `IDLE` 扱いしないようにしています。棋譜保存では書き込み成功後に保存先と保存済み状態を確定し、手動保存の完了をトーストで通知します。 |
-| `src/renderer/store/toast.ts` | **非ブロッキング通知状態**。info/success/warning/error を最大3件まで保持し、同一通知を集約して種別ごとの時間（2/2/4/4秒）で自動消去します。 |
-| `src/renderer/players/lan_player.ts` | **リモートプレイヤー**。USIプロトコルの同期制御（Stop待ち、コマンド送信）を実装し、通信経由でエンジンを操作する実体です。 |
-| `src/renderer/network/lan_engine.ts` | **リモートエンジン通信クライアント**。WebSocket接続とコマンド送信、エンジンリスト取得を管理。 |
-| `src/renderer/api/client.ts` | **Hono RPC client**。JSON API 向けに `hc<AppType>`、timeout、`X-Book-Session-Id` 付与、共通レスポンス処理を提供します。バイナリ/Blob/WebSocket 通信は従来の fetch/WebSocket を使用します。 |
-| `src/renderer/view/` | **Vueコンポーネント**: |
-| - `main/` | `BoardPane` (盤面), `RecordPane` (棋譜), `ControlPane` (操作パネル) など、メイン画面の構成要素。 |
-| - `dialog/` | `GameDialog` (対局設定), `ResearchDialog` (検討設定), `AppSettingsDialog` (設定) など、モーダルダイアログ群。 |
-| - `toast/` | `ToastMessage`。通信断・再接続や単純な成功通知を、操作を遮らずに表示します。通知キーによる状態更新に対応し、モバイルWebは `HorizontalSelector` の上部に最大2件、PC/ネイティブは右上に最大3件配置します。モーダルDialog表示中は最前面のDialogへTeleportし、上部に配置します。 |
-| - `menu/` | `MobileGameMenu` (モバイル用メニュー) など、メニュー関連コンポーネント。 |
-| `public/puzzles/` | 次の一手問題データ（JSON）。 |
-| `scripts/build-puzzles.ts` | ビルド時にパズルデータを集計し、マニフェストファイルを生成するスクリプト。 |
-| `docs/webapp/` | ビルド成果物 (Git管理対象外)。ライセンスファイルもここに含まれます。 |
-| `.env` | 環境設定 (Git管理対象外)。ポート番号等を設定. 原本として `.env.example` を参照。 |
+複雑な状態や business logic は UI component ではなく、renderer store、domain module、または server module が所有します。
 
-### B. Engine Server (`engine-wrapper/`)
+## Module Boundaries
 
-| パス | 説明 |
-| :--- | :--- |
-| `engine_wrapper.py` | **エンジンラッパー**。エンジンをTCPサーバーとして公開するツール。エンジンオプションの注入も担当。 |
-| `config_editor.py` | **設定エディタ (Backend/GUI)**。`pywebview` を使用して `config_editor.html` をデスクトップアプリとして表示し、 `engines.json` を編集するツール。 |
-| `config_editor.html` | **設定エディタ (Frontend)**。単独でファイル編集ツールとしても、`config_editor.py` のUIとしても動作するハイブリッド設計。 |
-| `launcher.py` | **GUIランチャー**。Webサーバーとエンジンラッパーをバックグラウンドで起動・終了する。
-| `i18n.py` | **ランチャー用 i18n ヘルパー**。日本語/英語の切り替えを提供する。
-| `update_checker.py` | **更新通知ロジック**。GitHub Releases API から最新版を取得し、キャッシュ・スヌーズを管理する。
-| `scripts/generate_licenses.py` | Python依存ライブラリのライセンスを生成。 |
-| `VERSION` | 配布パッケージに同梱されるバージョン情報。リリースワークフローで生成される（Git 管理対象外）。 |
-| `engine-wrapper.mjs` | エンジンラッパー（Node.js版）。依存関係ゼロで動作する軽量な実装。 |
-| `shutdown-coordinator.mjs` | Node.js版ラッパーの終了調停。SIGINT/SIGTERM時に新規接続を停止し、接続ごとのcleanupと子エンジン終了を期限付きで待機します。POSIXではエンジンを専用process groupで起動し、Windowsでは`taskkill /T /F`を使ってshell配下を含むprocess treeを終了します。 |
-| `engines.json` | エンジン設定ファイル (Git管理対象外)。ID、表示名、実行パスのリストを定義。原本として `engines.json.default` (空) または `engines.json.example` (設定例) を参照。 |
-| `engines.json.default` | リリース用テンプレート (空のリスト `[]`)。 |
-| `engines.json.example` | 開発者向け設定例。 |
-| `.env` | 環境設定 (Git管理対象外)。ポート番号等を設定. 原本として `.env.example` を参照。 |
+`shogihome/eslint.config.js` は主要な依存方向を強制します。
 
-### C. Vision Backend (`shogihome/src/server/vision/`)
+```mermaid
+flowchart LR
+    Common["common"]
+    Node["node"]
+    Renderer["renderer"]
+    Server["server"]
 
-本番・開発ともに Node.js 実装を標準とします。ONNX モデルは `shogihome/src/server/vision/models/` に同梱され、ビルド時に `dist/server/models/` およびリリースパッケージへコピーされます。
+    Renderer --> Common
+    Node --> Common
+    Server --> Common
+    Server --> Node
+```
 
-### C-1. Vision Backend Node Worker (`shogihome/src/server/vision/node-worker/`)
+- `common` は `renderer`、`node`、`server` に依存しません。
+- `renderer` は `node` または `server` の runtime implementation に依存しません。
+- `node` は `renderer` または `server` に依存しません。
+- `server` は `renderer` に依存しません。
+- `shogihome/src/common/api/rpc.ts` は、Hono の `AppType` を renderer へ共有するための type-only の公式例外です。runtime dependency を追加してはいけません。
 
-**本番運用の標準 Vision backend です**。リリースビルドでは `shogihome-server.exe` という名前の通常 Node.js runtime と `dist/server/server.js` を同梱し、同じ runtime で worker を起動します。`.env` に `VISION_ENABLED=true` のみ設定すれば有効化できます。開発時は `npm run server:build` により `dist/server/node-worker/worker.js` が生成され、未ビルド時はソースを `tsx` 経由で直接起動できます。
+## Protocol and Trust Boundaries
 
-| パス | 説明 |
-| :--- | :--- |
-| `worker.ts` | **Node.js 版 Vision backend worker**。stdin/stdout の JSON Lines で `scan` リクエストを処理し、SFEN 候補 JSON を返します。 |
-| `pipeline.ts` | 画像読み込み、盤面検出、透視変換、セル分割、駒認識、持ち駒認識、後処理を接続するスキャン本体。 |
-| `board-detector.ts` | `board_segmenter.onnx` を使って盤面の四隅を推定します。 Douglas-Peucker による 4 点近似に失敗した場合は最小外接矩形（`minAreaRect` 相当）にフォールバックします。 |
-| `board-splitter.ts` | 盤面の透視変換と 9x9 セル分割を行います。 |
-| `recognizer.ts` | `mixed.onnx` で 81 マスの駒種・向きを分類します。 |
-| `hand-detector.ts` | `hand_piece_detector.onnx` で持ち駒を検出します。前処理として射影変換（rectify）で持ち駒領域を長方形化します。領域サイズは盤4辺の平均長から求めたセルピクセル幅基準、ボーダー色は入力画像の平均色で埋めます。 |
-| `postprocess.ts` | 認識セルから SFEN と候補を組み立て、駒数制約・二歩・行き所のない駒を検証します。 |
-| `geometry.ts` | Letterbox 前処理、YOLO 出力の正規化、NMS、透視変換、画像リサンプリング、持ち駒領域の rectify（`rectifiedRegionSize` / `warpPolygonRegion` / `imageMeanColor`）などの幾何処理を提供します。 |
-| `session.ts` | `onnxruntime-web` (wasm) を使って ONNX モデルを読み込み・キャッシュします。配布物には通常 wasm backend で必要な `ort-wasm-simd-threaded.mjs` と `ort-wasm-simd-threaded.wasm` のみをコピーします。 |
-| `image-io.ts` | Jimp を使った画像読み込みとリサイズを行います。 |
-| `types.ts` | Node worker 内部の型定義。 |
+境界を越える値は `unknown` として受け取り、既存の decoder、schema、path resolver を通過した後でのみ domain logic へ渡します。
 
-### C-2. Vision Backend Models (`shogihome/src/server/vision/models/`)
+| 境界                          | 所有者と検証責任                                                                                               |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Browser ↔ Server WebSocket    | `src/common/engine/relay_protocol.ts` が共有契約を所有し、renderer と server の双方が frame を decode します。 |
+| Browser ↔ HTTP API            | Hono routes が body、query、session header を検証し、共有型がresponse contractを定義します。                   |
+| Server ↔ Engine Wrapper       | engine session、list、auth module と両 wrapper 実装が line protocol を共有します。                             |
+| Wrapper ↔ USI Engine          | Wrapper は byte/line relay と process lifecycle を担当し、USI state は解釈しません。                           |
+| Server ↔ Vision Worker        | Server が JSON Lines envelope、response shape、SFEN を検証します。                                             |
+| Server ↔ `KIFU_DIR`           | 集中化された path resolver が traversal、real path、symlink、extension を検証します。                          |
+| Server ↔ external kifu source | Server が allowlist と resource limit を適用し、Browser が任意URLを直接指定できないようにします。              |
 
-| パス | 説明 |
-| :--- | :--- |
-| `board_segmenter.onnx` | 盤面領域検出用 YOLO モデル。 |
-| `mixed.onnx` | 81 マスの駒種・向き分類モデル。 |
-| `hand_piece_detector.onnx` | 持ち駒検出用 YOLO モデル。 |
+Host、Origin、body size、rate limit などのHTTP共通ポリシーは `shogihome/src/server/security.ts` と `shogihome/src/server/hono.ts` が所有します。
 
-### D. Release Assets (`assets/release/`)
+## Engine Session Invariants
 
-| パス | 説明 |
-| :--- | :--- |
-| `README.txt` | 配布用パッケージに同梱される `README.txt` の原本。 |
-| `shim.cs` | 配布用パッケージのルートに配置する軽量ランチャー。 |
+Middle Server の `shogihome/src/server/engine/session.ts` が、engine 接続から終了までの USI state machine を一元管理します。
 
-## 3. 機能実装の詳細仕様
+- Browser connection は交換可能な transport であり、論理 session と engine process の所有者は Middle Server です。
+- Middle Server が `usi` / `isready` handshake、search、stop sequencing、termination を管理します。
+- 思考中に新しい局面や探索要求を受けた場合、現在の探索停止が解決するまで競合する探索を開始しません。
+- Engine output は対応する `position` と関連付け、古い局面の結果で現在の探索を更新しません。
+- 一時的な WebSocket 切断では論理 session を保護し、同じ session ID の再接続へ状態と必要な出力を再同期できます。
+- 置換済み socket の command や state frame で現在の接続を汚染しません。
+- Engine Wrapper は browser session、再接続、USI state machine を所有しません。
 
-### リモートエンジン通信フロー
-1. **リスト取得**: フロントエンドが `get_engine_list` を送信。サーバーは Wrapper から `list` コマンドで取得したデータをサニタイズ（実行パス等の機密情報を除去）した上で返却。`lan_engine.ts` 側でキャッシュされるが、必要に応じて強制更新可能。
-2.  **起動**: フロントエンドが `start_engine <id>` を送信。**エンジンが `STARTING` または `isStopping` 状態にある間の新規起動リクエストは、競合防止のためサーバー側で拒否される。** また、`STARTING`（TCP接続中・認証中）に `stop_engine` が届いた場合は、接続処理を即座に破棄し、`run <id>` が Wrapper に送られないようにしています。
-3.  **ハンドシェイク**: `src/server/engine/session.ts` のエンジンセッションが Wrapper 接続時に `usi` を自動送信し、`usiok` 受信時に `isready` を自動送信する。クライアントからの `usi`/`isready` は無視される。
-4.  **同期**: 局面移動時、`lan_player.ts` は `stop` コマンドを送り、エンジンから停止対象局面の `bestmove` を受信するまで次の `position` コマンドの送信を待機する。**サーバー側で設定されたタイムアウト（`ENGINE_STOP_TIMEOUT_MS = 10000ms`、`config.ts` の固定定数）が発生した場合は、サーバーがハングしたエンジンを強制終了してセッションをリセットし、クライアントへ通知する。これにより不整合な状態での探索開始を防止する。** サーバー側では `stop` 送信から `bestmove` 到着までの間のコマンドをキューイングし、到着後に最新の局面のみを送信（デバウンス）する。`go` は対応する最新 `position` より後に届いた場合のみ再生し、古い局面に対する探索開始を防止する。**クライアント側の `stop` 待ちタイムアウト（`STOP_WAIT_TIMEOUT_MS = 15000ms`）はサーバー定数（10秒）より長く設定されており、サーバーが先にタイムアウトしてエラーを返すことでクライアントの待機が解決されます。**
-5.  **リアルタイム更新**: サーバーはエンジン出力に SFEN を付与して返却。フロントエンドは `dispatchUSIInfoUpdate` を通じて `usiMonitor` を更新し、読み筋タブへ反映。
-6.  **コマンドバリデーションと暗黙の停止**: サーバーは受信したUSIコマンドを厳格にバリデーションし、不正なコマンドを破棄します。また、思考中に `position` 等のコマンドを受信した場合は、自動的に `stop` を発行して `bestmove` を待機する「暗黙の停止」処理を行い、状態の不整合を防ぎます。`STOPPING_SEARCH` 中に WebSocket が切断された場合は、エンジン停止タイムアウトを切断中だけ一時停止し、再接続後に再開することで、接続保護期間より先にエンジンを強制終了しないようにしています。
-7.  **統一された状態管理**: `src/server/engine/session.ts` 内の `EngineSession` は、接続から思考・停止・終了に至るすべてのフェーズを `EngineState` で一元管理します。これにより、思考中に停止処理が走っている状態 (`STOPPING_SEARCH`) などを明確に区別し、競合状態を防止しています。`stop_engine` 後に遅延した `bestmove` が届いた場合も、`TERMINATING` を `READY` に戻さず無視することで、終了中セッションの状態汚染を防ぎます。**状態遷移の分岐では `EngineState` の宣言順（序数）に依存した比較（`>=` / `<`）を排除し、明示的な等価判定または状態の列挙によるメンバーシップ判定に統一しています。これにより、`STOPPED` 状態などでコマンドが黙って握りつぶされるバグを防止し、将来の状態追加・並べ替えにも安全に対応できます。**
-8.  **簡易認証 (Simple Auth)**: `engine-wrapper` と `src/server/engine/auth.ts` 間にトークンベースの認証(HMAC-SHA256 CRAM)を導入しました。
-    - 双方の `.env` に `WRAPPER_ACCESS_TOKEN` を設定することで有効化されます。
-    - **CRAM方式**: 平文のトークン送信を避け、リプレイ攻撃を防ぐため、Challenge-Response認証を採用しています。
-        1. Wrapper -> Server: `auth_cram_sha256 <nonce>` (16進数32文字のランダムなナンス)
-        2. Server -> Wrapper: `auth <digest>` (トークンを鍵、ナンスをメッセージとしたHMAC-SHA256ハッシュ)
-        3. Wrapper -> Server: 検証成功なら `auth_ok`、失敗ならエラーメッセージを送信して切断。
-     - トークンが未設定の場合は、従来通り認証なしで動作します（後方互換性あり）。
+詳細は [Remote Engine Architecture](docs/architecture/remote-engine.md) を参照してください。
 
-#### WebSocket 中継プロトコル契約
+## Vision Boundary
 
-- **共有境界**: `src/common/engine/relay_protocol.ts` が Browser と Middle Server の共有契約を所有します。renderer/server の双方は WebSocket 境界で外部入力を `unknown` として検証し、境界通過後は `ClientRelayMessage` / `ServerRelayMessage` の discriminated union を使用します。
-- **Browser → Server**: wire format は従来どおり plain text です。`ping`、`get_engine_list`、`start_engine <id>`、`stop_engine` と、生の USI コマンドを同じ WebSocket 上で送信します。共通 decoder が制御コマンドと USI を分類し、不正な engine ID、改行を含む入力、許可されない USI コマンドを拒否します。
-- **Server → Browser**: wire format は従来どおり discriminator なし JSON です。state は `{state, engineId, delay}`、エンジン出力は `{sfen, info, delay}`、error は `{error, delay}`、通知は `{info, delay}`、一覧は `{engineList}` です。互換性維持のため wire 上に `type` や `version` は追加しません。
-- **フィールドの意味**: エンジン出力の wire field `sfen` は裸の SFEN ではなく、探索結果に対応する `position ...` コマンド全体または `null` です。内部型では意味を明確にするため `positionCommand` として扱います。
-- **runtime validation**: `LanEngine` は受信フレームを一度だけ decode し、検証済みメッセージだけを `LanPlayer` や一時 listener へ渡します。`EngineSession` は受信テキストを一度だけ decode してから状態機械へ渡します。未知の追加 JSON property は将来互換のため許可しますが、未知の frame、型不正、複数 payload を併記した曖昧な frame は警告して破棄し、WebSocket 接続は維持します。
-- **状態同期**: wire state は `uninitialized` / `starting` / `ready` / `thinking` / `stopped` に限定します。`starting` / `ready` / `thinking` の state frame は有効な `engineId` を必須とし、`uninitialized` / `stopped` は `engineId: null` を必須とします。これにより再接続時に要求エンジンとの一致を検証します。
-- **公開エンジン情報**: Browser へ公開する一覧は `id`、`name`、`type` のみで、`type` は `game` / `research` / `mate` に限定します。Wrapper の path や解析 DB 設定は server 内部の `EngineConfig` に留めます。
-- **対象外**: Middle Server と Python/Node Engine Wrapper 間の TCP プロトコルは別契約です。TypeScript の WebSocket 共有型には含めません。
+Vision scan は Middle Server が管理する worker process で実行します。
 
-#### 接続の回復力 (Resilience)
-- **セッション再接続**: ネットワーク瞬断やリロードに対し、`localStorage` に保存された `sessionId` を用いた再接続機能を備えています。セッション ID は論理セッションとエンジン ID の組み合わせに対応し、同じ論理セッションで別エンジンを選択した場合はローテートされます。サーバーの状態フレームにも現在の `engineId` を含め、クライアントは要求したエンジンとの一致を確認します。
-- **ハートビート**: クライアントは6秒ごとに `ping` を送信し、サーバーからの `pong` 応答を監視します。タイムアウトが発生した場合は接続不良と判断して再接続を試みます。
-- **切断保護 (Disconnect Protection)**: 意図しない切断（`stop_engine` コマンドなしの切断）が発生した場合、サーバー側でエンジンプロセスを一定期間（デフォルト60秒、`.env` の `ENGINE_CONNECTION_PROTECTION_TIMEOUT` で設定可能）維持します。
-- **自動復旧とバッファリング**: クライアントは WebSocket 切断時に指数バックオフを用いて自動的に再接続を試みます。また、切断中に送信しようとしたコマンドはクライアント側の `commandQueue` に保持され、再接続時に自動的に再送されます。バックグラウンドから復帰した際 (`visibilitychange`) は、保留中の再接続タイマーと指数バックオフ履歴をリセットして、接続済みソケットを直ちに再接続しますが、すでに接続処理中の場合は既存の接続完了またはタイムアウトを待ちます。置換した旧ソケットからは SFEN 付きの `bestmove`/`checkmate`/`info` のみを受理し、ブラウザの受信バッファに残った探索結果を保護しつつ、古い `state`/`error`/`pong` が新接続を汚染しないようにしています。heartbeat も対象ソケットに紐付け、旧接続のタイムアウトや `pong` が新接続へ作用することを防ぎます。サーバー側は現在接続中の WebSocket からのコマンドだけを受理し、置換済みソケットの遅延コマンドを破棄します。また、切断中のエンジン出力（`info` や `bestmove`）をバッファリング（`info` はメモリ節約のため最新10件のみ保持し、バッファ全体にも上限を設定）し、再接続時にリプレイすることで状態を完全復元します。これにより、思考中の回線断でもエラーにならずに継続可能です。
-- **再接続時の状態同期**: モバイル環境への最適化として、`stop` 待ち中の瞬断が発生してもエラーとせず待機を継続します。再接続時には、サーバーから送られるセッション状態（`state` と `engineId`）とリプレイバッファ（`bestmove`）を照合し、クライアント側の思考状態を安全に同期・解決します。もし `bestmove` が届かずにタイムアウト（5秒）した場合は、サーバー状態に基づき待機 Promise を解決、または予期せぬ終了として通知します。接続保護期限後に `uninitialized` / `stopped` を受信した場合は、アイドル中でもセッション喪失を通知して再接続を停止します。明示的な `close()` は未解決の stop 待機を解除し、恒久切断中でもリソース解放へ進みます。
-- **操作の排他制御**: `LanPlayer` 内部に `async-lock` による排他制御を導入しており、不安定な通信下での操作連打による状態不整合を防止しています。
-- **意図的な終了**: クライアントから `stop_engine` コマンドが送出された後の切断は「意図的な終了」とみなされ、サーバーは即座にエンジンプロセスを終了しリソースを解放します。`LanEngine.terminateEngine()` は、切断中でも短時間の再接続を試みて `stop_engine` を送信してからソケットを閉じます。終了処理中に遅延した `bestmove` などの通常エンジン出力が届いても、サーバーはクライアントへ転送せず状態を汚染しないようにしています。
+- Renderer は画像取得、曖昧な入力条件、ユーザー確認を所有します。
+- Middle Server は request validation、一時ファイル、worker lifecycle、response validation、viewpoint変換を所有します。
+- Worker は画像処理、ONNX inference、候補生成を所有します。
+- Scan結果は確認用の一時状態であり、ユーザーが確定するまで現在の棋譜を変更しません。
+- Vision処理を Engine Wrapper や USI session へ混在させません。
 
-### 統合ランチャー (ShogiHome Lab Launcher)
-- **プロセス一括管理**: Webサーバーとエンジンラッパーをバックグラウンドで一括起動・終了。
-- **タスクトレイ常駐**: ウィンドウを閉じてもトレイに常駐し、右クリックメニューから操作（Dashboard表示、設定、再起動、終了）が可能。
-- **QRコード表示**: LAN内アクセス用の URL を自動生成し、スマホ等から即座にアクセスできるよう QR コードを表示。
-- **ヘルスチェック**: 2秒ごとにプロセスの死活監視を行い、異常終了（クラッシュ等）時にステータスを更新。
-- **ログビューア**: バックグラウンド実行中のサーバーおよびラッパーの標準出力をファイルに保存し、GUI 上で確認可能。
-- **設定エディタ管理**: 「Engine Settings」ボタンからの `config_editor.py` 起動において、ポート番号の固定、多重起動防止、およびプロセスのライフサイクル（ランチャー終了時の自動停止）を完全に管理。ブラウザ上の終了操作ともUI状態を同期。
-- **更新通知**: 配布パッケージ起動時に GitHub Releases API を非同期で確認し、より新しいバージョンがある場合はランチャー上部にバナーを表示。クリックでリリースページを開く。通知は 1 週間スヌーズ可能。ネットワーク/API エラー時は起動を妨げない。
-- **UI 言語切り替え**: ランチャー右上のプルダウンで日本語/英語を切り替え可能。デフォルトは日本語。ただし、ランチャー UI より前に表示されるデータ引き継ぎ Messagebox は既存の日英併記を維持する。
+詳細は [Vision Architecture](docs/architecture/vision.md) を参照してください。
 
-### エンジン設定 (`engines.json`)
-- **Type**: `game` / `research` / `both` を指定可能。フロントエンドはこれに基づき、対局・検討ダイアログで表示するエンジンをフィルタリングする。
-- **デフォルトエンジン**: アプリ設定で「デフォルトの検討エンジン」を指定でき、設定時は検討ボタン押下時のエンジン選択ダイアログをスキップして即座に開始する。
+## Data Ownership and Persistence
 
-### 次の一手問題（Puzzles）
-- **データ構造**: 静的なJSONファイルとして `/public/puzzles` に配置。`puzzles-manifest.json` がエントリーポイントとなります。
-- **読み込み**: `src/renderer/store/index.ts` 内の `fetchPuzzles` で処理。
-    - **キャッシュ**: 初回読み込み時にメモリ上 (`cachedPuzzles`) にキャッシュします。2回目以降はキャッシュを使用しつつ、バックグラウンドで更新を確認する Stale-While-Revalidate パターンを採用しています。
-- **履歴管理**: `localStorage` (`shogihome-puzzle-history`) を使用して正解済み問題のSFENと解答日時を記録します。有効期限（28日）を過ぎた履歴は自動的に削除されます。
-- **出題ロジック**: 履歴に含まれる（最近解いた）問題を除外し、ランダムに出題します。
-- **問題タイプ**:
-    - **次の一手 (`next_move`)**: 指定された正解手と一致するか判定。
-    - **形勢判断 (`evaluation`)**: 5段階の評価値（勝率）を選択肢として提示し、エンジンの評価値と比較します。
+| データ                  | 所有者                            | 性質                                         |
+| ----------------------- | --------------------------------- | -------------------------------------------- |
+| `KIFU_DIR`              | Middle Serverと外部ファイル管理者 | ユーザーが所有する棋譜・定跡・SFENの正本     |
+| `data/analysis.db`      | Analysis DB module                | Engine解析結果の永続データ                   |
+| `data/kifu_index.db`    | Kifu index module                 | `KIFU_DIR` から再構築可能な派生index         |
+| record history / backup | History service                   | Server共有の履歴と復元データ                 |
+| Book session            | Book session manager              | 保存前の変更を含む有期限の作業状態           |
+| Browser storage         | Renderer                          | 端末・origin固有の設定、復元情報、接続識別子 |
 
-### サーバー側棋譜管理 (Server-side Kifu Management)
-サーバー上の特定のディレクトリ配下にある棋譜ファイルを、ブラウザから直接読み書きできる機能です。
-- **有効化**: Webサーバー側の `.env` に `KIFU_DIR` を設定することで有効化されます。未設定時はUI上の関連ボタンが非表示になります。
-- **ファイル探索**: 指定されたディレクトリを再帰的にスキャンし、棋譜（`.kif`, `.kifu`, `.ki2`, `.ki2u`, `.csa`, `.jkf`）や定跡（`.db`, `.bin`, `.sbk`, `.ybb`）、局面集（`.sfen`）を抽出します。**棋譜リストはインメモリキャッシュにより、2回目以降の取得を高速化しています。**
-- **自動同期**: **`chokidar` を使用して `KIFU_DIR` を監視しており、OS（Windows/macOS/Linux）や環境に関わらず、アプリ外でファイルが追加・削除・編集された場合も自動的にキャッシュを無効化して最新の状態を反映します。**
-- **HTTP API**: 読み書きには、Hono 上に構築された専用の HTTP API (`/api/kifu/...`) を使用します。
-- **セキュリティ**: `resolveKifuPath` ヘルパーにより、Path Traversal 攻撃（`../../` 等）を厳格に防止しています。**また、許可された拡張子のみを操作対象とし、ディレクトリの深さ制限（最大10階層のサブディレクトリ）や最大ファイル読み込み数（100,000件）を設けることで、不正なファイル操作やリソースの過剰消費を防止しています。** さらに、既存ファイルや親ディレクトリの実体パス (`realpath`) を検証することで、シンボリックリンクや junction を経由したディレクトリ外アクセスも拒否します。
-- **キャッシュ管理**: **新しい棋譜の保存 (`/api/kifu/save`) 時や、外部でのファイル変更検知時に、インメモリキャッシュを自動的にクリアします。**
-- **URI スキーム**: サーバー上のファイルは `server://相対パス` という形式の URI で管理され、これに基づき `RecordManager` が保存先を自動判定します。
+Database、filesystem、browser storage は互いに代替可能な正本ではありません。特に kifu index は派生データであり、ユーザーファイルの正本として扱いません。
 
-### 棋譜検索データベース (Kifu Database - SQLite)
-`KIFU_DIR` 内の棋譜を、局面ハッシュ（Zobrist Hash）や対局者名、大会名などで高速に検索する機能です。
-- **永続化アーキテクチャ**: `data/kifu_index.db` に保存されます。検討結果 DB とは分離されており、インデックスの再構築が容易です。
-- **全分岐インデックス**: 対局の本譜だけでなく、検討用の分岐手順に含まれる局面もすべてインデックス化の対象となります。
-- **バックグラウンド同期**:
-    - **初期同期**: サーバー起動時に全ファイルをスキャンし、`mtime` と `size` を DB と比較して差分のみをインデックスします。
-    - **非ブロック処理**: 1局ごとにイベントループを解放（`setImmediate`）することで、大量の棋譜をインデックス中もサーバーの応答性を維持します。
-    - **リアルタイム同期**: `chokidar` 監視と連動し、ファイルの変更を検知した瞬間にインデックスを更新します。
-- **孤立局面の整理**: ライブ更新・削除では、変更前の棋譜が参照していた局面 ID だけを同一トランザクション内で検査し、他の棋譜から参照されなくなった局面だけを削除します。イベントごとの全局面走査は行わず、フル同期完了時のみ旧バージョンや中断処理で残った孤立局面を全体 cleanup します。
-- **検索機能**: 局面検索では、現在の盤面が含まれるすべての棋譜を一瞬でリストアップできます。キーワード検索（対局者、大会名、ファイル名）との AND 検索も可能です。
-- **戦型検索の未判定フィルター**: 戦型検索では通常の12分類と`その他`に加えて、`strategy`と`strategy_raw`がともに未設定の棋譜を「戦型未判定」として検索できます。API、件数取得、SFENエクスポートで同じ条件を共有し、手動メタデータだけが正規化できなかった棋譜とは区別します。
-- **戦型自動判定**: 平手棋譜では、手動メタデータを最優先し、次に本譜先頭24手内の完全SFENルール（相掛かり、角換わり、横歩取り、矢倉）を適用します。24手目の振り飛車形や角交換・相振りの特徴はモデルlogitを補正し、クラス別の高信頼度閾値を通過したモデル判定だけを採用します。閾値未達の候補は保存・表示・検索しません。駒落ち・短手数棋譜は未判定にします。ルールとモデルは内部の`strategy_source`では区別しますが、UIはどちらも自動判定として表示し、信頼度スコアは表示しません。
-- **その他上位時の救済**: モデルの1位が`その他`（manifestに閾値を持たず自動判定では採用されない）となる棋譜の一部は、実際には矢倉または雁木であることが分かっています。`inferStrategy`は1位が`その他`の場合に限り、`その他`を除外して再計算し、再上位が矢倉または雁木でスコアが0.7以上ならその戦型を採用します。他の戦型はこの救済の対象外です。矢倉と雁木の閾値は manifest の `acceptanceThresholds` にあり、いずれも 0.7 です（その他以外の戦型と共通の閾値体系を使用）。
-- **矢倉・雁木拮抗時の救済**: 1位が矢倉または雁木で個別の受理閾値に届かない場合でも、全クラスのsoftmax確率における矢倉と雁木の合計が0.8以上なら、確率の高い方を採用します。両者は駒組み上どちらにも該当し得るため、個別分類の確信度ではなく共通系統への確信度を用います。
-- **手動戦型の正規化**: `strategy_raw`には棋譜に記録された表示用の戦型を保持し、`strategy`には12分類の検索キーだけを保存します。完全一致の別名に加え、標準戦型と限定した親分類別名（`石田流`、`藤井システム`、`青野流`、`脇システム`）のprefix/suffix一致を用います。複数分類へ一致する値、未知値、`角交換型`や`右四間飛車`のような誤分類リスクがある値は生値だけを保持し、手動記録を自動判定で上書きしません。`その他`と`力戦`は明示された場合に`その他`へ正規化します。
-- **戦型の永続化と互換性**: `kifu_files`は`strategy`、`strategy_raw`、`strategy_source`、内部監査用の`strategy_score`、`strategy_classifier_version`、`strategy_index_version`を保持します。`PRAGMA user_version`による番号付きトランザクションマイグレーションを使用します。同期は`mtime`/`size`に加えて`strategy_index_version`を比較し、古い既存行を局面テーブルを再構築せず戦型列だけバックフィルします。モデル読込に失敗した行は現行版として扱わず、次回同期で再試行します。
-- **モデル配布**: 現行モデルは`src/server/kifu_index/models/`のマニフェストJSONとFloat64重みバイナリで管理し、サーバービルド時に`dist/server/models/strategy/`へ同梱します。モデル識別子はmanifest内の`modelVersion`で管理します。モデル更新時は`STRATEGY_INDEX_VERSION`も更新し、次回同期で既存棋譜の戦型を再判定します。ビルド時と実行時に係数・interceptのSHA-256と重みの有限性を検証します。実行時にPythonやscikit-learnは必要ありません。
-- **検索結果のSFEN出力**: 表示用検索は先頭100件に制限しつつ、同一条件に一致する全棋譜をサーバー側の非同期ジョブで再パースし、`KIFU_DIR` 配下の `.sfen` ファイルへatomicにストリーミング保存します。各葉分岐を `position startpos moves ...` または `position sfen ... moves ...` の1行として出力し、局面検索時は対象局面を含む経路だけを残します。棋譜開始から数える最大手数、平手初期局面から始まる棋譜のみのオプション、進捗取得、キャンセルに対応します。設定と進捗は専用ダイアログで表示し、実行中は250ms間隔で進捗を更新します。通常棋譜のパース失敗は件数へ集計して処理を継続し、完了時は失敗・スキップ件数を警告として通知します。進捗取得の一時的な通信失敗はバックオフ再試行し、失効したジョブは再実行可能な状態へ戻します。書き込み失敗時は一時ファイルを破棄します。
-- **データ構造**:
-    - `kifu_files`: メタデータ（対局者、日付、戦型、戦型の出所・スコア・モデル版等）とファイル情報を保持。
-    - `positions`: 正規化SFENと64bit Zobristハッシュを保持。
-    - `kifu_positions`: どの棋譜の何手目にどの局面が現れるかを管理。
+詳細は [Storage Architecture](docs/architecture/storage.md) を参照してください。
 
-### Web 棋譜取得プロキシ (Web Kifu Fetch Proxy)
-ブラウザ版の CORS 制限を回避し、外部サイト（Floodgate や WCSC 等）から棋譜を取得する機能です。
-- **中継処理**: サーバーがリクエストを代行。本家共通モジュールによる文字コード判定とレート制限を継承。
-- **セキュリティ**: `.env` で許可されたドメイン（SSRF 対策）かつ 10MB 以下のファイルに制限。
+## Deployment Variants
 
-### 盤面画像スキャン (Vision Scan API)
-カメラや画像ファイルから単一画像の盤面を読み取り、局面候補として SFEN を返すためのバックエンド境界です。
-- **有効化**: Webサーバー側の `.env.example` では `VISION_ENABLED=true` が既定で設定されており、`POST /api/vision/scan` が有効になります。無効化する場合は `.env` で `VISION_ENABLED` を `true` 以外に設定、または削除します。
-- **入力**: フロントエンドは選択・撮影された画像を短辺 960px 以下の JPEG（quality 0.9）へ再エンコードし、EXIF/GPS などのメタデータを送信しません。API は `image/jpeg`, `image/png` の raw body を受け付けます。最大サイズは `VISION_MAX_IMAGE_MB`（デフォルト 8MB）です。
-- **外部プロセス境界**: Node.js サーバーは画像を一時ファイルへ保存し、Vision backend worker を常駐プロセスとして起動します。本番では `npm run server:runtime` で生成された `shogihome-server.exe` が `dist/server/server.js` を実行し、同じ Node.js runtime で `dist/server/node-worker/worker.js` を起動します。Docker でも同じ `dist/server` 配置を使います。開発時は `dist/server/node-worker/worker.js` が優先され、未ビルドの場合は `src/server/vision/node-worker/worker.ts` を `tsx` 経由で起動します。モデルディレクトリは worker スクリプトからの相対パス `../models` で解決されます。通信は stdin/stdout の JSON Lines で、リクエストには `imagePath`、`sideToMove`、`maxCandidates` を含めます。scan は親クライアントと子 worker の両方で FIFO に直列化され、実行タイムアウトは worker へdispatchした時点から計測します。待機列は8件に制限し、timeout・crash・protocol errorは実行中の1件だけを失敗させ、待機中の要求は新しい worker で継続します。正常応答直後に worker が終了した場合は、応答を得られなかった次の要求を新しい worker で一度だけ再試行します。`viewpoint` は worker へ渡さず、Node.js 側で SFEN と warning square を反転します。
-- **ONNX 推論**: Vision backend は `board_segmenter.onnx` で盤面領域検出、`mixed.onnx` で 81 マスの駒種・向き分類、`hand_piece_detector.onnx` で持ち駒検出を実行します。
-- **持ち駒認識**: 盤面四隅検出結果から持ち駒台 ROI を推定し、持ち駒数・駒種を検出して SFEN の持ち駒フィールドに反映します。検出スコアを保持しない現在の持ち駒数は盤上候補の hard 制約には使用せず、盤上＋持ち駒の物理上限超過を warning として検証します。
-- **後処理**: 駒種と向きの各出力は、モデル上有効な組み合わせを最終的な駒へ写像して正規化し、セルごとの候補確率を構築します。盤上の基本駒種ごとの物理上限は hard 制約とし、各セルに空マス候補を保証することで、上限を破る無制約探索への fallback は行いません。二歩、行き所のない駒、同色の玉が複数ある局面は盤上候補の ranking warning として評価します。盤上＋持ち駒の合計が40枚でない場合は `TOTAL_PIECE_COUNT_INVALID`、盤上＋持ち駒の各駒種が上限を超える場合は `PIECE_COUNT_INVALID` を診断 warning として返します。検出スコアを保持していない持ち駒情報で盤上候補を歪めないため、これらの診断 warning は候補 `score` には反映しません。旧 `--strict-piece-count` モードは廃止し、少なすぎる駒による hard filter は行いません。ビーム幅は300、返却する局面候補は最大5件です。
-- **レスポンス検証**: サーバーは Vision backend の JSON 形状を検証し、返却された `sfen` と候補 SFEN が `tsshogi` で読み込めることを確認します。不正な応答やタイムアウトは `502` として扱い、HTTP body には固定文言のみを返します。詳細な worker エラーはサーバーログへ記録します。HTTP API の安定契約は `sfen`、`confidence`、`candidates`、`warnings`、`preview` であり、worker 内部の `board` payload は API レスポンスから除外します。
-- **責務分離**: ShogiVision 由来の発想（四隅検出、透視変換、81マス分類、top-k候補、後処理）は Vision backend 側に閉じ込め、Middle Server は安全なプロセス呼び出しと SFEN 検証に限定します。USI エンジン中継を担う `engine-wrapper/` には画像認識処理を混ぜません。
-- **フロントエンド確認**: 画像だけでは手番や盤面の向き、局面種別（実戦/詰将棋）は確定できないため、`VisionScanDialog.vue` で `sideToMove`、`viewpoint`、`positionType` を明示指定します。スキャン中にダイアログを閉じた場合は fetch を abort し、30秒応答がない場合もタイムアウトとして中断します。読み取り結果は `VisionPositionEditDialog.vue` で確認・修正し、確定後は通常モードへ戻ります。編集ダイアログでは「編集」と「画像」をタブで切り替えられます。画像にはメタデータを除去してAPIへ送信した圧縮済み `Blob` を使い、完全なAPIレスポンスとともに編集セッション内だけで保持し、確定・キャンセル時に破棄します。未校正の `confidence`、近接したビーム探索結果である `candidates`、精度特性が異なる `warnings` は現時点では編集UIに表示しません。詰将棋として取り込む場合は、編集ダイアログを開く時点で玉以外の未使用駒を後手持ち駒へ一度だけ補充します。
+- 開発時は TypeScript entry point と、必要に応じて source の Vision worker を実行します。
+- 配布版は Middle Server、Vision worker、model、必要な runtime asset をビルドスクリプトで配置します。
+- Engine Wrapper はPython版またはNode.js版を選択できます。protocol変更時は両方を同期します。
+- Docker構成はMiddle Serverを実行し、Engine Wrapperは別プロセスまたは別ホストで動作します。
 
-### 統合履歴・バックアップ管理 (Integrated History & Backup Management)
-デバイスやセッションを跨いで履歴とバックアップを共有・永続化する機能です。
-- **一元管理**: サーバー側で履歴を保持。本家準拠のアトミック保存と排他制御を採用。
-- **永続化**: 局面変更時の自動バックアップに加え、ローカルファイルを開いた際の自動保存（サーバー転送）により、リロード後や他端末からの復元を可能にしています。
+正確な起動手順は [README.md](README.md)、設定は各 `.env.example`、配布構成はビルドスクリプトとrelease workflowを参照してください。
 
-### 定跡DB管理 (Book DB Management - Web/LAN)
-サーバー側の `KIFU_DIR` 内にある定跡ファイル (.db, .bin, .sbk, .ybb) をブラウザから利用・編集する機能です。
-- **対応形式**: YaneuraOu 形式 (`.db`)、Apery 形式 (`.bin`)、ShogiGUI/SBK 形式 (`.sbk`)、YaneuraOu Binary Book 形式 (`.ybb`) をサポートします。
-- **新規定跡の保存形式**: 新規定跡を編集・保存する場合の形式を、アプリ設定 (`defaultBookFormat`) で `.db` / `.bin` / `.sbk` / `.ybb` から選択できます。既定値は `.db` (YaneuraOu 形式) で、従来動作と互換です。この設定は新規セッションのみに適用され、開いた既存ファイルは自身の形式を維持します。「名前を付けて保存」による形式変換は行いません。実装上は、renderer のデフォルトセッション (`BookSessionStore`) が新規定跡を開いた時点でアプリ設定の形式を固定し、同じ形式でサーバー側セッションを初期化します (`/api/book/clear?format=...`、形式は4種以外 HTTP 400 で拒否)。空のまま保存する場合も初期化を保証し、保存時の既定ファイル名 (`new_book.<拡張子>`) と定跡ビュー・編集ダイアログの項目表示は固定された形式に従います。設定変更は開いている新規セッションには影響せず、破棄または保存後に開く次の新規定跡から適用されます。
-- **読み込み**: サーバーサイドで実行され、巨大な `.db`/`.bin`/`.ybb` ファイルに対してはオンザフライ検索を行うことで、クライアント側のリソース消費を抑えています。SBK は protobuf ベースのバイナリ形式で、一定サイズを超える場合は Packed SFEN の索引を構築し、必要な局面だけをデコードする on-the-fly モードで扱います。YBB は Packed SFEN でソートされた索引を二分探索し、必要な局面だけを読む on-the-fly モードをサポートします。SBK on-the-fly は raw file size を最大512MiBに制限し、さらに索引構築前に raw data、state、move、evaluation の展開量を保守的に見積もった構築メモリが512MiB以下であることを検証します。Web/LAN API ではクライアントから送信された閾値を信用せず、`.db`/`.bin`/`.ybb` は `.env` の `ONTHEFLY_THRESHOLD_MB`、`.sbk` は `SBK_ONTHEFLY_THRESHOLD_MB` をサーバー側で適用します。
-- **編集機能**: 定跡手の追加、削除、評価値/出現回数/SBK 指し手評価の更新、表示順の変更がブラウザから可能です。**「指し手追加」ダイアログにおける設定（インポート条件、現在の棋譜から取り込む際に評価値/深さを反映するかなど）はブラウザの `localStorage` に保持されます。**
-- **インポート**: サーバー上の特定の棋譜ファイルから定跡データをインポートする機能をサポートしています。棋譜コメント内の評価値・深さも取り込むことができます（`importScore` 設定で制御）。
-- **セキュリティ**: 棋譜管理と同様、`resolveKifuPath` によるパスバリデーションにより、安全なファイル操作を保証しています。
-- **セッション排他**: Web/LAN API の操作は `X-Book-Session-Id` ごとの FIFO lock で直列化します。異なるセッションは並行実行でき、batch search はセッションlockを1つ保持したまま内部検索の並列性を維持します。open/edit/save/import/clear/closeと期限切れcleanupが同じlockを使うため、検索中のFileHandle closeやロスト更新を防止します。同一セッションの待機は32件、lock取得待ちは30秒に制限し、超過時はHTTP 503を返します。
-- **複数定跡表示**: renderer の `BookStore` は開いている定跡ごとの `BookSessionStore` コレクションと、新規定跡用のデフォルトセッションを管理します。操作対象は常に明示的に開かれたアクティブセッションです。定跡選択ダイアログの「新規定跡」からデフォルトセッションを開くことで、既存定跡を開いたままでも新規定跡の編集・インポート・保存が可能です。PC では新規定跡も既存定跡と同じ比較列として表示され、別の列を選択しても閉じるまでは列を維持します。モバイルではアクティブな1冊だけを定跡タブへ表示します。新規定跡の列またはヘッダーを閉じると、未保存データがあれば破棄確認を表示し、確認後にデフォルトサーバーセッションをクリアして、開く前にアクティブだった定跡へ戻ります。未保存の新規定跡がある間は新しい定跡ファイルを開けませんが、既に開いている定跡の再選択は可能です。保存すると新規定跡を閉じ、通常の外部セッションとして開き直します。PC の棋譜ペインでは元のレイアウト（一覧＋下部コントロール行）を維持したまま、複数開いた場合は一覧領域を等分の列に分割し、必要に応じて横スクロールできる列として各セッションを表示します（列は選択可能なパス表示と閉じるボタンのみ持ち、編集・保存・追加などの操作は下部コントロール行がアクティブなセッションに対して実行）。ダイアログを伴う編集・削除・インポートは開始時のセッションを操作対象として保持します。局面変更時は新規定跡を含む開いている全セッションを再検索し、同一パスを再度開いた場合は重複セッションを作らず既存列を選択します。同時に同じパスを開く要求も1つの処理を共有します。保存先として別の開いている定跡と同じパスは指定できません。既存定跡の列を閉じると対応するサーバーセッションを解放し、未保存の変更があれば破棄確認を表示します。終了に失敗した場合は再試行できるよう列を維持します。
+## Detailed References
 
-### エンジンごとの定跡着手 (Engine-specific Book Search - GUI Extension)
-エンジン思考開始前にサーバー側の定跡を検索し、ヒットした場合は自動着手する機能です。
-- **選択アルゴリズム**: 一様ランダム、定跡の出現回数による加重ランダム、評価値のSoftmaxによる加重ランダムの3モードをサポート。Softmax温度はエンジンごとに設定でき、既定値は50cpです。旧設定の「定跡出現率を使用」はロード時に対応する新モードへ移行します。
-- **フィルタリングと高度な設定**: 先手/後手別の最小評価値、最大評価値差、最小定跡深度、定跡不使用率（一定確率で定跡を無視してエンジン探索に回す）、最大手数制限などを設定可能。
-- **実装構造**: `book_search.ts` にロジックを実装。ヒット時はエンジンに探索を開始させず、UI 側で即座に着手を行う。
-- **堅牢性**: サーバー側でセッション単位の定跡管理を行い、起動失敗時や終了時にはリモートエンジン接続やプロセスと合わせて、定跡リソースも確実に解放されるように設計されています。
-
-### 検討結果データベース (Analysis Database - SQLite)
-検討時のエンジン出力（USI `info` コマンドの結果）をサーバー側で永続化し、局面ごとに過去の解析結果を再利用できる機能です。
-- **永続化アーキテクチャ**: Node.js v24+ の `node:sqlite` (SQLite 3) を使用。`data/analysis.db` に保存されます。
-- **保存パスの最適化**: 検討結果保存で使用する主要な SQL 文は DB 初期化時に prepared statement として構築し、`bestmove` ごとの保存では再利用します。これにより、頻繁な保存時の SQL コンパイルを抑えています。
-- **MultiPV候補手の重複防止**: 1回の `bestmove` で保存するバッチ内ではPV初手を候補手として重複判定し、衝突時は上位MultiPVだけを保存します。既存DBの別MultiPVとの照合・削除やMultiPV番号の詰め直しは行いません。
-- **Bound評価値の保存**: USI `score` の `lowerbound` / `upperbound` も候補手とともに保存し、`analysis_results.score_bound` の `exact` / `lower` / `upper` で評価値の意味を保持します。より深い結果を優先し、同一深度ではbound付き結果よりexact結果を優先します。旧DBには起動時に列を追加し、既存レコードを `exact` として移行します。
-- **データ構造 (3テーブル構成)**:
-    - `positions`: 正規化SFENと64bit Zobristハッシュ（`BigInt`）を保持。
-    - `engines`: エンジン識別キー（`engines.json` の `analysisDBGroupId` または `id`）と表示名を保持。
-    - `analysis_results`: 局面・エンジン・MultiPVを主キーとした解析結果（評価値、評価値のbound、深さ、読み筋等）。
-- **エンジンのグループ化と保存オプション**:
-    - **グループ化**: `engines.json` で `analysisDBGroupName` (および内部的な `analysisDBGroupId`) を設定することで、複数のエンジン設定をDB上で単一の「論理エンジン」として集約できます。同一局面でデータが衝突した場合は、より探索深度（`depth`）が深い方のレコードが優先して保持されます。
-    - **保存スキップ**: 特定のエンジンに対して `skipAnalysisDB: true` を設定することで、そのエンジンの解析結果をDBに記録しないように制御可能です。
-- **正規化SFENと衝突防止**: 局面の同一性判定には手数（move count）を除いたSFENを使用します。64bit Zobristハッシュで高速に検索しつつ、取得・保存時にフルSFEN文字列を照合することで、ハッシュ衝突によるデータの誤認を完全に防止しています。
-- **管理ツールと統合機能**:
-    - **管理UI**: エンジンごとの統計表示、データの削除、および探索深さに基づく一括クリーンアップが可能です。
-    - **データの統合 (Migration)**: 設定エディタでのグループ化設定に基づき、過去に個別IDで蓄積されたデータを新しいグループIDへ安全に移行・統合する機能を備えています。
-    - **定跡エクスポート**: 蓄積したデータをやねうら王形式（.db）でエクスポートできます。形式上boundを表現できないため、bound付きレコードはエクスポート対象外です。ファイルはサーバーの `KIFU_DIR` に保存されます。
-- **設定**: 自動検索のON/OFF、および表示する読み筋の最大手数をアプリ設定からカスタマイズ可能です。
-- **表示整形の共通化**: DB タブとライブのエンジン解析表示は、PV整形と評価値表示のヘルパーを共有します。評価値の表示方向を反転する場合は符号とともにlower/upperも交換します。
-
-### 局面編集 Dialog
-- **非破壊編集**: 局面編集の開始時には棋譜を初期化せず、`POSITION_EDITING_DIALOG` 内で現在局面の clone を編集します。キャンセル時は元の棋譜、保存先、未保存状態を変更しません。OK 後の確認を承認した場合だけ `RecordManager.resetByPosition()` で棋譜を編集局面から初期化し、未保存として扱います。
-- **編集履歴**: Dialog 内の変更は SFEN 履歴として保持し、盤・駒台・駒箱の操作、手番変更、プリセット、paste を Undo/Redo できます。Undo 後に新しく編集した場合は Redo branch を破棄します。
-- **駒箱**: 数値による駒枚数変更 Dialog は廃止し、`PositionEditorCore.vue` が盤・駒台・`PieceBox.vue` 間の drag と tap-to-select を一元管理します。駒箱は標準40枚から未使用駒を算出し、新規追加では物理上限を超えられません。paste 等で読み込んだ過剰駒局面は警告して保持します。通常局面編集と Vision 局面編集は同じ editor core を共有し、駒箱の表示サイズは標準40pxを基準に盤サイズから算出したscale（0.75〜1.5倍）で調整します。
-- **駒の初期色**: 駒箱から盤上へ追加する駒は、手番ではなく表示上の手前側（通常表示は先手、反転表示は後手）を初期色にします。玉は盤上に片方だけ存在する場合に限り不足している側の色を優先し、両方不在なら手前側として追加します。玉を駒台へ追加する操作は拒否します。
-- **盤サイズ**: `PositionEditorCore` は盤領域を `ResizeObserver` で実測し、`BoardView` の `maxSize` に渡します。盤scaleを親Dialogやstoreへ戻すフィードバック経路は持たず、CSSで確定した領域内へ収めます。
-- **desktop/mobile**: desktop は Vision 局面編集と同じSTANDARD盤を含む4:3の可変レイアウトを使用し、高さは `clamp(520px, 90dvh, 1400px)` で調整します。テキストのみの操作メニューを盤の上側に1段で配置し、狭幅時のみtoolbarの折り返しを許可します。mobile は向きに関係なく `100dvh` の専用 shell でPORTRAIT盤と下配置の駒箱を使用します。盤面反転を含む8操作は常時表示し、向きに関係なく4列×2段のtoolbarに配置します。反転状態は先手側を初期値とするDialog内だけの表示状態で、アプリ設定や編集履歴へは保存しません。
-- **Dialog 内 drag**: native `<dialog>` は top layer に描画されるため、`DialogFrame.vue` が dialog element を公開し、`BoardView.vue` の drag ghost は active dialog 内へ Teleport します。
-
-### PC版UIのレスポンシブ対応
-- **対応範囲**: PC版のダイアログは論理解像度 HD（1280×720）からWQHD（2560×1440）までを主な対応範囲とします。幅・高さを固定値だけで決めず、各解像度で利用可能領域に応じてフォーム、一覧、盤面を拡大します。
-- **サイズ方針**: `DialogFrame.vue` の共通レイアウトは変更せず、各ダイアログが自身の内容に応じたサイズ規則とoverflowを管理します。幅は `clamp(min, vw, max)` と `max-width`、`box-sizing: border-box` を組み合わせ、高さは `dvh` を基準に `clamp` で制限します。
-- **対応コンポーネント**: 一覧・フォーム系の `AddBookMovesDialog`、`AnalysisDBManagerDialog`、`AppSettingsDialog`、`BookSelectDialog`、`LoadRemoteFileDialog`、`RecordFileHistoryDialog`、`ServerKifuDialog`、`USIEngineMergeDialog`、盤面を含む `VisionScanDialog`、`ElapsedTimeChartDialog`、局面編集系の `PositionEditingDialog` / `VisionPositionEditDialog` を対象とします。Server Kifu の検索盤は表示領域に応じて盤面と操作部を拡大し、Elapsed Time Chart はResizeObserverでダイアログ内の盤面領域を実測します。
-- **モバイルとの境界**: 画面幅600px未満はモバイル表示として扱い、PC版の最小幅・拡大指定がモバイルのレイアウトを上書きしないことを原則とします。`max-width` とモバイル用media queryで縦積み・折り返しなど既存のモバイル固有レイアウトを維持します。
-- **回帰防止**: 対応ダイアログのサイズ上限・`dvh`利用・モバイル用レイアウトの契約は `src/tests/renderer/view/dialog/responsive_dialog.spec.ts` で検証します。
-
-### モバイル最適化
-- **CSS**: ブラウザのツールバーによる表示崩れを防ぐため、`100vh` ではなく `100dvh` を使用しています。
-- **ダイアログ**: 画面幅・向きに応じた要素の折り返しとサイズ調整を行い、モバイルでの操作性を向上させています。局面編集は盤を優先する full-height shell と固定の確定・キャンセル操作を使用します。
+- [Remote Engine Architecture](docs/architecture/remote-engine.md)
+- [Vision Architecture](docs/architecture/vision.md)
+- [Storage Architecture](docs/architecture/storage.md)
