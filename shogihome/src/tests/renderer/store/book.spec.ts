@@ -19,6 +19,7 @@ const flippedSfen =
 describe("store/book", () => {
   afterEach(async () => {
     useConfirmationStore().cancel();
+    vi.clearAllTimers();
     vi.useRealTimers();
     vi.clearAllMocks();
     await useAppSettings().updateAppSettings(defaultAppSettings());
@@ -98,6 +99,7 @@ describe("store/book", () => {
   });
 
   it("ignores a search result started before the record was replaced", async () => {
+    vi.useFakeTimers();
     let resolveSearch!: (moves: { usi: string; comment: string }[]) => void;
     mockAPI.openBookAsNewSession.mockResolvedValueOnce("first");
     mockAPI.searchBookMoves.mockResolvedValueOnce([]);
