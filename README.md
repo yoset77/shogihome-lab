@@ -148,6 +148,8 @@ graph LR
   - ブラウザ向けにShogiHomeのアプリ画面（HTML/JS）を配信します(8140番)。
   - ブラウザからのWebSocket通信を、TCP通信に変換してエンジンラッパーに中継します。
 
+モジュール境界、信頼境界、Vision worker、データストアを含む詳細は [ARCHITECTURE.md](ARCHITECTURE.md) を参照してください。
+
 ### セキュリティ機能
 
 本アプリケーションは、以下のセキュリティ対策を実装しています。
