@@ -32,6 +32,7 @@ Run commands from the indicated directory.
 - At WebSocket, TCP, USI, SFEN, and file-system boundaries, use the existing decoders and validators rather than bypassing them.
 - Put user-visible messages in `src/common/i18n/` resources instead of hardcoding them.
 - Update `ARCHITECTURE.md` and the relevant `docs/architecture/` document when changing architecture, protocols, or module responsibilities.
+- Update the relevant `docs/features/` document when changing a documented feature's design intent or decision criteria. Value-only changes remain in code and tests.
 
 ## Version Control
 

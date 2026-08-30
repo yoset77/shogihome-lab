@@ -37,6 +37,8 @@ Server data rootは [`src/node/proc/path.ts`](../../shogihome/src/node/proc/path
 - 外部変更の検出とparseの間は一時的に以前のindexが見える可能性があります。
 - Indexのschemaやclassifier versionが変わった場合は、元ファイルから再同期できます。
 
+戦型自動判定の設計意図は [Strategy Inference Intent](../features/strategy-inference.md) を参照してください。
+
 ## KIFU_DIR Boundary
 
 [`helpers/kifu.ts`](../../shogihome/src/server/helpers/kifu.ts) がServer側ファイルアクセスの中心的なpath boundaryです。
