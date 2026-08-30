@@ -35,9 +35,9 @@ const emit = defineEmits<{
   activate: [sessionId?: string];
   close: [sessionId?: string];
   play: [move: Move];
-  edit: [move: Move];
-  remove: [move: Move];
-  order: [move: Move, order: number];
+  edit: [book: BookSession, move: Move];
+  remove: [book: BookSession, move: Move];
+  order: [book: BookSession, move: Move, order: number];
 }>();
 
 const store = useStore();
@@ -62,17 +62,17 @@ const onPlay = (move: Move) => {
 
 const onEdit = (move: Move) => {
   activate();
-  emit("edit", move);
+  emit("edit", props.book, move);
 };
 
 const onRemove = (move: Move) => {
   activate();
-  emit("remove", move);
+  emit("remove", props.book, move);
 };
 
 const onOrder = (move: Move, order: number) => {
   activate();
-  emit("order", move, order);
+  emit("order", props.book, move, order);
 };
 </script>
 

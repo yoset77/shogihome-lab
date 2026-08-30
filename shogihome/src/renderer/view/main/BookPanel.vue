@@ -61,7 +61,7 @@
 import { BookFormat, BookMove } from "@/common/book";
 import { AppState } from "@/common/control/state";
 import { useStore } from "@/renderer/store";
-import { useBookStore } from "@/renderer/store/book";
+import { BookSession, useBookStore } from "@/renderer/store/book";
 import { computed, ref } from "vue";
 import BookMoveDialog, { Result as EditResult } from "@/renderer/view/dialog/BookMoveDialog.vue";
 import { formatMove, Move } from "tsshogi";
@@ -136,35 +136,34 @@ const playBookMove = (move: Move) => {
   }
 };
 
-const editBookMove = (move: Move) => {
-  const target = bookStore.moves.find((bm) => bm.usi === move.usi);
+const editBookMove = (book: BookSession, move: Move) => {
+  const target = book.moves.find((bm) => bm.usi === move.usi);
   if (!target) {
     return;
   }
   editingData.value = {
     sfen: store.record.position.sfen,
     move: formatMove(store.record.position, move),
-    bookId: bookStore.activeBookId,
-    bookPath: bookStore.path,
-    format: bookStore.format,
+    bookId: book.sessionId,
+    bookPath: book.path,
+    format: book.format,
     ...target,
   };
 };
 
-const removeBookMove = (move: Move) => {
+const removeBookMove = (book: BookSession, move: Move) => {
   const sfen = store.record.position.sfen;
-  const bookId = bookStore.activeBookId;
   const name = formatMove(store.record.position, move);
   useConfirmationStore().show({
     message: t.doYouReallyWantToRemoveBookMove(name),
     onOk: () => {
-      bookStore.removeMove(sfen, move.usi, bookId);
+      bookStore.removeMove(sfen, move.usi, book.sessionId);
     },
   });
 };
 
-const updateBookMoveOrder = (move: Move, order: number) => {
-  bookStore.updateMoveOrder(store.record.position.sfen, move.usi, order);
+const updateBookMoveOrder = (book: BookSession, move: Move, order: number) => {
+  bookStore.updateMoveOrder(store.record.position.sfen, move.usi, order, book.sessionId);
 };
 
 const onEditBookMove = async (data: EditResult) => {
