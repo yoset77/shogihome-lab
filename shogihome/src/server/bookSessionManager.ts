@@ -5,6 +5,7 @@ import AsyncLock from "async-lock";
 const SESSION_ID_HEADER_REGEX = /^[a-zA-Z0-9_-]{8,128}$/;
 const BOOK_LOCK_MAX_PENDING = 32;
 const BOOK_LOCK_TIMEOUT_MS = 30_000;
+const BOOK_SESSION_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 class BookSessionManager {
   private sessions = new Map<string, number>();
@@ -56,10 +57,13 @@ class BookSessionManager {
   cleanup() {
     const now = Date.now();
     for (const [sessionId, lastTime] of this.lastAccess.entries()) {
-      if (now - lastTime > 1000 * 60 * 60) {
+      if (now - lastTime > BOOK_SESSION_TIMEOUT_MS) {
         void this.runExclusive(sessionId, async () => {
           const currentLastAccess = this.lastAccess.get(sessionId);
-          if (currentLastAccess === undefined || Date.now() - currentLastAccess <= 1000 * 60 * 60) {
+          if (
+            currentLastAccess === undefined ||
+            Date.now() - currentLastAccess <= BOOK_SESSION_TIMEOUT_MS
+          ) {
             return;
           }
           this.close(sessionId);
