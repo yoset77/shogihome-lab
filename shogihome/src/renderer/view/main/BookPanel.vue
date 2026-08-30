@@ -1,37 +1,36 @@
 <template>
   <div>
     <div class="full column">
-      <div v-if="bookStore.books.length === 0" class="book-area">
-        <BookView
-          class="book-list"
-          :position="store.record.position"
-          :moves="bookStore.moves"
-          :path="bookStore.path"
-          :format="bookStore.format"
-          :playable="store.isMovableByUser"
-          :editable="bookEditable"
-          @play="playBookMove"
-          @edit="editBookMove"
-          @remove="removeBookMove"
-          @order="updateBookMoveOrder"
-        />
-      </div>
-      <div v-else class="book-columns">
+      <div v-if="bookStore.hasActiveBook" class="book-columns">
         <BookComparisonColumn
           v-for="book in bookStore.books"
           :key="book.sessionId"
           :book="book"
           :active="book.sessionId === bookStore.activeBookId"
-          @activate="bookStore.setActiveBook($event)"
-          @close="bookStore.closeBook($event)"
+          @activate="onActivateBook"
+          @close="onCloseBook"
+          @play="playBookMove"
+          @edit="editBookMove"
+          @remove="removeBookMove"
+          @order="updateBookMoveOrder"
+        />
+        <BookComparisonColumn
+          v-if="bookStore.isNewBookOpen"
+          :book="bookStore.newBook"
+          :active="!bookStore.activeBookId"
+          @activate="onActivateBook"
+          @close="onCloseBook"
           @play="playBookMove"
           @edit="editBookMove"
           @remove="removeBookMove"
           @order="updateBookMoveOrder"
         />
       </div>
+      <div v-else class="book-area empty">
+        <div class="empty-message">{{ t.noBookSelected }}</div>
+      </div>
       <div class="row control">
-        <button @click="onResetBook">{{ t.clear }}</button>
+        <button :disabled="!bookStore.hasActiveBook" @click="onResetBook">{{ t.clear }}</button>
         <button @click="onOpenBook">{{ t.open }}</button>
         <button :disabled="!isBookOperational" @click="onSaveBook">{{ t.saveAs }}</button>
         <button :disabled="!isBookOperational" @click="onAddBookMoves">{{ t.addMoves }}</button>
@@ -69,7 +68,6 @@ import { formatMove, Move } from "tsshogi";
 import { humanPlayer } from "@/renderer/players/human";
 import { t } from "@/common/i18n";
 import { useConfirmationStore } from "@/renderer/store/confirm";
-import BookView from "@/renderer/view/primitive/BookView.vue";
 import { useErrorStore } from "@/renderer/store/error";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import { useAppSettings } from "@/renderer/store/settings";
@@ -79,8 +77,9 @@ const store = useStore();
 const bookStore = useBookStore();
 const appSettings = useAppSettings();
 
-const isBookOperational = computed(() => store.appState === AppState.NORMAL);
-const bookEditable = computed(() => true);
+const isBookOperational = computed(
+  () => store.appState === AppState.NORMAL && bookStore.hasActiveBook,
+);
 const editingData = ref<
   BookMove & {
     sfen: string;
@@ -97,6 +96,22 @@ const onResetBook = () => {
 
 const onOpenBook = () => {
   bookStore.openBookFile();
+};
+
+const onActivateBook = (sessionId?: string) => {
+  if (sessionId) {
+    bookStore.setActiveBook(sessionId);
+  } else {
+    bookStore.activateNewBook();
+  }
+};
+
+const onCloseBook = (sessionId?: string) => {
+  if (sessionId) {
+    bookStore.closeBook(sessionId);
+  } else {
+    bookStore.closeNewBook();
+  }
 };
 
 const onSaveBook = () => {
@@ -203,5 +218,17 @@ const onCancelEditBookMove = () => {
   margin-bottom: 2px;
   min-height: 0;
   gap: 4px;
+}
+.book-area.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--text-bg-color);
+}
+.empty-message {
+  font-size: 0.9em;
+  color: var(--text-color);
+  opacity: 0.5;
+  user-select: none;
 }
 </style>

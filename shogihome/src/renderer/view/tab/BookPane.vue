@@ -3,20 +3,14 @@
     class="full column book-tab-content"
     :style="{ width: `${size.width}px`, height: `${size.height}px` }"
   >
-    <div v-if="bookStore.path" class="column full">
+    <div v-if="bookStore.hasActiveBook" class="column full">
       <div class="row book-header">
-        <div class="book-path grow">{{ bookStore.path }}</div>
+        <div class="book-path grow">{{ bookStore.path || t.newBook }}</div>
         <div class="row header-controls">
           <button class="thin" @click="isMenuVisible = true">
             {{ t.edit }}
           </button>
-          <button
-            v-if="bookStore.activeBookId"
-            class="thin"
-            :title="t.close"
-            :aria-label="t.close"
-            @click="onCloseBook"
-          >
+          <button class="thin" :title="t.close" :aria-label="t.close" @click="onCloseBook">
             &#x2715;
           </button>
         </div>
@@ -97,7 +91,7 @@ const bookStore = useBookStore();
 const appSettings = useAppSettings();
 
 const isBookOperational = computed(() => store.appState === AppState.NORMAL);
-const bookEditable = computed(() => true);
+const bookEditable = computed(() => bookStore.hasActiveBook);
 const editingData = ref<
   BookMove & {
     sfen: string;
@@ -125,6 +119,8 @@ const onCloseBook = () => {
   const sessionId = bookStore.activeBookId;
   if (sessionId) {
     bookStore.closeBook(sessionId);
+  } else {
+    bookStore.closeNewBook();
   }
 };
 

@@ -2,6 +2,7 @@ import { Language, t } from "@/common/i18n/index";
 import { LogLevel, LogType } from "@/common/log";
 import { RecordFileFormat } from "@/common/file/record";
 import { defaultRecordFileNameTemplate } from "@/common/file/path";
+import { BookFormat, isBookFormat } from "@/common/book";
 import { BoardLayoutType, EvaluationChartType } from "./layout.js";
 import { SearchCommentFormat } from "./comment.js";
 
@@ -242,6 +243,7 @@ export type AppSettings = {
   // Opening Book
   bookOnTheFlyThresholdMB: number;
   flippedBook: boolean;
+  defaultBookFormat: BookFormat;
 
   // Engine
   translateEngineOptionName: boolean;
@@ -407,6 +409,7 @@ export function defaultAppSettings(opt?: {
     liveDuplicatePositionDetection: true,
     bookOnTheFlyThresholdMB: 256,
     flippedBook: true,
+    defaultBookFormat: "yane2016",
     translateEngineOptionName: true,
     engineTimeoutSeconds: 10,
     nodeCountFormat: NodeCountFormat.COMMA_SEPARATED,
@@ -494,6 +497,10 @@ export function normalizeAppSettings(
   }
   if (!settings.analysisDBSearchMode) {
     result.analysisDBSearchMode = AnalysisDBSearchMode.EXCEPT_GAMES;
+  }
+  // Fall back when persisted settings contain an unsupported format.
+  if (!isBookFormat(result.defaultBookFormat)) {
+    result.defaultBookFormat = "yane2016";
   }
   if (settings.enableVisionCameraAutoOpen === undefined) {
     result.enableVisionCameraAutoOpen = false;

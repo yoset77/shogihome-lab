@@ -439,8 +439,11 @@ export const webAPI: Bridge = {
       throw new Error(await response.text());
     }
   },
-  async clearBook(sessionId?: string): Promise<void> {
-    const response = await apiClient.api.book.clear.$post(undefined, apiOptions({ sessionId }));
+  async clearBook(sessionId?: string, format?: string): Promise<void> {
+    const response = await apiClient.api.book.clear.$post(
+      { query: { format } },
+      apiOptions({ sessionId }),
+    );
     if (!response.ok) {
       throw new Error(await response.text());
     }

@@ -173,6 +173,26 @@ describe("Book Session API", () => {
     expect(bookAPI.clearBook).toHaveBeenCalledWith(session, "sbk");
   });
 
+  it("should initialize a session with the requested format when clearing", async () => {
+    const response = await requestApp(app, "POST", "/api/book/clear?format=ybb", {
+      host,
+      headers: { "X-Book-Session-Id": "clear-format-client" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookAPI.clearBook).toHaveBeenCalledWith(expect.any(Number), "ybb");
+  });
+
+  it("should reject an invalid format when clearing", async () => {
+    const response = await requestApp(app, "POST", "/api/book/clear?format=invalid", {
+      host,
+      headers: { "X-Book-Session-Id": "clear-invalid-client" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(bookAPI.clearBook).not.toHaveBeenCalled();
+  });
+
   it("should ignore client-provided on-the-fly threshold", async () => {
     await requestApp(app, "POST", "/api/book/open?path=test1.db", {
       host,

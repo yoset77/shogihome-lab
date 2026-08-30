@@ -5,6 +5,7 @@ import {
   PieceImageType,
   AnalysisDBSearchMode,
 } from "@/common/settings/app";
+import { BookFormat } from "@/common/book";
 
 describe("settings/app", () => {
   it("normalize", () => {
@@ -29,6 +30,15 @@ describe("settings/app", () => {
       enableVisionCameraAutoOpen: undefined as unknown as boolean,
     });
     expect(result.enableVisionCameraAutoOpen).toBe(false);
+  });
+
+  it("normalize/defaultBookFormat", () => {
+    expect(defaultAppSettings().defaultBookFormat).toBe("yane2016");
+    const result = normalizeAppSettings({
+      ...defaultAppSettings(),
+      defaultBookFormat: "invalid" as unknown as BookFormat,
+    });
+    expect(result.defaultBookFormat).toBe("yane2016");
   });
 
   it("pieceImageBaseURL", () => {

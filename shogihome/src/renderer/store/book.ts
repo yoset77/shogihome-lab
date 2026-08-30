@@ -76,6 +76,8 @@ export class BookSessionStore {
   private closed = false;
   private dirty = false;
   private reloadVersion = 0;
+  private formatInitPromise: Promise<void> | undefined;
+  private initializedFormat: BookFormat | undefined;
 
   constructor(
     // Undefined means the server's default session which is not bound to any file.
@@ -86,11 +88,38 @@ export class BookSessionStore {
   }
 
   get format(): BookFormat {
-    return this.path ? getBookFormatByPath(this.path) : "yane2016";
+    return this.path
+      ? getBookFormatByPath(this.path)
+      : (this.initializedFormat ?? useAppSettings().defaultBookFormat);
   }
 
   get isUnsaved(): boolean {
     return this.dirty;
+  }
+
+  // Initialize the server-side default session with a format fixed for its lifetime.
+  private async ensureBookFormat(): Promise<void> {
+    if (this.sessionId || this.path) {
+      return;
+    }
+    if (this.formatInitPromise) {
+      return this.formatInitPromise;
+    }
+    this.initializedFormat ??= useAppSettings().defaultBookFormat;
+    const initializing = api.clearBook(this.sessionId, this.initializedFormat);
+    this.formatInitPromise = initializing;
+    try {
+      await initializing;
+    } catch (error) {
+      if (this.formatInitPromise === initializing) {
+        this.formatInitPromise = undefined;
+      }
+      throw error;
+    }
+  }
+
+  async initializeNewBook(): Promise<void> {
+    await this.ensureBookFormat();
   }
 
   async reloadBookMoves(record: ImmutableRecord): Promise<void> {
@@ -151,18 +180,21 @@ export class BookSessionStore {
 
   async updateMove(sfen: string, move: BookMove): Promise<void> {
     this.ensureUsable();
+    await this.ensureBookFormat();
     await api.updateBookMove(sfen, move, this.sessionId);
     this.dirty = true;
   }
 
   async removeMove(sfen: string, usi: string): Promise<void> {
     this.ensureUsable();
+    await this.ensureBookFormat();
     await api.removeBookMove(sfen, usi, this.sessionId);
     this.dirty = true;
   }
 
   async updateMoveOrder(sfen: string, usi: string, order: number): Promise<void> {
     this.ensureUsable();
+    await this.ensureBookFormat();
     await api.updateBookMoveOrder(sfen, usi, order, this.sessionId);
     this.dirty = true;
   }
@@ -179,6 +211,7 @@ export class BookSessionStore {
     const path = normalizeBookPath(selectedPath);
     this.ensureUsable();
     validatePath(path);
+    await this.ensureBookFormat();
     await api.saveBook(path, this.sessionId);
     this.path = path;
     this.dirty = false;
@@ -188,6 +221,7 @@ export class BookSessionStore {
 
   async importBookMoves(settings: BookImportSettings): Promise<void> {
     this.ensureUsable();
+    await this.ensureBookFormat();
     await api.saveBookImportSettings(settings);
     this.ensureUsable();
     const summary = await api.importBookMoves(settings, this.sessionId);
@@ -237,9 +271,11 @@ export class BookSessionStore {
     this.dirty = true;
   }
 
-  reset(): void {
+  reset(format?: BookFormat): void {
     this.path = undefined;
     this.dirty = false;
+    this.initializedFormat = format;
+    this.formatInitPromise = format ? Promise.resolve() : undefined;
     this.clearMoves();
   }
 
@@ -258,7 +294,9 @@ export type BookSession = Pick<
 export class BookStore {
   books: BookSessionStore[] = [];
   activeBookId: string | undefined;
+  isNewBookOpen = false;
   private defaultSession = new BookSessionStore();
+  private previousActiveBookId: string | undefined;
   private openingBooks = new Map<string, Promise<BookSessionStore>>();
   private lazy = new Lazy();
   private reactiveStore: UnwrapNestedRefs<BookStore>;
@@ -273,11 +311,20 @@ export class BookStore {
   }
 
   private get sessions(): BookSessionStore[] {
-    return this.books.length === 0 ? [this.defaultSession] : this.books;
+    return this.isNewBookOpen ? [...this.books, this.defaultSession] : this.books;
   }
 
   get activeBook(): BookSessionStore {
     return this.books.find((book) => book.sessionId === this.activeBookId) ?? this.defaultSession;
+  }
+
+  get hasActiveBook(): boolean {
+    return this.activeBookId !== undefined || this.isNewBookOpen;
+  }
+
+  // The default session representing a new (not yet saved) book.
+  get newBook(): BookSession {
+    return this.defaultSession;
   }
 
   // These accessors keep the single-book presentation (mobile) on the active session.
@@ -298,9 +345,6 @@ export class BookStore {
   }
 
   async openBook(path: string): Promise<BookSessionStore> {
-    if (this.books.length === 0 && this.defaultSession.isUnsaved) {
-      throw new Error(t.saveOrClearCurrentBookBeforeOpeningAnother);
-    }
     path = normalizeBookPath(path);
     const openedBook = this.books.find((book) => book.path === path);
     if (openedBook) {
@@ -309,6 +353,9 @@ export class BookStore {
       }
       this.activeBookId = openedBook.sessionId;
       return openedBook;
+    }
+    if (this.defaultSession.isUnsaved) {
+      throw new Error(t.saveOrClearCurrentBookBeforeOpeningAnother);
     }
     const openingBook = this.openingBooks.get(path);
     if (openingBook) {
@@ -380,6 +427,71 @@ export class BookStore {
     }
   }
 
+  // Open or activate the default session used for a single new book.
+  async activateNewBook(): Promise<boolean> {
+    useBusyState().retain();
+    try {
+      const opening = !this.isNewBookOpen;
+      const previousActiveBookId = this.activeBookId;
+      if (opening) {
+        await this.defaultSession.initializeNewBook();
+      }
+      await this.defaultSession.reloadBookMoves(this.record);
+      if (opening || previousActiveBookId !== undefined) {
+        this.previousActiveBookId = previousActiveBookId;
+      }
+      if (opening) {
+        this.isNewBookOpen = true;
+      }
+      this.activeBookId = undefined;
+      return true;
+    } catch (error) {
+      useErrorStore().add(error);
+      return false;
+    } finally {
+      useBusyState().release();
+    }
+  }
+
+  async closeNewBook(): Promise<void> {
+    if (useBusyState().isBusy || !this.isNewBookOpen) {
+      return;
+    }
+    if (this.defaultSession.isUnsaved) {
+      useConfirmationStore().show({
+        message: t.anyBookMovesAreUnsavedDoYouReallyWantToDiscardThemAndCloseTheBook,
+        onOk: () => void this.closeNewBookNow(),
+      });
+      return;
+    }
+    await this.closeNewBookNow();
+  }
+
+  private async closeNewBookNow(): Promise<void> {
+    if (useBusyState().isBusy || !this.isNewBookOpen) {
+      return;
+    }
+    const wasActive = this.activeBookId === undefined;
+    useBusyState().retain();
+    try {
+      await api.clearBook(undefined, this.defaultSession.format);
+    } catch (error) {
+      useErrorStore().add(error);
+      return;
+    } finally {
+      useBusyState().release();
+    }
+    this.defaultSession.reset();
+    this.isNewBookOpen = false;
+    if (wasActive) {
+      const previousBook = this.books.find(
+        (book) => book.sessionId === this.previousActiveBookId && !book.closing,
+      );
+      this.activeBookId = previousBook?.sessionId ?? this.books.at(-1)?.sessionId;
+    }
+    this.previousActiveBookId = undefined;
+  }
+
   async closeBook(sessionId: string): Promise<void> {
     if (useBusyState().isBusy) {
       return;
@@ -416,10 +528,12 @@ export class BookStore {
       this.activeBookId = this.books.at(-1)?.sessionId;
     }
     if (this.books.length === 0) {
-      try {
-        await this.defaultSession.reloadBookMoves(this.record);
-      } catch (error) {
-        useErrorStore().add(error);
+      if (this.isNewBookOpen) {
+        try {
+          await this.defaultSession.reloadBookMoves(this.record);
+        } catch (error) {
+          useErrorStore().add(error);
+        }
       }
     }
   }
@@ -515,7 +629,7 @@ export class BookStore {
   }
 
   reset(): void {
-    if (useBusyState().isBusy) {
+    if (useBusyState().isBusy || !this.hasActiveBook) {
       return;
     }
     const book = this.activeBook;
@@ -526,11 +640,12 @@ export class BookStore {
           return;
         }
         useBusyState().retain();
+        const format = book === this.defaultSession ? book.format : undefined;
         api
-          .clearBook(book.sessionId)
+          .clearBook(book.sessionId, format)
           .then(async () => {
             if (book === this.defaultSession) {
-              book.reset();
+              book.reset(format);
             } else {
               book.markUnsaved();
             }
@@ -543,7 +658,7 @@ export class BookStore {
   }
 
   async saveBookFileAs(): Promise<void> {
-    if (useBusyState().isBusy) {
+    if (useBusyState().isBusy || !this.hasActiveBook) {
       return;
     }
     const book = this.activeBook;
@@ -566,8 +681,10 @@ export class BookStore {
     if (book !== this.defaultSession || !path) {
       return;
     }
-    await api.clearBook();
+    await api.clearBook(undefined, book.format);
     book.reset();
+    this.isNewBookOpen = false;
+    this.previousActiveBookId = undefined;
     await this.openBook(path);
   }
 

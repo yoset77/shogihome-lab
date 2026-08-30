@@ -26,7 +26,13 @@ import {
 import { VersionStatus } from "@/common/version";
 import { Bridge } from "./bridge.js";
 import { TimeStates } from "@/common/game/time";
-import { BookImportSummary, BookLoadingMode, BookLoadingOptions, BookMove } from "@/common/book";
+import {
+  BookFormat,
+  BookImportSummary,
+  BookLoadingMode,
+  BookLoadingOptions,
+  BookMove,
+} from "@/common/book";
 import { BookImportSettings } from "@/common/settings/book";
 
 type AppInfo = {
@@ -78,7 +84,7 @@ export interface API {
   openBookAsNewSession(path: string, options: BookLoadingOptions): Promise<string>;
   saveBook(path: string, sessionId?: string): Promise<void>;
   closeBook(sessionId: string): Promise<void>;
-  clearBook(sessionId?: string): Promise<void>;
+  clearBook(sessionId?: string, format?: BookFormat): Promise<void>;
   searchBookMoves(sfen: string, sessionId?: string): Promise<BookMove[]>;
   searchBookMovesBatch(
     sfens: string[],
@@ -249,8 +255,8 @@ const api: API = {
   async closeBook(sessionId: string): Promise<void> {
     return bridge.closeBookSession(sessionId);
   },
-  async clearBook(sessionId?: string): Promise<void> {
-    return bridge.clearBook(sessionId);
+  async clearBook(sessionId?: string, format?: BookFormat): Promise<void> {
+    return bridge.clearBook(sessionId, format);
   },
   async searchBookMoves(sfen: string, sessionId?: string): Promise<BookMove[]> {
     return JSON.parse(await bridge.searchBookMoves(sfen, sessionId));

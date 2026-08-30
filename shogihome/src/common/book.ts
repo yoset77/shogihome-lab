@@ -15,6 +15,12 @@ export type BookFormatSbk = "sbk";
 export type BookFormatYbb = "ybb";
 export type BookFormat = BookFormatYane2016 | BookFormatApery | BookFormatSbk | BookFormatYbb;
 
+export const bookFormats = ["yane2016", "apery", "sbk", "ybb"] as const;
+
+export function isBookFormat(value: unknown): value is BookFormat {
+  return typeof value === "string" && bookFormats.includes(value as BookFormat);
+}
+
 export type BookMove = {
   usi: string; // 定跡手
   usi2?: string; // 相手の応手

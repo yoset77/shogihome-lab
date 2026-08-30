@@ -36,6 +36,7 @@ import { Language } from "@/common/i18n/index";
 import { RecordFileFormat } from "@/common/file/record";
 import { BoardLayoutType, EvaluationChartType } from "@/common/settings/layout";
 import { SearchCommentFormat } from "@/common/settings/comment";
+import { BookFormat, isBookFormat } from "@/common/book";
 
 class AppSettingsStore {
   private settings = defaultAppSettings();
@@ -200,6 +201,9 @@ class AppSettingsStore {
   }
   get flippedBook(): boolean {
     return this.merged.flippedBook;
+  }
+  get defaultBookFormat(): BookFormat {
+    return isBookFormat(this.merged.defaultBookFormat) ? this.merged.defaultBookFormat : "yane2016";
   }
   get translateEngineOptionName(): boolean {
     return this.merged.translateEngineOptionName;

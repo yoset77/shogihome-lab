@@ -1,7 +1,7 @@
 <template>
   <section class="column book-column" :class="{ active }" @click.capture="activate">
-    <header class="row column-header" :title="book.path">
-      <span class="grow path">{{ book.path }}</span>
+    <header class="row column-header" :title="book.path || t.newBook">
+      <span class="grow path">{{ book.path || t.newBook }}</span>
       <button class="thin" :disabled="book.closing" @click.stop="onClose">&#x2715;</button>
     </header>
     <BookView
@@ -20,6 +20,7 @@
 </template>
 
 <script setup lang="ts">
+import { t } from "@/common/i18n";
 import { useStore } from "@/renderer/store";
 import { BookSession } from "@/renderer/store/book";
 import BookView from "@/renderer/view/primitive/BookView.vue";
@@ -31,8 +32,8 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  activate: [sessionId: string];
-  close: [sessionId: string];
+  activate: [sessionId?: string];
+  close: [sessionId?: string];
   play: [move: Move];
   edit: [move: Move];
   remove: [move: Move];
@@ -45,15 +46,13 @@ const activate = (event?: MouseEvent) => {
   if (event?.target instanceof Element && event.target.closest(".column-header button")) {
     return;
   }
-  if (!props.book.closing && props.book.sessionId) {
+  if (!props.book.closing) {
     emit("activate", props.book.sessionId);
   }
 };
 
 const onClose = () => {
-  if (props.book.sessionId) {
-    emit("close", props.book.sessionId);
-  }
+  emit("close", props.book.sessionId);
 };
 
 const onPlay = (move: Move) => {
@@ -82,6 +81,7 @@ const onOrder = (move: Move, order: number) => {
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
+  background-color: var(--text-bg-color);
   border: 2px solid transparent;
 }
 .book-column.active {
@@ -100,7 +100,8 @@ const onOrder = (move: Move, order: number) => {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: bold;
-  font-size: 0.85em;
+  font-size: 0.9em;
+  color: var(--text-color);
   text-align: left;
 }
 .book-view {
