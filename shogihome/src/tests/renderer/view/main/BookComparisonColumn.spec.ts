@@ -54,4 +54,27 @@ describe("BookComparisonColumn", () => {
     expect(wrapper.emitted("activate")).toEqual([["first"]]);
     wrapper.unmount();
   });
+
+  it("emits an undefined session ID for a new book", async () => {
+    const wrapper = shallowMount(BookComparisonColumn, {
+      props: {
+        book: {
+          sessionId: undefined,
+          path: undefined,
+          format: "yane2016",
+          moves: [],
+          closing: false,
+          isUnsaved: false,
+        },
+        active: false,
+      },
+    });
+
+    await wrapper.get("section").trigger("click");
+    await wrapper.get("header button").trigger("click");
+
+    expect(wrapper.emitted("activate")).toEqual([[undefined]]);
+    expect(wrapper.emitted("close")).toEqual([[undefined]]);
+    wrapper.unmount();
+  });
 });

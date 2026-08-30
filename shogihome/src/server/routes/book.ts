@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { validator } from "hono/validator";
 import type { BookImportSettings } from "@/common/settings/book";
+import { isBookFormat } from "@/common/book";
 import { getBookList, resolveKifuPath } from "@/server/helpers/kifu";
 import {
   clearBook,
@@ -104,10 +105,20 @@ export const bookRoutes = new Hono<AppEnv>()
     return c.text("ok");
   })
 
-  .post("/clear", async (c) => {
-    await runBookOperation(c, (bookSession) => clearBook(bookSession, getBookFormat(bookSession)));
-    return c.text("ok");
-  })
+  .post(
+    "/clear",
+    validator("query", (value) => ({ format: getString(value.format) })),
+    async (c) => {
+      const { format } = c.req.valid("query");
+      if (format !== undefined && !isBookFormat(format)) {
+        return sendError(c, 400, "invalid format");
+      }
+      await runBookOperation(c, (bookSession) =>
+        clearBook(bookSession, format ?? getBookFormat(bookSession)),
+      );
+      return c.text("ok");
+    },
+  )
 
   .get(
     "/search",

@@ -260,12 +260,199 @@ describe("store/book", () => {
     mockAPI.searchBookMoves.mockResolvedValue([]);
     const store = new BookStore(new Record());
 
+    await store.activateNewBook();
     await store.saveBookFileAs();
 
     expect(mockAPI.saveBook).toHaveBeenCalledWith("server://new.db", undefined);
-    expect(mockAPI.clearBook).toHaveBeenCalledWith();
+    expect(mockAPI.clearBook).toHaveBeenLastCalledWith(undefined, "yane2016");
     expect(store.activeBookId).toBe("promoted");
     expect(store.path).toBe("server://new.db");
+  });
+
+  it("initializes the default session with the configured format before the first edit", async () => {
+    await useAppSettings().updateAppSettings({ defaultBookFormat: "sbk" });
+    mockAPI.clearBook.mockResolvedValue(undefined);
+    mockAPI.updateBookMove.mockResolvedValue(undefined);
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const store = new BookStore(new Record());
+
+    await store.updateMove(sfen, { usi: "7g7f", comment: "" });
+
+    expect(mockAPI.clearBook).toHaveBeenCalledWith(undefined, "sbk");
+    expect(mockAPI.updateBookMove).toHaveBeenCalledWith(
+      sfen,
+      { usi: "7g7f", comment: "" },
+      undefined,
+    );
+
+    mockAPI.clearBook.mockClear();
+    await store.updateMove(sfen, { usi: "2g2f", comment: "" });
+    expect(mockAPI.clearBook).not.toHaveBeenCalled();
+  });
+
+  it("does not initialize the format for file-bound sessions", async () => {
+    await useAppSettings().updateAppSettings({ defaultBookFormat: "sbk" });
+    mockAPI.clearBook.mockResolvedValue(undefined);
+    mockAPI.updateBookMove.mockResolvedValue(undefined);
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const book = new BookSessionStore("book", "server://book.db");
+
+    await book.updateMove(sfen, { usi: "7g7f", comment: "" });
+
+    expect(mockAPI.clearBook).not.toHaveBeenCalled();
+  });
+
+  it("uses the configured format extension for a new book", async () => {
+    await useAppSettings().updateAppSettings({ defaultBookFormat: "apery" });
+    mockAPI.showSaveBookDialog.mockResolvedValue("server://new_book.bin");
+    mockAPI.saveBook.mockResolvedValue(undefined);
+    const session = new BookSessionStore();
+
+    const path = await session.saveBookFileAs(() => undefined);
+
+    expect(mockAPI.clearBook).toHaveBeenCalledWith(undefined, "apery");
+    expect(mockAPI.showSaveBookDialog).toHaveBeenCalledWith("new_book.bin");
+    expect(mockAPI.saveBook).toHaveBeenCalledWith("server://new_book.bin", undefined);
+    expect(path).toBe("server://new_book.bin");
+  });
+
+  it("keeps the initialized format when the default setting changes", async () => {
+    await useAppSettings().updateAppSettings({ defaultBookFormat: "sbk" });
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const session = new BookSessionStore();
+    await session.updateMove(sfen, { usi: "7g7f", comment: "" });
+
+    await useAppSettings().updateAppSettings({ defaultBookFormat: "apery" });
+    mockAPI.showSaveBookDialog.mockResolvedValue("");
+    await session.saveBookFileAs(() => undefined);
+
+    expect(session.format).toBe("sbk");
+    expect(mockAPI.showSaveBookDialog).toHaveBeenCalledWith("new_book.sbk");
+  });
+
+  it("waits for in-flight default format initialization before updating", async () => {
+    await useAppSettings().updateAppSettings({ defaultBookFormat: "sbk" });
+    let resolveClear!: () => void;
+    mockAPI.clearBook.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveClear = resolve;
+        }),
+    );
+    const session = new BookSessionStore();
+
+    const first = session.updateMove(sfen, { usi: "7g7f", comment: "" });
+    await vi.waitFor(() => expect(mockAPI.clearBook).toHaveBeenCalledOnce());
+    const second = session.updateMove(sfen, { usi: "2g2f", comment: "" });
+    await Promise.resolve();
+    expect(mockAPI.updateBookMove).not.toHaveBeenCalled();
+
+    resolveClear();
+    await Promise.all([first, second]);
+    expect(mockAPI.updateBookMove).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries default format initialization after a failure", async () => {
+    await useAppSettings().updateAppSettings({ defaultBookFormat: "sbk" });
+    mockAPI.clearBook.mockRejectedValueOnce(new Error("clear failed")).mockResolvedValueOnce();
+    const session = new BookSessionStore();
+
+    await expect(session.updateMove(sfen, { usi: "7g7f", comment: "" })).rejects.toThrow(
+      "clear failed",
+    );
+    await session.updateMove(sfen, { usi: "2g2f", comment: "" });
+
+    expect(mockAPI.clearBook).toHaveBeenCalledTimes(2);
+    expect(mockAPI.updateBookMove).toHaveBeenCalledOnce();
+  });
+
+  it("activates the new book session while other books are open", async () => {
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first");
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const record = new Record();
+    const store = new BookStore(record);
+    await store.openBook("server://first.db");
+
+    await store.activateNewBook();
+
+    expect(store.activeBookId).toBeUndefined();
+    expect(store.isNewBookOpen).toBe(true);
+    expect(store.activeBook).toBe(store.newBook);
+    await store.updateMove(sfen, { usi: "7g7f", comment: "" });
+    expect(mockAPI.updateBookMove).toHaveBeenCalledWith(
+      sfen,
+      { usi: "7g7f", comment: "" },
+      undefined,
+    );
+  });
+
+  it("closes the new book session and returns to the previously active book", async () => {
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first").mockResolvedValueOnce("second");
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const store = new BookStore(new Record());
+    await store.openBook("server://first.db");
+    await store.openBook("server://second.db");
+    store.setActiveBook("first");
+
+    await store.activateNewBook();
+    expect(store.activeBookId).toBeUndefined();
+
+    await store.closeNewBook();
+    expect(store.isNewBookOpen).toBe(false);
+    expect(store.activeBookId).toBe("first");
+    expect(mockAPI.clearBook).toHaveBeenLastCalledWith(undefined, "yane2016");
+  });
+
+  it("confirms before discarding an unsaved new book", async () => {
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first");
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const store = new BookStore(new Record());
+    await store.openBook("server://first.db");
+    await store.activateNewBook();
+    await store.updateMove(sfen, { usi: "7g7f", comment: "" });
+    mockAPI.clearBook.mockClear();
+
+    await store.closeNewBook();
+
+    expect(store.isNewBookOpen).toBe(true);
+    expect(mockAPI.clearBook).not.toHaveBeenCalled();
+    useConfirmationStore().ok();
+    await vi.waitFor(() => expect(store.isNewBookOpen).toBe(false));
+    expect(mockAPI.clearBook).toHaveBeenCalledWith(undefined, "yane2016");
+  });
+
+  it("reloads the open new book after a position change", async () => {
+    vi.useFakeTimers();
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first");
+    mockAPI.searchBookMoves.mockResolvedValue([{ usi: "7g7f", comment: "" }]);
+    const record = new Record();
+    const store = new BookStore(record);
+    await store.openBook("server://first.db");
+    await store.activateNewBook();
+    expect(store.newBook.moves).toHaveLength(1);
+    mockAPI.searchBookMoves.mockClear();
+
+    record.append(record.position.createMoveByUSI("7g7f")!);
+    store.onChangePosition(record);
+    expect(store.newBook.moves).toEqual([]);
+    vi.advanceTimersByTime(200);
+    await vi.runAllTicks();
+    await Promise.resolve();
+
+    expect(mockAPI.searchBookMoves).toHaveBeenCalledWith(record.position.sfen, undefined);
+  });
+
+  it("blocks opening a book while the new book session has unsaved changes", async () => {
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first");
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    const store = new BookStore(new Record());
+    await store.openBook("server://first.db");
+
+    await store.activateNewBook();
+    await store.updateMove(sfen, { usi: "7g7f", comment: "" });
+
+    await expect(store.openBook("server://second.db")).rejects.toThrow();
+    expect(mockAPI.openBookAsNewSession).toHaveBeenCalledTimes(1);
   });
 
   it("does not mark an import with no new entries as unsaved", async () => {

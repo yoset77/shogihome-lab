@@ -622,16 +622,30 @@
       </div>
       <hr />
       <!-- 定跡 -->
-      <div v-if="isNative()" class="section">
+      <div class="section">
         <div class="section-title">{{ t.book }}</div>
-        <!-- 読み専モード閾値 -->
+        <!-- 新規定跡の保存形式 -->
         <div class="form-item">
+          <div class="form-item-label-wide">{{ t.defaultBookFormat }}</div>
+          <HorizontalSelector
+            v-model:value="update.defaultBookFormat"
+            class="selector"
+            :items="[
+              { label: '.db (YaneuraOu)', value: 'yane2016' },
+              { label: '.bin (Apery)', value: 'apery' },
+              { label: '.sbk (ShogiGUI)', value: 'sbk' },
+              { label: '.ybb (YaneuraOu Binary)', value: 'ybb' },
+            ]"
+          />
+        </div>
+        <!-- 読み専モード閾値 -->
+        <div v-if="isNative()" class="form-item">
           <div class="form-item-label-wide">{{ t.onTheFlyThreshold }}</div>
           <input v-model.number="update.bookOnTheFlyThresholdMB" type="number" max="4096" min="0" />
           <div class="form-item-small-label">MB ({{ t.between(0, 4096) }})</div>
         </div>
       </div>
-      <hr v-if="isNative()" />
+      <hr />
       <!-- USI プロトコル -->
       <div class="section">
         <div class="section-title">{{ t.usiProtocol }}</div>
@@ -1009,6 +1023,7 @@ const update = ref({
   showPasteDialog: org.showPasteDialog,
   liveDuplicatePositionDetection: org.liveDuplicatePositionDetection,
   bookOnTheFlyThresholdMB: org.bookOnTheFlyThresholdMB,
+  defaultBookFormat: org.defaultBookFormat,
   translateEngineOptionName: org.translateEngineOptionName,
   engineTimeoutSeconds: org.engineTimeoutSeconds,
   nodeCountFormat: org.nodeCountFormat,

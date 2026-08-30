@@ -280,6 +280,7 @@ export type Texts = {
   pasteDialog: string;
   liveDuplicatePositionDetection: string;
   onTheFlyThreshold: string;
+  defaultBookFormat: string;
   usiProtocol: string;
   translateOptionName: string;
   functionalOnJapaneseOnly: string;
@@ -553,6 +554,8 @@ export type Texts = {
   latest: string;
   record: string;
   book: string;
+  newBook: string;
+  noBookSelected: string;
   chart: string;
   insert: string;
   move: string;

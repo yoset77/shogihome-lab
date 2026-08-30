@@ -8,7 +8,10 @@
           <button @click="searchWord = ''">&#x2715;</button>
         </div>
       </div>
-      <button class="reload" @click="updateList()">{{ t.reload }}</button>
+      <button class="new-book" @click="openNewBook">{{ t.newBook }}</button>
+      <button class="reload thin" :title="t.reload" :aria-label="t.reload" @click="updateList()">
+        <Icon :icon="IconType.REFRESH" />
+      </button>
     </div>
     <div class="form-group book-list">
       <div v-for="file in filteredList" :key="file">
@@ -39,6 +42,8 @@ import { useErrorStore } from "@/renderer/store/error";
 import { useBusyState } from "@/renderer/store/busy";
 import { useBookStore } from "@/renderer/store/book";
 import DialogFrame from "./DialogFrame.vue";
+import Icon from "@/renderer/view/primitive/Icon.vue";
+import { IconType } from "@/renderer/assets/icons";
 import { normalizePath } from "@/common/helpers/path";
 
 const store = useStore();
@@ -86,6 +91,12 @@ async function open(relPath: string) {
   }
 }
 
+async function openNewBook() {
+  if (await bookStore.activateNewBook()) {
+    store.closeModalDialog();
+  }
+}
+
 function onCancel() {
   store.closeModalDialog();
 }
@@ -103,6 +114,7 @@ onMounted(() => {
 }
 .header {
   margin: 10px 5px;
+  gap: 10px;
 }
 .filter {
   text-align: left;
@@ -121,15 +133,25 @@ onMounted(() => {
   margin: 0;
 }
 button.reload {
+  margin: 0;
+  flex-shrink: 0;
+  padding: 2px 8px;
+}
+button.reload .icon {
+  height: 1.5em;
+}
+button.new-book {
   width: 120px;
-  margin-left: 10px;
+  margin: 0;
   flex-shrink: 0;
   white-space: nowrap;
+  padding: 2px 15px;
+  line-height: 1.5em;
 }
 @media (max-width: 600px) {
-  button.reload {
+  button.new-book {
     width: auto;
-    padding: 5px 10px;
+    padding: 2px 10px;
   }
 }
 .book-list {

@@ -19,7 +19,7 @@ import { loadSbkBook } from "@/server/book/sbk";
 import { getTempPathForTesting } from "@/tests/helpers/temp";
 import { defaultBookImportSettings, PlayerCriteria, SourceType } from "@/common/settings/book";
 import { createTestAperyBookFile } from "@/tests/mock/book";
-import { SbkMoveEvaluation } from "@/common/book";
+import { BookFormat, SbkMoveEvaluation, bookFormats } from "@/common/book";
 
 const defaultBookSession = 1;
 
@@ -49,6 +49,28 @@ describe("background/book", () => {
 
   it("default book format", () => {
     expect(getBookFormat(defaultBookSession)).toBe("yane2016");
+  });
+
+  it("initializes an empty session with each format", async () => {
+    const extensions: Record<BookFormat, string> = {
+      yane2016: ".db",
+      apery: ".bin",
+      sbk: ".sbk",
+      ybb: ".ybb",
+    };
+    for (const format of bookFormats) {
+      clearBook(defaultBookSession, format);
+      expect(getBookFormat(defaultBookSession)).toBe(format);
+      await updateBookMove(
+        defaultBookSession,
+        "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+        { usi: "7g7f", score: 30, count: 1, comment: "" },
+      );
+      const tempFilePath = path.join(tmpdir, "init-" + format + extensions[format]);
+      await saveBook(defaultBookSession, tempFilePath);
+      expect(fs.existsSync(tempFilePath)).toBe(true);
+      fs.rmSync(tempFilePath, { force: true });
+    }
   });
 
   describe("openBook", () => {
