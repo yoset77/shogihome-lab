@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import http from "http";
 import fs from "fs";
 import path from "path";
+import { SERVER_UPLOAD_TIMEOUT_MS } from "@/common/file/upload";
 import { EngineSession } from "@/server/engine/session";
 import { SessionManager } from "@/server/engine/sessionManager";
 import { EngineState } from "@/server/engine/types";
@@ -35,8 +36,11 @@ if (process.env.TRUST_PROXY === "true") {
 } else {
   console.log("Trust proxy is DISABLED");
 }
-const server = http.createServer(getRequestListener(app.fetch));
-server.timeout = 900000;
+const server = http.createServer(
+  { requestTimeout: SERVER_UPLOAD_TIMEOUT_MS },
+  getRequestListener(app.fetch),
+);
+server.timeout = SERVER_UPLOAD_TIMEOUT_MS;
 
 console.log(`Serving static files from: ${shogiHomePath}`);
 

@@ -17,7 +17,7 @@ const retryOptions: OperationOptions = {
 };
 
 function getTempFilePath(filePath: string): string {
-  return path.join(path.dirname(filePath), `.${path.basename(filePath)}.${randomUUID()}.tmp`);
+  return path.join(path.dirname(filePath), `.atomic-${randomUUID()}.tmp`);
 }
 
 /**

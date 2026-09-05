@@ -72,4 +72,17 @@ describe("file/atomic_stream", () => {
     expect(fs.readFileSync(outputPath, "utf8")).toBe("new");
     expect(fs.readdirSync(rootDir)).toEqual(["result.sfen"]);
   });
+
+  it("supports long multibyte filenames without exceeding the temporary name limit", async () => {
+    const name = "\u68cb".repeat(75) + ".kif";
+    const outputPath = path.join(rootDir, name);
+
+    await writeStreamAtomic(outputPath, async (stream) => {
+      stream.end("kifu");
+      await finished(stream);
+    });
+
+    expect(fs.readFileSync(outputPath, "utf8")).toBe("kifu");
+    expect(fs.readdirSync(rootDir)).toEqual([name]);
+  });
 });
