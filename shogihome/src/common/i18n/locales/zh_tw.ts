@@ -732,7 +732,7 @@ export const zh_tw: Texts = {
     "存在尚未保存的定跡。您確定要捨棄並關閉此定跡嗎？",
   selectedBookFileIsAlreadyOpen: "選擇的定跡檔案已開啟。",
   saveOrClearCurrentBookBeforeOpeningAnother: "開啟其他定跡前，請先儲存或重置目前的定跡。",
-  cannotOverwriteOnTheFlyBook: "Cannot overwrite the book being loaded in on-the-fly mode.",
+  enterBookSavePath: "Enter the destination path of the book.",
   pleaseSpecifyOtherFileName: "Please specify other file name.",
   sourceRecordFileNotSet: "尚未指定棋譜檔案。",
   sourceDirectoryNotSet: "請選擇目錄。",

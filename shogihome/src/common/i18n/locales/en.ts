@@ -744,7 +744,7 @@ export const en: Texts = {
   selectedBookFileIsAlreadyOpen: "The selected book file is already open.",
   saveOrClearCurrentBookBeforeOpeningAnother:
     "Save or clear the current book before opening another one.",
-  cannotOverwriteOnTheFlyBook: "Cannot overwrite the book being loaded in on-the-fly mode.",
+  enterBookSavePath: "Enter the destination path of the book.",
   pleaseSpecifyOtherFileName: "Please specify other file name.",
   sourceRecordFileNotSet: "Source record file is not set.",
   sourceDirectoryNotSet: "Source directory is not set.",

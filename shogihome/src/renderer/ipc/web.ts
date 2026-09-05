@@ -401,7 +401,7 @@ export const webAPI: Bridge = {
     if (!json.enabled) {
       throw new Error(t.thisFeatureNotAvailableOnWebApp);
     }
-    const path = window.prompt(t.cannotOverwriteOnTheFlyBook, defaultPath);
+    const path = window.prompt(t.enterBookSavePath, defaultPath);
     if (!path) {
       return "";
     }

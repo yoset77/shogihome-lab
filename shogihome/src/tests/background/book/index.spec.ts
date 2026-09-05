@@ -125,10 +125,7 @@ describe("background/book", () => {
             expect(moves4).toHaveLength(3);
 
             // comments
-            expect(moves[0].comment).toBe(
-              // In on-the-fly mode, comment-only lines will be ignored.
-              pattern.mode === "in-memory" ? "multi line comment 1\nmulti line comment 2" : "",
-            );
+            expect(moves[0].comment).toBe("multi line comment 1\nmulti line comment 2");
             expect(moves[1].comment).toBe("single line comment");
             expect(moves[2].comment).toBe("");
           });
@@ -934,11 +931,254 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
       expect(output).toBe(expected);
     });
 
-    it("forbidOverwrite", async () => {
-      const path = "src/tests/testdata/book/yaneuraou.db";
-      const mode = await openBook(defaultBookSession, path, { onTheFlyThresholdMB: 0.0001 });
-      expect(mode).toBe("on-the-fly");
-      await expect(saveBook(defaultBookSession, path)).rejects.toThrow();
+    describe("overwriteOnTheFly", () => {
+      const startSfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+
+      async function openOnTheFly(source: string, filePath: string): Promise<void> {
+        fs.copyFileSync(source, filePath);
+        const mode = await openBook(defaultBookSession, filePath, {
+          onTheFlyThresholdMB: 0.0001,
+          sbkOnTheFlyThresholdMB: 0.000001,
+        });
+        expect(mode).toBe("on-the-fly");
+      }
+
+      async function searchInFreshSession(filePath: string, sfen: string) {
+        const { session } = await openBookAsNewSession(filePath, {
+          onTheFlyThresholdMB: 256,
+          sbkOnTheFlyThresholdMB: 256,
+        });
+        try {
+          return await searchBookMoves(session, sfen);
+        } finally {
+          closeBookSession(session);
+        }
+      }
+
+      it("yaneuraou", async () => {
+        const filePath = path.join(tmpdir, "overwrite.db");
+        await openOnTheFly("src/tests/testdata/book/yaneuraou.db", filePath);
+
+        await updateBookMove(defaultBookSession, startSfen, {
+          usi: "2g2f",
+          usi2: "8c8d",
+          score: 42,
+          depth: 20,
+          count: 123,
+          comment: "overwrite",
+        });
+        await saveBook(defaultBookSession, filePath);
+
+        // The session reflects exactly the published content: the file handle
+        // was switched to the new file and the patches were consumed.
+        const moves = await searchBookMoves(defaultBookSession, startSfen);
+        expect(moves[0]).toMatchObject({
+          usi: "2g2f",
+          usi2: "8c8d",
+          score: 42,
+          depth: 20,
+          count: 123,
+        });
+        const fresh = await searchInFreshSession(filePath, startSfen);
+        expect(fresh[0]).toMatchObject({
+          usi: "2g2f",
+          usi2: "8c8d",
+          score: 42,
+          depth: 20,
+          count: 123,
+          comment: "overwrite",
+        });
+        expect(moves).toEqual(fresh);
+
+        // Saving again without edits must not change the file (no
+        // double-application of consumed patches).
+        const hash = await sha256File(filePath);
+        await saveBook(defaultBookSession, filePath);
+        expect(await sha256File(filePath)).toBe(hash);
+      });
+
+      it("preserves move comments after overwriting, reordering, and overwriting again", async () => {
+        const filePath = path.join(tmpdir, "overwrite-comments.db");
+        await openOnTheFly("src/tests/testdata/book/yaneuraou.db", filePath);
+        await updateBookMove(defaultBookSession, startSfen, {
+          usi: "2g2f",
+          comment: "first line\nsecond line",
+        });
+        await saveBook(defaultBookSession, filePath);
+
+        await updateBookMoveOrder(defaultBookSession, startSfen, "2g2f", 1);
+        await saveBook(defaultBookSession, filePath);
+
+        const fresh = await searchInFreshSession(filePath, startSfen);
+        expect(fresh[0]).toMatchObject({ usi: "7g7f", comment: "single line comment" });
+        expect(fresh[1]).toMatchObject({ usi: "2g2f", comment: "first line\nsecond line" });
+        expect(await searchBookMoves(defaultBookSession, startSfen)).toEqual(fresh);
+      });
+
+      it("apery", async () => {
+        const filePath = path.join(tmpdir, "overwrite.bin");
+        await openOnTheFly("src/tests/testdata/book/apery.bin", filePath);
+        const sfen = "lnsgkgsnl/1r5b1/p1pppp1pp/1p4p2/9/2P4P1/PP1PPPP1P/1B5R1/LNSGKGSNL b - 5";
+
+        await updateBookMove(defaultBookSession, sfen, {
+          usi: "2f2e",
+          score: 42,
+          count: 123,
+          comment: "",
+        });
+        await saveBook(defaultBookSession, filePath);
+
+        const moves = await searchBookMoves(defaultBookSession, sfen);
+        expect(moves).toHaveLength(1);
+        expect(moves[0].usi).toBe("2f2e");
+        expect(moves[0].score).toBe(42);
+        expect(moves).toEqual(await searchInFreshSession(filePath, sfen));
+
+        const hash = await sha256File(filePath);
+        await saveBook(defaultBookSession, filePath);
+        expect(await sha256File(filePath)).toBe(hash);
+      });
+
+      it("ybb", async () => {
+        const filePath = path.join(tmpdir, "overwrite.ybb");
+        await openOnTheFly("src/tests/testdata/book/yaneuraou.ybb", filePath);
+
+        await updateBookMove(
+          defaultBookSession,
+          "lnsgkgsnl/1r5b1/ppppppppp/9/9/7P1/PPPPPPP1P/1B5R1/LNSGKGSNL w - 1",
+          { usi: "3c3d", score: -123, depth: 41, comment: "" },
+        );
+        await updateBookMove(
+          defaultBookSession,
+          "lnsgkgsnl/1r5b1/pppppp1pp/6p2/9/7P1/PPPPPPP1P/1B5R1/LNSGKGSNL b - 1",
+          { usi: "7g7f", depth: 39, comment: "" },
+        );
+        await updateBookMove(defaultBookSession, startSfen, {
+          usi: "2h7h",
+          score: 43,
+          comment: "",
+        });
+        await saveBook(defaultBookSession, filePath);
+
+        const output = fs.readFileSync(filePath, "hex");
+        const expected = fs.readFileSync("src/tests/testdata/book/yaneuraou-edit.ybb", "hex");
+        expect(output).toBe(expected);
+        const moves = await searchBookMoves(defaultBookSession, startSfen);
+        expect(moves).toEqual(await searchInFreshSession(filePath, startSfen));
+
+        const hash = await sha256File(filePath);
+        await saveBook(defaultBookSession, filePath);
+        expect(await sha256File(filePath)).toBe(hash);
+      });
+
+      it("sbk", async () => {
+        const filePath = path.join(tmpdir, "overwrite.sbk");
+        await openOnTheFly("src/tests/testdata/book/shogihome01.sbk", filePath);
+        const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+
+        const target = (await searchBookMoves(defaultBookSession, sfen))[0];
+        await updateBookMove(defaultBookSession, sfen, {
+          ...target,
+          evaluation: SbkMoveEvaluation.Good,
+        });
+        await saveBook(defaultBookSession, filePath);
+
+        const saved = loadSbkBook(fs.readFileSync(filePath));
+        const savedMove = saved.entries.get(sfen)?.moves.find((move) => move.usi === target.usi);
+        expect(savedMove?.evaluation).toBe(SbkMoveEvaluation.Good);
+        const moves = await searchBookMoves(defaultBookSession, sfen);
+        expect(moves).toEqual(await searchInFreshSession(filePath, sfen));
+
+        const hash = await sha256File(filePath);
+        await saveBook(defaultBookSession, filePath);
+        expect(await sha256File(filePath)).toBe(hash);
+      });
+
+      it("keeps the original file and the unsaved edits when the rename fails", async () => {
+        const filePath = path.join(tmpdir, "overwrite-rename-failure.db");
+        await openOnTheFly("src/tests/testdata/book/yaneuraou.db", filePath);
+        await updateBookMove(defaultBookSession, startSfen, {
+          usi: "2g2f",
+          usi2: "8c8d",
+          score: 42,
+          comment: "unsaved",
+        });
+        const originalHash = await sha256File(filePath);
+
+        const renameSpy = vi
+          .spyOn(fs.promises, "rename")
+          .mockRejectedValueOnce(new Error("rename failed"));
+        await expect(saveBook(defaultBookSession, filePath)).rejects.toThrow("rename failed");
+        renameSpy.mockRestore();
+
+        // The original file and the unsaved edits are kept.
+        expect(await sha256File(filePath)).toBe(originalHash);
+        const moves = await searchBookMoves(defaultBookSession, startSfen);
+        expect(moves[0].usi2).toBe("8c8d");
+        expect(moves[0].comment).toBe("unsaved");
+
+        // The session is still usable and the next save succeeds.
+        await saveBook(defaultBookSession, filePath);
+        const savedMoves = await searchBookMoves(defaultBookSession, startSfen);
+        const savedFresh = await searchInFreshSession(filePath, startSfen);
+        expect(savedFresh[0]).toMatchObject({
+          usi: "2g2f",
+          usi2: "8c8d",
+          score: 42,
+          comment: "unsaved",
+        });
+        expect(savedMoves).toEqual(savedFresh);
+        expect(fs.readdirSync(tmpdir).filter((name) => name.startsWith(".atomic-"))).toEqual([]);
+      });
+
+      it("keeps the original file and the unsaved edits when preparing the new book fails", async () => {
+        const filePath = path.join(tmpdir, "overwrite-prepare-failure.db");
+        await openOnTheFly("src/tests/testdata/book/yaneuraou.db", filePath);
+        await updateBookMove(defaultBookSession, startSfen, {
+          usi: "2g2f",
+          usi2: "8c8d",
+          score: 42,
+          comment: "unsaved",
+        });
+        const originalHash = await sha256File(filePath);
+
+        // Reject opening the temporary file for reading during the prepare
+        // phase (mode "r" on an atomic temporary file).
+        const originalOpen = fs.promises.open.bind(fs.promises);
+        const openSpy = vi.spyOn(fs.promises, "open").mockImplementation(((
+          path: fs.PathLike,
+          flags: string,
+          mode?: number,
+        ) => {
+          if (
+            flags === "r" &&
+            typeof path === "string" &&
+            path.includes(".atomic-") &&
+            path.endsWith(".tmp")
+          ) {
+            return Promise.reject(new Error("open failed"));
+          }
+          return originalOpen(path, flags, mode) as ReturnType<typeof fs.promises.open>;
+        }) as typeof fs.promises.open);
+        await expect(saveBook(defaultBookSession, filePath)).rejects.toThrow("open failed");
+        openSpy.mockRestore();
+
+        expect(await sha256File(filePath)).toBe(originalHash);
+        const moves = await searchBookMoves(defaultBookSession, startSfen);
+        expect(moves[0].comment).toBe("unsaved");
+
+        await saveBook(defaultBookSession, filePath);
+        const savedMoves = await searchBookMoves(defaultBookSession, startSfen);
+        const savedFresh = await searchInFreshSession(filePath, startSfen);
+        expect(savedFresh[0]).toMatchObject({
+          usi: "2g2f",
+          usi2: "8c8d",
+          score: 42,
+          comment: "unsaved",
+        });
+        expect(savedMoves).toEqual(savedFresh);
+        expect(fs.readdirSync(tmpdir).filter((name) => name.startsWith(".atomic-"))).toEqual([]);
+      });
     });
   });
 

@@ -296,6 +296,35 @@ describe("Book Session API", () => {
     expect(response.textBody).toContain("max 100000");
   });
 
+  it("should serialize a search behind an in-flight save on the same session", async () => {
+    const releaseSave = deferred<void>();
+    vi.mocked(bookAPI.saveBook).mockImplementation(() => releaseSave.promise);
+
+    const saveRequest = requestApp(app, "POST", "/api/book/save?path=test.db", {
+      host,
+      headers: { "X-Book-Session-Id": "save-lock-client" },
+    });
+    await vi.waitFor(() => expect(bookAPI.saveBook).toHaveBeenCalled());
+
+    let searchFinished = false;
+    const searchRequest = requestApp(app, "GET", "/api/book/search?sfen=startpos", {
+      host,
+      headers: { "X-Book-Session-Id": "save-lock-client" },
+    }).then((response: TestResponse) => {
+      searchFinished = true;
+      return response;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(searchFinished).toBe(false);
+
+    releaseSave.resolve(undefined);
+    const saveResponse = await saveRequest;
+    expect(saveResponse.status).toBe(200);
+    const searchResponse = await searchRequest;
+    expect(searchResponse.status).toBe(200);
+  });
+
   it("should return batch search results in correct order even with worker pool", async () => {
     const sfens = Array.from({ length: 100 }, (_, i) => `sfen_at_index_${i}`);
     const response = await requestApp(app, "POST", "/api/book/search/batch", {

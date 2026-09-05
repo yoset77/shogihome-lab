@@ -1,7 +1,55 @@
+import fs from "node:fs";
+import path from "node:path";
 import { Readable } from "node:stream";
-import { loadYaneuraOuBook, validateBookPositionOrdering } from "@/server/book/yaneuraou";
+import {
+  loadYaneuraOuBook,
+  searchYaneuraOuBookMovesOnTheFly,
+  validateBookPositionOrdering,
+} from "@/server/book/yaneuraou";
+import { getTempPathForTesting } from "@/tests/helpers/temp";
 
 describe("background/book/yaneuraou", () => {
+  it.each(["\n", "\r\n"])(
+    "preserves position and move comments on-the-fly with %j",
+    async (eol) => {
+      const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+      const text = [
+        "#YANEURAOU-DB2016 1.00",
+        `sfen ${sfen}`,
+        "#position comment",
+        "//\u5c40\u9762",
+        "2g2f none 42 20 1 #inline",
+        "#\u6307\u3057\u624b",
+        "//second line",
+        "7g7f none 20 18 2",
+        "#another move",
+        "sfen lnsgkgsnl/1r7/p1ppp1bpp/1p3pp2/7P1/2P6/PP1PPPP1P/1B3S1R1/LNSGKG1NL b - 1",
+        "7i6h none 0 10 1",
+        "",
+      ].join(eol);
+      const directory = getTempPathForTesting();
+      fs.mkdirSync(directory, { recursive: true });
+      const filePath = path.join(directory, `comments-${eol.length}.db`);
+      fs.writeFileSync(filePath, text);
+      const file = await fs.promises.open(filePath, "r");
+      try {
+        const expected = (await loadYaneuraOuBook(Readable.from([text]))).entries.get(sfen);
+        expect(expected).toMatchObject({
+          comment: "position comment\n\u5c40\u9762",
+          moves: [
+            { usi: "2g2f", comment: "inline\n\u6307\u3057\u624b\nsecond line" },
+            { usi: "7g7f", comment: "another move" },
+          ],
+        });
+        expect(await searchYaneuraOuBookMovesOnTheFly(sfen, file, Buffer.byteLength(text))).toEqual(
+          expected,
+        );
+      } finally {
+        await file.close();
+      }
+    },
+  );
+
   describe("loadYaneuraOuBook", () => {
     it("ok", async () => {
       const input = Readable.from([
