@@ -6,6 +6,7 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { normalizePath } from "@/common/helpers/path";
+import { isValidServerEntryName } from "@/common/file/upload";
 import {
   clearKifuListCache,
   getKifuDirectoryList,
@@ -13,6 +14,7 @@ import {
   getPositionList,
   getServerFileKind,
   resolveKifuDirectory,
+  resolveNewKifuDirectory,
   resolveKifuPath,
 } from "@/server/helpers/kifu";
 import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
@@ -108,6 +110,37 @@ function parseSearchQuery(value: unknown): KifuSearchQuery | null {
 }
 
 export const kifuRoutes = new Hono<AppEnv>()
+  .post(
+    "/directories",
+    createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
+    validator("json", (value, c) => {
+      if (
+        !value ||
+        typeof value.parent !== "string" ||
+        typeof value.name !== "string" ||
+        !isValidServerEntryName(value.name)
+      ) {
+        return sendError(c, 400, "invalid directory name or parent");
+      }
+      return { parent: value.parent, name: value.name };
+    }),
+    async (c) => {
+      if (!KIFU_DIR) return sendError(c, 404, "KIFU_DIR is not configured");
+      const { parent, name } = c.req.valid("json");
+      const fullPath = resolveNewKifuDirectory(KIFU_DIR, parent, name);
+      if (!fullPath) return sendError(c, 400, "invalid destination directory");
+      try {
+        await fs.promises.mkdir(fullPath);
+      } catch (error) {
+        if (isNodeError(error) && error.code === "EEXIST") {
+          return sendError(c, 409, "directory already exists");
+        }
+        throw error;
+      }
+      clearKifuListCache();
+      return c.json({ name, path: normalizePath(path.relative(KIFU_DIR, fullPath)) }, 201);
+    },
+  )
   .get(
     "/directories",
     validator("query", (value) => ({ dir: getString(value.dir) ?? "" })),
@@ -138,6 +171,9 @@ export const kifuRoutes = new Hono<AppEnv>()
       const query = c.req.valid("query");
       if (!query.path) {
         return sendError(c, 400, "path is required");
+      }
+      if (!isValidServerEntryName(query.path.split("/").at(-1) ?? "")) {
+        return sendError(c, 400, "invalid file name");
       }
       if (
         query.overwrite !== undefined &&

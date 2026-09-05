@@ -827,12 +827,18 @@ export const ja: Texts = {
   saveToServer: "サーバーに保存",
   upload: "アップロード",
   uploadDestination: "アップロード先",
+  uploadFileName: "保存名",
+  rootDirectory: "Root",
+  createNewFolder: "フォルダーを作成",
+  folderName: "フォルダー名",
+  invalidServerEntryName: (name: string) =>
+    `名前が無効です。使用する文字と長さを確認してください。\n${name}`,
   selectFiles: "ファイル選択",
   nFilesUploaded: (n: number) => `${n}件のファイルをアップロードしました。`,
   overwriteUploadConflicts: (names: string) =>
     `同名のファイルが存在します。上書きしますか？\n${names}`,
   duplicateUploadFileNames: (names: string) =>
-    `同じ名前のファイルが複数選択されています。\n${names}`,
+    `保存名が重複しています。それぞれ異なる名前を指定してください。\n${names}`,
   unsupportedUploadFiles: (names: string) => `対応していないファイル形式です。\n${names}`,
   search: "検索",
   analysisDBSearchTimedOut: "DB検索がタイムアウトしました。",

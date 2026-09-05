@@ -828,11 +828,17 @@ export const vi: Texts = {
   saveToServer: "Lưu vào máy chủ",
   upload: "Tải lên",
   uploadDestination: "Thư mục tải lên",
+  uploadFileName: "Tên lưu",
+  rootDirectory: "Gốc",
+  createNewFolder: "Tạo thư mục mới",
+  folderName: "Tên thư mục",
+  invalidServerEntryName: (name: string) => `Tên không hợp lệ. Kiểm tra ký tự và độ dài.\n${name}`,
   selectFiles: "Chọn tệp",
   nFilesUploaded: (n: number) => `Đã tải lên ${n} tệp.`,
   overwriteUploadConflicts: (names: string) =>
     `Đã có tệp trùng tên. Bạn có muốn ghi đè không?\n${names}`,
-  duplicateUploadFileNames: (names: string) => `Đã chọn nhiều tệp trùng tên.\n${names}`,
+  duplicateUploadFileNames: (names: string) =>
+    `Tên lưu phải khác nhau. Hãy đổi tên các tệp trùng nhau.\n${names}`,
   unsupportedUploadFiles: (names: string) => `Định dạng tệp không được hỗ trợ.\n${names}`,
   search: "Tìm kiếm",
   analysisDBSearchTimedOut: "Đã hết thời gian tìm kiếm cơ sở dữ liệu phân tích.",

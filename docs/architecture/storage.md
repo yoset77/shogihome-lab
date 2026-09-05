@@ -49,6 +49,7 @@ Server data rootは [`src/node/proc/path.ts`](../../shogihome/src/node/proc/path
 - Directory scanではsymlinkを追跡しません。
 - 外部変更を検出した場合は、関連cacheとindex synchronizationへ通知します。
 - Browserからのuploadは既存directoryだけを保存先として許可し、形式別の容量制限を適用してからatomicに公開します。
+- Browserからのdirectory作成は、検証済みの既存parent直下の1階層に限定します。共有name validatorとpath resolverで名前・深さ・symlinkを検証し、既存entryは置き換えません。Upload時の保存名指定は、新しいfileの保存先を指定する操作であり、既存fileのrenameではありません。
 
 Rendererの `server://` URIは `KIFU_DIR` 相対pathを表す論理識別子であり、アクセス権限ではありません。各routeはURIを直接filesystem pathとして使用せず、必ずServerのresolverを通します。
 

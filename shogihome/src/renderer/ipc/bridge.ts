@@ -9,7 +9,11 @@ import type {
   SfenExportJobStatus,
   SfenExportRequest,
 } from "@/common/file/sfen_export";
-import type { ServerDirectoryList, ServerFileUploadResult } from "@/common/file/upload";
+import type {
+  ServerDirectoryEntry,
+  ServerDirectoryList,
+  ServerFileUploadResult,
+} from "@/common/file/upload";
 
 export interface Bridge {
   // Core
@@ -119,6 +123,7 @@ export interface Bridge {
   isServerKifuEnabled(): Promise<boolean>;
   listServerKifu(dir?: string, reload?: boolean): Promise<KifuListEntry[]>;
   listServerDirectories(dir?: string): Promise<ServerDirectoryList>;
+  createServerDirectory(parent: string, name: string): Promise<ServerDirectoryEntry>;
   uploadServerFile(path: string, file: File, overwrite?: boolean): Promise<ServerFileUploadResult>;
   searchServerKifu(
     params: KifuSearchQuery & { limit?: number; offset?: number },

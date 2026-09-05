@@ -96,7 +96,7 @@ flowchart LR
 | Server ↔ Engine Wrapper       | engine session、list、auth module と両 wrapper 実装が line protocol を共有します。                             |
 | Wrapper ↔ USI Engine          | Wrapper は byte/line relay と process lifecycle を担当し、USI state は解釈しません。                           |
 | Server ↔ Vision Worker        | Server が JSON Lines envelope、response shape、SFEN を検証します。                                             |
-| Server ↔ `KIFU_DIR`           | 集中化された path resolver が traversal、real path、symlink、extension を検証します。Browser uploadは容量を制限し、atomicに公開します。 |
+| Server ↔ `KIFU_DIR`           | 集中化された path resolver が traversal、real path、symlink、extension を検証します。Browser uploadは保存名と容量を検証してatomicに公開し、directory作成は検証済みparent直下の1階層に限定します。 |
 | Server ↔ external kifu source | Server が allowlist と resource limit を適用し、Browser が任意URLを直接指定できないようにします。              |
 
 Host、Origin、body size、rate limit などのHTTP共通ポリシーは `shogihome/src/server/security.ts` と `shogihome/src/server/hono.ts` が所有します。

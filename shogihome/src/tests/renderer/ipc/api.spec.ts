@@ -81,6 +81,17 @@ describe("renderer/ipc/api", () => {
     expect((callArgs[1]?.headers as Headers).get("Content-Type")).toBe("application/octet-stream");
   });
 
+  it("creates a server directory with a separate parent and name", async () => {
+    const { default: api } = await import("@/renderer/ipc/api.js");
+    await api.createServerDirectory("games", "2026");
+
+    const mockFn = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const [url, init] = mockFn.mock.calls[0];
+    expect(new URL(url as string).pathname).toBe("/api/kifu/directories");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ parent: "games", name: "2026" });
+  });
+
   it("serializes book move order as a query string", async () => {
     const { default: api } = await import("@/renderer/ipc/api.js");
 
