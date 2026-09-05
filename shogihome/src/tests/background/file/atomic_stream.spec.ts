@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { finished } from "node:stream/promises";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeStreamAtomic } from "@/server/file/atomic_stream";
 
 describe("file/atomic_stream", () => {
@@ -84,5 +84,134 @@ describe("file/atomic_stream", () => {
 
     expect(fs.readFileSync(outputPath, "utf8")).toBe("kifu");
     expect(fs.readdirSync(rootDir)).toEqual([name]);
+  });
+
+  it("publishes the target only after beforePublish completes", async () => {
+    const outputPath = path.join(rootDir, "result.sfen");
+    fs.writeFileSync(outputPath, "old");
+    const observed: string[] = [];
+
+    await writeStreamAtomic(
+      outputPath,
+      async (stream) => {
+        stream.end("new");
+        await finished(stream);
+      },
+      {
+        beforePublish: async (tempFilePath) => {
+          observed.push(fs.readFileSync(tempFilePath, "utf8"));
+          observed.push(fs.readFileSync(outputPath, "utf8"));
+        },
+        onPublished: () => {
+          observed.push(fs.readFileSync(outputPath, "utf8"));
+        },
+      },
+    );
+
+    expect(observed).toEqual(["new", "old", "new"]);
+    expect(fs.readFileSync(outputPath, "utf8")).toBe("new");
+  });
+
+  it("does not replace the target when beforePublish fails", async () => {
+    const outputPath = path.join(rootDir, "result.sfen");
+    fs.writeFileSync(outputPath, "old");
+
+    await expect(
+      writeStreamAtomic(
+        outputPath,
+        async (stream) => {
+          stream.end("new");
+          await finished(stream);
+        },
+        {
+          beforePublish: async () => {
+            throw new Error("prepare failed");
+          },
+        },
+      ),
+    ).rejects.toThrow("prepare failed");
+
+    expect(fs.readFileSync(outputPath, "utf8")).toBe("old");
+    expect(fs.readdirSync(rootDir)).toEqual(["result.sfen"]);
+  });
+
+  it("resolves when the post-publish callback fails", async () => {
+    const outputPath = path.join(rootDir, "result.sfen");
+    fs.writeFileSync(outputPath, "old");
+    const errorListener = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      await expect(
+        writeStreamAtomic(
+          outputPath,
+          async (stream) => {
+            stream.end("new");
+            await finished(stream);
+          },
+          {
+            onPublished: () => {
+              throw new Error("post-publish failed");
+            },
+          },
+        ),
+      ).resolves.toBeUndefined();
+      expect(fs.readFileSync(outputPath, "utf8")).toBe("new");
+      expect(errorListener).toHaveBeenCalled();
+    } finally {
+      errorListener.mockRestore();
+    }
+  });
+
+  it.each(["handler", "beforePublish"])(
+    "rejects when %s rejects without a reason",
+    async (phase) => {
+      const outputPath = path.join(rootDir, "result.sfen");
+      fs.writeFileSync(outputPath, "old");
+      const onPublished = vi.fn();
+
+      await expect(
+        writeStreamAtomic(
+          outputPath,
+          async (stream) => {
+            stream.end("new");
+            await finished(stream);
+            if (phase === "handler") {
+              return Promise.reject();
+            }
+          },
+          {
+            beforePublish: async () => {
+              if (phase === "beforePublish") {
+                return Promise.reject();
+              }
+            },
+            onPublished,
+          },
+        ),
+      ).rejects.toBeUndefined();
+
+      expect(onPublished).not.toHaveBeenCalled();
+      expect(fs.readFileSync(outputPath, "utf8")).toBe("old");
+      expect(fs.readdirSync(rootDir)).toEqual(["result.sfen"]);
+      await writeStreamAtomic(outputPath, async (stream) => {
+        stream.end("retry");
+        await finished(stream);
+      });
+      expect(fs.readFileSync(outputPath, "utf8")).toBe("retry");
+    },
+  );
+
+  it("rejects with the handler error and keeps the target intact", async () => {
+    const outputPath = path.join(rootDir, "result.sfen");
+    fs.writeFileSync(outputPath, "old");
+
+    await expect(
+      writeStreamAtomic(outputPath, async () => {
+        throw new Error("handler failed");
+      }),
+    ).rejects.toThrow("handler failed");
+
+    expect(fs.readFileSync(outputPath, "utf8")).toBe("old");
+    expect(fs.readdirSync(rootDir)).toEqual(["result.sfen"]);
   });
 });

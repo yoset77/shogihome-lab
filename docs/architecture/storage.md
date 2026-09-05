@@ -84,6 +84,18 @@ Browser uploadは1 fileを1 requestのraw bodyとしてstreamingし、全体をm
 - Session IDはresourceを選択する識別子であり、認証credentialではありません。
 - 同じfileを複数sessionが開く場合、file publicationの排他と編集競合の解決は別の問題です。暗黙の共同編集を仮定しません。
 
+### On-the-fly Bookの上書き保存
+
+On-the-fly modeで読み込み中の定跡は、読み込み元のfileへの上書き保存が可能です。公開とsession状態の切り替えは次の契約に従います。
+
+- マージ結果は同じdirectoryの一時fileへ書き出され、writer lock内でatomicなrenameにより公開されます。保存途中の内容がtargetへ公開されることはありません。
+- 公開前に、一時fileから読み取りhandleや形式別metadataを含む新しいsession状態を構築して検証します。失敗した場合はtargetを変更せず、元のfile、旧handle、未保存の編集差分をそのまま維持します。
+- 公開成功直後（writer lock保持中）に、sessionを準備済みの状態へ切り替えます。sessionは公開済みの内容と一致し、取り込み済みの差分を再適用しません。公開後にtargetのpathを再オープンしないため、別writerによる置換を取り込むこともありません。
+- 公開後のcleanup（旧handleのclose、lock解放）の失敗は保存の失敗に変換せず、logに記録します。
+- Windowsを含む環境でrenameが許可されない場合は、安全に保存を失敗させます。元fileの削除や直接上書きへのフォールバックは行いません。
+- SBKでは、旧sessionのraw dataとindexを保持したまま新しいindexを構築するため、その分をmemory予算に含めて検証します。予算を超える場合は公開前に拒否します。
+- この保証は論理的な公開とwriter排他であり、電源断に対する完全なdurability、外部processによる直接書き換え、複数session間の編集競合の自動解決を含みません。
+
 ## History and Backups
 
 [`file/history.ts`](../../shogihome/src/server/file/history.ts) がServer共有のrecord historyとbackupを所有します。Read-modify-writeはprocess内lockで直列化し、文書全体をatomicに置き換えます。

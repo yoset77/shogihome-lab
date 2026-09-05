@@ -42,6 +42,7 @@ export function validateSbkIndexConstructionMemory(
   stateCount: number,
   moveCount: number,
   evalCount: number,
+  reservedBytes: number = 0,
 ): number {
   const estimatedBytes = estimateSbkIndexConstructionBytes(
     rawBytes,
@@ -49,8 +50,9 @@ export function validateSbkIndexConstructionMemory(
     moveCount,
     evalCount,
   );
-  if (estimatedBytes > SBK_INDEX_CONSTRUCTION_BUDGET_BYTES) {
-    throw new Error(`SBK index construction exceeds memory budget: ${estimatedBytes} bytes`);
+  const totalBytes = estimatedBytes + reservedBytes;
+  if (totalBytes > SBK_INDEX_CONSTRUCTION_BUDGET_BYTES) {
+    throw new Error(`SBK index construction exceeds memory budget: ${totalBytes} bytes`);
   }
   return estimatedBytes;
 }
@@ -531,8 +533,15 @@ function fillPackedSfenByTraversal(
 function buildSbkOnTheFlyIndex(
   rawData: Uint8Array,
   { stateCount, moveCount, evalCount }: SBookScanResult,
+  reservedBytes: number,
 ): SbkOnTheFlyLUT {
-  validateSbkIndexConstructionMemory(rawData.byteLength, stateCount, moveCount, evalCount);
+  validateSbkIndexConstructionMemory(
+    rawData.byteLength,
+    stateCount,
+    moveCount,
+    evalCount,
+    reservedBytes,
+  );
   const table = new Uint32Array(stateCount * SBK_ON_THE_FLY_ROW_SIZE);
 
   buildStateOffsetTable(rawData, table, stateCount);
@@ -592,6 +601,7 @@ function searchOnTheFlyRow(sfen: string, index: SbkOnTheFlyLUT): number | undefi
 export async function loadSbkBookOnTheFly(
   path: string,
   maxSizeBytes: number = MAX_SBK_BOOK_SIZE_BYTES,
+  reservedBytes: number = 0,
 ): Promise<SbkBook> {
   const file = await fs.promises.open(path, "r");
   try {
@@ -599,7 +609,9 @@ export async function loadSbkBookOnTheFly(
     if (stat.size > maxSizeBytes) {
       throw new Error(`SBK file too large: ${stat.size} bytes`);
     }
-    validateSbkIndexConstructionMemory(stat.size, 0, 0, 0);
+    // reservedBytes accounts for data that stays alive while this book is
+    // constructed (e.g. the previous on-the-fly book being replaced).
+    validateSbkIndexConstructionMemory(stat.size, 0, 0, 0, reservedBytes);
     const rawData = await readFileWithValidatedSize(file, stat.size);
     const scanResult = scanSBookTopLevel(rawData);
     const { sbkAuthor, sbkDescription } = scanResult;
@@ -608,7 +620,7 @@ export async function loadSbkBookOnTheFly(
       entries: new Map<string, BookEntry>(),
       sbkAuthor,
       sbkDescription,
-      sbkIndex: buildSbkOnTheFlyIndex(rawData, scanResult),
+      sbkIndex: buildSbkOnTheFlyIndex(rawData, scanResult, reservedBytes),
       rawData,
     };
   } finally {

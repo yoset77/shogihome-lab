@@ -737,7 +737,7 @@ export const ja: Texts = {
   selectedBookFileIsAlreadyOpen: "選択した定跡ファイルは既に開かれています。",
   saveOrClearCurrentBookBeforeOpeningAnother:
     "別の定跡を開く前に、現在の定跡を保存または初期化してください。",
-  cannotOverwriteOnTheFlyBook: "On-the-fly モードで読み込み中の定跡は上書き保存できません。",
+  enterBookSavePath: "定跡の保存先パスを入力してください。",
   pleaseSpecifyOtherFileName: "別のファイル名を指定してください。",
   sourceRecordFileNotSet: "棋譜ファイルが指定されていません。",
   sourceDirectoryNotSet: "フォルダを選択してください。",

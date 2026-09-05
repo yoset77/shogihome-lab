@@ -739,7 +739,7 @@ export const vi: Texts = {
   selectedBookFileIsAlreadyOpen: "Tệp định thức đã chọn đang được mở.",
   saveOrClearCurrentBookBeforeOpeningAnother:
     "Hãy lưu hoặc xóa định thức hiện tại trước khi mở định thức khác.",
-  cannotOverwriteOnTheFlyBook: "Cannot overwrite the book being loaded in on-the-fly mode.",
+  enterBookSavePath: "Enter the destination path of the book.",
   pleaseSpecifyOtherFileName: "Please specify other file name.",
   sourceRecordFileNotSet: "Chưa chỉ định tệp kỳ phổ gốc.",
   sourceDirectoryNotSet: "Vui lòng chọn một tập tin.",

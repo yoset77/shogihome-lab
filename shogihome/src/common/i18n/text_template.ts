@@ -715,7 +715,7 @@ export type Texts = {
   anyBookMovesAreUnsavedDoYouReallyWantToDiscardThemAndCloseTheBook: string;
   selectedBookFileIsAlreadyOpen: string;
   saveOrClearCurrentBookBeforeOpeningAnother: string;
-  cannotOverwriteOnTheFlyBook: string;
+  enterBookSavePath: string;
   pleaseSpecifyOtherFileName: string;
   sourceRecordFileNotSet: string;
   sourceDirectoryNotSet: string;

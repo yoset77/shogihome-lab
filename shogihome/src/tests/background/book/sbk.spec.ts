@@ -162,6 +162,46 @@ describe("background/book/sbk", () => {
     );
   });
 
+  it("takes reserved memory into account in the construction budget", () => {
+    // Replacing an on-the-fly book keeps the old raw data and index alive
+    // until the new book is published.
+    const estimated = estimateSbkIndexConstructionBytes(1024, 2, 3, 4);
+    const reserved = 512 * 1024 * 1024 - estimated;
+    expect(validateSbkIndexConstructionMemory(1024, 2, 3, 4, reserved)).toBe(estimated);
+    expect(() => validateSbkIndexConstructionMemory(1024, 2, 3, 4, reserved + 1)).toThrow(
+      "SBK index construction exceeds memory budget",
+    );
+  });
+
+  it("includes reserved memory in the detailed on-the-fly index budget", async () => {
+    const filePath = "src/tests/testdata/book/shogihome01.sbk";
+    const rawBytes = fs.statSync(filePath).size;
+    const reserved = 512 * 1024 * 1024 - estimateSbkIndexConstructionBytes(rawBytes, 0);
+    // The preliminary raw-data check fits exactly; the scanned index does not.
+    expect(() => validateSbkIndexConstructionMemory(rawBytes, 0, 0, 0, reserved)).not.toThrow();
+    await expect(loadSbkBookOnTheFly(filePath)).resolves.toBeDefined();
+    await expect(loadSbkBookOnTheFly(filePath, MAX_SBK_BOOK_SIZE_BYTES, reserved)).rejects.toThrow(
+      "SBK index construction exceeds memory budget",
+    );
+  });
+
+  it("rejects an on-the-fly load when reserved memory exceeds the budget", async () => {
+    const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "shogihome-sbk-"));
+    const filePath = path.join(directory, "book.sbk");
+    try {
+      await fs.promises.writeFile(
+        filePath,
+        SBook.encode({ Author: "", Description: "", BookStates: [] }).finish(),
+      );
+      await expect(
+        loadSbkBookOnTheFly(filePath, MAX_SBK_BOOK_SIZE_BYTES, 512 * 1024 * 1024 + 1),
+      ).rejects.toThrow("SBK index construction exceeds memory budget");
+      await expect(loadSbkBookOnTheFly(filePath)).resolves.toBeDefined();
+    } finally {
+      await fs.promises.rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     { sourceIds: [], expectedMaxStateId: -1, expectedNewStateId: 0 },
     { sourceIds: [10, 3, 20], expectedMaxStateId: 20, expectedNewStateId: 21 },

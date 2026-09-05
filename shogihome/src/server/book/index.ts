@@ -270,58 +270,89 @@ function closeWriteStream(stream: fs.WriteStream): Promise<void> {
   });
 }
 
-async function openBookOnTheFly(session: number, path: string, size: number): Promise<void> {
-  getAppLogger().info("Loading book on-the-fly: path=%s size=%d", path, size);
-  const format = getFormatByPath(path);
+// Build a new on-the-fly book without touching any existing session state.
+// readPath is the file to read from and sessionPath is the path recorded in the
+// session. They differ when the book is prepared from a temporary file that is
+// published to sessionPath afterwards.
+async function buildOnTheFlyBook(
+  format: BookFormat,
+  readPath: string,
+  sessionPath: string,
+  reservedMemoryBytes = 0,
+): Promise<OnTheFlyBook> {
   if (format === "sbk") {
-    replaceBook(session, {
+    const book = await loadSbkBookOnTheFly(readPath, MAX_SBK_BOOK_SIZE_BYTES, reservedMemoryBytes);
+    return {
       type: "on-the-fly",
-      path,
-      size,
+      path: sessionPath,
+      size: book.rawData!.byteLength,
       saved: true,
       busy: false,
-      ...(await loadSbkBookOnTheFly(path)),
-    });
-    return;
+      ...book,
+    };
   }
   if (format === "ybb") {
-    replaceBook(session, {
-      path,
+    const book = await openYbbBookOnTheFly(readPath);
+    return {
+      type: "on-the-fly",
+      path: sessionPath,
       saved: true,
       busy: false,
-      type: "on-the-fly",
-      ...(await openYbbBookOnTheFly(path)),
-    });
-    return;
+      ...book,
+    };
   }
-  const file = await fs.promises.open(path, "r");
+  const file = await fs.promises.open(readPath, "r");
   try {
+    const size = (await file.stat()).size;
     if (
       format === "yane2016" &&
       !(await validateBookPositionOrdering(file.createReadStream({ autoClose: false })))
     ) {
       throw new Error("Book is not ordered by position"); // FIXME: i18n
     }
+    const common = {
+      type: "on-the-fly" as const,
+      path: sessionPath,
+      file,
+      size,
+      saved: true,
+      busy: false,
+    };
+    if (format === "yane2016") {
+      return {
+        ...common,
+        format: "yane2016",
+        entries: new Map<string, BookEntry>(),
+      };
+    }
+    return {
+      ...common,
+      format: "apery",
+      entries: new Map<bigint, BookEntry>(),
+    };
   } catch (e) {
     await file.close();
     throw e;
   }
-  const common = { path, file, size, saved: true, busy: false };
-  if (format === "yane2016") {
-    replaceBook(session, {
-      ...common,
-      type: "on-the-fly",
-      format: "yane2016",
-      entries: new Map<string, BookEntry>(),
-    });
-  } else {
-    replaceBook(session, {
-      ...common,
-      type: "on-the-fly",
-      format: "apery",
-      entries: new Map<bigint, BookEntry>(),
+}
+
+// Replace the session with the given book. The old book handle is closed
+// asynchronously and must not be used afterwards. The busy flag is carried
+// over to the new book; the caller of the save keeps it until it finishes.
+function switchBook(session: number, oldBook: BookHandle, newBook: BookHandle): void {
+  newBook.busy = true;
+  bookFiles.set(session, newBook);
+  if (oldBook.type === "on-the-fly" && oldBook.file) {
+    oldBook.file.close().catch((e) => {
+      getAppLogger().warn("Failed to close the replaced book file handle: %s", e);
     });
   }
+}
+
+async function openBookOnTheFly(session: number, path: string, size: number): Promise<void> {
+  getAppLogger().info("Loading book on-the-fly: path=%s size=%d", path, size);
+  const format = getFormatByPath(path);
+  replaceBook(session, await buildOnTheFlyBook(format, path, path));
 }
 
 async function openBookInMemory(session: number, path: string, size: number): Promise<void> {
@@ -412,91 +443,158 @@ function replaceBook(session: number, newBook: BookHandle) {
   bookFiles.set(session, newBook);
 }
 
+// Write the book content to the given output stream. Used by both the regular
+// save and the atomic overwrite save of an on-the-fly book.
+async function writeBook(book: BookHandle, filePath: string, file: fs.WriteStream): Promise<void> {
+  switch (book.format) {
+    case "yane2016":
+      if (!filePath.endsWith(".db")) {
+        throw new Error("Invalid file extension: " + filePath);
+      }
+      if (book.type === "in-memory") {
+        await storeYaneuraOuBook(book, file);
+      } else {
+        const input = book.file!.createReadStream({
+          encoding: "utf-8",
+          autoClose: false,
+          start: 0,
+          highWaterMark: 1024 * 1024,
+        });
+        await mergeYaneuraOuBook(input, book, file);
+      }
+      break;
+    case "apery":
+      if (!filePath.endsWith(".bin")) {
+        throw new Error("Invalid file extension: " + filePath);
+      }
+      if (book.type === "in-memory") {
+        await storeAperyBook(book, file);
+      } else {
+        const input = book.file!.createReadStream({
+          autoClose: false,
+          start: 0,
+          highWaterMark: 1024 * 1024,
+        });
+        await mergeAperyBook(input, book, file);
+      }
+      break;
+    case "sbk":
+      if (!filePath.endsWith(".sbk")) {
+        throw new Error("Invalid file extension: " + filePath);
+      }
+      await storeSbkBook(book, file);
+      break;
+    case "ybb":
+      if (!filePath.endsWith(".ybb")) {
+        throw new Error("Invalid file extension: " + filePath);
+      }
+      await closeWriteStream(file);
+      if (typeof file.path !== "string") {
+        throw new Error("Invalid temporary file path");
+      }
+      if (book.type === "in-memory") {
+        await storeYbbBook(book.entries, file.path);
+      } else {
+        await mergeYbbBook(book.file!, book.recordCount!, book.flags!, book.entries, file.path);
+      }
+      break;
+  }
+}
+
+// Release resources of a prepared book that could not be published.
+async function discardPreparedBook(book: OnTheFlyBook | undefined): Promise<void> {
+  if (!book) {
+    return;
+  }
+  if (book.file) {
+    try {
+      await book.file.close();
+    } catch (e) {
+      getAppLogger().warn("Failed to close the prepared book file handle: %s", e);
+    }
+  }
+}
+
+// Overwrite the file the on-the-fly book was loaded from, atomically.
+// The merged content is written to a temporary file first and published by an
+// atomic rename while the session lock is still held. A new on-the-fly book is
+// prepared from the temporary file before the publish and the session is
+// switched to it right after the publish, so the session always reflects
+// exactly the published content without re-applying its own patches.
+async function saveBookOverwriteOnTheFly(
+  session: number,
+  book: OnTheFlyBook,
+  filePath: string,
+): Promise<void> {
+  getAppLogger().info("Overwriting on-the-fly book atomically: path=%s", filePath);
+  let prepared: OnTheFlyBook | undefined;
+  try {
+    await writeStreamAtomic(filePath, (file) => writeBook(book, filePath, file), {
+      encoding: "utf-8",
+      highWaterMark: 1024 * 1024,
+      beforePublish: async (tempFilePath) => {
+        // The old book stays alive (including its raw data) until the new
+        // book is published, so reserve its footprint in the SBK memory
+        // budget to avoid exceeding the process memory limit.
+        const reservedMemoryBytes =
+          book.format === "sbk" && book.sbkIndex && book.rawData
+            ? book.rawData.byteLength + book.sbkIndex.table.byteLength
+            : 0;
+        prepared = await buildOnTheFlyBook(
+          book.format,
+          tempFilePath,
+          filePath,
+          reservedMemoryBytes,
+        );
+      },
+      onPublished: () => {
+        // Called synchronously right after the rename, while the writer
+        // lock is held. No failing I/O is allowed here.
+        if (!prepared) {
+          getAppLogger().error("Prepared book is missing after publishing: %s", filePath);
+          return;
+        }
+        switchBook(session, book, prepared);
+        prepared = undefined;
+      },
+    });
+  } catch (e) {
+    // writeStreamAtomic only rejects before publishing, so the prepared book
+    // was never published and can be discarded. The original file and the
+    // session state (including unsaved edits) are kept as-is.
+    await discardPreparedBook(prepared);
+    throw e;
+  }
+}
+
 export async function saveBook(session: number, filePath: string) {
   const book = getBook(session);
   if (book.busy) {
     throw new Error(t.processingPleaseWait);
   }
-  // on-the-fly の場合は上書きを禁止
-  if (book.type === "on-the-fly") {
-    if (path.resolve(book.path) === path.resolve(filePath)) {
-      throw new Error(t.cannotOverwriteOnTheFlyBook);
-    }
-  }
+  // on-the-fly ブックが読み込み元のファイルへ上書き保存する場合は、
+  // 一時ファイルへの書き出しと atomic な rename でセッションを
+  // 新しい内容へ切り替える。
+  const overwriteOnTheFly =
+    book.type === "on-the-fly" && path.resolve(book.path) === path.resolve(filePath);
 
   book.busy = true;
   try {
-    await writeStreamAtomic(
-      filePath,
-      async (file) => {
-        switch (book.format) {
-          case "yane2016":
-            if (!filePath.endsWith(".db")) {
-              throw new Error("Invalid file extension: " + filePath);
-            }
-            if (book.type === "in-memory") {
-              await storeYaneuraOuBook(book, file);
-            } else {
-              const input = book.file!.createReadStream({
-                encoding: "utf-8",
-                autoClose: false,
-                start: 0,
-                highWaterMark: 1024 * 1024,
-              });
-              await mergeYaneuraOuBook(input, book, file);
-            }
-            break;
-          case "apery":
-            if (!filePath.endsWith(".bin")) {
-              throw new Error("Invalid file extension: " + filePath);
-            }
-            if (book.type === "in-memory") {
-              await storeAperyBook(book, file);
-            } else {
-              const input = book.file!.createReadStream({
-                autoClose: false,
-                start: 0,
-                highWaterMark: 1024 * 1024,
-              });
-              await mergeAperyBook(input, book, file);
-            }
-            break;
-          case "sbk":
-            if (!filePath.endsWith(".sbk")) {
-              throw new Error("Invalid file extension: " + filePath);
-            }
-            await storeSbkBook(book, file);
-            break;
-          case "ybb":
-            if (!filePath.endsWith(".ybb")) {
-              throw new Error("Invalid file extension: " + filePath);
-            }
-            await closeWriteStream(file);
-            if (typeof file.path !== "string") {
-              throw new Error("Invalid temporary file path");
-            }
-            if (book.type === "in-memory") {
-              await storeYbbBook(book.entries, file.path);
-            } else {
-              await mergeYbbBook(
-                book.file!,
-                book.recordCount!,
-                book.flags!,
-                book.entries,
-                file.path,
-              );
-            }
-            break;
-        }
-      },
-      {
+    if (overwriteOnTheFly) {
+      await saveBookOverwriteOnTheFly(session, book, filePath);
+    } else {
+      await writeStreamAtomic(filePath, (file) => writeBook(book, filePath, file), {
         encoding: "utf-8",
         highWaterMark: 1024 * 1024,
-      },
-    );
-    book.saved = true;
+      });
+      book.saved = true;
+    }
   } finally {
-    book.busy = false;
+    // The session may have been switched to a new book by the overwrite save.
+    const current = bookFiles.get(session);
+    if (current) {
+      current.busy = false;
+    }
   }
 }
 

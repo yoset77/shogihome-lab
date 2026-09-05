@@ -393,10 +393,19 @@ export async function searchYaneuraOuBookMovesOnTheFly(
   let i = 0;
   while (i < read.bytesRead) {
     const moveLine = readLineFromBuffer(buffer, read.bytesRead, i);
-    i += moveLine.length + 1;
+    i += Buffer.byteLength(moveLine);
+    if (buffer[i] === CR && buffer[i + 1] === LF) {
+      i++;
+    }
+    i++;
     const parsed = parseLine(moveLine);
     if (parsed.type === "comment") {
-      comment = appendCommentLine(comment, parsed.comment);
+      if (moves.length === 0) {
+        comment = appendCommentLine(comment, parsed.comment);
+      } else {
+        const move = moves[moves.length - 1];
+        move.comment = appendCommentLine(move.comment, parsed.comment);
+      }
       continue;
     } else if (parsed.type === "move") {
       moves.push(parsed.move);
