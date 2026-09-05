@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { finished } from "node:stream/promises";
 import lockfile, { LockOptions } from "proper-lockfile";
 import { OperationOptions } from "retry";
@@ -16,7 +17,7 @@ const retryOptions: OperationOptions = {
 };
 
 function getTempFilePath(filePath: string): string {
-  return `${filePath}.tmp`;
+  return path.join(path.dirname(filePath), `.${path.basename(filePath)}.${randomUUID()}.tmp`);
 }
 
 /**
@@ -53,7 +54,7 @@ export async function writeStreamAtomic(
 
   let handlerPromise: Promise<void> | undefined;
   try {
-    stream = fs.createWriteStream(tempFilePath, streamOptions);
+    stream = fs.createWriteStream(tempFilePath, { ...streamOptions, flags: "wx" });
     stream.on("error", onStreamError);
     handlerPromise = handler(stream);
     await Promise.race([handlerPromise, streamErrorPromise]);

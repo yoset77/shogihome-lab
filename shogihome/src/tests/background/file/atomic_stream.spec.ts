@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { finished } from "node:stream/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeStreamAtomic } from "@/server/file/atomic_stream";
 
@@ -17,14 +18,14 @@ describe("file/atomic_stream", () => {
 
   it("waits for the handler to stop after an asynchronous stream error", async () => {
     const outputPath = path.join(rootDir, "result.sfen");
-    fs.mkdirSync(`${outputPath}.tmp`);
     let releaseHandler!: () => void;
     const handlerBlocked = new Promise<void>((resolve) => {
       releaseHandler = resolve;
     });
     let outcome: "pending" | "resolved" | "rejected" = "pending";
 
-    const result = writeStreamAtomic(outputPath, async () => {
+    const result = writeStreamAtomic(outputPath, async (stream) => {
+      setTimeout(() => stream.destroy(new Error("stream failed")), 0);
       await handlerBlocked;
     }).then(
       () => {
@@ -40,5 +41,35 @@ describe("file/atomic_stream", () => {
     releaseHandler();
     await result;
     expect(outcome).toBe("rejected");
+  });
+
+  it("does not replace an existing file when overwrite is disabled", async () => {
+    const outputPath = path.join(rootDir, "result.sfen");
+    fs.writeFileSync(outputPath, "old");
+
+    await expect(
+      writeStreamAtomic(
+        outputPath,
+        async (stream) => {
+          stream.end("new");
+          await finished(stream);
+        },
+        { overwrite: false },
+      ),
+    ).rejects.toMatchObject({ code: "EEXIST" });
+    expect(fs.readFileSync(outputPath, "utf8")).toBe("old");
+  });
+
+  it("replaces a file after a successful streamed write", async () => {
+    const outputPath = path.join(rootDir, "result.sfen");
+    fs.writeFileSync(outputPath, "old");
+
+    await writeStreamAtomic(outputPath, async (stream) => {
+      stream.end("new");
+      await finished(stream);
+    });
+
+    expect(fs.readFileSync(outputPath, "utf8")).toBe("new");
+    expect(fs.readdirSync(rootDir)).toEqual(["result.sfen"]);
   });
 });

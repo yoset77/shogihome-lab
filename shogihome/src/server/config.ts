@@ -115,6 +115,10 @@ export const KIFU_DIR = process.env.KIFU_DIR
   ? path.resolve(getBasePath(), process.env.KIFU_DIR)
   : null;
 
+export const KIFU_UPLOAD_MAX_MB = parseIntegerEnv("KIFU_UPLOAD_MAX_MB", 10, 1, 1024);
+export const BOOK_UPLOAD_MAX_MB = parseIntegerEnv("BOOK_UPLOAD_MAX_MB", 512, 1, 10240);
+export const FILE_UPLOAD_MAX_CONCURRENCY = parseIntegerEnv("FILE_UPLOAD_MAX_CONCURRENCY", 2, 1, 16);
+
 const parseOnTheFlyThresholdMB = (name: string, defaultValue: number): number => {
   const raw = process.env[name];
   if (!raw) return defaultValue;

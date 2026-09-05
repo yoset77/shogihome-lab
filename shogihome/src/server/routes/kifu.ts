@@ -1,19 +1,31 @@
 import { Hono } from "hono";
 import { validator } from "hono/validator";
 import fs from "fs";
+import path from "node:path";
+import events from "node:events";
+import { finished } from "node:stream/promises";
 import { normalizePath } from "@/common/helpers/path";
 import {
   clearKifuListCache,
+  getKifuDirectoryList,
   getKifuList,
   getPositionList,
+  getServerFileKind,
+  resolveKifuDirectory,
   resolveKifuPath,
 } from "@/server/helpers/kifu";
 import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
 import * as kifuIndexDB from "@/server/database/kifu_index";
 import * as kifuIndexSync from "@/server/kifu_index/sync";
 import { writeFileAtomic } from "@/server/file/atomic";
-import { KIFU_DIR } from "@/server/config";
-import { sendError } from "@/server/errors";
+import {
+  BOOK_UPLOAD_MAX_MB,
+  FILE_UPLOAD_MAX_CONCURRENCY,
+  KIFU_DIR,
+  KIFU_UPLOAD_MAX_MB,
+} from "@/server/config";
+import { HttpError, sendError } from "@/server/errors";
+import { writeStreamAtomic } from "@/server/file/atomic_stream";
 import {
   createBodyLimit,
   DEFAULT_JSON_BODY_LIMIT,
@@ -34,6 +46,12 @@ import {
 } from "@/server/kifu_export/job";
 
 type RawKifuSearchQuery = Omit<KifuSearchQuery, "strategy"> & { strategy?: string };
+
+const getUploadLimit = (kind: "kifu" | "book" | "sfen") =>
+  (kind === "book" ? BOOK_UPLOAD_MAX_MB : KIFU_UPLOAD_MAX_MB) * 1024 * 1024;
+
+const isNodeError = (error: unknown): error is NodeJS.ErrnoException => error instanceof Error;
+let activeUploads = 0;
 
 function normalizeSearchQuery(query: RawKifuSearchQuery) {
   if (hasInvalidStrategy(query)) {
@@ -89,6 +107,132 @@ function parseSearchQuery(value: unknown): KifuSearchQuery | null {
 }
 
 export const kifuRoutes = new Hono<AppEnv>()
+  .get(
+    "/directories",
+    validator("query", (value) => ({ dir: getString(value.dir) ?? "" })),
+    async (c) => {
+      if (!KIFU_DIR) {
+        return sendError(c, 404, "KIFU_DIR is not configured");
+      }
+      const dir = c.req.valid("query").dir;
+      const directories = await getKifuDirectoryList(KIFU_DIR, dir);
+      if (!directories) {
+        return sendError(c, 404, "directory not found");
+      }
+      return c.json({ path: normalizePath(dir), directories });
+    },
+  )
+
+  .post(
+    "/upload",
+    validator("query", (value) => ({
+      path: getString(value.path),
+      overwrite: getString(value.overwrite),
+    })),
+    async (c) => {
+      const kifuDir = KIFU_DIR;
+      if (!kifuDir) {
+        return sendError(c, 404, "KIFU_DIR is not configured");
+      }
+      const query = c.req.valid("query");
+      if (!query.path) {
+        return sendError(c, 400, "path is required");
+      }
+      if (
+        query.overwrite !== undefined &&
+        query.overwrite !== "true" &&
+        query.overwrite !== "false"
+      ) {
+        return sendError(c, 400, "overwrite must be true or false");
+      }
+      const overwrite = query.overwrite === "true";
+      const kind = getServerFileKind(query.path);
+      const fullPath = resolveKifuPath(kifuDir, query.path);
+      if (!kind || !fullPath) {
+        return sendError(c, 403, "invalid path or unsupported file type");
+      }
+      const relDirectory = normalizePath(path.dirname(query.path));
+      if (!resolveKifuDirectory(kifuDir, relDirectory === "." ? "" : relDirectory)) {
+        return sendError(c, 404, "destination directory not found");
+      }
+      const existed = fs.existsSync(fullPath);
+      if (!overwrite && existed) {
+        return sendError(c, 409, "file already exists");
+      }
+
+      const maxSize = getUploadLimit(kind);
+      const contentLength = c.req.header("Content-Length");
+      if (contentLength !== undefined) {
+        const declaredSize = Number(contentLength);
+        if (!Number.isSafeInteger(declaredSize) || declaredSize < 0) {
+          return sendError(c, 400, "invalid Content-Length");
+        }
+        if (declaredSize > maxSize) {
+          return sendError(c, 413, "Payload Too Large");
+        }
+      }
+      const body = c.req.raw.body;
+      if (!body) {
+        return sendError(c, 400, "file is empty");
+      }
+      if (activeUploads >= FILE_UPLOAD_MAX_CONCURRENCY) {
+        return sendError(c, 429, "too many concurrent uploads");
+      }
+
+      let size = 0;
+      activeUploads += 1;
+      try {
+        await writeStreamAtomic(
+          fullPath,
+          async (stream) => {
+            const reader = body.getReader();
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                size += value.byteLength;
+                if (size > maxSize) {
+                  throw new HttpError(413, "Payload Too Large");
+                }
+                if (!stream.write(Buffer.from(value))) {
+                  await events.once(stream, "drain");
+                }
+              }
+              if (size === 0) {
+                throw new HttpError(400, "file is empty");
+              }
+              if (!resolveKifuDirectory(kifuDir, relDirectory === "." ? "" : relDirectory)) {
+                throw new HttpError(403, "destination directory is no longer valid");
+              }
+              const completion = finished(stream);
+              stream.end();
+              await completion;
+            } catch (error) {
+              await reader.cancel(error).catch(() => undefined);
+              throw error;
+            } finally {
+              reader.releaseLock();
+            }
+          },
+          { overwrite },
+        );
+      } catch (error) {
+        if (isNodeError(error) && error.code === "EEXIST") {
+          return sendError(c, 409, "file already exists");
+        }
+        throw error;
+      } finally {
+        activeUploads -= 1;
+      }
+
+      clearKifuListCache();
+      return c.json(
+        { path: normalizePath(query.path), kind, size, overwritten: existed },
+        existed ? 200 : 201,
+      );
+    },
+  )
+
   .get(
     "/list",
     validator("query", (value) => ({

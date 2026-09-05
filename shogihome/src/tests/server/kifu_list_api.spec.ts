@@ -11,6 +11,7 @@ const { SERVER_PORT, tempKifuDir } = await vi.hoisted(async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "shogihome-test-kifu-api-"));
   process.env.PORT = port.toString();
   process.env.KIFU_DIR = dir;
+  process.env.KIFU_UPLOAD_MAX_MB = "1";
   return { SERVER_PORT: port, tempKifuDir: dir };
 });
 
@@ -46,7 +47,7 @@ import { app } from "@/server/main";
 
 const host = `localhost:${SERVER_PORT}`;
 
-describe("API: /api/kifu/list", () => {
+describe("API: /api/kifu", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.KIFU_DIR = tempKifuDir;
@@ -73,6 +74,121 @@ describe("API: /api/kifu/list", () => {
     expect(body).toHaveLength(2);
     expect(body).toContainEqual({ name: "subdir", path: "subdir", isDirectory: true });
     expect(body).toContainEqual({ name: "root.kif", path: "root.kif", isDirectory: false });
+  });
+
+  it("lists existing directories independently of their contents", async () => {
+    fs.mkdirSync(path.join(tempKifuDir, "empty"));
+    fs.mkdirSync(path.join(tempKifuDir, "books"));
+    fs.writeFileSync(path.join(tempKifuDir, "books", "book.db"), "book");
+
+    const response = await requestApp(app, "GET", "/api/kifu/directories", { host });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      path: "",
+      directories: [
+        { name: "books", path: "books" },
+        { name: "empty", path: "empty" },
+      ],
+    });
+  });
+
+  it("uploads binary files to an existing directory", async () => {
+    fs.mkdirSync(path.join(tempKifuDir, "books"));
+    const data = new Uint8Array([0, 1, 2, 255]);
+
+    const response = await requestApp(
+      app,
+      "POST",
+      "/api/kifu/upload?path=books%2Fsample.db&overwrite=false",
+      {
+        host,
+        headers: { "Content-Type": "application/octet-stream" },
+        body: data,
+      },
+    );
+
+    expect(response.status).toBe(201);
+    expect(response.body).toEqual({
+      path: "books/sample.db",
+      kind: "book",
+      size: 4,
+      overwritten: false,
+    });
+    expect(fs.readFileSync(path.join(tempKifuDir, "books", "sample.db"))).toEqual(
+      Buffer.from(data),
+    );
+  });
+
+  it("reports conflicts and only overwrites when explicitly requested", async () => {
+    fs.writeFileSync(path.join(tempKifuDir, "game.kif"), "old");
+
+    const conflict = await requestApp(
+      app,
+      "POST",
+      "/api/kifu/upload?path=game.kif&overwrite=false",
+      { host, body: "new" },
+    );
+    expect(conflict.status).toBe(409);
+    expect(fs.readFileSync(path.join(tempKifuDir, "game.kif"), "utf8")).toBe("old");
+
+    const overwritten = await requestApp(
+      app,
+      "POST",
+      "/api/kifu/upload?path=game.kif&overwrite=true",
+      { host, body: "new" },
+    );
+    expect(overwritten.status).toBe(200);
+    expect(overwritten.body.overwritten).toBe(true);
+    expect(fs.readFileSync(path.join(tempKifuDir, "game.kif"), "utf8")).toBe("new");
+  });
+
+  it("rejects unsupported files and missing destination directories", async () => {
+    const unsupported = await requestApp(app, "POST", "/api/kifu/upload?path=notes.txt", {
+      host,
+      body: "text",
+    });
+    expect(unsupported.status).toBe(403);
+
+    const missingDirectory = await requestApp(
+      app,
+      "POST",
+      "/api/kifu/upload?path=missing%2Fgame.kif",
+      { host, body: "kifu" },
+    );
+    expect(missingDirectory.status).toBe(404);
+  });
+
+  it("rejects empty uploads", async () => {
+    const response = await requestApp(app, "POST", "/api/kifu/upload?path=empty.sfen", {
+      host,
+      body: new Uint8Array(),
+    });
+
+    expect(response.status).toBe(400);
+    expect(fs.existsSync(path.join(tempKifuDir, "empty.sfen"))).toBe(false);
+  });
+
+  it("rejects uploads larger than the configured limit", async () => {
+    const response = await requestApp(app, "POST", "/api/kifu/upload?path=large.kif", {
+      host,
+      headers: { "Content-Length": String(1024 * 1024 + 1) },
+      body: "small body",
+    });
+
+    expect(response.status).toBe(413);
+    expect(fs.existsSync(path.join(tempKifuDir, "large.kif"))).toBe(false);
+  });
+
+  it("enforces the upload limit while streaming and removes temporary data", async () => {
+    const response = await requestApp(app, "POST", "/api/kifu/upload?path=large.kif", {
+      host,
+      headers: { "Content-Length": "1" },
+      body: new Uint8Array(1024 * 1024 + 1),
+    });
+
+    expect(response.status).toBe(413);
+    expect(fs.readdirSync(tempKifuDir)).toEqual([]);
   });
 
   it("should return entries in a specific directory", async () => {

@@ -65,6 +65,22 @@ describe("renderer/ipc/api", () => {
     expect((callArgs[1]?.headers as Headers).get("Content-Type")).toBe("text/plain");
   });
 
+  it("uploads a server file as an unmodified request body", async () => {
+    const { default: api } = await import("@/renderer/ipc/api.js");
+    const file = new File([new Uint8Array([0, 1, 255])], "book.db");
+
+    await api.uploadServerFile("books/book.db", file, false);
+
+    const mockFn = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const callArgs = mockFn.mock.calls[0];
+    const url = new URL(callArgs[0] as string);
+    expect(url.pathname).toBe("/api/kifu/upload");
+    expect(url.searchParams.get("path")).toBe("books/book.db");
+    expect(url.searchParams.get("overwrite")).toBe("false");
+    expect(callArgs[1]).toHaveProperty("body", file);
+    expect((callArgs[1]?.headers as Headers).get("Content-Type")).toBe("application/octet-stream");
+  });
+
   it("serializes book move order as a query string", async () => {
     const { default: api } = await import("@/renderer/ipc/api.js");
 

@@ -29,6 +29,7 @@
     <ShareDialog v-if="store.appState === AppState.SHARE_DIALOG" />
     <AddBookMovesDialog v-if="store.appState === AppState.ADD_BOOK_MOVES_DIALOG" />
     <ServerKifuDialog v-if="store.appState === AppState.SERVER_KIFU_DIALOG" />
+    <ServerFileUploadDialog v-if="store.appState === AppState.SERVER_FILE_UPLOAD_DIALOG" />
     <KifuPreviewDialog
       v-if="store.kifuPreview"
       :path="store.kifuPreview.path"
@@ -131,6 +132,7 @@ import LoadRemoteFileDialog from "./view/dialog/LoadRemoteFileDialog.vue";
 import ShareDialog from "./view/dialog/ShareDialog.vue";
 import AddBookMovesDialog from "./view/dialog/AddBookMovesDialog.vue";
 import ServerKifuDialog from "./view/dialog/ServerKifuDialog.vue";
+import ServerFileUploadDialog from "./view/dialog/ServerFileUploadDialog.vue";
 import KifuPreviewDialog from "./view/dialog/KifuPreviewDialog.vue";
 import BookSelectDialog from "./view/dialog/BookSelectDialog.vue";
 import DuplicatePositionsDialog from "./view/dialog/DuplicatePositionsDialog.vue";

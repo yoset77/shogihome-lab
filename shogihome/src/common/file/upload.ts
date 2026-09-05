@@ -1,0 +1,36 @@
+export type ServerFileKind = "kifu" | "book" | "sfen";
+
+export const KIFU_UPLOAD_EXTENSIONS = [".kif", ".kifu", ".ki2", ".ki2u", ".csa", ".jkf"];
+export const BOOK_UPLOAD_EXTENSIONS = [".db", ".bin", ".sbk", ".ybb"];
+export const POSITION_UPLOAD_EXTENSIONS = [".sfen"];
+export const SERVER_UPLOAD_ACCEPT = [
+  ...KIFU_UPLOAD_EXTENSIONS,
+  ...BOOK_UPLOAD_EXTENSIONS,
+  ...POSITION_UPLOAD_EXTENSIONS,
+].join(",");
+
+export const getServerFileKind = (filePath: string): ServerFileKind | null => {
+  const dot = filePath.lastIndexOf(".");
+  const ext = dot >= 0 ? filePath.slice(dot).toLowerCase() : "";
+  if (KIFU_UPLOAD_EXTENSIONS.includes(ext)) return "kifu";
+  if (BOOK_UPLOAD_EXTENSIONS.includes(ext)) return "book";
+  if (POSITION_UPLOAD_EXTENSIONS.includes(ext)) return "sfen";
+  return null;
+};
+
+export interface ServerDirectoryEntry {
+  name: string;
+  path: string;
+}
+
+export interface ServerDirectoryList {
+  path: string;
+  directories: ServerDirectoryEntry[];
+}
+
+export interface ServerFileUploadResult {
+  path: string;
+  kind: ServerFileKind;
+  size: number;
+  overwritten: boolean;
+}
