@@ -350,6 +350,34 @@ describe("API: /api/kifu", () => {
     },
   );
 
+  it("drains the request body before reporting an upload conflict", async () => {
+    fs.writeFileSync(path.join(tempKifuDir, "conflict.db"), "old");
+    let delivered = 0;
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+      },
+      pull(controller) {
+        delivered += 1;
+        controller.close();
+      },
+      cancel,
+    });
+
+    const response = await requestApp(
+      app,
+      "POST",
+      "/api/kifu/upload?path=conflict.db&overwrite=false",
+      { host, body },
+    );
+
+    expect(response.status).toBe(409);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(delivered).toBeGreaterThan(0);
+    expect(fs.readFileSync(path.join(tempKifuDir, "conflict.db"), "utf8")).toBe("old");
+  });
+
   it("reports conflicts and only overwrites when explicitly requested", async () => {
     fs.writeFileSync(path.join(tempKifuDir, "game.kif"), "old");
 
@@ -397,6 +425,32 @@ describe("API: /api/kifu", () => {
 
     expect(response.status).toBe(400);
     expect(fs.existsSync(path.join(tempKifuDir, "empty.sfen"))).toBe(false);
+  });
+
+  it("drains the request body before rejecting an oversized upload", async () => {
+    let delivered = 0;
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+      },
+      pull(controller) {
+        delivered += 1;
+        controller.close();
+      },
+      cancel,
+    });
+
+    const response = await requestApp(app, "POST", "/api/kifu/upload?path=large.kif", {
+      host,
+      headers: { "Content-Length": String(1024 * 1024 + 1) },
+      body,
+    });
+
+    expect(response.status).toBe(413);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(delivered).toBeGreaterThan(0);
+    expect(fs.existsSync(path.join(tempKifuDir, "large.kif"))).toBe(false);
   });
 
   it("rejects uploads larger than the configured limit", async () => {

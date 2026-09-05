@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { validator } from "hono/validator";
 import fs from "fs";
 import path from "node:path";
@@ -55,6 +56,20 @@ const getUploadLimit = (kind: "kifu" | "book" | "sfen") =>
 
 const isNodeError = (error: unknown): error is NodeJS.ErrnoException => error instanceof Error;
 let activeUploads = 0;
+
+// Discard the request body before responding early. Returning a response
+// while a large upload body is still in flight resets the connection, so
+// the client sees ERR_CONNECTION_RESET instead of the intended status.
+async function drainRequestBody(body: ReadableStream<Uint8Array> | null): Promise<void> {
+  if (!body) {
+    return;
+  }
+  try {
+    await body.pipeTo(new WritableStream({ write() {} }));
+  } catch {
+    // Ignore errors while discarding (e.g. the client already disconnected).
+  }
+}
 
 function normalizeSearchQuery(query: RawKifuSearchQuery) {
   if (hasInvalidStrategy(query)) {
@@ -164,37 +179,45 @@ export const kifuRoutes = new Hono<AppEnv>()
       overwrite: getString(value.overwrite),
     })),
     async (c) => {
+      // Responding while the upload body is still unread resets the
+      // connection, so every early error in this handler drains the body
+      // first. Otherwise the client sees ERR_CONNECTION_RESET instead of
+      // the intended status.
+      const fail = async (status: ContentfulStatusCode, message: string) => {
+        await drainRequestBody(c.req.raw.body);
+        return sendError(c, status, message);
+      };
       const kifuDir = KIFU_DIR;
       if (!kifuDir) {
-        return sendError(c, 404, "KIFU_DIR is not configured");
+        return fail(404, "KIFU_DIR is not configured");
       }
       const query = c.req.valid("query");
       if (!query.path) {
-        return sendError(c, 400, "path is required");
+        return fail(400, "path is required");
       }
       if (!isValidServerEntryName(query.path.split("/").at(-1) ?? "")) {
-        return sendError(c, 400, "invalid file name");
+        return fail(400, "invalid file name");
       }
       if (
         query.overwrite !== undefined &&
         query.overwrite !== "true" &&
         query.overwrite !== "false"
       ) {
-        return sendError(c, 400, "overwrite must be true or false");
+        return fail(400, "overwrite must be true or false");
       }
       const overwrite = query.overwrite === "true";
       const kind = getServerFileKind(query.path);
       const fullPath = resolveKifuPath(kifuDir, query.path);
       if (!kind || !fullPath) {
-        return sendError(c, 403, "invalid path or unsupported file type");
+        return fail(403, "invalid path or unsupported file type");
       }
       const relDirectory = normalizePath(path.dirname(query.path));
       if (!resolveKifuDirectory(kifuDir, relDirectory === "." ? "" : relDirectory)) {
-        return sendError(c, 404, "destination directory not found");
+        return fail(404, "destination directory not found");
       }
       const existed = fs.existsSync(fullPath);
       if (!overwrite && existed) {
-        return sendError(c, 409, "file already exists");
+        return fail(409, "file already exists");
       }
 
       const maxSize = getUploadLimit(kind);
@@ -202,18 +225,18 @@ export const kifuRoutes = new Hono<AppEnv>()
       if (contentLength !== undefined) {
         const declaredSize = Number(contentLength);
         if (!Number.isSafeInteger(declaredSize) || declaredSize < 0) {
-          return sendError(c, 400, "invalid Content-Length");
+          return fail(400, "invalid Content-Length");
         }
         if (declaredSize > maxSize) {
-          return sendError(c, 413, "Payload Too Large");
+          return fail(413, "Payload Too Large");
         }
       }
       const body = c.req.raw.body;
       if (!body) {
-        return sendError(c, 400, "file is empty");
+        return fail(400, "file is empty");
       }
       if (activeUploads >= FILE_UPLOAD_MAX_CONCURRENCY) {
-        return sendError(c, 429, "too many concurrent uploads");
+        return fail(429, "too many concurrent uploads");
       }
 
       let size = 0;
@@ -243,7 +266,7 @@ export const kifuRoutes = new Hono<AppEnv>()
         );
       } catch (error) {
         if (isNodeError(error) && error.code === "EEXIST") {
-          return sendError(c, 409, "file already exists");
+          return fail(409, "file already exists");
         }
         throw error;
       } finally {
