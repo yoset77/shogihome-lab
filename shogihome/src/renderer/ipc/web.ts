@@ -20,6 +20,7 @@ import { VersionStatus } from "@/common/version";
 import * as uri from "@/common/uri";
 import { normalizePath } from "@/common/helpers/path";
 import { KifuSearchResult, KifuListEntry } from "@/common/file/record";
+import type { ServerDirectoryList, ServerFileUploadResult } from "@/common/file/upload";
 import { decodeText } from "@/common/helpers/encode";
 import { toJpeg, toPng } from "html-to-image";
 import dayjs from "dayjs";
@@ -694,6 +695,27 @@ export const webAPI: Bridge = {
       await apiClient.api.kifu.list.$get({
         query: { dir, reload: reload ? "true" : "" },
       }),
+    );
+  },
+  async listServerDirectories(dir?: string): Promise<ServerDirectoryList> {
+    return await parseJsonResponse(
+      await apiClient.api.kifu.directories.$get({ query: { dir: dir ?? "" } }),
+    );
+  },
+  async uploadServerFile(
+    path: string,
+    file: File,
+    overwrite = false,
+  ): Promise<ServerFileUploadResult> {
+    return await parseJsonResponse(
+      await apiClient.api.kifu.upload.$post(
+        { query: { path, overwrite: String(overwrite) } },
+        apiOptions({
+          timeoutMs: 15 * 60 * 1000,
+          headers: { "Content-Type": "application/octet-stream" },
+          body: file,
+        }),
+      ),
     );
   },
   async searchServerKifu(

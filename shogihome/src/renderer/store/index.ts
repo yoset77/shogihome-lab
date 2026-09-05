@@ -604,6 +604,12 @@ class Store {
     }
   }
 
+  showServerFileUploadDialog(): void {
+    if (this.appState === AppState.NORMAL) {
+      this._appState = AppState.SERVER_FILE_UPLOAD_DIALOG;
+    }
+  }
+
   showDuplicatePositionsDialog(sfen: string): void {
     if (this.appState === AppState.NORMAL) {
       this._duplicatePositionsSFEN = sfen;
@@ -706,6 +712,7 @@ class Store {
       this.appState === AppState.SHARE_DIALOG ||
       this.appState === AppState.ADD_BOOK_MOVES_DIALOG ||
       this.appState === AppState.SERVER_KIFU_DIALOG ||
+      this.appState === AppState.SERVER_FILE_UPLOAD_DIALOG ||
       this.appState === AppState.BOOK_SELECT_DIALOG ||
       this.appState === AppState.DUPLICATE_POSITIONS_DIALOG ||
       this.appState === AppState.SEARCH_DUPLICATE_POSITIONS_DIALOG ||

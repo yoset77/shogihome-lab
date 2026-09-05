@@ -825,6 +825,15 @@ export const ja: Texts = {
   enterFileName: "ファイル名を入力してください",
   loadFromServer: "サーバーから開く",
   saveToServer: "サーバーに保存",
+  upload: "アップロード",
+  uploadDestination: "アップロード先",
+  selectFiles: "ファイル選択",
+  nFilesUploaded: (n: number) => `${n}件のファイルをアップロードしました。`,
+  overwriteUploadConflicts: (names: string) =>
+    `同名のファイルが存在します。上書きしますか？\n${names}`,
+  duplicateUploadFileNames: (names: string) =>
+    `同じ名前のファイルが複数選択されています。\n${names}`,
+  unsupportedUploadFiles: (names: string) => `対応していないファイル形式です。\n${names}`,
   search: "検索",
   analysisDBSearchTimedOut: "DB検索がタイムアウトしました。",
   analysisDBSearchFailed: "DB検索に失敗しました。",

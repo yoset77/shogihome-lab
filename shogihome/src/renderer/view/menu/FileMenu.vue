@@ -68,6 +68,14 @@
           <Icon :icon="IconType.BATCH" />
           <div class="label">{{ t.loadFromServer }}</div>
         </button>
+        <button
+          v-if="!isNative() && store.isServerSideKifuEnabled"
+          :disabled="!states.open"
+          @click="onUpload"
+        >
+          <Icon :icon="IconType.BATCH" />
+          <div class="label">{{ t.upload }}</div>
+        </button>
         <button v-if="isNative() || store.serverKifuPath" :disabled="!states.save" @click="onSave">
           <Icon :icon="IconType.SAVE" />
           <div class="label">{{ t.saveOverwrite }}</div>
@@ -337,6 +345,10 @@ const onOpen = () => {
 };
 const onLoadFromServer = () => {
   store.showServerKifuDialog();
+  emit("close");
+};
+const onUpload = () => {
+  store.showServerFileUploadDialog();
   emit("close");
 };
 const onSave = () => {

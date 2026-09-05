@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { getKifuList, resolveKifuPath, clearKifuListCache } from "@/server/helpers/kifu";
+import {
+  clearKifuListCache,
+  getKifuDirectoryList,
+  getKifuList,
+  getServerFileKind,
+  resolveKifuDirectory,
+  resolveKifuPath,
+} from "@/server/helpers/kifu";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -146,6 +153,42 @@ describe("background/helpers/kifu", () => {
 
     expect(resolveKifuPath(tempDir, path.join("escape", "secret.kif"))).toBeNull();
     expect(resolveKifuPath(tempDir, path.join("escape", "new-book.db"))).toBeNull();
+  });
+
+  it("classifies supported server file extensions", () => {
+    expect(getServerFileKind("game.KIF")).toBe("kifu");
+    expect(getServerFileKind("book.sbk")).toBe("book");
+    expect(getServerFileKind("positions.sfen")).toBe("sfen");
+    expect(getServerFileKind("notes.txt")).toBeNull();
+  });
+
+  it("resolves existing directories including the root", () => {
+    fs.mkdirSync(path.join(tempDir, "games", "2026"), { recursive: true });
+
+    expect(resolveKifuDirectory(tempDir, "")).toBe(path.resolve(tempDir));
+    expect(resolveKifuDirectory(tempDir, "games/2026")).toBe(path.resolve(tempDir, "games/2026"));
+    expect(resolveKifuDirectory(tempDir, "games/missing")).toBeNull();
+    expect(resolveKifuDirectory(tempDir, "../outside")).toBeNull();
+  });
+
+  it("allows the configured root itself to be a symlink", () => {
+    const linkedRoot = path.join(outsideDir, "linked-root");
+    fs.symlinkSync(tempDir, linkedRoot, "dir");
+
+    expect(resolveKifuDirectory(linkedRoot, "")).toBe(path.resolve(linkedRoot));
+  });
+
+  it("lists empty directories and excludes hidden directories and symlinks", async () => {
+    fs.mkdirSync(path.join(tempDir, "empty"));
+    fs.mkdirSync(path.join(tempDir, "books"));
+    fs.writeFileSync(path.join(tempDir, "books", "book.db"), "book");
+    fs.mkdirSync(path.join(tempDir, ".hidden"));
+    fs.symlinkSync(path.join(tempDir, "empty"), path.join(tempDir, "linked"), "dir");
+
+    expect(await getKifuDirectoryList(tempDir, "")).toEqual([
+      { name: "books", path: "books" },
+      { name: "empty", path: "empty" },
+    ]);
   });
 
   it("caching logic", async () => {

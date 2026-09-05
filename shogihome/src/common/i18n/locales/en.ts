@@ -835,6 +835,15 @@ export const en: Texts = {
   enterFileName: "Please enter file name",
   loadFromServer: "Open from Server",
   saveToServer: "Save to Server",
+  upload: "Upload",
+  uploadDestination: "Upload destination",
+  selectFiles: "Select Files",
+  nFilesUploaded: (n: number) => `${n} file(s) uploaded.`,
+  overwriteUploadConflicts: (names: string) =>
+    `Files with the same names already exist. Overwrite them?\n${names}`,
+  duplicateUploadFileNames: (names: string) =>
+    `Multiple selected files have the same name.\n${names}`,
+  unsupportedUploadFiles: (names: string) => `Unsupported file format.\n${names}`,
   search: "Search",
   analysisDBSearchTimedOut: "The analysis DB search timed out.",
   analysisDBSearchFailed: "The analysis DB search failed.",

@@ -17,6 +17,7 @@ import type {
   SfenExportRequest,
 } from "@/common/file/sfen_export";
 import { RecordFileHistory } from "@/common/file/history";
+import type { ServerDirectoryList, ServerFileUploadResult } from "@/common/file/upload";
 import {
   InitialRecordFileRequest,
   RecordFileFormat,
@@ -134,6 +135,8 @@ export interface API {
   // Server Kifu (LAN only)
   isServerKifuEnabled(): Promise<boolean>;
   listServerKifu(dir?: string, reload?: boolean): Promise<KifuListEntry[]>;
+  listServerDirectories(dir?: string): Promise<ServerDirectoryList>;
+  uploadServerFile(path: string, file: File, overwrite?: boolean): Promise<ServerFileUploadResult>;
   searchServerKifu(params: {
     sfen?: string;
     keyword?: string;
@@ -328,6 +331,12 @@ const api: API = {
   },
   async listServerKifu(dir?: string, reload?: boolean): Promise<KifuListEntry[]> {
     return await bridge.listServerKifu(dir, reload);
+  },
+  listServerDirectories(dir?: string): Promise<ServerDirectoryList> {
+    return bridge.listServerDirectories(dir);
+  },
+  uploadServerFile(path: string, file: File, overwrite?: boolean): Promise<ServerFileUploadResult> {
+    return bridge.uploadServerFile(path, file, overwrite);
   },
   async searchServerKifu(
     params: KifuSearchQuery & { limit?: number; offset?: number },

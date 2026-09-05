@@ -48,6 +48,7 @@ Server data rootは [`src/node/proc/path.ts`](../../shogihome/src/node/proc/path
 - Existing targetまたは最も近いexisting ancestorのreal pathを確認します。
 - Directory scanではsymlinkを追跡しません。
 - 外部変更を検出した場合は、関連cacheとindex synchronizationへ通知します。
+- Browserからのuploadは既存directoryだけを保存先として許可し、形式別の容量制限を適用してからatomicに公開します。
 
 Rendererの `server://` URIは `KIFU_DIR` 相対pathを表す論理識別子であり、アクセス権限ではありません。各routeはURIを直接filesystem pathとして使用せず、必ずServerのresolverを通します。
 
@@ -69,6 +70,8 @@ HostとOriginの検証は [`security.ts`](../../shogihome/src/server/security.ts
 - このatomicityは論理的な公開とwriter排他を意味し、突然のstorage failureに対する完全なdurability保証ではありません。
 
 新しいServer側ファイル保存処理は、特別な理由がない限り既存のatomic helperを使用します。
+
+Browser uploadは1 fileを1 requestのraw bodyとしてstreamingし、全体をmemoryへ保持しません。同時処理数を制限してtemporary fileによるresource消費を抑えます。同名fileは既定で拒否し、明示的に承認されたrequestだけが既存fileを置き換えます。
 
 ## Book Sessions
 

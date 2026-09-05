@@ -775,6 +775,13 @@ export type Texts = {
   enterFileName: string;
   loadFromServer: string;
   saveToServer: string;
+  upload: string;
+  uploadDestination: string;
+  selectFiles: string;
+  nFilesUploaded: (n: number) => string;
+  overwriteUploadConflicts: (names: string) => string;
+  duplicateUploadFileNames: (names: string) => string;
+  unsupportedUploadFiles: (names: string) => string;
   search: string;
   analysisDBSearchTimedOut: string;
   analysisDBSearchFailed: string;

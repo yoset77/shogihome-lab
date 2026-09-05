@@ -2,12 +2,21 @@ import fs from "fs";
 import path from "path";
 import { watch, FSWatcher } from "chokidar";
 import { normalizePath } from "@/common/helpers/path";
+import {
+  BOOK_UPLOAD_EXTENSIONS,
+  getServerFileKind,
+  KIFU_UPLOAD_EXTENSIONS,
+  POSITION_UPLOAD_EXTENSIONS,
+  type ServerFileKind,
+} from "@/common/file/upload";
 
-export const SUPPORTED_EXTENSIONS = [".kif", ".kifu", ".ki2", ".ki2u", ".csa", ".jkf"];
-const BOOK_EXTENSIONS = [".db", ".bin", ".sbk", ".ybb"];
-const POSITION_EXTENSIONS = [".sfen"];
+export const SUPPORTED_EXTENSIONS = KIFU_UPLOAD_EXTENSIONS;
+export const BOOK_EXTENSIONS = BOOK_UPLOAD_EXTENSIONS;
+export const POSITION_EXTENSIONS = POSITION_UPLOAD_EXTENSIONS;
 const MAX_DEPTH = 10;
 const MAX_FILES = 100000;
+
+export { getServerFileKind, type ServerFileKind };
 
 let cachedKifuList: string[] | null = null;
 
@@ -117,6 +126,64 @@ export const getPositionList = async (baseDir: string): Promise<string[]> => {
   return await getFileList(baseDir, POSITION_EXTENSIONS);
 };
 
+export interface KifuDirectoryEntry {
+  name: string;
+  path: string;
+}
+
+export const resolveKifuDirectory = (baseDir: string, relPath: string): string | null => {
+  const segments = relPath ? normalizePath(relPath).split("/") : [];
+  if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
+    return null;
+  }
+  if (segments.length > MAX_DEPTH) {
+    return null;
+  }
+
+  const normalizedBaseDir = path.resolve(baseDir);
+  const fullPath = path.resolve(normalizedBaseDir, relPath);
+  if (!isWithinBaseDirectory(normalizedBaseDir, fullPath)) {
+    return null;
+  }
+
+  try {
+    if (!fs.statSync(fullPath).isDirectory()) {
+      return null;
+    }
+    let currentPath = normalizedBaseDir;
+    for (const segment of segments) {
+      currentPath = path.join(currentPath, segment);
+      if (fs.lstatSync(currentPath).isSymbolicLink()) {
+        return null;
+      }
+    }
+    const realBaseDir = fs.realpathSync(normalizedBaseDir);
+    const realFullPath = fs.realpathSync(fullPath);
+    return isWithinBaseDirectory(realBaseDir, realFullPath) ? fullPath : null;
+  } catch {
+    return null;
+  }
+};
+
+export const getKifuDirectoryList = async (
+  baseDir: string,
+  relPath: string,
+): Promise<KifuDirectoryEntry[] | null> => {
+  const fullPath = resolveKifuDirectory(baseDir, relPath);
+  if (!fullPath) return null;
+
+  const entries = await fs.promises.readdir(fullPath, { withFileTypes: true });
+  return entries
+    .filter(
+      (entry) => entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith("."),
+    )
+    .map((entry) => ({
+      name: entry.name,
+      path: normalizePath(path.join(relPath, entry.name)),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+};
+
 /**
  * Sets up a file system watcher to invalidate the cache when files change.
  * @param baseDir Absolute path to the base directory.
@@ -194,11 +261,7 @@ export const resolveKifuPath = (baseDir: string, relPath: string): string | null
   }
 
   // Security: Basic check for extension.
-  const ext = path.extname(relPath).toLowerCase();
-  const isSupportedExt =
-    SUPPORTED_EXTENSIONS.includes(ext) ||
-    BOOK_EXTENSIONS.includes(ext) ||
-    POSITION_EXTENSIONS.includes(ext);
+  const isSupportedExt = getServerFileKind(relPath) !== null;
 
   // Normalize and resolve the path.
   const fullPath = path.resolve(baseDir, relPath);
