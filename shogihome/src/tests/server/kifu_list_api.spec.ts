@@ -208,6 +208,148 @@ describe("API: /api/kifu", () => {
     );
   });
 
+  it("creates and lists a directory that can receive a renamed upload", async () => {
+    fs.mkdirSync(path.join(tempKifuDir, "games"));
+    const created = await requestApp(app, "POST", "/api/kifu/directories", {
+      host,
+      json: { parent: "games", name: "2026" },
+    });
+    expect(created.status).toBe(201);
+    expect(created.body).toEqual({ name: "2026", path: "games/2026" });
+
+    const listed = await requestApp(app, "GET", "/api/kifu/directories?dir=games", { host });
+    expect(listed.body.directories).toEqual([{ name: "2026", path: "games/2026" }]);
+    const uploaded = await requestApp(app, "POST", "/api/kifu/upload?path=games/2026/renamed.kif", {
+      host,
+      body: "original bytes",
+    });
+    expect(uploaded.status).toBe(201);
+    expect(fs.readFileSync(path.join(tempKifuDir, "games", "2026", "renamed.kif"), "utf8")).toBe(
+      "original bytes",
+    );
+  });
+
+  it("creates only one directory when requests race", async () => {
+    const responses = await Promise.all(
+      [0, 1].map(() =>
+        requestApp(app, "POST", "/api/kifu/directories", {
+          host,
+          json: { parent: "", name: "new" },
+        }),
+      ),
+    );
+    expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
+    expect(fs.readdirSync(tempKifuDir)).toEqual(["new"]);
+  });
+
+  it("does not replace a file or symlink when creating a directory", async () => {
+    fs.writeFileSync(path.join(tempKifuDir, "existing"), "original");
+    fs.symlinkSync(path.join(tempKifuDir, "existing"), path.join(tempKifuDir, "linked"));
+    for (const name of ["existing", "linked"]) {
+      const response = await requestApp(app, "POST", "/api/kifu/directories", {
+        host,
+        json: { parent: "", name },
+      });
+      expect(response.status).toBe(409);
+    }
+    expect(fs.readFileSync(path.join(tempKifuDir, "existing"), "utf8")).toBe("original");
+    expect(fs.lstatSync(path.join(tempKifuDir, "linked")).isSymbolicLink()).toBe(true);
+  });
+
+  it.each([
+    "",
+    ".",
+    "..",
+    "../escape",
+    "nested/new",
+    "nested\\new",
+    ".hidden",
+    "CON",
+    "new\u0000",
+    "a".repeat(251),
+  ])("rejects invalid directory name %j", async (name) => {
+    const response = await requestApp(app, "POST", "/api/kifu/directories", {
+      host,
+      json: { parent: "", name },
+    });
+    expect(response.status).toBe(400);
+    expect(fs.readdirSync(tempKifuDir)).toEqual([]);
+  });
+
+  it.each([{}, { parent: "" }, { parent: 1, name: "new" }, { parent: "", name: 1 }])(
+    "rejects malformed directory creation body %j",
+    async (json) => {
+      const response = await requestApp(app, "POST", "/api/kifu/directories", { host, json });
+      expect(response.status).toBe(400);
+    },
+  );
+
+  it.each(["missing", "../escape", "/absolute", "a/../b"])(
+    "rejects invalid or missing parent %j without creating ancestors",
+    async (parent) => {
+      const response = await requestApp(app, "POST", "/api/kifu/directories", {
+        host,
+        json: { parent, name: "new" },
+      });
+      expect(response.status).toBe(400);
+      expect(fs.readdirSync(tempKifuDir)).toEqual([]);
+    },
+  );
+
+  it("rejects a symlink parent", async () => {
+    fs.mkdirSync(path.join(tempKifuDir, "real"));
+    fs.symlinkSync(path.join(tempKifuDir, "real"), path.join(tempKifuDir, "linked"), "dir");
+    const response = await requestApp(app, "POST", "/api/kifu/directories", {
+      host,
+      json: { parent: "linked", name: "new" },
+    });
+    expect(response.status).toBe(400);
+    expect(fs.readdirSync(path.join(tempKifuDir, "real"))).toEqual([]);
+  });
+
+  it("enforces the directory depth boundary", async () => {
+    const parent = Array(9).fill("level").join("/");
+    fs.mkdirSync(path.join(tempKifuDir, parent), { recursive: true });
+    const allowed = await requestApp(app, "POST", "/api/kifu/directories", {
+      host,
+      json: { parent, name: "last" },
+    });
+    expect(allowed.status).toBe(201);
+    const rejected = await requestApp(app, "POST", "/api/kifu/directories", {
+      host,
+      json: { parent: `${parent}/last`, name: "too-deep" },
+    });
+    expect(rejected.status).toBe(400);
+    expect(fs.readdirSync(path.join(tempKifuDir, parent, "last"))).toEqual([]);
+  });
+
+  it("requires an allowed Origin to create a directory", async () => {
+    const response = await requestApp(app, "POST", "/api/kifu/directories", {
+      host,
+      omitOrigin: true,
+      json: { parent: "", name: "new" },
+    });
+    expect(response.status).toBe(403);
+    expect(fs.readdirSync(tempKifuDir)).toEqual([]);
+  });
+
+  it.each([".kif", ".hidden.kif", "CON.kif", "nested\\game.kif", "a".repeat(247) + ".kif"])(
+    "rejects unsafe upload file name %j",
+    async (name) => {
+      const response = await requestApp(
+        app,
+        "POST",
+        `/api/kifu/upload?path=${encodeURIComponent(name)}`,
+        {
+          host,
+          body: "kifu",
+        },
+      );
+      expect(response.status).toBe(400);
+      expect(fs.readdirSync(tempKifuDir)).toEqual([]);
+    },
+  );
+
   it("reports conflicts and only overwrites when explicitly requested", async () => {
     fs.writeFileSync(path.join(tempKifuDir, "game.kif"), "old");
 

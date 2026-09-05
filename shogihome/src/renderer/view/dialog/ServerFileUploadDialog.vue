@@ -16,13 +16,20 @@
       </div>
 
       <div v-if="files.length" class="file-list">
-        <div
-          v-for="(file, index) in files"
-          :key="`${file.name}:${file.size}:${file.lastModified}`"
-          class="file row align-center"
-        >
-          <span class="name">{{ file.name }}</span>
-          <span class="size">{{ formatSize(file.size) }}</span>
+        <div v-for="(file, index) in files" :key="index" class="file row align-center">
+          <div class="file-details">
+            <span class="name" :title="file.file.name">{{ file.file.name }}</span>
+            <label class="save-name row align-center">
+              <span>{{ t.uploadFileName }}</span>
+              <input
+                v-model="file.baseName"
+                type="text"
+                :aria-label="`${t.uploadFileName}: ${file.file.name}`"
+              />
+              <span class="extension">{{ file.extension }}</span>
+            </label>
+          </div>
+          <span class="size">{{ formatSize(file.file.size) }}</span>
           <button class="thin remove" :aria-label="t.remove" @click="removeFile(index)">
             <Icon :icon="IconType.CLOSE" />
           </button>
@@ -32,7 +39,7 @@
       <div class="destination-label">{{ t.uploadDestination }}</div>
       <div class="server-selection-list">
         <div class="server-selection-header breadcrumbs">
-          <span class="breadcrumb-item" @click="openDirectory('')">Root</span>
+          <span class="breadcrumb-item" @click="openDirectory('')">{{ t.rootDirectory }}</span>
           <template v-for="part in breadcrumbs" :key="part.path">
             <span class="breadcrumb-separator">/</span>
             <span class="breadcrumb-item" @click="openDirectory(part.path)">
@@ -65,8 +72,24 @@
         </div>
       </div>
 
+      <form class="new-directory row align-center" @submit.prevent="createDirectory">
+        <input
+          v-model="newDirectoryName"
+          type="text"
+          :placeholder="t.folderName"
+          :aria-label="t.folderName"
+        />
+        <button
+          class="create-directory"
+          type="submit"
+          :disabled="!directoryReady || !newDirectoryName"
+        >
+          {{ t.createNewFolder }}
+        </button>
+      </form>
+
       <div class="main-buttons">
-        <button class="upload" :disabled="files.length === 0" @click="upload">
+        <button class="upload" :disabled="!directoryReady || files.length === 0" @click="upload">
           {{ t.upload }}
         </button>
         <button data-hotkey="Escape" @click="close">{{ t.cancel }}</button>
@@ -79,26 +102,31 @@
 import { computed, onMounted, ref } from "vue";
 import { t } from "@/common/i18n";
 import { normalizePath } from "@/common/helpers/path";
-import {
-  getServerFileKind,
-  SERVER_UPLOAD_ACCEPT,
-  type ServerDirectoryEntry,
-} from "@/common/file/upload";
+import { SERVER_UPLOAD_ACCEPT, type ServerDirectoryEntry } from "@/common/file/upload";
 import { useStore } from "@/renderer/store";
 import { useBusyState } from "@/renderer/store/busy";
 import { useConfirmationStore } from "@/renderer/store/confirm";
 import { useErrorStore } from "@/renderer/store/error";
-import { listUploadDirectories, uploadServerFiles } from "@/renderer/store/serverFileUpload";
+import {
+  createUploadDirectory,
+  createUploadItem,
+  getUploadFileName,
+  listUploadDirectories,
+  uploadServerFiles,
+  type ServerFileUploadItem,
+} from "@/renderer/store/serverFileUpload";
 import { useToastStore } from "@/renderer/store/toast";
 import DialogFrame from "./DialogFrame.vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { IconType } from "@/renderer/assets/icons";
 
 const store = useStore();
-const files = ref<File[]>([]);
+const files = ref<ServerFileUploadItem[]>([]);
 const currentDirectory = ref("");
 const directories = ref<ServerDirectoryEntry[]>([]);
 const fileInput = ref<HTMLInputElement>();
+const newDirectoryName = ref("");
+const directoryReady = ref(false);
 
 const breadcrumbs = computed(() => {
   if (!currentDirectory.value) return [];
@@ -120,7 +148,7 @@ const formatSize = (size: number) => {
 
 const selectFiles = (event: Event) => {
   const input = event.target as HTMLInputElement;
-  files.value = [...files.value, ...Array.from(input.files ?? [])];
+  files.value.push(...Array.from(input.files ?? []).map(createUploadItem));
   input.value = "";
 };
 
@@ -135,6 +163,23 @@ const openDirectory = async (path: string) => {
     const result = await listUploadDirectories(path);
     currentDirectory.value = result.path;
     directories.value = result.directories;
+    directoryReady.value = true;
+  } catch (error) {
+    useErrorStore().add(error);
+  } finally {
+    busy.release();
+  }
+};
+
+const createDirectory = async () => {
+  const busy = useBusyState();
+  busy.retain();
+  try {
+    const created = await createUploadDirectory(currentDirectory.value, newDirectoryName.value);
+    currentDirectory.value = created.path;
+    directories.value = [];
+    newDirectoryName.value = "";
+    directoryReady.value = true;
   } catch (error) {
     useErrorStore().add(error);
   } finally {
@@ -151,41 +196,34 @@ const finish = (uploaded: number, errors: Error[]) => {
 };
 
 const upload = async () => {
-  const unsupported = files.value.filter((file) => !getServerFileKind(file.name));
-  if (unsupported.length) {
-    useErrorStore().add(
-      new Error(t.unsupportedUploadFiles(unsupported.map((file) => file.name).join("\n"))),
-    );
-    return;
-  }
-  const names = new Map<string, string[]>();
-  for (const file of files.value) {
-    const key = file.name.toLocaleLowerCase();
-    names.set(key, [...(names.get(key) ?? []), file.name]);
-  }
-  const duplicates = [...names.values()].filter((entries) => entries.length > 1).flat();
-  if (duplicates.length) {
-    useErrorStore().add(new Error(t.duplicateUploadFileNames(duplicates.join("\n"))));
-    return;
-  }
+  const directory = currentDirectory.value;
+  try {
+    const initial = await uploadServerFiles(files.value, directory);
+    if (!initial.conflicts.length) {
+      finish(initial.uploaded.length, initial.errors);
+      return;
+    }
 
-  const initial = await uploadServerFiles(files.value, currentDirectory.value);
-  if (!initial.conflicts.length) {
-    finish(initial.uploaded.length, initial.errors);
-    return;
+    useConfirmationStore().show({
+      message: t.overwriteUploadConflicts(
+        initial.conflicts
+          .map((file) =>
+            directory ? `${directory}/${getUploadFileName(file)}` : getUploadFileName(file),
+          )
+          .join("\n"),
+      ),
+      onOk: async () => {
+        const retried = await uploadServerFiles(initial.conflicts, directory, true);
+        finish(initial.uploaded.length + retried.uploaded.length, [
+          ...initial.errors,
+          ...retried.errors,
+        ]);
+      },
+      onCancel: () => finish(initial.uploaded.length, initial.errors),
+    });
+  } catch (error) {
+    useErrorStore().add(error);
   }
-
-  useConfirmationStore().show({
-    message: t.overwriteUploadConflicts(initial.conflicts.map((file) => file.name).join("\n")),
-    onOk: async () => {
-      const retried = await uploadServerFiles(initial.conflicts, currentDirectory.value, true);
-      finish(initial.uploaded.length + retried.uploaded.length, [
-        ...initial.errors,
-        ...retried.errors,
-      ]);
-    },
-    onCancel: () => finish(initial.uploaded.length, initial.errors),
-  });
 };
 
 onMounted(() => openDirectory(""));
@@ -194,9 +232,10 @@ onMounted(() => openDirectory(""));
 <style scoped>
 .root {
   width: clamp(420px, 45vw, 640px);
-  max-width: 88vw;
+  max-width: calc(95vw - 32px);
   max-height: min(864px, 95dvh);
   gap: 10px;
+  overflow-y: auto;
 }
 .title {
   font-size: 1.2rem;
@@ -221,13 +260,39 @@ onMounted(() => openDirectory(""));
 .file:last-child {
   border-bottom: none;
 }
-.file .name {
+.file-details {
   flex: 1;
   min-width: 0;
+  text-align: left;
+}
+.file .name {
+  display: block;
   overflow: hidden;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.save-name {
+  gap: 5px;
+  margin-top: 5px;
+}
+.save-name > span,
+.create-directory {
+  flex-shrink: 0;
+}
+.save-name input,
+.new-directory input {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+}
+.new-directory {
+  gap: 8px;
+}
+.file-picker,
+.new-directory,
+.main-buttons {
+  flex-shrink: 0;
 }
 .file .size {
   flex-shrink: 0;

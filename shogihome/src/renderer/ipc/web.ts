@@ -22,6 +22,7 @@ import { normalizePath } from "@/common/helpers/path";
 import { KifuSearchResult, KifuListEntry } from "@/common/file/record";
 import {
   SERVER_UPLOAD_TIMEOUT_MS,
+  type ServerDirectoryEntry,
   type ServerDirectoryList,
   type ServerFileUploadResult,
 } from "@/common/file/upload";
@@ -704,6 +705,11 @@ export const webAPI: Bridge = {
   async listServerDirectories(dir?: string): Promise<ServerDirectoryList> {
     return await parseJsonResponse(
       await apiClient.api.kifu.directories.$get({ query: { dir: dir ?? "" } }),
+    );
+  },
+  async createServerDirectory(parent: string, name: string): Promise<ServerDirectoryEntry> {
+    return await parseJsonResponse(
+      await apiClient.api.kifu.directories.$post({ json: { parent, name } }),
     );
   },
   async uploadServerFile(

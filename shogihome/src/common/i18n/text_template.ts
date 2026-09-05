@@ -777,6 +777,11 @@ export type Texts = {
   saveToServer: string;
   upload: string;
   uploadDestination: string;
+  uploadFileName: string;
+  rootDirectory: string;
+  createNewFolder: string;
+  folderName: string;
+  invalidServerEntryName: (name: string) => string;
   selectFiles: string;
   nFilesUploaded: (n: number) => string;
   overwriteUploadConflicts: (names: string) => string;

@@ -5,6 +5,7 @@ import { normalizePath } from "@/common/helpers/path";
 import {
   BOOK_UPLOAD_EXTENSIONS,
   getServerFileKind,
+  isValidServerEntryName,
   KIFU_UPLOAD_EXTENSIONS,
   POSITION_UPLOAD_EXTENSIONS,
   type ServerFileKind,
@@ -182,6 +183,19 @@ export const getKifuDirectoryList = async (
       path: normalizePath(path.join(relPath, entry.name)),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
+};
+
+export const resolveNewKifuDirectory = (
+  baseDir: string,
+  parentDirectory: string,
+  name: string,
+): string | null => {
+  if (!isValidServerEntryName(name)) return null;
+  const parent = resolveKifuDirectory(baseDir, parentDirectory);
+  if (!parent || normalizePath(parentDirectory).split("/").filter(Boolean).length >= MAX_DEPTH) {
+    return null;
+  }
+  return path.join(parent, name);
 };
 
 /**

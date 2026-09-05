@@ -837,12 +837,18 @@ export const en: Texts = {
   saveToServer: "Save to Server",
   upload: "Upload",
   uploadDestination: "Upload destination",
+  uploadFileName: "Save name",
+  rootDirectory: "Root",
+  createNewFolder: "Create New Folder",
+  folderName: "Folder name",
+  invalidServerEntryName: (name: string) =>
+    `Invalid name. Check the characters and length.\n${name}`,
   selectFiles: "Select Files",
   nFilesUploaded: (n: number) => `${n} file(s) uploaded.`,
   overwriteUploadConflicts: (names: string) =>
     `Files with the same names already exist. Overwrite them?\n${names}`,
   duplicateUploadFileNames: (names: string) =>
-    `Multiple selected files have the same name.\n${names}`,
+    `Save names must be unique. Rename the conflicting files.\n${names}`,
   unsupportedUploadFiles: (names: string) => `Unsupported file format.\n${names}`,
   search: "Search",
   analysisDBSearchTimedOut: "The analysis DB search timed out.",

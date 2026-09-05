@@ -17,7 +17,11 @@ import type {
   SfenExportRequest,
 } from "@/common/file/sfen_export";
 import { RecordFileHistory } from "@/common/file/history";
-import type { ServerDirectoryList, ServerFileUploadResult } from "@/common/file/upload";
+import type {
+  ServerDirectoryEntry,
+  ServerDirectoryList,
+  ServerFileUploadResult,
+} from "@/common/file/upload";
 import {
   InitialRecordFileRequest,
   RecordFileFormat,
@@ -136,6 +140,7 @@ export interface API {
   isServerKifuEnabled(): Promise<boolean>;
   listServerKifu(dir?: string, reload?: boolean): Promise<KifuListEntry[]>;
   listServerDirectories(dir?: string): Promise<ServerDirectoryList>;
+  createServerDirectory(parent: string, name: string): Promise<ServerDirectoryEntry>;
   uploadServerFile(path: string, file: File, overwrite?: boolean): Promise<ServerFileUploadResult>;
   searchServerKifu(params: {
     sfen?: string;
@@ -334,6 +339,9 @@ const api: API = {
   },
   listServerDirectories(dir?: string): Promise<ServerDirectoryList> {
     return bridge.listServerDirectories(dir);
+  },
+  createServerDirectory(parent: string, name: string): Promise<ServerDirectoryEntry> {
+    return bridge.createServerDirectory(parent, name);
   },
   uploadServerFile(path: string, file: File, overwrite?: boolean): Promise<ServerFileUploadResult> {
     return bridge.uploadServerFile(path, file, overwrite);
