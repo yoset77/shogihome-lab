@@ -75,7 +75,37 @@ export async function uploadServerFiles(
   const busy = useBusyState();
   busy.retain();
   try {
-    for (const item of items) {
+    let pending = items;
+    if (!overwrite) {
+      // Books can be hundreds of megabytes. Check for existing book files
+      // before uploading so the overwrite confirmation appears without
+      // sending the bytes first. Kifu and SFEN files stay on the server-side
+      // 409 detection because they are small.
+      const hasBook = items.some((item) => getServerFileKind(getUploadFileName(item)) === "book");
+      if (hasBook) {
+        let existing: Set<string> | null = null;
+        try {
+          existing = new Set(await api.listServerBook());
+        } catch {
+          existing = null;
+        }
+        if (existing) {
+          pending = [];
+          for (const item of items) {
+            const name = getUploadFileName(item);
+            if (
+              getServerFileKind(name) === "book" &&
+              existing.has(destinationPath(directory, name))
+            ) {
+              result.conflicts.push(item);
+            } else {
+              pending.push(item);
+            }
+          }
+        }
+      }
+    }
+    for (const item of pending) {
       const name = getUploadFileName(item);
       try {
         result.uploaded.push(

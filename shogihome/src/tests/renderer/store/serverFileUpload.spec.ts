@@ -3,6 +3,7 @@ import { ApiResponseError } from "@/renderer/api/client";
 
 const apiMock = vi.hoisted(() => ({
   listServerDirectories: vi.fn(),
+  listServerBook: vi.fn(),
   createServerDirectory: vi.fn(),
   uploadServerFile: vi.fn(),
 }));
@@ -20,7 +21,10 @@ import {
 } from "@/renderer/store/serverFileUpload";
 
 describe("store/serverFileUpload", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    apiMock.listServerBook.mockResolvedValue([]);
+  });
 
   it("lists upload destination directories", async () => {
     apiMock.listServerDirectories.mockResolvedValue({ path: "books", directories: [] });
@@ -49,6 +53,54 @@ describe("store/serverFileUpload", () => {
     expect(result.errors).toEqual([]);
     expect(busyMock.retain).toHaveBeenCalledOnce();
     expect(busyMock.release).toHaveBeenCalledOnce();
+  });
+
+  it("detects existing book files before uploading", async () => {
+    const files = [new File(["a"], "a.kif"), new File(["b"], "b.db")];
+    apiMock.listServerBook.mockResolvedValue(["archive/b.db"]);
+    apiMock.uploadServerFile.mockResolvedValue({ path: "archive/a.kif" });
+
+    const result = await uploadServerFiles(files.map(createUploadItem), "archive");
+
+    expect(apiMock.uploadServerFile.mock.calls).toEqual([["archive/a.kif", files[0], false]]);
+    expect(result.uploaded).toHaveLength(1);
+    expect(result.conflicts.map(getUploadFileName)).toEqual(["b.db"]);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("keeps server-side conflict detection for kifu files", async () => {
+    const files = [new File(["a"], "a.kif")];
+    apiMock.listServerBook.mockResolvedValue(["a.kif"]);
+    apiMock.uploadServerFile.mockRejectedValueOnce(
+      new ApiResponseError(409, "file already exists"),
+    );
+
+    const result = await uploadServerFiles(files.map(createUploadItem), "");
+
+    expect(apiMock.uploadServerFile.mock.calls).toEqual([["a.kif", files[0], false]]);
+    expect(result.conflicts.map(getUploadFileName)).toEqual(["a.kif"]);
+  });
+
+  it("uploads books normally when the existence check fails", async () => {
+    const file = new File(["b"], "b.db");
+    apiMock.listServerBook.mockRejectedValueOnce(new Error("list failed"));
+    apiMock.uploadServerFile.mockResolvedValue({ path: "b.db" });
+
+    const result = await uploadServerFiles([createUploadItem(file)], "");
+
+    expect(apiMock.uploadServerFile.mock.calls).toEqual([["b.db", file, false]]);
+    expect(result.uploaded).toHaveLength(1);
+    expect(result.conflicts).toEqual([]);
+  });
+
+  it("skips the existence check when overwriting", async () => {
+    const file = new File(["b"], "b.db");
+    apiMock.uploadServerFile.mockResolvedValue({ path: "b.db" });
+
+    await uploadServerFiles([createUploadItem(file)], "", true);
+
+    expect(apiMock.listServerBook).not.toHaveBeenCalled();
+    expect(apiMock.uploadServerFile.mock.calls).toEqual([["b.db", file, true]]);
   });
 
   it("separates conflicts from other failures", async () => {
