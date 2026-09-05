@@ -2,8 +2,9 @@ import { Hono } from "hono";
 import { validator } from "hono/validator";
 import fs from "fs";
 import path from "node:path";
-import events from "node:events";
-import { finished } from "node:stream/promises";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { normalizePath } from "@/common/helpers/path";
 import {
   clearKifuListCache,
@@ -185,33 +186,21 @@ export const kifuRoutes = new Hono<AppEnv>()
         await writeStreamAtomic(
           fullPath,
           async (stream) => {
-            const reader = body.getReader();
-            try {
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                size += value.byteLength;
-                if (size > maxSize) {
-                  throw new HttpError(413, "Payload Too Large");
-                }
-                if (!stream.write(Buffer.from(value))) {
-                  await events.once(stream, "drain");
-                }
-              }
-              if (size === 0) {
-                throw new HttpError(400, "file is empty");
-              }
-              if (!resolveKifuDirectory(kifuDir, relDirectory === "." ? "" : relDirectory)) {
-                throw new HttpError(403, "destination directory is no longer valid");
-              }
-              const completion = finished(stream);
-              stream.end();
-              await completion;
-            } catch (error) {
-              await reader.cancel(error).catch(() => undefined);
-              throw error;
-            } finally {
-              reader.releaseLock();
+            await pipeline(
+              Readable.fromWeb(body as NodeReadableStream<Uint8Array>),
+              new Transform({
+                transform(chunk: Buffer, _encoding, callback) {
+                  size += chunk.byteLength;
+                  callback(size > maxSize ? new HttpError(413, "Payload Too Large") : null, chunk);
+                },
+                flush(callback) {
+                  callback(size === 0 ? new HttpError(400, "file is empty") : null);
+                },
+              }),
+              stream,
+            );
+            if (!resolveKifuDirectory(kifuDir, relDirectory === "." ? "" : relDirectory)) {
+              throw new HttpError(403, "destination directory is no longer valid");
             }
           },
           { overwrite },

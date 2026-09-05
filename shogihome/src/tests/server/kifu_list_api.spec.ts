@@ -1,18 +1,26 @@
 import { beforeEach, describe, expect, it, vi, afterAll } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import type http from "node:http";
+import { SERVER_UPLOAD_TIMEOUT_MS } from "@/common/file/upload";
 import { requestApp } from "./honoRequest";
 
-const { SERVER_PORT, tempKifuDir } = await vi.hoisted(async () => {
+const { SERVER_PORT, tempKifuDir, createServerSpy } = await vi.hoisted(async () => {
   const fs = await import("node:fs");
   const path = await import("node:path");
   const os = await import("node:os");
+  const http = await import("node:http");
   const port = 8400 + Math.floor(Math.random() * 100);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "shogihome-test-kifu-api-"));
   process.env.PORT = port.toString();
   process.env.KIFU_DIR = dir;
   process.env.KIFU_UPLOAD_MAX_MB = "1";
-  return { SERVER_PORT: port, tempKifuDir: dir };
+  process.env.FILE_UPLOAD_MAX_CONCURRENCY = "1";
+  return {
+    SERVER_PORT: port,
+    tempKifuDir: dir,
+    createServerSpy: vi.spyOn(http.default, "createServer"),
+  };
 });
 
 const kifuIndexMock = vi.hoisted(() => ({
@@ -45,6 +53,8 @@ vi.mock("@/server/kifu_index/sync.js", () => kifuIndexSyncMock);
 
 import { app } from "@/server/main";
 
+const httpServer = createServerSpy.mock.results[0].value as http.Server;
+createServerSpy.mockRestore();
 const host = `localhost:${SERVER_PORT}`;
 
 describe("API: /api/kifu", () => {
@@ -60,6 +70,84 @@ describe("API: /api/kifu", () => {
 
   afterAll(() => {
     fs.rmSync(tempKifuDir, { recursive: true, force: true });
+  });
+
+  it("allows the full upload timeout for HTTP request reception", () => {
+    expect(httpServer.requestTimeout).toBe(SERVER_UPLOAD_TIMEOUT_MS);
+  });
+
+  it("cancels stalled input after a disk error and releases the upload slot", async () => {
+    fs.writeFileSync(path.join(tempKifuDir, "failed.kif"), "old");
+    const createWriteStream = fs.createWriteStream.bind(fs);
+    const diskError = Object.assign(new Error("disk full"), { code: "ENOSPC" });
+    const streamSpy = vi
+      .spyOn(fs, "createWriteStream")
+      .mockImplementationOnce((filePath, options) => {
+        const stream = createWriteStream(filePath, options);
+        stream.once("open", () => stream.destroy(diskError));
+        return stream;
+      });
+    const cancel = vi.fn();
+    let input!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        input = controller;
+        controller.enqueue(new Uint8Array([1]));
+      },
+      cancel,
+    });
+    const request = requestApp(app, "POST", "/api/kifu/upload?path=failed.kif&overwrite=true", {
+      host,
+      body,
+    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const response = await Promise.race([
+        request,
+        new Promise<undefined>((resolve) => {
+          timer = setTimeout(() => resolve(undefined), 500);
+        }),
+      ]);
+      expect(cancel).toHaveBeenCalled();
+      expect(response?.status).toBe(500);
+      expect(fs.readdirSync(tempKifuDir)).toEqual(["failed.kif"]);
+      expect(fs.readFileSync(path.join(tempKifuDir, "failed.kif"), "utf8")).toBe("old");
+
+      const retry = await requestApp(app, "POST", "/api/kifu/upload?path=retry.kif", {
+        host,
+        body: "kifu",
+      });
+      expect(retry.status).toBe(201);
+    } finally {
+      clearTimeout(timer);
+      if (!cancel.mock.calls.length) input.close();
+      await request;
+      streamSpy.mockRestore();
+    }
+  });
+
+  it("cleans up an interrupted request without publishing partial data", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1]));
+      },
+      pull(controller) {
+        controller.error(new Error("client disconnected"));
+      },
+    });
+
+    const response = await requestApp(app, "POST", "/api/kifu/upload?path=partial.kif", {
+      host,
+      body,
+    });
+
+    expect(response.status).toBe(500);
+    expect(fs.readdirSync(tempKifuDir)).toEqual([]);
+    const retry = await requestApp(app, "POST", "/api/kifu/upload?path=retry.kif", {
+      host,
+      body: "kifu",
+    });
+    expect(retry.status).toBe(201);
   });
 
   it("should return root entries when dir is not specified", async () => {

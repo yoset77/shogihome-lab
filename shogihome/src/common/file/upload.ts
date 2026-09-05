@@ -1,5 +1,7 @@
 export type ServerFileKind = "kifu" | "book" | "sfen";
 
+export const SERVER_UPLOAD_TIMEOUT_MS = 15 * 60 * 1000;
+
 export const KIFU_UPLOAD_EXTENSIONS = [".kif", ".kifu", ".ki2", ".ki2u", ".csa", ".jkf"];
 export const BOOK_UPLOAD_EXTENSIONS = [".db", ".bin", ".sbk", ".ybb"];
 export const POSITION_UPLOAD_EXTENSIONS = [".sfen"];
