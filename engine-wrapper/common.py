@@ -140,6 +140,74 @@ def smart_merge_env(old_env_path, new_env_path, dest_env_path):
         f.writelines(merged_lines)
 
 
+def upsert_env_values(env_path, updates):
+    """
+    Update the specified keys in a .env file while preserving comments and unknown lines.
+
+    - Existing (uncommented) "KEY=value" lines are replaced in place.
+    - Commented-out "# KEY=value" lines are uncommented and replaced
+      so that a documented optional key can be enabled from the UI.
+    - Keys not present in the file are appended at the end.
+    - The file is always written back as UTF-8.
+
+    Args:
+        env_path: Path to the .env file. Created if missing.
+        updates: Mapping of key -> string value. Values must not contain newlines.
+    """
+    if not updates:
+        return
+
+    for key, value in updates.items():
+        if "\n" in str(value) or "\r" in str(value):
+            raise ValueError(f"Value for '{key}' must not contain newlines")
+
+    content = None
+    if env_path.exists():
+        for enc in ["utf-8-sig", "utf-8", "cp932"]:
+            try:
+                with open(env_path, "r", encoding=enc) as f:
+                    content = f.read()
+                break
+            except (UnicodeDecodeError, LookupError):
+                continue
+        if content is None:
+            # Final fallback: read with error replacement
+            with open(env_path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+
+    remaining = dict(updates)
+    out_lines = []
+
+    if content is not None:
+        for line in content.splitlines(keepends=True):
+            stripped = line.strip()
+            key = None
+            if "=" in stripped:
+                # Allow a commented-out entry to be re-enabled.
+                candidate = stripped.lstrip("#").lstrip() if stripped.startswith("#") else stripped
+                key_part = candidate.split("=", 1)[0].strip()
+                if key_part and all(c.isalnum() or c == "_" for c in key_part) and not key_part[0].isdigit():
+                    key = key_part
+            if key is not None and key in remaining:
+                out_lines.append(f"{key}={remaining[key]}\n")
+                del remaining[key]
+            else:
+                out_lines.append(line)
+
+    if remaining:
+        if out_lines and not out_lines[-1].endswith("\n"):
+            out_lines[-1] += "\n"
+        for key, value in remaining.items():
+            out_lines.append(f"{key}={value}\n")
+
+    # Write via a temporary file and rename so that a crash mid-write
+    # cannot leave a truncated .env behind.
+    tmp_path = env_path.with_name(env_path.name + ".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.writelines(out_lines)
+    os.replace(tmp_path, env_path)
+
+
 def get_local_ip():
     """Determine the local LAN IP address."""
     try:

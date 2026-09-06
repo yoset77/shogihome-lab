@@ -147,6 +147,7 @@ Database、filesystem、browser storage は互いに代替可能な正本では�
 - 開発時は TypeScript entry point と、必要に応じて source の Vision worker を実行します。
 - 配布版は Middle Server、Vision worker、model、必要な runtime asset をビルドスクリプトで配置します。
 - Engine Wrapper はPython版またはNode.js版を選択できます。protocol変更時は両方を同期します。
+- 配布版の Launcher (`engine-wrapper/launcher.py`) は、`engine-wrapper/server_settings.py` の schema 定義に従って server / wrapper の両 `.env` をフォームで編集する GUI を提供します。設定の正本は引き続き各 `.env` と `shogihome/src/server/config.ts` であり、Launcher は読み書きの bridge に留まります。
 - Docker構成はMiddle Serverを実行し、Engine Wrapperは別プロセスまたは別ホストで動作します。
 
 正確な起動手順は [README.md](README.md)、設定は各 `.env.example`、配布構成はビルドスクリプトとrelease workflowを参照してください。

@@ -175,9 +175,12 @@ class Api:
                 if "options" in entry and not isinstance(entry["options"], dict):
                     raise ValueError(f"Field 'options' in entry {i} must be an object")
 
-            # Write to file
-            with open(ENGINES_JSON_PATH, "w", encoding="utf-8") as f:
+            # Write via a temporary file and rename so that a crash mid-write
+            # cannot leave a truncated engines.json behind.
+            tmp_path = ENGINES_JSON_PATH.with_name(ENGINES_JSON_PATH.name + ".tmp")
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_path, ENGINES_JSON_PATH)
 
             return {"status": "ok"}
         except Exception as e:

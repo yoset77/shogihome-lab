@@ -16,6 +16,7 @@ from PIL import Image
 from pystray import MenuItem
 
 import i18n
+import server_settings
 from common import (
     BASE_DIR,
     get_local_ip,
@@ -27,6 +28,7 @@ from common import (
     load_env_value,
     smart_merge_env,
 )
+from server_settings import SECTION_ORDER, SETTINGS, load_settings, validate
 from update_checker import UpdateCache, UpdateInfo, fetch_latest_release, load_current_version
 
 # --- Configuration ---
@@ -75,6 +77,7 @@ class LauncherApp(ctk.CTk):
         self.server_process = None
         self.wrapper_process = None
         self.config_editor_process = None
+        self.server_settings_dialog = None
         self.is_running = False
         self.tray_icon = None
         self._is_quitting = False
@@ -92,7 +95,7 @@ class LauncherApp(ctk.CTk):
         self.load_config()
 
         self.title(APP_NAME)
-        self.geometry("400x540")
+        self.geometry("400x560")
         self.resizable(False, False)
 
         # Handle window close (minimize to tray)
@@ -140,11 +143,11 @@ class LauncherApp(ctk.CTk):
             fg_color="#d32f2f",
             hover_color="#b71c1c",
         )
-        self.btn_stop.pack(side="bottom", fill="x", padx=20, pady=20)
+        self.btn_stop.pack(side="bottom", fill="x", padx=20, pady=12)
 
         # QR Code and Info Section
         self.qr_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.qr_frame.pack(pady=10)
+        self.qr_frame.pack(pady=6)
         self.qr_label = None
         self.lan_link = None
         self.info_card = None
@@ -155,7 +158,7 @@ class LauncherApp(ctk.CTk):
         self.action_frame = ctk.CTkFrame(self)
         self.action_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self.action_frame.columnconfigure((0, 1), weight=1)
-        self.action_frame.rowconfigure((0, 1), weight=1)
+        self.action_frame.rowconfigure((0, 1, 2), weight=1)
 
         self.btn_open = ctk.CTkButton(
             self.action_frame,
@@ -167,7 +170,7 @@ class LauncherApp(ctk.CTk):
             hover_color="#124BC5",
             state="normal" if self.is_pc_access_allowed else "disabled",
         )
-        self.btn_open.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        self.btn_open.grid(row=0, column=0, padx=10, pady=6, sticky="nsew")
 
         self.btn_settings = ctk.CTkButton(
             self.action_frame,
@@ -178,7 +181,7 @@ class LauncherApp(ctk.CTk):
             fg_color="#2083e6",
             hover_color="#1868b8",
         )
-        self.btn_settings.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+        self.btn_settings.grid(row=0, column=1, padx=10, pady=6, sticky="nsew")
 
         self.btn_restart = ctk.CTkButton(
             self.action_frame,
@@ -189,18 +192,29 @@ class LauncherApp(ctk.CTk):
             fg_color="#f76b0e",
             hover_color="#f55a12",
         )
-        self.btn_restart.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
+        self.btn_restart.grid(row=1, column=1, padx=10, pady=6, sticky="nsew")
 
         self.btn_logs = ctk.CTkButton(
             self.action_frame,
             text=i18n.text("showLogs", lang=self.current_language),
             command=self.open_log_viewer,
-            height=60,
-            font=("Yu Gothic UI", 14),
+            height=40,
+            font=("Yu Gothic UI", 13),
             fg_color="#607d8b",
             hover_color="#455a64",
         )
-        self.btn_logs.grid(row=1, column=1, padx=10, pady=10, sticky="nsew")
+        self.btn_logs.grid(row=2, column=0, columnspan=2, padx=10, pady=(6, 10), sticky="nsew")
+
+        self.btn_server_settings = ctk.CTkButton(
+            self.action_frame,
+            text=i18n.text("serverSettings", lang=self.current_language),
+            command=self.open_server_settings,
+            height=60,
+            font=("Yu Gothic UI", 14),
+            fg_color="#7e57c2",
+            hover_color="#5e35b1",
+        )
+        self.btn_server_settings.grid(row=1, column=0, padx=10, pady=6, sticky="nsew")
 
         # Start processes on load
         self.after(100, self.start_services)
@@ -328,6 +342,7 @@ class LauncherApp(ctk.CTk):
         self.btn_restart.configure(text=i18n.text("restartServer", lang=lang))
         self.btn_logs.configure(text=i18n.text("showLogs", lang=lang))
         self.btn_stop.configure(text=i18n.text("stopAndExit", lang=lang))
+        self.btn_server_settings.configure(text=i18n.text("serverSettings", lang=lang))
 
         if self.config_editor_process and self.config_editor_process.poll() is None:
             self.btn_settings.configure(text=i18n.text("settingsRunning", lang=lang))
@@ -356,6 +371,7 @@ class LauncherApp(ctk.CTk):
             MenuItem(i18n.text("trayOpenShogiHome", lang=lang), lambda: self.open_browser()),
             MenuItem(i18n.text("trayDashboard", lang=lang), lambda: self.show_window(), default=True),
             MenuItem(i18n.text("traySettings", lang=lang), lambda: self.open_settings()),
+            MenuItem(i18n.text("serverSettings", lang=lang), lambda: self.open_server_settings()),
             pystray.Menu.SEPARATOR,
             MenuItem(i18n.text("trayExit", lang=lang), lambda: self.quit_app()),
         )
@@ -742,6 +758,183 @@ class LauncherApp(ctk.CTk):
 
         refresh_logs()
 
+    def open_server_settings(self):
+        """Open the server settings dialog for both .env files."""
+        if self.server_settings_dialog is not None:
+            try:
+                if self.server_settings_dialog.winfo_exists():
+                    self.server_settings_dialog.lift()
+                    return
+            except Exception:
+                pass
+            self.server_settings_dialog = None
+
+        lang = self.current_language
+        settings_by_id = {s.id: s for s in SETTINGS}
+        values = load_settings(SHOGIHOME_DIR, WRAPPER_DIR)
+
+        dialog = ctk.CTkToplevel(self)
+        self.server_settings_dialog = dialog
+        dialog.title(i18n.text("serverSettings", lang=lang))
+        dialog.geometry("620x640")
+        dialog.transient(self)
+
+        widgets = {}
+
+        scroll = ctk.CTkScrollableFrame(dialog)
+        scroll.pack(fill="both", expand=True, padx=10, pady=(10, 5))
+
+        for section in SECTION_ORDER:
+            ctk.CTkLabel(
+                scroll,
+                text=i18n.text(f"settingsSection_{section}", lang=lang),
+                font=("Yu Gothic UI", 14, "bold"),
+                anchor="w",
+            ).pack(fill="x", padx=(5, 0), pady=(10, 2))
+            for setting in [s for s in SETTINGS if s.section == section]:
+                self._build_setting_row(scroll, setting, values, widgets, lang, dialog)
+
+        error_label = ctk.CTkLabel(dialog, text="", text_color="#f44336", font=("Yu Gothic UI", 12), justify="left")
+        error_label.pack(fill="x", padx=10)
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=10, pady=10)
+
+        def save_settings():
+            collected = {setting_id: getter() for setting_id, (_, getter) in widgets.items()}
+            errors = validate(collected)
+            if errors:
+                messages = []
+                for setting_id, code in errors.items():
+                    setting = settings_by_id[setting_id]
+                    messages.append(
+                        i18n.text(
+                            f"settingsError_{code}",
+                            lang=lang,
+                            field=setting_id,
+                            min_value=setting.min_value,
+                            max_value=setting.max_value,
+                        )
+                    )
+                error_label.configure(text="\n".join(messages))
+                return
+            try:
+                server_settings.save(collected, SHOGIHOME_DIR, WRAPPER_DIR)
+            except Exception as e:
+                error_label.configure(text=str(e))
+                return
+
+            dialog.destroy()
+            self.server_settings_dialog = None
+
+            # Reflect new settings in the launcher UI (QR panel, PC URL)
+            self.load_config()
+            self.setup_info_panel()
+            self.btn_open.configure(state="normal" if self.is_pc_access_allowed else "disabled")
+
+            if self.is_running and messagebox.askyesno(APP_NAME, i18n.text("settingsRestartPrompt", lang=lang), parent=self):
+                self.restart_services()
+
+        ctk.CTkButton(
+            btn_frame, text=i18n.text("settingsCancel", lang=lang), command=dialog.destroy, fg_color="#9e9e9e", hover_color="#757575"
+        ).pack(side="right", padx=(5, 0))
+        ctk.CTkButton(btn_frame, text=i18n.text("settingsSave", lang=lang), command=save_settings).pack(side="right")
+
+    def _build_setting_row(self, parent, setting, values, widgets, lang, dialog):
+        """Create a single setting row in the server settings dialog."""
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", pady=(4, 0))
+
+        top = ctk.CTkFrame(row, fg_color="transparent")
+        top.pack(fill="x")
+
+        getter = None
+        if setting.type == server_settings.TYPE_BOOL:
+            var = ctk.BooleanVar(value=bool(values.get(setting.id)))
+            checkbox = ctk.CTkCheckBox(top, text=setting.id, variable=var)
+            checkbox.pack(side="left")
+            getter = var.get
+            widgets[setting.id] = (checkbox, getter)
+        elif setting.type == server_settings.TYPE_CHOICE:
+            ctk.CTkLabel(top, text=setting.id, font=("Yu Gothic UI", 13, "bold")).pack(side="left")
+            menu = ctk.CTkOptionMenu(top, values=list(setting.choices), width=180)
+            menu.set(str(values.get(setting.id, setting.default)))
+            menu.pack(side="right")
+            getter = menu.get
+            widgets[setting.id] = (menu, getter)
+        elif setting.type == server_settings.TYPE_LIST:
+            ctk.CTkLabel(top, text=setting.id, font=("Yu Gothic UI", 13, "bold")).pack(side="left")
+            entries = []
+
+            def collect():
+                return ",".join(e.get().strip() for e in entries if e.get().strip())
+
+            list_frame = ctk.CTkFrame(row, fg_color="transparent")
+            list_frame.pack(fill="x")
+
+            def add_item(value=""):
+                item_row = ctk.CTkFrame(list_frame, fg_color="transparent")
+                # Insert new rows before the "+" button so it always stays at the bottom
+                item_row.pack(fill="x", pady=1, before=plus_button)
+                entry = ctk.CTkEntry(item_row, width=320)
+                if value:
+                    entry.insert(0, value)
+                entry.pack(side="left")
+                entries.append(entry)
+
+                def remove_item():
+                    entries.remove(entry)
+                    item_row.destroy()
+
+                ctk.CTkButton(item_row, text="×", width=30, command=remove_item).pack(side="left", padx=(5, 0))
+
+            plus_button = ctk.CTkButton(list_frame, text="＋", width=40, command=add_item)
+            plus_button.pack(anchor="w", pady=(3, 0))
+
+            existing = [v.strip() for v in str(values.get(setting.id, setting.default)).split(",") if v.strip()]
+            for item in existing:
+                add_item(item)
+
+            getter = collect
+            widgets[setting.id] = (list_frame, getter)
+        else:
+            ctk.CTkLabel(top, text=setting.id, font=("Yu Gothic UI", 13, "bold")).pack(side="left")
+            entry = ctk.CTkEntry(top, width=230)
+            entry.insert(0, str(values.get(setting.id, setting.default)))
+            entry.pack(side="right")
+            getter = entry.get
+            widgets[setting.id] = (entry, getter)
+
+            if setting.id == "KIFU_DIR":
+
+                def browse():
+                    path = filedialog.askdirectory(parent=dialog)
+                    if path:
+                        entry.delete(0, "end")
+                        # Windows users expect backslash paths in the text box
+                        entry.insert(0, path.replace("/", "\\") if os.name == "nt" else path)
+
+                ctk.CTkButton(top, text=i18n.text("settingsBrowse", lang=lang), width=60, command=browse).pack(side="right", padx=(5, 5))
+            elif setting.id == "WRAPPER_ACCESS_TOKEN":
+
+                def generate():
+                    entry.delete(0, "end")
+                    entry.insert(0, server_settings.generate_token())
+
+                ctk.CTkButton(top, text=i18n.text("settingsTokenGenerate", lang=lang), width=60, command=generate).pack(
+                    side="right", padx=(5, 5)
+                )
+
+        ctk.CTkLabel(
+            row,
+            text=i18n.text(f"settingsDesc_{setting.id}", lang=lang),
+            font=("Yu Gothic UI", 11),
+            text_color=("#666666", "#aaaaaa"),
+            anchor="w",
+            justify="left",
+            wraplength=520,
+        ).pack(fill="x")
+
     def open_browser(self, auto=False):
         # Open the allowed URL on PC
         webbrowser.open(self.pc_url)
@@ -902,6 +1095,7 @@ def setup_tray(app):
         MenuItem(i18n.text("trayOpenShogiHome", lang=lang), lambda: app.open_browser()),
         MenuItem(i18n.text("trayDashboard", lang=lang), lambda: app.show_window(), default=True),
         MenuItem(i18n.text("traySettings", lang=lang), lambda: app.open_settings()),
+        MenuItem(i18n.text("serverSettings", lang=lang), lambda: app.open_server_settings()),
         pystray.Menu.SEPARATOR,
         MenuItem(i18n.text("trayExit", lang=lang), lambda: app.quit_app()),
     )
