@@ -108,7 +108,7 @@ jobs:
           Copy-Item -Path "engine-wrapper/python" -Destination "$pkgName/engine-wrapper/python" -Recurse
 
           # Explicitly copy required scripts and VERSION file
-          @("launcher.py", "engine_wrapper.py", "config_editor.py", "common.py", "i18n.py", "update_checker.py", "VERSION") | ForEach-Object {
+          @("launcher.py", "engine_wrapper.py", "config_editor.py", "common.py", "i18n.py", "server_settings.py", "update_checker.py", "VERSION") | ForEach-Object {
               Copy-Item "engine-wrapper/$_" -Destination "$pkgName/engine-wrapper/"
           }
 
@@ -120,6 +120,15 @@ jobs:
           New-Item -ItemType Directory -Path "$pkgName/engine-wrapper/licenses" -Force
           if (Test-Path "engine-wrapper/licenses") {
               Copy-Item "engine-wrapper/licenses/*" -Destination "$pkgName/engine-wrapper/licenses/" -ErrorAction SilentlyContinue
+          }
+
+          # Smoke test: the launcher must import cleanly in the packaged environment
+          Push-Location "$pkgName/engine-wrapper"
+          try {
+              & ".\python\python.exe" -c "import launcher"
+              if ($LASTEXITCODE -ne 0) { throw "Launcher import smoke test failed" }
+          } finally {
+              Pop-Location
           }
 
           # Zip it

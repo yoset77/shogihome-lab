@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from common import get_pc_url_config, get_python_exe, get_resource_dir, is_bundled, load_env_value
+from common import get_pc_url_config, get_python_exe, get_resource_dir, is_bundled, load_env_value, upsert_env_values
 
 
 def test_is_bundled(tmp_path, monkeypatch):
@@ -92,6 +92,120 @@ INVALID=abc""",
 def test_load_env_value_no_file(tmp_path):
     non_existent = tmp_path / "not_found.env"
     assert load_env_value(non_existent, "PORT", 1234) == 1234
+
+
+def test_upsert_env_values_preserves_comments(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        """# Web server port
+PORT=8140
+# Remote engine setting
+# REMOTE_ENGINE_PORT=4082
+CUSTOM_LINE=keep-me
+""",
+        encoding="utf-8",
+    )
+
+    upsert_env_values(env_file, {"PORT": "9000", "REMOTE_ENGINE_PORT": "5000"})
+
+    content = env_file.read_text(encoding="utf-8")
+    lines = content.splitlines()
+
+    assert lines[0] == "# Web server port"
+    assert lines[1] == "PORT=9000"
+    assert lines[2] == "# Remote engine setting"
+    # Commented-out entry is re-enabled
+    assert lines[3] == "REMOTE_ENGINE_PORT=5000"
+    assert lines[4] == "CUSTOM_LINE=keep-me"
+
+    assert load_env_value(env_file, "PORT", 0) == 9000
+    assert load_env_value(env_file, "REMOTE_ENGINE_PORT", 0) == 5000
+
+
+def test_upsert_env_values_appends_missing_keys(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("PORT=8140\n", encoding="utf-8")
+
+    upsert_env_values(env_file, {"KIFU_DIR": "C:/kifu", "TRUST_PROXY": "true"})
+
+    content = env_file.read_text(encoding="utf-8")
+    assert "PORT=8140" in content
+    assert "KIFU_DIR=C:/kifu" in content
+    assert "TRUST_PROXY=true" in content
+    # Values are appended after existing content (with a newline separator)
+    assert content.endswith("TRUST_PROXY=true\n")
+
+
+def test_upsert_env_values_no_trailing_newline(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("PORT=8140", encoding="utf-8")
+
+    upsert_env_values(env_file, {"BIND_ADDRESS": "127.0.0.1"})
+
+    content = env_file.read_text(encoding="utf-8")
+    # A newline is inserted before appended keys
+    assert content == "PORT=8140\nBIND_ADDRESS=127.0.0.1\n"
+
+
+def test_upsert_env_values_creates_file(tmp_path):
+    env_file = tmp_path / ".env"
+    upsert_env_values(env_file, {"PORT": "8140"})
+
+    assert env_file.exists()
+    assert env_file.read_text(encoding="utf-8") == "PORT=8140\n"
+
+
+def test_upsert_env_values_no_updates(tmp_path):
+    env_file = tmp_path / ".env"
+    upsert_env_values(env_file, {})
+    assert not env_file.exists()
+
+
+def test_upsert_env_values_rejects_newlines(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("PORT=8140\n", encoding="utf-8")
+
+    import pytest
+
+    with pytest.raises(ValueError):
+        upsert_env_values(env_file, {"KIFU_DIR": "line1\nline2"})
+
+    # File must be untouched
+    assert env_file.read_text(encoding="utf-8") == "PORT=8140\n"
+
+
+def test_upsert_env_values_cp932(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("PORT=8140\nNOTE=将棋", encoding="cp932")
+
+    upsert_env_values(env_file, {"PORT": "9000"})
+
+    # Result is normalized to UTF-8 and the comment text survives
+    content = env_file.read_text(encoding="utf-8")
+    assert "PORT=9000" in content
+    assert "NOTE=将棋" in content
+
+
+def test_upsert_env_values_empty_value(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("PORT=8140\nALLOWED_ORIGINS=old\n", encoding="utf-8")
+
+    upsert_env_values(env_file, {"ALLOWED_ORIGINS": ""})
+
+    content = env_file.read_text(encoding="utf-8")
+    assert "ALLOWED_ORIGINS=" in content
+    assert load_env_value(env_file, "ALLOWED_ORIGINS", "default") == ""
+
+
+def test_upsert_env_values_is_atomic(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("PORT=8140\n", encoding="utf-8")
+
+    upsert_env_values(env_file, {"PORT": "9000"})
+
+    # The temporary file must not be left behind and the original stays valid
+    assert not (tmp_path / ".env.tmp").exists()
+    assert env_file.read_text(encoding="utf-8") == "PORT=9000\n"
 
 
 def test_smart_merge_env(tmp_path):

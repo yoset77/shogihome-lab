@@ -1,12 +1,18 @@
 import json
-from unittest.mock import mock_open, patch
 
 from config_editor import Api
 
 
-def test_api_save_valid_data():
+def _api_with_tmp_engines_json(tmp_path, monkeypatch):
+    """Return (Api, path) where the engines.json path points into tmp_path."""
     api = Api()
-    # List type
+    path = tmp_path / "engines.json"
+    monkeypatch.setattr("config_editor.ENGINES_JSON_PATH", path)
+    return api, path
+
+
+def test_api_save_valid_data(tmp_path, monkeypatch):
+    api, path = _api_with_tmp_engines_json(tmp_path, monkeypatch)
     valid_data = [
         {
             "id": "test-engine",
@@ -17,27 +23,37 @@ def test_api_save_valid_data():
         }
     ]
 
-    with patch("config_editor.ENGINES_JSON_PATH", "/fake/path/engines.json"):
-        with patch("builtins.open", mock_open()) as mocked_file:
-            result = api.save(valid_data)
-            assert result == {"status": "ok"}
-            mocked_file.assert_called_once_with("/fake/path/engines.json", "w", encoding="utf-8")
+    result = api.save(valid_data)
+
+    assert result == {"status": "ok"}
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written == valid_data
+    # The temporary file must not be left behind
+    assert not (tmp_path / "engines.json.tmp").exists()
 
 
-def test_api_save_backward_compatibility():
-    api = Api()
-    # String type 'both' should be converted to list ['game', 'research']
+def test_api_save_backward_compatibility(tmp_path, monkeypatch):
+    api, path = _api_with_tmp_engines_json(tmp_path, monkeypatch)
+    # String type 'both' should be converted to list ['game', 'research', 'mate']
     input_data = [{"id": "test-engine", "name": "Test Engine", "path": "path/to/engine", "type": "both"}]
 
-    with patch("config_editor.ENGINES_JSON_PATH", "/fake/path/engines.json"):
-        with patch("builtins.open", mock_open()) as mocked_file:
-            result = api.save(input_data)
-            assert result == {"status": "ok"}
+    result = api.save(input_data)
 
-            # Get the written content by joining all write calls
-            written_content = "".join(call.args[0] for call in mocked_file().write.call_args_list)
-            written_json = json.loads(written_content)
-            assert written_json[0]["type"] == ["game", "research", "mate"]
+    assert result == {"status": "ok"}
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written[0]["type"] == ["game", "research", "mate"]
+
+
+def test_api_save_is_atomic(tmp_path, monkeypatch):
+    api, path = _api_with_tmp_engines_json(tmp_path, monkeypatch)
+    path.write_text('[{"id": "old", "name": "Old", "path": "old"}]', encoding="utf-8")
+
+    result = api.save([{"id": "new", "name": "New", "path": "new"}])
+
+    assert result == {"status": "ok"}
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written[0]["id"] == "new"
+    assert not (tmp_path / "engines.json.tmp").exists()
 
 
 def test_api_save_invalid_root_type():

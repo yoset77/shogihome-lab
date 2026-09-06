@@ -52,3 +52,24 @@ def test_text_network_info():
 
 def test_text_missing_key_returns_key():
     assert i18n.text("nonExistentKey", lang="ja") == "nonExistentKey"
+
+
+def test_settings_error_messages_render_for_all_codes():
+    """Regression: the launcher passes field/min_value/max_value kwargs for every
+    settingsError_* code, so rendering must not raise (e.g. TypeError from
+    a positional 'key' collision or missing lambda parameters)."""
+    codes = ["invalid_int", "out_of_range", "invalid_choice", "invalid_origin", "invalid_domain"]
+    for lang in ("ja", "en"):
+        for code in codes:
+            message = i18n.text(
+                f"settingsError_{code}",
+                lang=lang,
+                field="PORT",
+                min_value=1,
+                max_value=65535,
+            )
+            assert "PORT" in message
+
+    # out_of_range renders the bounds
+    ja_range = i18n.text("settingsError_out_of_range", lang="ja", field="PORT", min_value=1, max_value=3600)
+    assert "1〜3600" in ja_range
