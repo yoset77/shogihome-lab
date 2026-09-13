@@ -5,6 +5,7 @@ import { normalizePath } from "@/common/helpers/path";
 import {
   BOOK_UPLOAD_EXTENSIONS,
   getServerFileKind,
+  isReservedServerEntryName,
   isValidServerEntryName,
   KIFU_UPLOAD_EXTENSIONS,
   POSITION_UPLOAD_EXTENSIONS,
@@ -72,7 +73,7 @@ const getFileList = async (baseDir: string, extensions: string[]): Promise<strin
         break;
       }
 
-      if (entry.isSymbolicLink()) {
+      if (entry.isSymbolicLink() || isReservedServerEntryName(entry.name)) {
         continue;
       }
 
@@ -134,7 +135,12 @@ export interface KifuDirectoryEntry {
 
 export const resolveKifuDirectory = (baseDir: string, relPath: string): string | null => {
   const segments = relPath ? normalizePath(relPath).split("/") : [];
-  if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
+  if (
+    segments.some(
+      (segment) =>
+        !segment || segment === "." || segment === ".." || isReservedServerEntryName(segment),
+    )
+  ) {
     return null;
   }
   if (segments.length > MAX_DEPTH) {
@@ -176,7 +182,11 @@ export const getKifuDirectoryList = async (
   const entries = await fs.promises.readdir(fullPath, { withFileTypes: true });
   return entries
     .filter(
-      (entry) => entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith("."),
+      (entry) =>
+        entry.isDirectory() &&
+        !entry.isSymbolicLink() &&
+        !entry.name.startsWith(".") &&
+        !isReservedServerEntryName(entry.name),
     )
     .map((entry) => ({
       name: entry.name,
@@ -263,9 +273,9 @@ export const resolveKifuPath = (baseDir: string, relPath: string): string | null
     return null;
   }
 
-  // Security: Do not allow any path traversal segments.
+  // Security: Do not allow traversal or access to the atomic writer's lock directories.
   const segments = normalizePath(relPath).split("/");
-  if (segments.some((segment) => segment === "..")) {
+  if (segments.some((segment) => segment === ".." || isReservedServerEntryName(segment))) {
     return null;
   }
 
@@ -306,6 +316,14 @@ export const resolveKifuPath = (baseDir: string, relPath: string): string | null
     }
     const realExistingPath = fs.realpathSync(existingPath);
     if (!isWithinBaseDirectory(realBaseDir, realExistingPath)) {
+      return null;
+    }
+    // Internal symlink aliases must not expose the lock namespace either.
+    if (
+      normalizePath(path.relative(realBaseDir, realExistingPath))
+        .split("/")
+        .some(isReservedServerEntryName)
+    ) {
       return null;
     }
   } catch {

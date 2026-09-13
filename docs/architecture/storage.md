@@ -68,6 +68,7 @@ HostとOriginの検証は [`security.ts`](../../shogihome/src/server/security.ts
 - Readerへ部分的な内容を通常のtargetとして見せないことが目的です。
 - 失敗時はtemporary fileをcleanupします。
 - 新規作成では存在確認と公開のraceを避けます。
+- `*.lock` directoryはwriter専用の名前空間です。共有name validatorで同名entryの作成を拒否し、directory/fileの一覧から除外します。Path resolverは任意階層のlock directoryへのアクセスと、real pathがlock directory内を指すsymlink aliasを拒否します。Windowsで同じentryを指す大文字小文字・末尾dot/spaceの別表記も予約対象です。
 - このatomicityは論理的な公開とwriter排他を意味し、突然のstorage failureに対する完全なdurability保証ではありません。
 
 新しいServer側ファイル保存処理は、特別な理由がない限り既存のatomic helperを使用します。
