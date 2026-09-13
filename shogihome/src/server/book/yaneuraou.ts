@@ -163,9 +163,9 @@ export async function loadYaneuraOuBook(input: Readable): Promise<YaneBook> {
   return { format: "yane2016", entries };
 }
 
-async function writeEntry(output: Writable, sfen: string, entry: BookEntry) {
+function buildEntryText(sfen: string, entry: BookEntry): string {
   if (entry.moves.length === 0) {
-    return;
+    return "";
   }
   let buffer = SFENMarker + sfen + "\n";
   if (entry.comment) {
@@ -191,8 +191,42 @@ async function writeEntry(output: Writable, sfen: string, entry: BookEntry) {
       }
     }
   }
-  if (!output.write(buffer)) {
-    await events.once(output, "drain");
+  return buffer;
+}
+
+// Batches per-position text into fewer output.write calls. Saving a large book
+// issues one write per position without batching, so the per-call overhead
+// dominates once the file has millions of positions.
+class EntryBatchWriter {
+  private chunks: string[] = [];
+  private bufferedLength = 0;
+
+  constructor(
+    private output: Writable,
+    private flushThreshold = 256 * 1024,
+  ) {}
+
+  async write(text: string): Promise<void> {
+    if (!text) {
+      return;
+    }
+    this.chunks.push(text);
+    this.bufferedLength += text.length;
+    if (this.bufferedLength >= this.flushThreshold) {
+      await this.flush();
+    }
+  }
+
+  async flush(): Promise<void> {
+    if (this.chunks.length === 0) {
+      return;
+    }
+    const data = this.chunks.join("");
+    this.chunks = [];
+    this.bufferedLength = 0;
+    if (!this.output.write(data)) {
+      await events.once(this.output, "drain");
+    }
   }
 }
 
@@ -205,10 +239,12 @@ export async function storeYaneuraOuBook(book: YaneBook, output: Writable): Prom
     output.on("error", reject);
   });
   output.write(YANEURAOU_BOOK_HEADER_V100 + "\n");
+  const writer = new EntryBatchWriter(output);
   for (const sfen of Array.from(book.entries.keys()).sort()) {
     const entry = book.entries.get(sfen) as BookEntry;
-    await writeEntry(output, sfen, entry);
+    await writer.write(buildEntryText(sfen, entry));
   }
+  await writer.flush();
   output.end();
   await end;
 }
@@ -231,6 +267,7 @@ export async function mergeYaneuraOuBook(
   const patchKeys = Array.from(bookPatch.entries.keys()).sort();
   let patchIndex = 0;
   let lastPatchKey = "";
+  const writer = new EntryBatchWriter(output);
   try {
     await load(input, async (sfen, entry) => {
       for (; patchIndex < patchKeys.length; patchIndex++) {
@@ -242,17 +279,18 @@ export async function mergeYaneuraOuBook(
         if (patchKey === sfen) {
           patch = mergeBookEntries(entry, patch) as BookEntry;
         }
-        await writeEntry(output, patchKey, patch);
+        await writer.write(buildEntryText(patchKey, patch));
         lastPatchKey = patchKey;
       }
       if (sfen !== lastPatchKey) {
-        await writeEntry(output, sfen, entry);
+        await writer.write(buildEntryText(sfen, entry));
       }
     });
     for (; patchIndex < patchKeys.length; patchIndex++) {
       const patchKey = patchKeys[patchIndex];
-      await writeEntry(output, patchKey, bookPatch.entries.get(patchKey) as BookEntry);
+      await writer.write(buildEntryText(patchKey, bookPatch.entries.get(patchKey) as BookEntry));
     }
+    await writer.flush();
     output.end();
   } catch (error) {
     output.destroy(new Error(`Failed to merge YaneuraOu book: ${error}`));

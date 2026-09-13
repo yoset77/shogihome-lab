@@ -396,6 +396,21 @@ describe("background/book/sbk", () => {
     expect(observedEntry?.moves.length).toBeGreaterThan(0);
   });
 
+  it("stores an unpatched on-the-fly book preserving state order and content", async () => {
+    // Exercises the file-order row iteration and the batched writer used by
+    // the overwrite-save path for large on-the-fly books.
+    const filePath = "src/tests/testdata/book/shogihome01.sbk";
+    const book = await loadSbkBookOnTheFly(filePath);
+    const stored = SBook.decode(await storeToData(book));
+    const original = SBook.decode(fs.readFileSync(filePath));
+    expect(stored.BookStates.map((state) => state.Id)).toEqual(
+      original.BookStates.map((state) => state.Id),
+    );
+    expect(stored.BookStates.map((state) => state.Moves.length)).toEqual(
+      original.BookStates.map((state) => state.Moves.length),
+    );
+  });
+
   it("copies unindexed on-the-fly rows without decoding packed SFEN", async () => {
     const rawData = SBook.encode({
       Author: "",

@@ -432,9 +432,12 @@ export const webAPI: Bridge = {
       throw new Error("Only server-side books are supported");
     }
     const relPath = path.substring(9);
+    // Large on-the-fly book saves rewrite the whole file plus a re-index,
+    // which can take as long as a large file upload. Share the upload timeout
+    // so the client does not abort before the server finishes.
     const response = await apiClient.api.book.save.$post(
       { query: { path: relPath } },
-      apiOptions({ timeoutMs: 600000, sessionId }),
+      apiOptions({ timeoutMs: SERVER_UPLOAD_TIMEOUT_MS, sessionId }),
     );
     if (!response.ok) {
       throw new Error(await response.text());

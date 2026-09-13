@@ -14,6 +14,16 @@ const INDEX_HEADER_SIZE = 32; // magic(16) + record_count(8) + flags(8)
 const RECORD_SIZE = 44; // packed_sfen(32) + moves_offset(8) + ply(2) + move_count(2)
 const MOVE_ENTRY_SIZE_V0 = 4; // move16(2) + eval(2)
 const MOVE_ENTRY_SIZE_V1 = 6; // move16(2) + eval(2) + depth(2)
+// Number of index records prefetched per read and the approximate byte size
+// flushed per batched write. YBB saves issue per-record I/O without batching,
+// so large books spend most of their save time in syscalls.
+const YBB_INDEX_READ_CHUNK_RECORDS = 4096;
+const YBB_WRITE_FLUSH_BYTES = 256 * 1024;
+// Window size for streaming the base moves area during merges. Base moves are
+// consumed in base-record order, which matches the on-disk layout of
+// ShogiHome-written files, so the window turns millions of small random reads
+// into a handful of sequential bulk reads.
+const YBB_MOVES_READ_WINDOW_BYTES = 16 * 1024 * 1024;
 const MAX_SAFE_RECORD_COUNT = BigInt(
   Math.floor((Number.MAX_SAFE_INTEGER - INDEX_HEADER_SIZE) / RECORD_SIZE),
 );
@@ -300,6 +310,34 @@ export async function storeYbbBook(
     let movesPos = movesStart;
     const total = sorted.length;
 
+    // Both the index area and the moves area are written sequentially, so
+    // records are accumulated and flushed in bulk instead of one write per
+    // record. Output bytes are unchanged.
+    const pendingIndex: Buffer[] = [];
+    let pendingIndexBytes = 0;
+    const pendingMoves: Buffer[] = [];
+    let pendingMovesBytes = 0;
+    async function flushIndex() {
+      if (pendingIndex.length === 0) {
+        return;
+      }
+      const data = Buffer.concat(pendingIndex, pendingIndexBytes);
+      pendingIndex.length = 0;
+      pendingIndexBytes = 0;
+      await output.write(data, 0, data.length, indexPos);
+      indexPos += data.length;
+    }
+    async function flushMoves() {
+      if (pendingMoves.length === 0) {
+        return;
+      }
+      const data = Buffer.concat(pendingMoves, pendingMovesBytes);
+      pendingMoves.length = 0;
+      pendingMovesBytes = 0;
+      await output.write(data, 0, data.length, movesPos);
+      movesPos += data.length;
+    }
+
     for (let idx = 0; idx < total; idx++) {
       if (onProgress && idx % 10000 === 0) {
         onProgress(0.2 + (0.8 * idx) / total);
@@ -311,11 +349,14 @@ export async function storeYbbBook(
       const recBuf = Buffer.alloc(RECORD_SIZE);
       recBuf.set(item.packedBytes, 0);
       const recView = new DataView(recBuf.buffer, recBuf.byteOffset);
-      recView.setBigUint64(32, BigInt(movesPos - movesStart), true);
+      recView.setBigUint64(32, BigInt(movesPos + pendingMovesBytes - movesStart), true);
       recView.setUint16(40, entry.minPly || 1, true);
       recView.setUint16(42, moveCount, true);
-      await output.write(recBuf, 0, RECORD_SIZE, indexPos);
-      indexPos += RECORD_SIZE;
+      pendingIndex.push(recBuf);
+      pendingIndexBytes += RECORD_SIZE;
+      if (pendingIndexBytes >= YBB_WRITE_FLUSH_BYTES) {
+        await flushIndex();
+      }
 
       const movesBuf = Buffer.alloc(moveCount * entrySize);
       for (let i = 0; i < moveCount; i++) {
@@ -327,9 +368,14 @@ export async function storeYbbBook(
           movesBuf.writeUInt16LE(m.depth ?? 0, off + 4);
         }
       }
-      await output.write(movesBuf, 0, movesBuf.length, movesPos);
-      movesPos += movesBuf.length;
+      pendingMoves.push(movesBuf);
+      pendingMovesBytes += movesBuf.length;
+      if (pendingMovesBytes >= YBB_WRITE_FLUSH_BYTES) {
+        await flushMoves();
+      }
     }
+    await flushIndex();
+    await flushMoves();
   } finally {
     await output.close();
   }
@@ -360,7 +406,56 @@ export async function mergeYbbBook(
   const baseRecordCountNumber = validateRecordCount(baseRecordCount);
   const baseEntrySize = moveEntrySize(baseFlags);
   const baseMovesAreaStart = validateYbbLayout(baseSize, baseRecordCount);
+
+  // Base index records are accessed strictly in order in both passes, so they
+  // are prefetched in chunks instead of one read per record. The scratch
+  // buffer is reused; callers must consume it before the next load.
   const recBuf = Buffer.alloc(RECORD_SIZE);
+  let windowBuf = Buffer.allocUnsafe(0);
+  let windowStart = 0;
+  async function loadBaseRecord(idx: number): Promise<void> {
+    if (idx < windowStart || idx >= windowStart + windowBuf.length / RECORD_SIZE) {
+      const count = Math.min(YBB_INDEX_READ_CHUNK_RECORDS, baseRecordCountNumber - idx);
+      windowBuf = Buffer.allocUnsafe(count * RECORD_SIZE);
+      await readExact(
+        baseFile,
+        windowBuf,
+        0,
+        windowBuf.length,
+        INDEX_HEADER_SIZE + idx * RECORD_SIZE,
+      );
+      windowStart = idx;
+    }
+    const off = (idx - windowStart) * RECORD_SIZE;
+    windowBuf.copy(recBuf, 0, off, off + RECORD_SIZE);
+  }
+
+  // Streams the base moves area through a fixed-size window. Moves are
+  // requested in base-record order, so for sequentially laid out files each
+  // byte is read once. Files with non-sequential layouts still work via
+  // window refill at a small cost. Returned views are valid only until the
+  // next read call; callers that defer writes must copy.
+  let movesWindow = Buffer.allocUnsafe(0);
+  let movesWindowStart = 0;
+  async function readBaseMoves(absOffset: number, length: number): Promise<Buffer> {
+    if (length === 0) {
+      return Buffer.allocUnsafe(0);
+    }
+    if (
+      absOffset < movesWindowStart ||
+      absOffset + length > movesWindowStart + movesWindow.length
+    ) {
+      const readSize = Math.max(
+        Math.min(YBB_MOVES_READ_WINDOW_BYTES, baseSize - absOffset),
+        length,
+      );
+      movesWindow = Buffer.allocUnsafe(readSize);
+      await readExact(baseFile, movesWindow, 0, readSize, absOffset);
+      movesWindowStart = absOffset;
+    }
+    const off = absOffset - movesWindowStart;
+    return movesWindow.subarray(off, off + length);
+  }
 
   let outputHasDepth = (baseFlags & 1n) === 1n;
   if (!outputHasDepth) {
@@ -388,12 +483,8 @@ export async function mergeYbbBook(
     } else if (patchIdx >= sortedPatches.length) {
       cmp = -1;
     } else {
-      const baseOff = INDEX_HEADER_SIZE + Number(baseIdx) * RECORD_SIZE;
-      await readExact(baseFile, recBuf, 0, 32, baseOff);
-      cmp = comparePackedSfen(
-        new Uint8Array(recBuf.buffer, recBuf.byteOffset, 32),
-        sortedPatches[patchIdx].packedBytes,
-      );
+      await loadBaseRecord(Number(baseIdx));
+      cmp = recBuf.compare(sortedPatches[patchIdx].packedBytes, 0, 32, 0, 32);
     }
 
     if (cmp < 0) {
@@ -425,12 +516,58 @@ export async function mergeYbbBook(
     headerView.setBigUint64(24, outputFlags, true);
     await output.write(headerBuf, 0, INDEX_HEADER_SIZE, 0);
 
-    // Pass 2: interleaved index + moves write
+    // Pass 2: interleaved index + moves write. Both output areas are
+    // sequential, so records are accumulated and flushed in bulk instead of
+    // one write per record. Output bytes are unchanged.
     let indexPos = INDEX_HEADER_SIZE;
     let movesPos = movesStart;
     baseIdx = 0n;
     patchIdx = 0;
     let outputWritten = 0;
+    const pendingIndex: Buffer[] = [];
+    let pendingIndexBytes = 0;
+    const pendingMoves: Buffer[] = [];
+    let pendingMovesBytes = 0;
+    async function flushOutIndex() {
+      if (pendingIndex.length === 0) {
+        return;
+      }
+      const data = Buffer.concat(pendingIndex, pendingIndexBytes);
+      pendingIndex.length = 0;
+      pendingIndexBytes = 0;
+      await output.write(data, 0, data.length, indexPos);
+      indexPos += data.length;
+    }
+    async function flushOutMoves() {
+      if (pendingMoves.length === 0) {
+        return;
+      }
+      const data = Buffer.concat(pendingMoves, pendingMovesBytes);
+      pendingMoves.length = 0;
+      pendingMovesBytes = 0;
+      await output.write(data, 0, data.length, movesPos);
+      movesPos += data.length;
+    }
+    async function queueIndexRecord(record: Buffer) {
+      pendingIndex.push(record);
+      pendingIndexBytes += RECORD_SIZE;
+      if (pendingIndexBytes >= YBB_WRITE_FLUSH_BYTES) {
+        await flushOutIndex();
+      }
+    }
+    async function queueMoves(data: Buffer) {
+      pendingMoves.push(data);
+      pendingMovesBytes += data.length;
+      if (pendingMovesBytes >= YBB_WRITE_FLUSH_BYTES) {
+        await flushOutMoves();
+      }
+    }
+    function readBaseRecordFields(): { movesOffset: bigint; moveCount: number } {
+      return {
+        movesOffset: recBuf.readBigUInt64LE(32),
+        moveCount: recBuf.readUInt16LE(42),
+      };
+    }
 
     while (baseIdx < baseRecordCount || patchIdx < sortedPatches.length) {
       if (onProgress && outputWritten % 10000 === 0) {
@@ -443,40 +580,25 @@ export async function mergeYbbBook(
       if (baseIdx >= baseRecordCount) {
         cmp = 1;
       } else if (patchIdx >= sortedPatches.length) {
+        // Patches are exhausted but trailing base records remain. The scratch
+        // record is not read on this path, so load it and extract its fields
+        // (the original per-record code re-read it here as well).
+        await loadBaseRecord(Number(baseIdx));
+        ({ movesOffset: baseMovesOffset, moveCount: baseMoveCount } = readBaseRecordFields());
         cmp = -1;
       } else {
-        const baseOff = INDEX_HEADER_SIZE + Number(baseIdx) * RECORD_SIZE;
-        await readExact(baseFile, recBuf, 0, RECORD_SIZE, baseOff);
-        const baseView = new DataView(recBuf.buffer, recBuf.byteOffset);
-        baseMovesOffset = baseView.getBigUint64(32, true);
-        baseMoveCount = baseView.getUint16(42, true);
-        cmp = comparePackedSfen(
-          new Uint8Array(recBuf.buffer, recBuf.byteOffset, 32),
-          sortedPatches[patchIdx].packedBytes,
-        );
+        await loadBaseRecord(Number(baseIdx));
+        ({ movesOffset: baseMovesOffset, moveCount: baseMoveCount } = readBaseRecordFields());
+        cmp = recBuf.compare(sortedPatches[patchIdx].packedBytes, 0, 32, 0, 32);
       }
 
       if (cmp < 0) {
-        // base only — recBuf already contains the full record
-        if (baseIdx >= baseRecordCount) {
-          throw new Error("unreachable");
-        }
-        if (patchIdx >= sortedPatches.length) {
-          // patchIdx >= sortedPatches.length case: recBuf not yet read
-          const baseOff = INDEX_HEADER_SIZE + Number(baseIdx) * RECORD_SIZE;
-          await readExact(baseFile, recBuf, 0, RECORD_SIZE, baseOff);
-          const baseView = new DataView(recBuf.buffer, recBuf.byteOffset);
-          baseMovesOffset = baseView.getBigUint64(32, true);
-          baseMoveCount = baseView.getUint16(42, true);
-        }
-
-        // Overwrite only moves_offset in recBuf, then write as-is
-        const recView = new DataView(recBuf.buffer, recBuf.byteOffset);
-        recView.setBigUint64(32, BigInt(movesPos - movesStart), true);
-        await output.write(recBuf, 0, RECORD_SIZE, indexPos);
+        // base only — recBuf already contains the full record.
+        // Overwrite only moves_offset in recBuf, then queue a copy as-is.
+        recBuf.writeBigUInt64LE(BigInt(movesPos + pendingMovesBytes - movesStart), 32);
+        await queueIndexRecord(Buffer.from(recBuf));
 
         const movesSize = baseMoveCount * baseEntrySize;
-        const baseMoveBuf = Buffer.alloc(movesSize);
         const baseMovesAbsOffset = validateMovesRange(
           baseSize,
           baseMovesAreaStart,
@@ -484,39 +606,38 @@ export async function mergeYbbBook(
           baseMoveCount,
           baseEntrySize,
         );
-        await readExact(baseFile, baseMoveBuf, 0, movesSize, baseMovesAbsOffset);
+        const baseMovesView = await readBaseMoves(baseMovesAbsOffset, movesSize);
 
         if (baseEntrySize === outputEntrySize) {
-          await output.write(baseMoveBuf, 0, movesSize, movesPos);
-          movesPos += movesSize;
+          // Copy: the view is invalidated by the next window refill while the
+          // queued write is deferred until flush.
+          await queueMoves(Buffer.from(baseMovesView));
         } else {
+          // V0 records have no depth; zero-fill the extra V1 depth bytes.
           const outMoves = Buffer.alloc(baseMoveCount * outputEntrySize);
           for (let i = 0; i < baseMoveCount; i++) {
-            baseMoveBuf.copy(
+            baseMovesView.copy(
               outMoves,
               i * outputEntrySize,
               i * baseEntrySize,
               i * baseEntrySize + baseEntrySize,
             );
           }
-          await output.write(outMoves, 0, outMoves.length, movesPos);
-          movesPos += outMoves.length;
+          await queueMoves(outMoves);
         }
-        indexPos += RECORD_SIZE;
         baseIdx++;
       } else if (cmp > 0) {
         // patch only
         const patch = sortedPatches[patchIdx];
         const moves = patch.entry.moves;
-        const outRec = Buffer.alloc(RECORD_SIZE);
+        const outRec = Buffer.allocUnsafe(RECORD_SIZE);
         outRec.set(patch.packedBytes, 0);
-        const outView = new DataView(outRec.buffer, outRec.byteOffset);
-        outView.setBigUint64(32, BigInt(movesPos - movesStart), true);
-        outView.setUint16(40, patch.entry.minPly || 1, true);
-        outView.setUint16(42, moves.length, true);
-        await output.write(outRec, 0, RECORD_SIZE, indexPos);
+        outRec.writeBigUInt64LE(BigInt(movesPos + pendingMovesBytes - movesStart), 32);
+        outRec.writeUInt16LE(patch.entry.minPly || 1, 40);
+        outRec.writeUInt16LE(moves.length, 42);
+        await queueIndexRecord(outRec);
 
-        const outMoves = Buffer.alloc(moves.length * outputEntrySize);
+        const outMoves = Buffer.allocUnsafe(moves.length * outputEntrySize);
         for (let i = 0; i < moves.length; i++) {
           const off = i * outputEntrySize;
           outMoves.writeUInt16LE(toYaneMove16(moves[i].usi), off);
@@ -525,14 +646,11 @@ export async function mergeYbbBook(
             outMoves.writeUInt16LE(moves[i].depth ?? 0, off + 4);
           }
         }
-        await output.write(outMoves, 0, outMoves.length, movesPos);
-        movesPos += outMoves.length;
-        indexPos += RECORD_SIZE;
+        await queueMoves(outMoves);
         patchIdx++;
       } else {
         // both: merge
         const patch = sortedPatches[patchIdx];
-        const baseMoveBuf = Buffer.alloc(baseMoveCount * baseEntrySize);
         const baseMovesAbsOffset = validateMovesRange(
           baseSize,
           baseMovesAreaStart,
@@ -540,13 +658,17 @@ export async function mergeYbbBook(
           baseMoveCount,
           baseEntrySize,
         );
-        await readExact(baseFile, baseMoveBuf, 0, baseMoveBuf.length, baseMovesAbsOffset);
-        const baseMoves = readMoves(baseMoveBuf, baseMoveCount, baseEntrySize);
+        // Consumed synchronously before the next window read, so no copy.
+        const baseMovesView = await readBaseMoves(
+          baseMovesAbsOffset,
+          baseMoveCount * baseEntrySize,
+        );
+        const baseMoves = readMoves(baseMovesView, baseMoveCount, baseEntrySize);
         const baseEntry: BookEntry = {
           type: "normal",
           comment: "",
           moves: baseMoves,
-          minPly: new DataView(recBuf.buffer, recBuf.byteOffset).getUint16(40, true),
+          minPly: recBuf.readUInt16LE(40),
         };
         const merged = mergeBookEntries(baseEntry, patch.entry) || {
           type: "normal",
@@ -557,17 +679,16 @@ export async function mergeYbbBook(
         const moves = merged.moves;
 
         // reuse recBuf which has packed_sfen from the base record
-        const outView = new DataView(recBuf.buffer, recBuf.byteOffset);
-        outView.setBigUint64(32, BigInt(movesPos - movesStart), true);
-        const basePly = outView.getUint16(40, true);
+        recBuf.writeBigUInt64LE(BigInt(movesPos + pendingMovesBytes - movesStart), 32);
+        const basePly = recBuf.readUInt16LE(40);
         const patchPly = patch.entry.minPly;
         if (patchPly !== undefined && patchPly < basePly) {
-          outView.setUint16(40, patchPly, true);
+          recBuf.writeUInt16LE(patchPly, 40);
         }
-        outView.setUint16(42, moves.length, true);
-        await output.write(recBuf, 0, RECORD_SIZE, indexPos);
+        recBuf.writeUInt16LE(moves.length, 42);
+        await queueIndexRecord(Buffer.from(recBuf));
 
-        const outMoves = Buffer.alloc(moves.length * outputEntrySize);
+        const outMoves = Buffer.allocUnsafe(moves.length * outputEntrySize);
         for (let i = 0; i < moves.length; i++) {
           const off = i * outputEntrySize;
           outMoves.writeUInt16LE(toYaneMove16(moves[i].usi), off);
@@ -576,14 +697,14 @@ export async function mergeYbbBook(
             outMoves.writeUInt16LE(moves[i].depth ?? 0, off + 4);
           }
         }
-        await output.write(outMoves, 0, outMoves.length, movesPos);
-        movesPos += outMoves.length;
-        indexPos += RECORD_SIZE;
+        await queueMoves(outMoves);
         baseIdx++;
         patchIdx++;
       }
       outputWritten++;
     }
+    await flushOutIndex();
+    await flushOutMoves();
   } finally {
     await output.close();
   }

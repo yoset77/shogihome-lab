@@ -1131,6 +1131,36 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
         expect(fs.readdirSync(tmpdir).filter((name) => name.startsWith(".atomic-"))).toEqual([]);
       });
 
+      it("rejects normalized duplicate positions before publishing an overwrite", async () => {
+        const filePath = path.join(tmpdir, "overwrite-normalized-duplicates.db");
+        const original = [
+          "#YANEURAOU-DB2016 1.00",
+          `sfen ${startSfen}`,
+          "7g7f none 10 20 1",
+          `sfen ${startSfen.replace(/ 1$/, " 5")}`,
+          "2g2f none 30 20 1",
+          "",
+        ].join("\n");
+        fs.writeFileSync(filePath, original);
+        expect(await openBook(defaultBookSession, filePath, { onTheFlyThresholdMB: 0 })).toBe(
+          "on-the-fly",
+        );
+        // Leave the duplicate group untouched while editing another position.
+        const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/2P6/PP1PPPPPP/1B5R1/LNSGKGSNL w - 1";
+        const move = { usi: "3c3d", score: 42, comment: "unsaved" };
+        await updateBookMove(defaultBookSession, sfen, move);
+
+        await expect(saveBook(defaultBookSession, filePath)).rejects.toThrow(
+          "Book is not ordered by position",
+        );
+        expect(fs.readFileSync(filePath, "utf-8")).toBe(original);
+        expect(await searchBookMoves(defaultBookSession, sfen)).toEqual([move]);
+        expect(fs.readdirSync(tmpdir).filter((name) => name.startsWith(".atomic-"))).toEqual([]);
+        const fresh = await openBookAsNewSession(filePath, { onTheFlyThresholdMB: 0 });
+        closeBookSession(fresh.session);
+        expect(fresh.mode).toBe("on-the-fly");
+      });
+
       it("keeps the original file and the unsaved edits when preparing the new book fails", async () => {
         const filePath = path.join(tmpdir, "overwrite-prepare-failure.db");
         await openOnTheFly("src/tests/testdata/book/yaneuraou.db", filePath);

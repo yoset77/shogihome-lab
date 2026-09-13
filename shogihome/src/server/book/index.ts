@@ -527,12 +527,18 @@ async function saveBookOverwriteOnTheFly(
   filePath: string,
 ): Promise<void> {
   getAppLogger().info("Overwriting on-the-fly book atomically: path=%s", filePath);
+  const saveStartedAt = Date.now();
   let prepared: OnTheFlyBook | undefined;
   try {
     await writeStreamAtomic(filePath, (file) => writeBook(book, filePath, file), {
       encoding: "utf-8",
       highWaterMark: 1024 * 1024,
       beforePublish: async (tempFilePath) => {
+        getAppLogger().info(
+          "On-the-fly book merge completed: path=%s elapsedMs=%d",
+          filePath,
+          Date.now() - saveStartedAt,
+        );
         // The old book stays alive (including its raw data) until the new
         // book is published, so reserve its footprint in the SBK memory
         // budget to avoid exceeding the process memory limit.
@@ -540,11 +546,20 @@ async function saveBookOverwriteOnTheFly(
           book.format === "sbk" && book.sbkIndex && book.rawData
             ? book.rawData.byteLength + book.sbkIndex.table.byteLength
             : 0;
+        const rebuildStartedAt = Date.now();
+        // Validate before publishing: normalizing SFEN ply during a merge
+        // can produce duplicate keys even when the original lines were ordered.
         prepared = await buildOnTheFlyBook(
           book.format,
           tempFilePath,
           filePath,
           reservedMemoryBytes,
+        );
+        getAppLogger().info(
+          "On-the-fly book rebuild completed: path=%s elapsedMs=%d totalElapsedMs=%d",
+          filePath,
+          Date.now() - rebuildStartedAt,
+          Date.now() - saveStartedAt,
         );
       },
       onPublished: () => {
