@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:," />
+  <title>ShogiHome Lab Config Editor</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="module" src="./editor-main.ts"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>ShogiHome Lab 設定エディタ</h1>
+
+    <div class="card" id="editorSection">
+      <div class="spread">
+        <h2>エンジン一覧</h2>
+        <div class="row">
+          <button class="btn btn-sm" id="manageGroupsBtn">グループ管理</button>
+          <button class="btn btn-sm btn-success" id="addEngineBtn">追加</button>
+          <button class="btn btn-sm btn-primary" id="saveBtn">設定を保存</button>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table id="engineTable">
+          <thead><tr><th>名前</th><th>種類</th><th>操作</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="modal" id="engineModal" style="display:none;">
+      <div class="modal-content">
+        <h2 id="modalTitle">エンジン追加</h2>
+        <div class="form-group">
+          <label for="editName">名前</label>
+          <input type="text" id="editName" />
+        </div>
+        <div class="form-group">
+          <label for="editId">ID</label>
+          <div class="row">
+            <input type="text" id="editId" />
+            <button class="btn btn-sm" id="regenerateIdBtn">再生成</button>
+          </div>
+        </div>
+        <div class="form-group" id="editTypeContainer">
+          <label>種類</label>
+          <label class="check"><input type="checkbox" name="type" value="game" /> game</label>
+          <label class="check"><input type="checkbox" name="type" value="research" /> research</label>
+          <label class="check"><input type="checkbox" name="type" value="mate" /> mate</label>
+        </div>
+        <div class="form-group">
+          <label for="editPath">パス</label>
+          <div class="row">
+            <input type="text" id="editPath" />
+            <button class="btn btn-sm" id="browseBtn">参照</button>
+            <button class="btn btn-sm btn-info" id="analyzeBtn">解析</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="check"><input type="checkbox" id="editSaveAnalysisDB" /> <span id="editSaveAnalysisDBLabel">true</span> 解析結果をDBに保存</label>
+        </div>
+        <div class="form-group">
+          <label for="editAnalysisDBGroupId">グループ</label>
+          <div class="row">
+            <select id="editAnalysisDBGroupId"><option value="">（なし）</option></select>
+            <button class="btn btn-sm" id="addGroupBtn">新規グループ</button>
+          </div>
+        </div>
+        <h3>オプション</h3>
+        <div id="optionsList"></div>
+        <button class="btn btn-sm btn-warning" id="resetAllBtn" style="display:none;">すべて既定値に戻す</button>
+        <div class="modal-footer">
+          <button class="btn" id="cancelModalBtn">キャンセル</button>
+          <button class="btn btn-primary" id="saveEngineBtn">反映</button>
+        </div>
+        <div class="loading-overlay" id="modalLoading" style="display:none;">
+          <span id="loadingText">エンジン解析中...</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="groupModal" style="display:none;">
+      <div class="modal-content">
+        <h2>グループ管理</h2>
+        <table id="groupTable">
+          <thead><tr><th>名前</th><th>所属数</th><th>操作</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="modal-footer">
+          <button class="btn" id="closeGroupModalBtn">閉じる</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ShogiHomeLab",
+  "version": "1.20.0",
+  "identifier": "lab.shogihome.ShogiHomeLab",
+  "build": {
+    "frontendDist": "../src",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "ShogiHome Lab",
+        "url": "index.html",
+        "width": 400,
+        "height": 560,
+        "resizable": false
+      },
+      {
+        "label": "editor",
+        "title": "ShogiHome Lab Config Editor",
+        "url": "editor.html",
+        "width": 800,
+        "height": 900,
+        "minWidth": 600,
+        "minHeight": 600,
+        "visible": false,
+        "singleton": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"],
+    "externalBin": ["binaries/wrapper"],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" }
+    }
+  }
+}

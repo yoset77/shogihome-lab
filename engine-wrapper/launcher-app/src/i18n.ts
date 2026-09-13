@@ -1,0 +1,206 @@
+// Launcher UI strings. Ported from engine-wrapper/i18n.py plus the config
+// editor messages (previously hardcoded Japanese). No string is built from
+// configuration data; see editor.ts for safe DOM rendering.
+
+export type Lang = "ja" | "en";
+
+type TextFn = (...args: string[]) => string;
+type Entry = string | TextFn;
+
+const ja: Record<string, Entry> = {
+  latestVersionReleased: (v) => `最新版 ${v} が利用可能です`,
+  updateDownload: "詳細を見る",
+  updateRemindLater: "後で通知",
+  languageJa: "日本語",
+  languageEn: "English",
+  openOnPc: "PCで開く",
+  engineSettings: "エンジン設定",
+  restartServer: "サーバー再起動",
+  showLogs: "ログ表示",
+  stopAndExit: "停止して終了",
+  statusStopped: "停止中",
+  statusRunning: "実行中",
+  statusStarting: "起動中...",
+  statusError: "エラー",
+  statusLogError: "ログエラー",
+  statusStopping: "停止中...",
+  restarting: "再起動中...",
+  settingsRunning: "設定実行中",
+  logViewerTitle: "ログビューアー",
+  serverLogTab: "サーバーログ",
+  wrapperLogTab: "ラッパーログ",
+  refresh: "更新",
+  logTruncated: "... (省略) ...",
+  logReadError: (e) => `ログ読み込みエラー: ${e}`,
+  customNetworkActive: "カスタムネットワーク有効",
+  trayOpenShogiHome: "ShogiHomeを開く",
+  trayDashboard: "ダッシュボード",
+  traySettings: "設定",
+  trayExit: "終了",
+  serverSettings: "サーバー設定",
+  settingsSave: "保存",
+  settingsCancel: "キャンセル",
+  settingsBrowse: "参照...",
+  settingsTokenGenerate: "生成",
+  settingsRestartPrompt: () => "設定を保存しました。サーバーを再起動しますか？",
+  settingsSection_basic: "基本設定",
+  settingsSection_engine: "リモートエンジン",
+  settingsSection_security: "セキュリティ",
+  settingsSection_kifu: "棋譜・定跡・DB",
+  settingsError_invalid_int: (f) => `${f} には数値を入力してください`,
+  settingsError_out_of_range: (f, min, max) => `${f} は ${min}〜${max} の範囲で入力してください`,
+  settingsError_invalid_choice: (f) => `${f} の値が不正です`,
+  settingsError_invalid_origin: (f) => `${f} は http:// または https:// で始まるURLを指定してください`,
+  settingsError_invalid_domain: (f) => `${f} にはドメイン名（例: example.com）を指定してください`,
+  settingsDesc_PORT: "Webサーバーの待機ポート",
+  settingsDesc_BIND_ADDRESS: "0.0.0.0: LAN内の他PCからのアクセスを許可 / 127.0.0.1: このPCのみ許可",
+  settingsDesc_ENGINE_CONNECTION_PROTECTION_TIMEOUT: "通信切断後にエンジンを維持する秒数",
+  settingsDesc_LISTEN_PORT: "ラッパーとサーバーが通信するポート（両方の.envに反映されます）",
+  settingsDesc_ALLOWED_ORIGINS: "WebSocket接続と状態変更HTTPリクエストを許可するオリジン（例: https://host.tailnet.ts.net）",
+  settingsDesc_DISABLE_AUTO_ALLOWED_ORIGINS: "プライベートIPの自動許可を無効にする",
+  settingsDesc_TRUST_PROXY: "リバースプロキシ（X-Forwarded-For等）を信頼する",
+  settingsDesc_WRAPPER_ACCESS_TOKEN: "簡易認証トークン（空欄で無効。両方の.envに反映されます）",
+  settingsDesc_ALLOWED_FETCH_DOMAINS: "外部URLから棋譜を取得する際に許可するドメイン",
+  settingsDesc_KIFU_DIR: "サーバー上の棋譜・定跡フォルダ（空欄で無効）",
+  settingsDesc_KIFU_DIR_USE_POLLING: "棋譜フォルダの監視にポーリングを使用（rcloneマウント等）",
+  settingsDesc_ANALYSIS_DB_MIN_DEPTH: "検討結果をDBに保存する最小探索深さ",
+  settingsDesc_ONTHEFLY_THRESHOLD_MB: "定跡をOn-the-fly読み込みに切り替える閾値（MB）",
+  settingsDesc_SBK_ONTHEFLY_THRESHOLD_MB: "SBK定跡をOn-the-fly読み込みに切り替える閾値（MB）",
+  networkInfo: (bind, auto) =>
+    `Binding: ${bind}\nAuto-Origins: ${auto === "on" ? "有効" : "無効"}\n\n手動で設定したURLや\nプロキシを使用して\n他の端末からアクセスしてください。`,
+  "editor.title": "ShogiHome Lab 設定エディタ",
+  "editor.save": "設定を保存",
+  "editor.saved": "engines.json に保存しました",
+  "editor.saveFailed": (e) => `保存に失敗しました: ${e}`,
+  "editor.loadFailed": (e) => `初期化失敗: ${e}`,
+  "editor.duplicateId": (id) => `このIDは既に使用されています: ${id}`,
+  "editor.typeRequired": "種類 (Type) は少なくとも1つ選択してください。",
+  "editor.required": "名前、ID、パスは必須です。",
+  "editor.probeOk": (n) => `取得成功: ${n} 個のオプションが見つかりました。`,
+  "editor.probeFailed": (e) => `解析失敗: ${e}`,
+  "editor.probing": "エンジン解析中...",
+  "editor.pathRequired": "パスを入力してください。",
+  "editor.confirmNew": "現在の編集内容を破棄して新規作成しますか？",
+  "editor.confirmDelete": "本当に削除しますか？",
+  "editor.confirmRegenId": "IDを再生成しますか？\n（通常は変更する必要はありません）",
+  "editor.confirmResetAll": "すべてのオプションを既定値に戻しますか？",
+  "editor.groupNamePrompt": "新規グループ名を入力してください:",
+  "editor.groupRenamePrompt": "新しいグループ名を入力してください:",
+  "editor.groupNameRequired": "グループ名を入力してください",
+  "editor.groupExists": "既存のグループがあります",
+  "editor.groupRenamed": "グループ名を変更しました",
+  "editor.groupDeleted": "グループを削除しました",
+  "editor.groupCreated": "新しいグループを作成しました",
+  "editor.groupDeleteConfirm": (name, count) =>
+    Number(count) > 0
+      ? `グループ「${name}」を削除しますか？\n所属する ${count} 個のエンジンのグループ設定は解除されます。`
+      : `グループ「${name}」を削除しますか？`,
+};
+
+const en: Record<string, Entry> = {
+  latestVersionReleased: (v) => `New version ${v} is available`,
+  updateDownload: "View details",
+  updateRemindLater: "Remind later",
+  languageJa: "日本語",
+  languageEn: "English",
+  openOnPc: "Open on PC",
+  engineSettings: "Engine Settings",
+  restartServer: "Restart Server",
+  showLogs: "Show Logs",
+  stopAndExit: "Stop & Exit",
+  statusStopped: "Stopped",
+  statusRunning: "Running",
+  statusStarting: "Starting...",
+  statusError: "Error",
+  statusLogError: "Log Error",
+  statusStopping: "Stopping...",
+  restarting: "Restarting...",
+  settingsRunning: "Settings Running",
+  logViewerTitle: "Log Viewer",
+  serverLogTab: "Server Log",
+  wrapperLogTab: "Wrapper Log",
+  refresh: "Refresh",
+  logTruncated: "... (truncated) ...",
+  logReadError: (e) => `Error reading log: ${e}`,
+  customNetworkActive: "Custom Network Active",
+  trayOpenShogiHome: "Open ShogiHome",
+  trayDashboard: "Dashboard",
+  traySettings: "Settings",
+  trayExit: "Exit",
+  serverSettings: "Server Settings",
+  settingsSave: "Save",
+  settingsCancel: "Cancel",
+  settingsBrowse: "Browse...",
+  settingsTokenGenerate: "Generate",
+  settingsRestartPrompt: () => "Settings saved. Restart the server now?",
+  settingsSection_basic: "Basic",
+  settingsSection_engine: "Remote Engine",
+  settingsSection_security: "Security",
+  settingsSection_kifu: "Kifu / Book / DB",
+  settingsError_invalid_int: (f) => `${f} must be a number`,
+  settingsError_out_of_range: (f, min, max) => `${f} must be between ${min} and ${max}`,
+  settingsError_invalid_choice: (f) => `Invalid value for ${f}`,
+  settingsError_invalid_origin: (f) => `${f} must be a URL starting with http:// or https://`,
+  settingsError_invalid_domain: (f) => `${f} must be a domain name (e.g. example.com)`,
+  settingsDesc_PORT: "Web server listen port",
+  settingsDesc_BIND_ADDRESS: "0.0.0.0: allow access from other PCs on the LAN / 127.0.0.1: this PC only",
+  settingsDesc_ENGINE_CONNECTION_PROTECTION_TIMEOUT: "Seconds to keep the engine alive after a connection loss",
+  settingsDesc_LISTEN_PORT: "Port used between the wrapper and the server (written to both .env files)",
+  settingsDesc_ALLOWED_ORIGINS: "Origins allowed for WebSocket connections and state-changing HTTP requests (e.g. https://host.tailnet.ts.net)",
+  settingsDesc_DISABLE_AUTO_ALLOWED_ORIGINS: "Disable automatic private IP allowance",
+  settingsDesc_TRUST_PROXY: "Trust reverse proxy headers (X-Forwarded-For etc.)",
+  settingsDesc_WRAPPER_ACCESS_TOKEN: "Access token (empty = disabled; written to both .env files)",
+  settingsDesc_ALLOWED_FETCH_DOMAINS: "Domains allowed when fetching kifu from external URLs",
+  settingsDesc_KIFU_DIR: "Kifu/book folder on the server (empty = disabled)",
+  settingsDesc_KIFU_DIR_USE_POLLING: "Use polling to watch the kifu folder (rclone mounts etc.)",
+  settingsDesc_ANALYSIS_DB_MIN_DEPTH: "Minimum search depth to store analysis results in the DB",
+  settingsDesc_ONTHEFLY_THRESHOLD_MB: "Size threshold (MB) to open book files on-the-fly",
+  settingsDesc_SBK_ONTHEFLY_THRESHOLD_MB: "Size threshold (MB) to open .sbk book files on-the-fly",
+  networkInfo: (bind, auto) =>
+    `Binding: ${bind}\nAuto-Origins: ${auto === "on" ? "Enabled" : "Disabled"}\n\nPlease use your manually\nconfigured URL or proxy\nto access from other devices.`,
+  "editor.title": "ShogiHome Lab Config Editor",
+  "editor.save": "Save settings",
+  "editor.saved": "Saved to engines.json",
+  "editor.saveFailed": (e) => `Save failed: ${e}`,
+  "editor.loadFailed": (e) => `Initialization failed: ${e}`,
+  "editor.duplicateId": (id) => `This ID is already in use: ${id}`,
+  "editor.typeRequired": "Select at least one type.",
+  "editor.required": "Name, ID, and path are required.",
+  "editor.probeOk": (n) => `Probe succeeded: found ${n} options.`,
+  "editor.probeFailed": (e) => `Probe failed: ${e}`,
+  "editor.probing": "Probing engine...",
+  "editor.pathRequired": "Enter a path.",
+  "editor.confirmNew": "Discard current edits and start over?",
+  "editor.confirmDelete": "Really delete?",
+  "editor.confirmRegenId": "Regenerate the ID?\n(Usually unnecessary)",
+  "editor.confirmResetAll": "Reset all options to defaults?",
+  "editor.groupNamePrompt": "Enter a new group name:",
+  "editor.groupRenamePrompt": "Enter the new group name:",
+  "editor.groupNameRequired": "Enter a name",
+  "editor.groupExists": "A group with this name exists",
+  "editor.groupRenamed": "Group renamed",
+  "editor.groupDeleted": "Group deleted",
+  "editor.groupCreated": "Group created",
+  "editor.groupDeleteConfirm": (name, count) =>
+    Number(count) > 0
+      ? `Delete group "${name}"?\n${count} engine(s) will be ungrouped.`
+      : `Delete group "${name}"?`,
+};
+
+const tables: Record<Lang, Record<string, Entry>> = { ja, en };
+
+export function detectLang(): Lang {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+    ?.SHOGIHOME_LAB_LANG;
+  return env === "en" || env === "ja" ? env : "ja";
+}
+
+export function text(key: string, lang: Lang, ...args: string[]): string {
+  const entry = tables[lang]?.[key] ?? tables.ja[key];
+  if (entry === undefined) return key;
+  return typeof entry === "function" ? entry(...args) : entry;
+}
+
+export function settingDesc(id: string, lang: Lang): string {
+  return text(`settingsDesc_${id}`, lang) || id;
+}

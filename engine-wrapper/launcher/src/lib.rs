@@ -5,9 +5,12 @@
 //! The Tauri command layer (later phase) binds UI requests to this logic;
 //! the UI never spawns processes or writes config files directly.
 
+pub mod editor;
 pub mod env_codec;
 pub mod logs;
 pub mod migration;
+pub mod network;
+pub mod permissions;
 pub mod service;
 pub mod settings;
 pub mod supervisor;

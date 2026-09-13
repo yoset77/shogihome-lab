@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:," />
+  <title>ShogiHome Lab</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="module" src="./main.ts"></script>
+</head>
+<body>
+  <div class="container narrow">
+    <div class="header">
+      <h1>ShogiHome Lab</h1>
+      <div id="statusLabel" class="status">○</div>
+    </div>
+
+    <div class="card" id="updateBanner" style="display:none;">
+      <span id="updateLabel"></span>
+      <div class="row">
+        <button class="btn btn-sm btn-primary" id="updateOpenBtn">詳細を見る</button>
+        <button class="btn btn-sm" id="updateLaterBtn">後で通知</button>
+      </div>
+    </div>
+
+    <div class="card center">
+      <img id="qrImg" alt="QR" width="160" height="160" />
+      <div id="pcUrl" class="mono"></div>
+      <div class="row">
+        <button class="btn btn-primary" id="openPcBtn">PCで開く</button>
+        <button class="btn" id="restartBtn">サーバー再起動</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="editorBtn">エンジン設定</button>
+        <button class="btn" id="settingsBtn">サーバー設定</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="logsBtn">ログ表示</button>
+        <button class="btn" id="migrateBtn">引継ぎ</button>
+        <button class="btn btn-danger" id="exitBtn">停止して終了</button>
+      </div>
+    </div>
+
+    <div class="modal" id="settingsModal" style="display:none;">
+      <div class="modal-content">
+        <h2>サーバー設定</h2>
+        <div id="settingsForm"></div>
+        <div class="modal-footer">
+          <button class="btn" id="cancelSettingsBtn">キャンセル</button>
+          <button class="btn btn-primary" id="saveSettingsBtn">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="logsModal" style="display:none;">
+      <div class="modal-content wide">
+        <h2>ログビューアー</h2>
+        <h3>サーバーログ</h3>
+        <pre id="serverLogPre" class="log"></pre>
+        <h3>ラッパーログ</h3>
+        <pre id="wrapperLogPre" class="log"></pre>
+        <div class="modal-footer">
+          <button class="btn" id="refreshLogsBtn">更新</button>
+          <button class="btn btn-primary" id="closeLogsBtn">閉じる</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

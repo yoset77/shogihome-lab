@@ -1,6 +1,8 @@
 [workspace]
 members = ["wrapper", "launcher"]
-exclude = ["rust-poc"]
+# rust-poc is a standalone experiment; src-tauri needs WebView system libs
+# and is built on Windows in Phase 4.
+exclude = ["rust-poc", "launcher-app/src-tauri"]
 resolver = "2"
 
 [workspace.package]

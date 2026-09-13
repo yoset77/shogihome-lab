@@ -386,6 +386,44 @@ impl Drop for FileBackup {
     }
 }
 
+/// Machine-readable schema for the settings dialog (served to the TS UI).
+pub fn settings_schema() -> serde_json::Value {
+    let sections: Vec<serde_json::Value> = SECTION_ORDER
+        .iter()
+        .map(|s| serde_json::Value::String(s.to_string()))
+        .collect();
+    let settings: Vec<serde_json::Value> = SETTINGS
+        .iter()
+        .map(|s| {
+            let default = match setting_default(s) {
+                SettingValue::Bool(b) => serde_json::Value::Bool(b),
+                SettingValue::Text(t) => serde_json::Value::String(t),
+            };
+            serde_json::json!({
+                "id": s.id,
+                "type": match s.setting_type {
+                    SettingType::Int => "int",
+                    SettingType::Bool => "bool",
+                    SettingType::Text => "text",
+                    SettingType::Choice => "choice",
+                    SettingType::List => "list",
+                },
+                "section": s.section,
+                "default": default,
+                "min": s.min_value,
+                "max": s.max_value,
+                "choices": s.choices,
+                "listRule": match s.item_rule {
+                    Some(ListRule::Origin) => "origin",
+                    Some(ListRule::Domain) => "domain",
+                    None => "none",
+                },
+            })
+        })
+        .collect();
+    serde_json::json!({"sections": sections, "settings": settings})
+}
+
 /// URL-safe random token (≈32 chars), mirroring `secrets.token_urlsafe(24)`.
 pub fn generate_token() -> String {
     use rand::Rng;
