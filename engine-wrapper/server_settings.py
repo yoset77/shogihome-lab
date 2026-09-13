@@ -145,7 +145,9 @@ def load_settings(shogihome_dir, wrapper_dir) -> dict[str, object]:
     values: dict[str, object] = {}
     for setting in SETTINGS:
         key, kind = setting.keys[0]
-        raw = load_env_value(paths[kind], key, setting.default)
+        # Read booleans as text: bool defaults also satisfy isinstance(default, int).
+        default = str(setting.default) if setting.type == TYPE_BOOL else setting.default
+        raw = load_env_value(paths[kind], key, default)
         if setting.type == TYPE_BOOL:
             values[setting.id] = str(raw).strip().lower() == "true"
         else:

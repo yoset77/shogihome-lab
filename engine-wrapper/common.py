@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -140,13 +141,34 @@ def smart_merge_env(old_env_path, new_env_path, dest_env_path):
         f.writelines(merged_lines)
 
 
+def _format_env_value(key, value):
+    """Use a representation shared by python-dotenv and Node's loadEnvFile."""
+    value = str(value)
+    if "\n" in value or "\r" in value:
+        raise ValueError(f"Value for '{key}' must not contain newlines")
+
+    candidates = []
+    if "#" not in value and value == value.strip() and not value.startswith(("'", '"', "`")):
+        candidates.append(value)
+    # Node does not unescape quote delimiters. Prefer single quotes to keep
+    # Windows paths literal, then verify Python's escape/interpolation rules.
+    for quote in ("'", '"'):
+        if quote not in value:
+            candidates.append(f"{quote}{value}{quote}")
+    for candidate in candidates:
+        parsed = dotenv_values(stream=io.StringIO(f"{key}={candidate}\n"))
+        if parsed.get(key) == value:
+            return candidate
+    raise ValueError(f"Value for '{key}' cannot be represented consistently in Python and Node .env files")
+
+
 def upsert_env_values(env_path, updates):
     """
     Update the specified keys in a .env file while preserving comments and unknown lines.
 
-    - Existing (uncommented) "KEY=value" lines are replaced in place.
+    - Existing (uncommented) "KEY=value" lines are replaced in place and deduplicated.
     - Commented-out "# KEY=value" lines are uncommented and replaced
-      so that a documented optional key can be enabled from the UI.
+      only when no active definition exists, to enable documented optional keys.
     - Keys not present in the file are appended at the end.
     - The file is always written back as UTF-8.
 
@@ -157,9 +179,7 @@ def upsert_env_values(env_path, updates):
     if not updates:
         return
 
-    for key, value in updates.items():
-        if "\n" in str(value) or "\r" in str(value):
-            raise ValueError(f"Value for '{key}' must not contain newlines")
+    formatted = {key: _format_env_value(key, value) for key, value in updates.items()}
 
     content = None
     if env_path.exists():
@@ -175,23 +195,27 @@ def upsert_env_values(env_path, updates):
             with open(env_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
 
-    remaining = dict(updates)
+    remaining = dict(formatted)
     out_lines = []
 
     if content is not None:
+        entries = []
+        active_keys = set()
         for line in content.splitlines(keepends=True):
-            stripped = line.strip()
-            key = None
-            if "=" in stripped:
-                # Allow a commented-out entry to be re-enabled.
-                candidate = stripped.lstrip("#").lstrip() if stripped.startswith("#") else stripped
-                key_part = candidate.split("=", 1)[0].strip()
-                if key_part and all(c.isalnum() or c == "_" for c in key_part) and not key_part[0].isdigit():
-                    key = key_part
-            if key is not None and key in remaining:
+            match = re.match(r"(?P<comment>#+\s*)?(?:export\s+)?(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=", line.strip())
+            key = match["key"] if match else None
+            commented = bool(match and match["comment"])
+            entries.append((line, key, commented))
+            if key and not commented:
+                active_keys.add(key)
+
+        for line, key, commented in entries:
+            if key not in formatted or (commented and key in active_keys):
+                out_lines.append(line)
+            elif key in remaining:
                 out_lines.append(f"{key}={remaining[key]}\n")
                 del remaining[key]
-            else:
+            elif commented:
                 out_lines.append(line)
 
     if remaining:
