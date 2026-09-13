@@ -1,5 +1,5 @@
 [workspace]
-members = ["wrapper"]
+members = ["wrapper", "launcher"]
 exclude = ["rust-poc"]
 resolver = "2"
 

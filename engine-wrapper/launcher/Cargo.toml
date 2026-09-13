@@ -1,0 +1,20 @@
+[package]
+name = "shogihome-launcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Launcher backend: service supervision, settings, migration, update checks (Tauri backend in later phases)"
+
+[lib]
+name = "shogihome_launcher"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+rand = "0.8"
+encoding_rs = "0.8"
+ureq = { version = "3", default-features = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
