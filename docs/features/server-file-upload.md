@@ -14,6 +14,7 @@
 - 保存先は`KIFU_DIR`内の既存directoryに限定し、Serverのpath resolverで再検証します。
 - 新規folderは検証済みの既存parent直下に1階層だけ作成します。再帰的な作成、symlinkを経由するparent、深さ制限超過を許可せず、同名entryとの競合では既存entryを変更しません。
 - 新しい保存名とfolder名はBrowserとServerの共有validatorで検証します。空名、hidden name、path区切り、制御文字、Windowsの禁止文字・予約名、末尾のdotや前後の空白を拒否し、lock用suffixを考慮してUTF-8 byte長も制限します。
+- Atomic writerが使う`*.lock` directoryは保存先に表示せず、その内部へのuploadやfolder作成、同名folderの新規作成も拒否します。大文字小文字やWindowsの末尾dot/spaceによる別表記も予約対象とし、内部lockの更新時刻をuser操作で変更させません。
 - 1 fileを1 requestとしてstreamingし、file種別ごとの容量上限を適用します。
 - 同時に処理するupload数を制限し、temporary fileによるdiskとfile descriptorの消費を抑えます。
 - 完了前のfileをreaderやindexへ公開せず、atomic helperで完成したfileだけを公開します。

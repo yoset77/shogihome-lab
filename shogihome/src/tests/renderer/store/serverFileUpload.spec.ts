@@ -204,8 +204,11 @@ describe("store/serverFileUpload", () => {
     expect(apiMock.createServerDirectory).toHaveBeenCalledWith("games", "new");
   });
 
-  it("rejects invalid directory names without sending a request", () => {
-    expect(() => createUploadDirectory("", "../escape")).toThrow();
-    expect(apiMock.createServerDirectory).not.toHaveBeenCalled();
-  });
+  it.each(["../escape", "book.db.lock", "BOOK.DB.LOCK"])(
+    "rejects invalid directory name %j without sending a request",
+    (name) => {
+      expect(() => createUploadDirectory("", name)).toThrow();
+      expect(apiMock.createServerDirectory).not.toHaveBeenCalled();
+    },
+  );
 });

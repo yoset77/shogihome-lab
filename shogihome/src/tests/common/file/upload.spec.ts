@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import { isValidServerEntryName } from "@/common/file/upload";
 
 describe("server file entry names", () => {
-  it.each(["game.kif", "Book 2026", "\u68cb\u8b5c", "a".repeat(250)])("allows %j", (name) => {
-    expect(isValidServerEntryName(name)).toBe(true);
-  });
+  it.each(["game.kif", "archive.lock.kif", "Book 2026", "\u68cb\u8b5c", "a".repeat(250)])(
+    "allows %j",
+    (name) => {
+      expect(isValidServerEntryName(name)).toBe(true);
+    },
+  );
 
   it.each([
     "",
@@ -30,6 +33,8 @@ describe("server file entry names", () => {
     "nul.kif",
     "LPT1",
     "com9.db",
+    "book.db.lock",
+    "BOOK.DB.LOCK",
     "a".repeat(251),
     "\u68cb".repeat(84),
   ])("rejects %j", (name) => {

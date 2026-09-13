@@ -101,6 +101,8 @@ flowchart LR
 
 Host、Origin、body size、rate limit などのHTTP共通ポリシーは `shogihome/src/server/security.ts` と `shogihome/src/server/hono.ts` が所有します。
 
+`KIFU_DIR` 内の atomic writer が使用する `*.lock` directory は内部専用の名前空間です。共有name validatorとpath resolverは、この名前空間へのBrowserからの作成・アクセスを拒否し、directoryとfileの一覧にも公開しません。
+
 ## Engine Session Invariants
 
 Middle Server の `shogihome/src/server/engine/session.ts` が、engine 接続から終了までの USI state machine を一元管理します。

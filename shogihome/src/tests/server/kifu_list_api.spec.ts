@@ -208,6 +208,39 @@ describe("API: /api/kifu", () => {
     );
   });
 
+  it.each(["book.db.lock", "BOOK.DB.LOCK/nested"])(
+    "does not expose or modify a lock directory through upload APIs: %s",
+    async (directory) => {
+      const fullPath = path.join(tempKifuDir, directory);
+      fs.mkdirSync(fullPath, { recursive: true });
+      const originalMtime = fs.statSync(fullPath).mtimeMs;
+      const listed = await requestApp(app, "GET", "/api/kifu/directories", { host });
+      const children = await requestApp(
+        app,
+        "GET",
+        `/api/kifu/directories?dir=${encodeURIComponent(directory)}`,
+        { host },
+      );
+      const created = await requestApp(app, "POST", "/api/kifu/directories", {
+        host,
+        json: { parent: directory, name: "new" },
+      });
+      const uploaded = await requestApp(
+        app,
+        "POST",
+        `/api/kifu/upload?path=${encodeURIComponent(`${directory}/game.kif`)}`,
+        { host, body: "kifu" },
+      );
+
+      expect(listed.body.directories).toEqual([]);
+      expect(children.status).toBe(404);
+      expect(created.status).toBe(400);
+      expect(uploaded.status).toBe(403);
+      expect(fs.readdirSync(fullPath)).toEqual([]);
+      expect(fs.statSync(fullPath).mtimeMs).toBe(originalMtime);
+    },
+  );
+
   it("creates and lists a directory that can receive a renamed upload", async () => {
     fs.mkdirSync(path.join(tempKifuDir, "games"));
     const created = await requestApp(app, "POST", "/api/kifu/directories", {
@@ -265,6 +298,8 @@ describe("API: /api/kifu", () => {
     "nested\\new",
     ".hidden",
     "CON",
+    "book.db.lock",
+    "BOOK.DB.LOCK",
     "new\u0000",
     "a".repeat(251),
   ])("rejects invalid directory name %j", async (name) => {

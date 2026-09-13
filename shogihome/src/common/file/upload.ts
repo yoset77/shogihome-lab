@@ -2,12 +2,16 @@ export type ServerFileKind = "kifu" | "book" | "sfen";
 
 export const SERVER_UPLOAD_TIMEOUT_MS = 15 * 60 * 1000;
 
+// Atomic writers own this namespace. Include Windows case and trailing-dot/space aliases.
+export const isReservedServerEntryName = (name: string): boolean => /\.lock[. ]*$/i.test(name);
+
 export const isValidServerEntryName = (name: string): boolean => {
   if (
     !name ||
     name !== name.trim() ||
     name.startsWith(".") ||
     name.endsWith(".") ||
+    isReservedServerEntryName(name) ||
     /[\\/:*?"<>|\p{Cc}]/u.test(name) ||
     /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)
   ) {

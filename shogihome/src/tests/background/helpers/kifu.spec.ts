@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   clearKifuListCache,
+  getBookList,
   getKifuDirectoryList,
   getKifuList,
+  getPositionList,
   getServerFileKind,
   resolveKifuDirectory,
   resolveKifuPath,
@@ -189,6 +191,46 @@ describe("background/helpers/kifu", () => {
       { name: "books", path: "books" },
       { name: "empty", path: "empty" },
     ]);
+  });
+
+  it("excludes lock directories from directory and file listings", async () => {
+    fs.mkdirSync(path.join(tempDir, "games"));
+    for (const name of ["book.db.lock", "BOOK.DB.LOCK"]) {
+      const nested = path.join(tempDir, name, "nested");
+      fs.mkdirSync(nested, { recursive: true });
+      for (const file of ["game.kif", "book.db", "positions.sfen"]) {
+        fs.writeFileSync(path.join(nested, file), "data");
+      }
+    }
+
+    expect(await getKifuDirectoryList(tempDir, "")).toEqual([{ name: "games", path: "games" }]);
+    expect(await getKifuList(tempDir)).toEqual([]);
+    expect(await getBookList(tempDir)).toEqual([]);
+    expect(await getPositionList(tempDir)).toEqual([]);
+  });
+
+  it.each(["book.db.lock", "BOOK.DB.LOCK", "book.db.lock.", "book.db.lock "])(
+    "rejects paths into reserved lock directory %j",
+    async (name) => {
+      fs.mkdirSync(path.join(tempDir, name, "nested"), { recursive: true });
+
+      expect(resolveKifuDirectory(tempDir, name)).toBeNull();
+      expect(resolveKifuDirectory(tempDir, `${name}/nested`)).toBeNull();
+      expect(await getKifuDirectoryList(tempDir, name)).toBeNull();
+      expect(resolveKifuPath(tempDir, name)).toBeNull();
+      expect(resolveKifuPath(tempDir, `${name}/nested/game.kif`)).toBeNull();
+      expect(resolveKifuPath(tempDir, `${name}\\nested\\game.kif`)).toBeNull();
+    },
+  );
+
+  it("rejects a symlink alias into a lock directory for existing and new files", () => {
+    const lockDirectory = path.join(tempDir, "book.db.lock");
+    fs.mkdirSync(lockDirectory);
+    fs.writeFileSync(path.join(lockDirectory, "existing.kif"), "data");
+    fs.symlinkSync(lockDirectory, path.join(tempDir, "alias"), "dir");
+
+    expect(resolveKifuPath(tempDir, "alias/existing.kif")).toBeNull();
+    expect(resolveKifuPath(tempDir, "alias/new.kif")).toBeNull();
   });
 
   it("caching logic", async () => {
