@@ -27,6 +27,7 @@ dev = [
 pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = ["auth: wrapper authentication contract scenarios"]
 
 [tool.ruff]
 line-length = 140

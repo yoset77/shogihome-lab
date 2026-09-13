@@ -52,6 +52,7 @@ engine-wrapper/python/
 engine-wrapper/VERSION
 engine-wrapper/.update_cache.json
 python-*.zip
+target/
 shogihome-lab-v*/
 shogihome-lab-local-dist/
 ShogiHomeLab.exe
