@@ -651,9 +651,16 @@ function readSfenAtRow(table: Uint32Array, row: number): string | undefined {
 }
 
 function getRowsByOffset(table: Uint32Array, rowCount: number): number[] {
-  return Array.from({ length: rowCount }, (_, row) => row).sort(
-    (a, b) => readRowOffset(table, a) - readRowOffset(table, b),
-  );
+  // Extract file offsets once so the comparator avoids a function call and
+  // index arithmetic per comparison. The save path calls this for every row
+  // of a large book, so the constant-factor saving is significant.
+  const offsets = new Uint32Array(rowCount);
+  for (let row = 0; row < rowCount; row++) {
+    offsets[row] = table[row * SBK_ON_THE_FLY_ROW_SIZE + 8];
+  }
+  const rows = Array.from({ length: rowCount }, (_, row) => row);
+  rows.sort((a, b) => offsets[a] - offsets[b]);
+  return rows;
 }
 
 function getNextSbkStateId(index: SbkOnTheFlyLUT, newStateCount: number): number {
@@ -744,15 +751,46 @@ async function storeSbkBookOnTheFly(
   output.on("error", (error: Error) => {
     streamError = error;
   });
-  async function writeBytes(bytes: Uint8Array): Promise<void> {
+  // Batches encoded states into fewer output.write calls. A large book holds
+  // many states, so per-state writes dominate save time.
+  const pendingChunks: Uint8Array[] = [];
+  let pendingBytes = 0;
+  async function flushBytes(): Promise<void> {
+    if (pendingChunks.length === 0) {
+      return;
+    }
+    let data: Uint8Array;
+    if (pendingChunks.length === 1) {
+      data = pendingChunks[0];
+    } else {
+      data = new Uint8Array(pendingBytes);
+      let offset = 0;
+      for (const chunk of pendingChunks) {
+        data.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+    }
+    pendingChunks.length = 0;
+    pendingBytes = 0;
     if (streamError) {
       throw streamError;
     }
-    if (!output.write(bytes)) {
+    if (!output.write(data)) {
       await waitForDrain(output, () => streamError);
     }
     if (streamError) {
       throw streamError;
+    }
+  }
+  async function writeBytes(bytes: Uint8Array): Promise<void> {
+    if (streamError) {
+      throw streamError;
+    }
+    pendingChunks.push(bytes);
+    pendingBytes += bytes.byteLength;
+    // Flush roughly every 256 KiB to bound memory while cutting write calls.
+    if (pendingBytes >= 256 * 1024) {
+      await flushBytes();
     }
   }
 
@@ -930,6 +968,7 @@ async function storeSbkBookOnTheFly(
     await writeBytes(stateWriter.finish());
   }
 
+  await flushBytes();
   output.end();
   await finished(output);
 }

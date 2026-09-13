@@ -13,14 +13,14 @@ import { hash } from "./apery_zobrist.js";
 //   3. 16bits: Count
 //   4. 32bits: Score
 
-function encodeEntry(hash: bigint, move: BookMove): Buffer {
-  const binary = Buffer.alloc(16);
-  binary.writeBigUInt64LE(hash, 0);
+const WRITE_BUFFER_SIZE = 64 * 1024;
+
+function encodeEntry(hash: bigint, move: BookMove, binary: Buffer, offset: number): void {
+  binary.writeBigUInt64LE(hash, offset);
   const aperyMove = toAperyMove(move.usi);
-  binary.writeUInt16LE(aperyMove, 8);
-  binary.writeUInt16LE(move.count || 0, 10);
-  binary.writeInt32LE(move.score || 0, 12);
-  return binary;
+  binary.writeUInt16LE(aperyMove, offset + 8);
+  binary.writeUInt16LE(move.count || 0, offset + 10);
+  binary.writeInt32LE(move.score || 0, offset + 12);
 }
 
 function decodeEntry(binary: Buffer, offset: number = 0): { hash: bigint; bookMove: BookMove } {
@@ -132,15 +132,35 @@ export async function searchAperyBookMovesOnTheFly(
   };
 }
 
-async function writeBookMove(output: Writable, key: bigint, bookMove: BookMove) {
-  if (!output.write(encodeEntry(key, bookMove))) {
-    await events.once(output, "drain");
-  }
-}
+// Share a buffer across positions and encode directly into it to avoid
+// per-move allocations and per-position writes on large books.
+class BookMoveBatchWriter {
+  private buffer = Buffer.alloc(WRITE_BUFFER_SIZE);
+  private offset = 0;
 
-async function writeBookMoves(output: Writable, key: bigint, bookMoves: BookMove[]) {
-  for (const bookMove of bookMoves) {
-    await writeBookMove(output, key, bookMove);
+  constructor(private output: Writable) {}
+
+  async writeMoves(key: bigint, bookMoves: BookMove[]): Promise<void> {
+    for (const bookMove of bookMoves) {
+      encodeEntry(key, bookMove, this.buffer, this.offset);
+      this.offset += 16;
+      if (this.offset === this.buffer.length) {
+        await this.flush();
+      }
+    }
+  }
+
+  async flush(): Promise<void> {
+    if (this.offset === 0) {
+      return;
+    }
+    const data = this.buffer.subarray(0, this.offset);
+    // The stream may retain data even when write() returns true.
+    this.buffer = Buffer.alloc(WRITE_BUFFER_SIZE);
+    this.offset = 0;
+    if (!this.output.write(data)) {
+      await events.once(this.output, "drain");
+    }
   }
 }
 
@@ -152,10 +172,12 @@ export async function storeAperyBook(book: AperyBook, output: Writable): Promise
   const keys = Array.from(book.entries.keys());
   const orderedKeys = new BigUint64Array(keys);
   orderedKeys.sort();
+  const writer = new BookMoveBatchWriter(output);
   for (const key of orderedKeys) {
     const entry = book.entries.get(key) as BookEntry;
-    await writeBookMoves(output, key, entry.moves);
+    await writer.writeMoves(key, entry.moves);
   }
+  await writer.flush();
   output.end();
   await end;
 }
@@ -174,6 +196,7 @@ export async function mergeAperyBook(
   patchKeys.sort();
   let patchIndex = 0;
   let lastPatchKey = BigInt(0);
+  const writer = new BookMoveBatchWriter(output);
   try {
     await load(input, async (key, entry) => {
       for (; patchIndex < patchKeys.length; patchIndex++) {
@@ -185,20 +208,21 @@ export async function mergeAperyBook(
         if (patchKey === key) {
           patch = mergeBookEntries(entry, patch) as BookEntry;
         }
-        await writeBookMoves(output, patchKey, patch.moves);
+        await writer.writeMoves(patchKey, patch.moves);
         lastPatchKey = patchKey;
       }
       if (key != lastPatchKey) {
-        await writeBookMoves(output, key, entry.moves);
+        await writer.writeMoves(key, entry.moves);
       }
     });
     for (; patchIndex < patchKeys.length; patchIndex++) {
       const patchKey = patchKeys[patchIndex];
       const entry = bookPatch.entries.get(patchKey);
       if (entry) {
-        await writeBookMoves(output, patchKey, entry.moves);
+        await writer.writeMoves(patchKey, entry.moves);
       }
     }
+    await writer.flush();
     output.end();
   } catch (error) {
     output.destroy(new Error(`Failed to merge Apery book: ${error}`));
