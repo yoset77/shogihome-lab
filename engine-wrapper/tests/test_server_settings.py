@@ -1,4 +1,7 @@
+import pytest
+
 import server_settings
+from common import load_env_value
 from server_settings import SETTINGS, load_settings, save, validate
 
 
@@ -11,6 +14,21 @@ def _make_env_dirs(tmp_path):
 
 
 class TestLoadSettings:
+    @pytest.mark.parametrize("raw, expected", [("true", True), ("false", False)])
+    def test_boolean_settings_survive_unrelated_edit(self, tmp_path, raw, expected):
+        shogihome_dir, wrapper_dir = _make_env_dirs(tmp_path)
+        boolean_ids = [s.id for s in SETTINGS if s.type == server_settings.TYPE_BOOL]
+        env_file = shogihome_dir / ".env"
+        env_file.write_text("".join(f"{key}={raw}\n" for key in boolean_ids), encoding="utf-8")
+
+        values = load_settings(shogihome_dir, wrapper_dir)
+        assert all(values[key] is expected for key in boolean_ids)
+        values["PORT"] = "9000"
+        save(values, shogihome_dir, wrapper_dir)
+
+        assert all(load_env_value(env_file, key, "") == raw for key in boolean_ids)
+        assert load_settings(shogihome_dir, wrapper_dir) == values
+
     def test_defaults_when_no_env_files(self, tmp_path):
         shogihome_dir, wrapper_dir = _make_env_dirs(tmp_path)
         values = load_settings(shogihome_dir, wrapper_dir)
@@ -99,6 +117,17 @@ class TestValidate:
 
 
 class TestSave:
+    def test_save_preserves_existing_quoted_values(self, tmp_path):
+        shogihome_dir, wrapper_dir = _make_env_dirs(tmp_path)
+        (shogihome_dir / ".env").write_text('KIFU_DIR="C:/Shogi #1/kifu"\n', encoding="utf-8")
+        (wrapper_dir / ".env").write_text('WRAPPER_ACCESS_TOKEN="abc#def"\n', encoding="utf-8")
+        values = load_settings(shogihome_dir, wrapper_dir)
+
+        save(values, shogihome_dir, wrapper_dir)
+
+        assert load_settings(shogihome_dir, wrapper_dir) == values
+        assert load_env_value(shogihome_dir / ".env", "WRAPPER_ACCESS_TOKEN", "") == "abc#def"
+
     def test_save_writes_both_files(self, tmp_path):
         shogihome_dir, wrapper_dir = _make_env_dirs(tmp_path)
         values = {

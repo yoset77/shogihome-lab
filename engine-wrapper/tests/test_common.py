@@ -1,4 +1,9 @@
+import json
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from common import get_pc_url_config, get_python_exe, get_resource_dir, is_bundled, load_env_value, upsert_env_values
 
@@ -134,6 +139,74 @@ def test_upsert_env_values_appends_missing_keys(tmp_path):
     assert "TRUST_PROXY=true" in content
     # Values are appended after existing content (with a newline separator)
     assert content.endswith("TRUST_PROXY=true\n")
+
+
+@pytest.mark.parametrize("existing", ["", "KIFU_DIR=old\n"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "C:/Shogi #1/kifu",
+        r"C:\new\棋譜 #1\records",
+        "abc#def",
+        " leading and trailing spaces ",
+        "C:/O'Brien #1/kifu",
+        'token"with#quote',
+        r"\\server\share\kifu",
+        "'quoted'",
+        "",
+    ],
+)
+@pytest.mark.parametrize("parser", ["python", "node"])
+def test_upsert_env_values_round_trip_special_characters(tmp_path, existing, value, parser):
+    env_file = tmp_path / ".env"
+    env_file.write_text(existing, encoding="utf-8")
+
+    upsert_env_values(env_file, {"KIFU_DIR": value})
+
+    if parser == "python":
+        assert load_env_value(env_file, "KIFU_DIR", None) == value
+    else:
+        node = shutil.which("node")
+        if node is None:
+            pytest.skip("Node.js is required to verify server .env parsing")
+        result = subprocess.run(
+            [
+                node,
+                "-e",
+                "const fs = require('node:fs');"
+                "const {parseEnv} = require('node:util');"
+                "console.log(JSON.stringify(parseEnv(fs.readFileSync(0, 'utf8'))));",
+            ],
+            input=env_file.read_text(encoding="utf-8"),
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        assert json.loads(result.stdout)["KIFU_DIR"] == value
+
+
+@pytest.mark.parametrize("active", ["PORT=9000", "export PORT=9000"])
+def test_upsert_env_values_prefers_active_definition(tmp_path, active):
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"# PORT=8140\n{active}\nPORT=9001\n# PORT=8000\nCUSTOM=keep\n", encoding="utf-8")
+
+    upsert_env_values(env_file, {"PORT": "9999"})
+
+    assert load_env_value(env_file, "PORT", 0) == 9999
+    assert env_file.read_text(encoding="utf-8") == "# PORT=8140\nPORT=9999\n# PORT=8000\nCUSTOM=keep\n"
+
+
+def test_upsert_env_values_rejects_incompatible_quoting_before_writing(tmp_path):
+    env_file = tmp_path / ".env"
+    original = "PORT=8140\nWRAPPER_ACCESS_TOKEN=old\n"
+    env_file.write_text(original, encoding="utf-8")
+
+    # Neither quote delimiter can enclose this value in both parsers.
+    with pytest.raises(ValueError, match="WRAPPER_ACCESS_TOKEN"):
+        upsert_env_values(env_file, {"PORT": "9000", "WRAPPER_ACCESS_TOKEN": "both'\"#quotes"})
+
+    assert env_file.read_text(encoding="utf-8") == original
+    assert not env_file.with_name(".env.tmp").exists()
 
 
 def test_upsert_env_values_no_trailing_newline(tmp_path):
