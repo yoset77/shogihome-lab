@@ -80,13 +80,21 @@ def measure_wrapper(impl: str) -> dict:
                 shutil.copy2(WRAPPER_DIR / name, tmpdir / name)
             (tmpdir / "engines.json").write_text("[]", encoding="utf-8")
             cmd = [sys.executable, str(tmpdir / "engine_wrapper.py")]
-        else:
+        elif impl == "node":
             import shutil
 
             for name in ("engine-wrapper.mjs", "shutdown-coordinator.mjs"):
                 shutil.copy2(WRAPPER_DIR / name, tmpdir / name)
             (tmpdir / "engines.json").write_text("[]", encoding="utf-8")
             cmd = ["node", str(tmpdir / "engine-wrapper.mjs")]
+        elif impl == "rust":
+            binary = WRAPPER_DIR / "target" / "release" / "shogihome-wrapper"
+            if not binary.exists():
+                raise FileNotFoundError("release binary missing: run `cargo build --release -p shogihome-engine-wrapper` first")
+            (tmpdir / "engines.json").write_text("[]", encoding="utf-8")
+            cmd = [str(binary), "--config-dir", str(tmpdir)]
+        else:
+            raise ValueError(f"unknown impl: {impl}")
         start = time.monotonic()
         proc = subprocess.Popen(cmd, cwd=str(tmpdir), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
@@ -148,7 +156,7 @@ def main() -> None:
             "rss_kb is VmRSS of the wrapper process alone, 0.5s after ready; engines/WebView/Node-server not included.",
         ],
     }
-    for impl in ("python", "node"):
+    for impl in ("python", "node", "rust"):
         try:
             result["startup"][impl] = measure_wrapper(impl)
         except Exception as e:  # noqa: BLE001 - baseline must report, not crash

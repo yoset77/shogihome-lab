@@ -78,20 +78,20 @@ fn parse_line(line: &str) -> Option<(String, String)> {
     if !is_valid_key(key) {
         return None;
     }
-    let mut value = raw_value[1..].trim_start().to_string();
-    // Quoted values: strip delimiters, unescape, keep everything literal else.
-    if value.len() >= 2 {
-        let bytes = value.as_bytes();
-        let (open, close) = (bytes[0], bytes[bytes.len() - 1]);
-        if (open == b'\'' && close == b'\'') || (open == b'"' && close == b'"') {
-            let inner = &value[1..value.len() - 1];
-            value = if open == b'"' {
-                unescape_double(inner)
-            } else {
-                inner.to_string()
-            };
-            return Some((key.to_string(), value));
+    let value = raw_value[1..].trim_start();
+    if let Some(quote @ ('\'' | '"')) = value.chars().next() {
+        let mut escaped = false;
+        for (index, ch) in value.char_indices().skip(1) {
+            if ch == quote && !escaped {
+                let suffix = value[index + ch.len_utf8()..].trim();
+                if !suffix.is_empty() && !suffix.starts_with('#') {
+                    return None;
+                }
+                return Some((key.to_string(), unescape_quoted(&value[1..index], quote)));
+            }
+            escaped = ch == '\\' && !escaped;
         }
+        return None;
     }
     // Unquoted: trim trailing whitespace, strip ` #` comments (python-dotenv).
     let mut value = value.trim_end().to_string();
@@ -111,17 +111,26 @@ fn is_valid_key(key: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-fn unescape_double(s: &str) -> String {
+fn unescape_quoted(s: &str, quote: char) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();
     while let Some(c) = chars.next() {
         if c == '\\' {
             match chars.next() {
-                Some('n') => out.push('\n'),
-                Some('r') => out.push('\r'),
-                Some('t') => out.push('\t'),
-                Some('0') => out.push('\0'),
-                Some(other) => out.push(other),
+                Some('\\') => out.push('\\'),
+                Some(c) if c == quote => out.push(c),
+                Some('n') if quote == '"' => out.push('\n'),
+                Some('r') if quote == '"' => out.push('\r'),
+                Some('t') if quote == '"' => out.push('\t'),
+                Some('a') if quote == '"' => out.push('\u{7}'),
+                Some('b') if quote == '"' => out.push('\u{8}'),
+                Some('f') if quote == '"' => out.push('\u{c}'),
+                Some('v') if quote == '"' => out.push('\u{b}'),
+                Some('\'') if quote == '"' => out.push('\''),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
                 None => out.push('\\'),
             }
         } else {
@@ -345,7 +354,7 @@ pub fn smart_merge_env(old_path: &Path, new_path: &Path, dest_path: &Path) -> Re
             let key = line[..eq].trim();
             if is_valid_key(key) {
                 if let Some(old) = old_values.get(key) {
-                    merged.push_str(&format!("{key}={old}\n"));
+                    merged.push_str(&format!("{key}={}\n", format_env_value(key, old)?));
                     continue;
                 }
             }
@@ -383,6 +392,17 @@ mod tests {
         // Last active definition wins.
         let map = parse_env("A=1\nA=2\n");
         assert_eq!(map["A"], "2");
+    }
+
+    #[test]
+    fn reads_existing_quoted_values_and_comments() {
+        let map = parse_env(
+            "PORT=\"9000\" # custom port\nKIFU_DIR=\"C:\\Users\\someone\\kifu\"\nTOKEN='a # b' # note\n",
+        );
+        assert_eq!(map["PORT"], "9000");
+        assert_eq!(map["KIFU_DIR"], r"C:\Users\someone\kifu");
+        assert_eq!(map["TOKEN"], "a # b");
+        assert_eq!(parse_env("A='it\\'s'\n")["A"], "it's");
     }
 
     #[test]

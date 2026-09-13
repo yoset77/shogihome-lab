@@ -1,126 +1,149 @@
-//! Engine child-process launch and tree termination.
-//!
-//! - Working directory is always the engine executable's parent dir.
-//! - Relative engine paths are resolved against the config dir by the caller.
-//! - Windows `.bat`/`.cmd` files go through `cmd /d /s /c` (quoted), exactly
-//!   like the Node wrapper; every other executable is spawned directly (no
-//!   shell). All Windows spawns use `CREATE_NO_WINDOW`.
-//! - POSIX engines are spawned as process-group leaders (`setsid`), so the
-//!   escalating `SIGTERM`/`SIGKILL` reaches grandchildren. Windows uses
-//!   forced `taskkill /T` (tree), matching the Node wrapper.
+//! Engine process ownership: POSIX process groups and Windows Job Objects.
+//! Retain tree ownership separately from the leader's exit status.
 
+use std::io;
 use std::path::Path;
-use tokio::process::{Child, Command};
+use std::process::ExitStatus;
+use tokio::process::{ChildStderr, ChildStdin, ChildStdout, Command};
 
-use crate::config::log;
-
-/// Spawn an engine. Returns the child on success.
-pub fn spawn_engine(path: &Path, cwd: &Path) -> std::io::Result<Child> {
+pub struct EngineChild {
+    #[cfg(not(windows))]
+    inner: tokio::process::Child,
     #[cfg(windows)]
+    inner: Box<dyn process_wrap::tokio::ChildWrapper>,
+    pid: u32,
+}
+
+pub fn spawn_engine(path: &Path, cwd: &Path) -> io::Result<EngineChild> {
+    #[cfg(windows)]
+    let mut command = if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("bat") || e.eq_ignore_ascii_case("cmd"))
     {
         use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let path_str = path.to_string_lossy();
-        let is_batch = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.eq_ignore_ascii_case("bat") || e.eq_ignore_ascii_case("cmd"))
-            .unwrap_or(false);
-        if is_batch {
-            let mut cmd = Command::new("cmd");
-            cmd.arg("/d")
-                .arg("/s")
-                .arg("/c")
-                .arg(format!("\"{path_str}\""));
-            cmd.current_dir(cwd);
-            cmd.creation_flags(CREATE_NO_WINDOW);
-            cmd.stdin(std::process::Stdio::piped());
-            cmd.stdout(std::process::Stdio::piped());
-            cmd.stderr(std::process::Stdio::piped());
-            cmd.kill_on_drop(true);
-            cmd.spawn()
-        } else {
-            let mut cmd = Command::new(path);
-            cmd.current_dir(cwd);
-            cmd.creation_flags(CREATE_NO_WINDOW);
-            cmd.stdin(std::process::Stdio::piped());
-            cmd.stdout(std::process::Stdio::piped());
-            cmd.stderr(std::process::Stdio::piped());
-            cmd.kill_on_drop(true);
-            cmd.spawn()
-        }
-    }
-
+        let mut command = Command::new("cmd");
+        command.args(["/d", "/s", "/c"]);
+        // cmd strips the outer quotes; CRT argument escaping is not valid here.
+        command
+            .as_std_mut()
+            .raw_arg(format!("\"\"{}\"\"", path.display()));
+        command
+    } else {
+        Command::new(path)
+    };
+    #[cfg(not(windows))]
+    let mut command = Command::new(path);
+    command
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
     #[cfg(unix)]
-    {
-        let mut cmd = Command::new(path);
-        cmd.current_dir(cwd);
-        // New process group so signals can target the whole tree via -pid.
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-        cmd.stdin(std::process::Stdio::piped());
-        cmd.stdout(std::process::Stdio::piped());
-        cmd.stderr(std::process::Stdio::piped());
-        cmd.kill_on_drop(true);
-        cmd.spawn()
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
     }
-
-    #[cfg(not(any(windows, unix)))]
-    {
-        let mut cmd = Command::new(path);
-        cmd.current_dir(cwd);
-        cmd.stdin(std::process::Stdio::piped());
-        cmd.stdout(std::process::Stdio::piped());
-        cmd.stderr(std::process::Stdio::piped());
-        cmd.kill_on_drop(true);
-        cmd.spawn()
-    }
+    #[cfg(windows)]
+    let inner = {
+        use process_wrap::tokio::{CommandWrap, CreationFlags, JobObject, KillOnDrop};
+        use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+        CommandWrap::from(command)
+            .wrap(CreationFlags(CREATE_NO_WINDOW))
+            .wrap(KillOnDrop)
+            .wrap(JobObject)
+            .spawn()?
+    };
+    #[cfg(not(windows))]
+    let inner = command.spawn()?;
+    let pid = inner.id().expect("new child has a PID");
+    Ok(EngineChild { inner, pid })
 }
 
-/// Force-terminate the whole engine tree for `pid`.
-///
-/// POSIX: signal the process group (`-pid`). Windows: forced `taskkill /T`.
-/// Missing processes (`ESRCH` / already-exited child) are silently ignored.
-pub fn terminate_tree(pid: u32, first_graceful: bool) {
-    #[cfg(unix)]
-    {
-        let signal = if first_graceful {
-            libc::SIGTERM
-        } else {
-            libc::SIGKILL
-        };
-        // Negative pid targets the process group started by setsid.
-        let ret = unsafe { libc::kill(-(pid as i32), signal) };
-        if ret != 0 {
-            let err = std::io::Error::last_os_error();
-            if err.raw_os_error() != Some(libc::ESRCH) {
-                log::warn_compat(&format!("failed to signal engine tree {pid}: {err}"));
+impl EngineChild {
+    pub fn id(&self) -> u32 {
+        self.pid
+    }
+    pub fn stdin(&mut self) -> &mut Option<ChildStdin> {
+        #[cfg(windows)]
+        {
+            self.inner.stdin()
+        }
+        #[cfg(not(windows))]
+        {
+            &mut self.inner.stdin
+        }
+    }
+    pub fn stdout(&mut self) -> &mut Option<ChildStdout> {
+        #[cfg(windows)]
+        {
+            self.inner.stdout()
+        }
+        #[cfg(not(windows))]
+        {
+            &mut self.inner.stdout
+        }
+    }
+    pub fn stderr(&mut self) -> &mut Option<ChildStderr> {
+        #[cfg(windows)]
+        {
+            self.inner.stderr()
+        }
+        #[cfg(not(windows))]
+        {
+            &mut self.inner.stderr
+        }
+    }
+    pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
+        self.inner.try_wait()
+    }
+    pub async fn wait(&mut self) -> io::Result<ExitStatus> {
+        // Wait only for the leader; cleanup terminates helpers before draining.
+        #[cfg(windows)]
+        {
+            self.inner.inner_mut().wait().await
+        }
+        #[cfg(not(windows))]
+        {
+            self.inner.wait().await
+        }
+    }
+    pub fn terminate_tree(&mut self, graceful: bool) {
+        #[cfg(unix)]
+        {
+            let signal = if graceful {
+                libc::SIGTERM
+            } else {
+                libc::SIGKILL
+            };
+            unsafe {
+                libc::kill(-(self.pid as i32), signal);
             }
         }
-    }
-
-    #[cfg(windows)]
-    {
-        let _ = first_graceful; // Windows escalation is always forced tree kill.
-        let status = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .output();
-        if let Err(e) = status {
-            log::warn_compat(&format!("failed to taskkill engine tree {pid}: {e}"));
+        #[cfg(windows)]
+        {
+            let _ = graceful;
+            let _ = self.inner.start_kill();
         }
-    }
-
-    #[cfg(not(any(windows, unix)))]
-    {
-        let _ = (pid, first_graceful);
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = graceful;
+            let _ = self.inner.start_kill();
+        }
     }
 }
 
-/// Whether a spawn error means "executable not found" (client-facing detail).
-pub fn is_not_found(err: &std::io::Error) -> bool {
-    err.kind() == std::io::ErrorKind::NotFound
+impl Drop for EngineChild {
+    fn drop(&mut self) {
+        self.terminate_tree(false);
+    }
+}
+
+pub fn is_not_found(err: &io::Error) -> bool {
+    err.kind() == io::ErrorKind::NotFound
 }

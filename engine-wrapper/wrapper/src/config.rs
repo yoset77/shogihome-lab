@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 /// CWD is never used implicitly.
 pub fn resolve_config_dir(exe_path: &Path, override_dir: Option<&Path>) -> PathBuf {
     if let Some(dir) = override_dir {
-        return dir.to_path_buf();
+        return std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
     }
     exe_path
         .parent()

@@ -13,7 +13,7 @@ use std::fs::OpenOptions;
 use std::io;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 /// How long startup waits for all services to become ready.
@@ -39,10 +39,89 @@ pub struct ReadyExpectation {
     pub port: u16,
 }
 
+pub struct ServicePlan {
+    pub specs: Vec<ServiceSpec>,
+    pub expectations: HashMap<String, ReadyExpectation>,
+    pub log_dir: PathBuf,
+}
+
+/// Build one configuration snapshot for both spawning and readiness checks.
+pub fn portable_services(root: &Path) -> Result<ServicePlan, String> {
+    use crate::env_codec::{parse_env, read_env_file};
+    if crate::migration::MigrationPaths::new(root)
+        .pending_source()
+        .is_some()
+    {
+        return Err("finish the pending migration before starting services".into());
+    }
+    let root = std::path::absolute(root).map_err(|e| e.to_string())?;
+    let server_dir = root.join("shogihome");
+    let wrapper_dir = root.join("engine-wrapper");
+    let mut specs = Vec::new();
+    let mut expectations = HashMap::new();
+    for (name, cwd, program, args, port_key, default_port, default_host) in [
+        (
+            "server",
+            server_dir.clone(),
+            server_dir.join("shogihome-server.exe"),
+            vec![server_dir
+                .join("dist/server/server.js")
+                .to_string_lossy()
+                .into_owned()],
+            "PORT",
+            "8140",
+            "0.0.0.0",
+        ),
+        (
+            "wrapper",
+            wrapper_dir.clone(),
+            root.join("wrapper.exe"),
+            vec![
+                "--config-dir".into(),
+                wrapper_dir.to_string_lossy().into_owned(),
+            ],
+            "LISTEN_PORT",
+            "4082",
+            "127.0.0.1",
+        ),
+    ] {
+        let env = parse_env(&read_env_file(&cwd.join(".env")).map_err(|e| e.to_string())?);
+        let value = |key: &str, default: &str| {
+            env.get(key)
+                .cloned()
+                .or_else(|| std::env::var(key).ok())
+                .unwrap_or_else(|| default.to_string())
+        };
+        let bind = value("BIND_ADDRESS", default_host);
+        let host = match bind.as_str() {
+            "0.0.0.0" => "127.0.0.1".into(),
+            "::" => "::1".into(),
+            _ => bind,
+        };
+        let port = value(port_key, default_port)
+            .parse::<u16>()
+            .map_err(|e| e.to_string())?;
+        expectations.insert(name.to_string(), ReadyExpectation { host, port });
+        specs.push(ServiceSpec {
+            name: name.into(),
+            program,
+            args,
+            cwd,
+            env: env.into_iter().collect(),
+            inherit_env: true,
+        });
+    }
+    Ok(ServicePlan {
+        specs,
+        expectations,
+        log_dir: wrapper_dir.join("logs"),
+    })
+}
+
 #[derive(Debug)]
 pub struct RunningService {
     pub name: String,
-    pub child: Child,
+    pub child: crate::process::ManagedChild,
     pub pid: u32,
 }
 
@@ -69,24 +148,7 @@ pub fn spawn_service(spec: &ServiceSpec, log_dir: &Path) -> io::Result<RunningSe
         cmd.env(k, v);
     }
 
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt as _;
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-    }
-
-    let mut child = cmd.spawn()?;
+    let mut child = crate::process::spawn(cmd)?;
     // Reap immediately if the process failed at exec time.
     if let Some(status) = child.try_wait()? {
         return Err(io::Error::other(format!(
@@ -121,9 +183,21 @@ pub fn wait_ready(
     expectations: &HashMap<String, ReadyExpectation>,
     timeout: Duration,
 ) -> Result<(), Vec<String>> {
+    wait_ready_until(services, expectations, timeout, || false)
+}
+
+pub fn wait_ready_until(
+    services: &mut HashMap<String, RunningService>,
+    expectations: &HashMap<String, ReadyExpectation>,
+    timeout: Duration,
+    cancelled: impl Fn() -> bool,
+) -> Result<(), Vec<String>> {
     let deadline = Instant::now() + timeout;
     let probe = Duration::from_millis(200);
     loop {
+        if cancelled() {
+            return Err(expectations.keys().cloned().collect());
+        }
         let mut failed = Vec::new();
         let mut pending = false;
         for (name, exp) in expectations {
@@ -157,38 +231,10 @@ pub fn wait_ready(
     }
 }
 
-/// Force-stop a whole service tree: POSIX process group, Windows taskkill /T.
-pub fn stop_tree(pid: u32) {
-    #[cfg(unix)]
-    {
-        // Negative pid = process group created by setsid at spawn.
-        let ret = unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
-        if ret != 0 {
-            let err = io::Error::last_os_error();
-            if err.raw_os_error() != Some(libc::ESRCH) {
-                eprintln!("stop_tree({pid}) failed: {err}");
-            }
-        }
-    }
-    #[cfg(windows)]
-    {
-        let _ = Command::new("taskkill")
-            .args(["/F", "/T", "/PID", &pid.to_string()])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = pid;
-    }
-}
-
 /// Stop every service and wait for reaping.
 pub fn stop_all(services: &mut HashMap<String, RunningService>) {
-    for svc in services.values() {
-        stop_tree(svc.pid);
+    for svc in services.values_mut() {
+        let _ = svc.child.kill();
     }
     for (_, mut svc) in services.drain() {
         let _ = svc.child.wait();
@@ -217,7 +263,7 @@ mod tests {
         let log_dir = dir.join(format!("svc-test-{}", std::process::id()));
         let mut svc = spawn_service(&test_spec("dummy", &dir), &log_dir).unwrap();
         assert!(svc.child.try_wait().unwrap().is_none());
-        stop_tree(svc.pid);
+        svc.child.kill().unwrap();
         let status = svc.child.wait().unwrap();
         assert!(!status.success());
         std::fs::remove_dir_all(&log_dir).ok();

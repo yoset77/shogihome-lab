@@ -9,7 +9,8 @@
 use std::collections::HashMap;
 
 /// Overall launcher lifecycle state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SupervisorState {
     Stopped,
     Starting,
@@ -20,7 +21,8 @@ pub enum SupervisorState {
 }
 
 /// Per-service liveness inside a transition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ServiceStatus {
     Pending,
     Ready,
@@ -42,6 +44,12 @@ pub struct Supervisor {
     state: SupervisorState,
     generation: u64,
     services: HashMap<String, ServiceStatus>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StatusSnapshot {
+    pub state: SupervisorState,
+    pub services: HashMap<String, ServiceStatus>,
 }
 
 impl Supervisor {
@@ -66,6 +74,28 @@ impl Supervisor {
 
     pub fn service_status(&self, name: &str) -> Option<ServiceStatus> {
         self.services.get(name).copied()
+    }
+
+    pub fn snapshot(&self) -> StatusSnapshot {
+        StatusSnapshot {
+            state: self.state,
+            services: self.services.clone(),
+        }
+    }
+
+    /// A crashed service causes the controller to roll back its siblings.
+    pub fn runtime_failure(&mut self, failed: &[String]) {
+        if self.state != SupervisorState::Running {
+            return;
+        }
+        self.state = SupervisorState::Failed;
+        for (name, status) in &mut self.services {
+            *status = if failed.contains(name) {
+                ServiceStatus::Failed
+            } else {
+                ServiceStatus::Pending
+            };
+        }
     }
 
     /// Request a transition. Returns the generation the worker must present

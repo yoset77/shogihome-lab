@@ -9,7 +9,9 @@ in Phase 3; the UI never spawns processes or writes config directly.
 | Module | Responsibility |
 |---|---|
 | `supervisor.rs` | Serialized lifecycle (`Stopped/Starting/Running/Stopping/Failed/Quitting`) with generations, per-service status, partial-start failure tracking, stale-completion rejection |
-| `service.rs` | Explicit program/args/cwd/env spawn (no shell), log-file output, port+alive readiness with early death detection, process-group (POSIX) / `taskkill /T` (Windows) tree stop |
+| `controller.rs` | Serialized start/stop/restart/migration, short-lived status snapshot locks, startup rollback and background crash detection; blocking operations run outside Tauri's event loop |
+| `service.rs` | Portable service plans, separately decoded server/wrapper environments, shared spawn/readiness configuration, log-file output and port+alive readiness |
+| `process.rs` | Retained POSIX process group / Windows Job Object ownership, leader-only wait and cleanup after normal leader exit |
 | `env_codec.rs` | BOM/UTF-8/CP932 decode, dotenv parse, cross-parser value formatting with round-trip verification, comment-preserving atomic upsert with dedup, smart merge |
 | `settings.rs` | `server_settings.py` schema port (14 settings), load with linked-mismatch report, same validation codes, atomic two-file save with rollback |
 | `migration.rs` | Old-root resolution (ZIP nesting tolerant), preview plan, staged data copy, atomic engines.json, env merges, resumable completion record |
@@ -26,6 +28,17 @@ in Phase 3; the UI never spawns processes or writes config directly.
 - POSIX tree stop uses process groups (old code signalled only the root).
 - Migration records completion, so a failed run resumes instead of never
   offering again; data copy is staged (`data.tmp` + rename).
+- The dashboard awaits migration before starting services. Incomplete records
+  keep migration available even after `data` has been published; startup is
+  rejected while a migration is pending. Migration and service transitions
+  share the controller's operation lock. The editor window is created lazily
+  so it cannot cache pre-migration registry contents.
+- Service `.env` values override inherited environment values independently
+  for server and wrapper, including their distinct bind addresses. Readiness
+  checks use the same configuration snapshot as child creation.
+- Update IPC uses the bundled-version/cache entry point, including persisted
+  snooze rules. PC and LAN/QR URLs are separate; loopback and strict modes
+  do not expose a LAN QR code.
 - Upsert dedups later active duplicates and prefers active over commented
   definitions (matches current `common.py`, pinned by ported tests).
 

@@ -17,7 +17,7 @@ pub const DEFAULT_REPO_NAME: &str = "shogihome-lab";
 pub const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 pub const SNOOZE_DAYS: i64 = 7;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct UpdateInfo {
     pub version: String,
     pub tag: String,
@@ -296,6 +296,20 @@ pub fn check_for_update(
     Ok(info.filter(|i| !is_snoozed(cache, &i.version, now_unix)))
 }
 
+/// The production entry point reads the same cache written by the snooze IPC.
+pub fn check_bundled_update(
+    config_dir: &Path,
+    fetch: impl FnOnce(&str) -> Result<String, String>,
+) -> Result<Option<UpdateInfo>, String> {
+    let current = load_current_version(&config_dir.join("VERSION")).ok_or("no VERSION file")?;
+    let cache = UpdateCache::load(&config_dir.join(".update_cache.json"));
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs() as i64;
+    check_for_update(&current, &cache, now, || fetch(&current))
+}
+
 pub fn is_snoozed(cache: &UpdateCache, version: &str, now_unix: i64) -> bool {
     let (Some(snoozed), Some(until)) = (cache.snoozed_version.as_deref(), cache.snoozed_until_unix)
     else {
@@ -428,6 +442,21 @@ mod tests {
     }
 
     #[test]
+    fn update_info_serializes_for_ipc() {
+        // Tauri commands require Serialize on custom return types
+        // (`check_update` returns Option<UpdateInfo>).
+        let info = UpdateInfo {
+            version: "1.2.0".to_string(),
+            tag: "v1.2.0".to_string(),
+            url: "u/1.2.0".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_value(&info).unwrap(),
+            serde_json::json!({"version": "1.2.0", "tag": "v1.2.0", "url": "u/1.2.0"})
+        );
+    }
+
+    #[test]
     fn selection_rules() {
         let releases = serde_json::json!([
             {"tag_name": "v1.0.0", "draft": false, "prerelease": false, "html_url": "u/1.0.0"},
@@ -506,5 +535,35 @@ mod tests {
         std::fs::write(&path, "   \n").unwrap();
         assert!(load_current_version(&path).is_none());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn bundled_check_honors_persisted_snooze_but_shows_newer_release() {
+        let dir = std::env::temp_dir().join(format!("bundled-update-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("VERSION"), "1.0.0").unwrap();
+        let cache = UpdateCache {
+            snoozed_version: Some("1.1.0".into()),
+            snoozed_until_unix: Some(i64::MAX),
+            ui_language: None,
+        };
+        cache.save(&dir.join(".update_cache.json")).unwrap();
+        let fetch = |tag| {
+            Ok(
+                serde_json::json!([{ "tag_name": tag, "html_url": "https://example.com" }])
+                    .to_string(),
+            )
+        };
+        assert!(check_bundled_update(&dir, |_| fetch("v1.1.0"))
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            check_bundled_update(&dir, |_| fetch("v1.2.0"))
+                .unwrap()
+                .unwrap()
+                .tag,
+            "v1.2.0"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

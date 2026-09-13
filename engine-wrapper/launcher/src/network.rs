@@ -3,6 +3,39 @@
 //! Default mode trusts the server's automatic private-IP allowance; strict
 //! mode intersects the bind endpoints with the configured allowed origins.
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessUrls {
+    pub url: String,
+    pub allowed: bool,
+    pub qr_url: Option<String>,
+}
+
+/// QR codes are for another device, never for the PC's loopback endpoint.
+pub fn access_urls(
+    bind: &str,
+    port: u16,
+    strict: bool,
+    origins: &[String],
+    local_ip: &str,
+) -> AccessUrls {
+    let (url, allowed) = pc_url_config(bind, port, strict, origins, local_ip);
+    let lan_ip = local_ip
+        .parse::<std::net::IpAddr>()
+        .ok()
+        .filter(|ip| !ip.is_loopback() && !ip.is_unspecified());
+    let qr_url = if bind == "0.0.0.0" && !strict {
+        lan_ip.map(|ip| format!("http://{}", std::net::SocketAddr::new(ip, port)))
+    } else {
+        None
+    };
+    AccessUrls {
+        url,
+        allowed,
+        qr_url,
+    }
+}
+
 /// Returns `(pc_url, is_allowed)`.
 pub fn pc_url_config(
     bind_address: &str,
@@ -62,6 +95,22 @@ pub fn local_ip() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn qr_uses_lan_address_and_is_hidden_in_local_or_strict_mode() {
+        let urls = access_urls("0.0.0.0", 9000, false, &[], "192.168.1.10");
+        assert_eq!(urls.url, "http://127.0.0.1:9000");
+        assert_eq!(urls.qr_url.as_deref(), Some("http://192.168.1.10:9000"));
+        assert!(access_urls("127.0.0.1", 9000, false, &[], "192.168.1.10")
+            .qr_url
+            .is_none());
+        assert!(access_urls("0.0.0.0", 9000, true, &[], "192.168.1.10")
+            .qr_url
+            .is_none());
+        assert!(access_urls("0.0.0.0", 9000, false, &[], "127.0.0.1")
+            .qr_url
+            .is_none());
+    }
 
     #[test]
     fn default_mode_endpoints() {

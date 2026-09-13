@@ -2,14 +2,16 @@
 // dialog, log viewer, update banner, migration prompt. Server control goes
 // through backend commands; the UI keeps no process handles.
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ask, open as openDialog } from "@tauri-apps/plugin-dialog";
+import { ask, message, open as openDialog } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import QRCode from "qrcode";
 import { api, type SettingValues } from "./api";
 import { detectLang, text, type Lang } from "./i18n";
+import { startAfterMigration, type MigrationStatus } from "./startup";
 
 export function initDashboard(): void {
   const lang: Lang = detectLang();
+  let preparing = true;
   const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
     const el = document.getElementById(id);
     if (!el) throw new Error(`missing element #${id}`);
@@ -30,7 +32,7 @@ export function initDashboard(): void {
               : status.state === "failed"
                 ? `● ${text("statusError", lang)}`
                 : `○ ${text("statusStopped", lang)}`;
-      $("restartBtn").toggleAttribute("disabled", status.state === "starting" || status.state === "stopping");
+      $("restartBtn").toggleAttribute("disabled", preparing || status.state === "starting" || status.state === "stopping");
     } catch {
       $("statusLabel").textContent = `● ${text("statusError", lang)}`;
     }
@@ -38,11 +40,13 @@ export function initDashboard(): void {
 
   async function refreshPcUrl(): Promise<void> {
     try {
-      const { url, allowed } = await api.getPcUrl();
+      const { url, allowed, qrUrl } = await api.getPcUrl();
       $("pcUrl").textContent = url;
       $("openPcBtn").toggleAttribute("disabled", !allowed);
-      const qr = await QRCode.toDataURL(url, { width: 160, margin: 1 });
-      $<HTMLImageElement>("qrImg").src = qr;
+      const image = $<HTMLImageElement>("qrImg");
+      image.hidden = !qrUrl;
+      if (qrUrl) image.src = await QRCode.toDataURL(qrUrl, { width: 160, margin: 1 });
+      else image.removeAttribute("src");
     } catch {
       $("pcUrl").textContent = text("statusError", lang);
     }
@@ -73,7 +77,7 @@ export function initDashboard(): void {
     const schema = await api.getSettingsSchema();
     const { values, mismatches } = await api.loadSettings();
     if (mismatches.length > 0) {
-      await ask(`Linked settings out of sync: ${mismatches.join(", ")}. Saving will synchronize them.`, {
+      await message(text("settingsMismatch", lang, mismatches.join(", ")), {
         title: text("serverSettings", lang),
       });
     }
@@ -178,23 +182,31 @@ export function initDashboard(): void {
     }
   }
 
-  async function maybeMigrate(): Promise<void> {
-    // Only offered when the backend reports no data dir (checked on load).
-    const status = await api.getStatus().catch(() => null);
-    if (!status) return;
-    // The backend gates migration on missing data; the UI only asks.
-    const picked = await openDialog({ directory: true, title: "Select old ShogiHome Lab folder (cancel to skip)" });
-    if (!picked) return;
+  async function maybeMigrate(status: MigrationStatus): Promise<boolean> {
+    if (!status.needed) {
+      await message(text("migrationUnavailable", lang), { title: text("migrationTitle", lang) });
+      return false;
+    }
+    const go = await ask(text(status.pendingSource ? "migrationResume" : "migrationPrompt", lang), { title: text("migrationTitle", lang) });
+    if (!go) return !status.pendingSource;
+    const picked = status.pendingSource ?? await openDialog({ directory: true, title: text("migrationSelect", lang) });
+    if (!picked) return !status.pendingSource;
     const plan = await api.migrationPlan(picked);
     if (plan.empty) {
-      await ask("No migratable data found in the selected folder.", { title: "Data Migration" });
-      return;
+      await message(text("migrationEmpty", lang), { title: text("migrationTitle", lang) });
+      return false;
     }
     if (plan.missing.length > 0) {
-      const go = await ask(`Missing: ${plan.missing.join(", ")}. Continue anyway?`, { title: "Data Migration" });
-      if (!go) return;
+      const go = await ask(text("migrationMissing", lang, plan.missing.join(", ")), { title: text("migrationTitle", lang) });
+      if (!go) return false;
     }
-    await api.migrationRun(picked);
+    const result = await api.migrationRun(picked);
+    if (!result.migrated) throw new Error(text("migrationUnavailable", lang));
+    return true;
+  }
+
+  async function showError(error: unknown): Promise<void> {
+    await message(String(error), { title: text("statusError", lang), kind: "error" });
   }
 
   async function init(): Promise<void> {
@@ -202,7 +214,7 @@ export function initDashboard(): void {
       const { url } = await api.getPcUrl();
       await openUrl(url);
     });
-    $("restartBtn").addEventListener("click", () => void api.restartServices().then(refreshStatus));
+    $("restartBtn").addEventListener("click", () => void api.restartServices().then(refreshStatus).catch(showError));
     $("logsBtn").addEventListener("click", () => void openLogs());
     $("refreshLogsBtn").addEventListener("click", () => void openLogs());
     $("closeLogsBtn").addEventListener("click", () => { $("logsModal").style.display = "none"; });
@@ -210,20 +222,34 @@ export function initDashboard(): void {
     $("settingsBtn").addEventListener("click", () => void openSettingsDialog());
     $("saveSettingsBtn").addEventListener("click", () => void saveSettingsDialog());
     $("cancelSettingsBtn").addEventListener("click", () => { $("settingsModal").style.display = "none"; });
-    $("exitBtn").addEventListener("click", () => void api.stopAndExit());
-    $("migrateBtn").addEventListener("click", () => void maybeMigrate());
+    $("exitBtn").addEventListener("click", () => void api.stopAndExit().catch(showError));
+    $("migrateBtn").addEventListener("click", () => void (async () => {
+      if (await maybeMigrate(await api.migrationStatus())) {
+        await api.startServices();
+        await refreshPcUrl();
+        await refreshStatus();
+      }
+    })().catch(showError));
 
     await listen("launcher-status", () => void refreshStatus());
     await listen("tray-open-browser", () => void $("openPcBtn").click());
     await listen("tray-open-editor", () => void api.openEditor());
-    await listen("tray-exit", () => void api.stopAndExit());
+    await listen("tray-exit", () => void api.stopAndExit().catch(showError));
 
     await refreshStatus();
-    await refreshPcUrl();
-    await refreshUpdate();
     window.setInterval(refreshStatus, 2000);
-    // Fire service startup shortly after the dashboard appears.
-    window.setTimeout(() => void api.startServices().catch(() => undefined).then(refreshStatus), 100);
+    $("migrateBtn").toggleAttribute("disabled", true);
+    try {
+      await startAfterMigration(api, maybeMigrate);
+    } catch (error) {
+      await showError(error);
+    } finally {
+      preparing = false;
+      $("migrateBtn").toggleAttribute("disabled", false);
+      await refreshStatus();
+      await refreshPcUrl();
+    }
+    void refreshUpdate();
   }
 
   void init();

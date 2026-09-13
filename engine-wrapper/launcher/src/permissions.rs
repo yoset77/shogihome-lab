@@ -22,6 +22,7 @@ const MAIN_COMMANDS: &[&str] = &[
     "open_editor",
     "migration_plan",
     "migration_run",
+    "migration_status",
 ];
 
 const EDITOR_COMMANDS: &[&str] = &[
