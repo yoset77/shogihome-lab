@@ -3,8 +3,8 @@
 Same scenarios run against each wrapper implementation via WRAPPER_CMD:
   WRAPPER_CMD=python  - Python wrapper only
   WRAPPER_CMD=node    - Node wrapper only
-  WRAPPER_CMD=all     - both (default)
-  WRAPPER_CMD=rust    - reserved for Phase 1 (skips until implemented)
+  WRAPPER_CMD=rust    - Rust wrapper only (built with cargo if missing)
+  WRAPPER_CMD=all     - all implemented wrappers (default)
 
 Isolation: wrapper sources are copied into a temp config dir so the real
 engine-wrapper/engines.json is never touched. The fake engine is launched
@@ -30,9 +30,23 @@ FIXTURE_ENGINE = Path(__file__).resolve().parent / "fixtures" / "fake_usi_engine
 
 IMPLEMENTATIONS = os.environ.get("WRAPPER_CMD", "all").split(",")
 if "all" in IMPLEMENTATIONS:
-    SELECTED = ["python", "node"]
+    SELECTED = ["python", "node", "rust"]
 else:
     SELECTED = [i.strip() for i in IMPLEMENTATIONS if i.strip()]
+
+_RUST_BINARY = None
+
+
+def _rust_binary():
+    """Path to the built Rust wrapper, building it once on demand."""
+    global _RUST_BINARY
+    if _RUST_BINARY is None:
+        target = WRAPPER_DIR / "target" / "debug" / "shogihome-wrapper"
+        if not target.exists():
+            subprocess.run(["cargo", "build"], cwd=str(WRAPPER_DIR), check=True, timeout=600)
+        _RUST_BINARY = target
+    return _RUST_BINARY
+
 
 TOKEN = "contract-test-token"
 
@@ -98,7 +112,7 @@ def _start_wrapper(impl: str, tmp: Path, port: int, token: str | None):
             shutil.copy2(WRAPPER_DIR / name, tmp / name)
         cmd = ["node", str(tmp / "engine-wrapper.mjs")]
     elif impl == "rust":
-        pytest.skip("Rust wrapper not implemented yet (Phase 1)")
+        cmd = [str(_rust_binary()), "--config-dir", str(tmp)]
     else:
         raise ValueError(f"unknown wrapper impl: {impl}")
     proc = subprocess.Popen(
@@ -213,8 +227,6 @@ def test_unknown_engine_returns_wrapper_error(wrapper):
 def test_auth_wrong_token_rejected(tmp_path):
     # Runs once per selected impl via explicit loop.
     for impl_name in SELECTED:
-        if impl_name == "rust":
-            continue
         port = _free_port()
         subdir = tmp_path / f"fail-{impl_name}"
         subdir.mkdir(parents=True, exist_ok=True)
@@ -247,8 +259,6 @@ def test_auth_wrong_token_rejected(tmp_path):
 @pytest.mark.auth
 def test_auth_correct_token_allows_list(tmp_path):
     for impl_name in SELECTED:
-        if impl_name == "rust":
-            continue
         port = _free_port()
         subdir = tmp_path / f"ok-{impl_name}"
         subdir.mkdir(parents=True, exist_ok=True)

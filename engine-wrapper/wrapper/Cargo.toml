@@ -1,0 +1,25 @@
+[package]
+name = "shogihome-engine-wrapper"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "TCP relay between ShogiHome server and USI engines (Rust rewrite of engine_wrapper.py / engine-wrapper.mjs)"
+
+[[bin]]
+name = "shogihome-wrapper"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+encoding_rs = "0.8"
+hmac = "0.12"
+sha2 = "0.10"
+subtle = "1"
+rand = "0.8"
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }

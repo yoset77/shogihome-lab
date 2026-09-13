@@ -16,10 +16,12 @@ Run commands from the indicated directory.
 
 ### Engine Wrapper (`engine-wrapper/`)
 
-- Start: `uv run engine_wrapper.py`
-- Lint: `uv run ruff check .`
-- Format: `uv run ruff format .`
-- Test: `uv run pytest`
+- Start (Python): `uv run engine_wrapper.py`
+- Start (Rust): `cargo run -p shogihome-engine-wrapper -- --config-dir .`
+- Lint: `uv run ruff check .` / `cargo clippy --all-targets`
+- Format: `uv run ruff format .` / `cargo fmt --check`
+- Test: `uv run pytest` / `cargo test`
+- Contract tests against one implementation: `WRAPPER_CMD=python|node|rust uv run pytest tests/test_wrapper_contract.py`
 
 ## Project Rules
 
@@ -37,4 +39,4 @@ Run commands from the indicated directory.
 ## Version Control
 
 - When creating a commit, use a prefix such as `feat:`, `fix:`, `docs:`, `style:`, `refactor:`, `test:`, or `chore:`.
-- Keep the versions in `shogihome/package.json` and `engine-wrapper/pyproject.toml` synchronized.
+- Keep the versions in `shogihome/package.json`, `engine-wrapper/pyproject.toml`, and `engine-wrapper/wrapper/Cargo.toml` synchronized.

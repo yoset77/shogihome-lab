@@ -1,0 +1,9 @@
+[workspace]
+members = ["wrapper"]
+exclude = ["rust-poc"]
+resolver = "2"
+
+[workspace.package]
+version = "1.20.0"
+edition = "2021"
+license = "MIT"

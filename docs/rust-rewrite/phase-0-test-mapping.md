@@ -29,9 +29,9 @@ each implementation through the `WRAPPER_CMD` environment variable:
 - `python` — `uv run python engine_wrapper.py` equivalent on an ephemeral port
   with an isolated config dir (achieved by copying the wrapper sources).
 - `node` — `node engine-wrapper.mjs` on an ephemeral port with the same isolation.
-- `rust` — reserved value for Phase 1 (`--config-dir`, TCP relay). Tests must
-  pass unchanged against the Rust binary except for documented intentional
-  differences in `phase-0-compat.md`.
+- `rust` — Rust wrapper via `--config-dir` (wired in Phase 1; builds the
+  binary on demand). Tests must pass unchanged against the Rust binary
+  except for documented intentional differences in `phase-0-compat.md`.
 
 Scenarios:
 
