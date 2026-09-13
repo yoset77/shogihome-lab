@@ -293,14 +293,12 @@ pub fn probe_usi_options(
             ProbeError::Io(e.to_string())
         }
     })?;
-    let pid = child.id();
-
     let stdin = child
-        .stdin
+        .stdin()
         .as_mut()
         .ok_or_else(|| ProbeError::Io("no stdin".to_string()))?;
     if stdin.write_all(b"usi\n").is_err() {
-        kill_probe_tree(pid);
+        let _ = child.kill();
         let _ = child.wait();
         return Err(ProbeError::Io("failed to write usi".to_string()));
     }
@@ -308,20 +306,22 @@ pub fn probe_usi_options(
 
     // Pump stdout lines and stderr bytes on scoped threads; the main loop
     // below only blocks 100ms at a time so cancel/deadline stay responsive.
-    let (line_tx, line_rx) = std::sync::mpsc::channel::<Option<Vec<u8>>>();
+    let (line_tx, line_rx) = std::sync::mpsc::sync_channel::<Option<Vec<u8>>>(64);
     let mut options = BTreeMap::new();
     let mut lines = 0usize;
     let mut bytes = 0usize;
     let deadline = Instant::now() + PROBE_USIOK_TIMEOUT;
     let result = std::thread::scope(|scope| {
-        if let Some(stdout) = child.stdout.take() {
+        if let Some(stdout) = child.stdout().take() {
             let line_tx = line_tx.clone();
             scope.spawn(move || {
                 let mut reader = BufReader::new(stdout);
                 let mut buf = Vec::new();
                 loop {
                     buf.clear();
-                    match reader.read_until(b'\n', &mut buf) {
+                    let mut bounded =
+                        std::io::Read::take(&mut reader, (PROBE_MAX_BYTES + 1) as u64);
+                    match bounded.read_until(b'\n', &mut buf) {
                         Ok(0) => {
                             let _ = line_tx.send(None);
                             break;
@@ -341,19 +341,13 @@ pub fn probe_usi_options(
         } else {
             let _ = line_tx.send(None);
         }
-        if let Some(stderr) = child.stderr.take() {
+        if let Some(mut stderr) = child.stderr().take() {
             scope.spawn(move || {
-                let reader = BufReader::new(stderr);
-                let mut drained = 0usize;
-                for chunk in reader.split(b'\n') {
-                    match chunk {
-                        Ok(line) => {
-                            drained += line.len();
-                            if drained > PROBE_MAX_BYTES || cancel.load(Ordering::Relaxed) {
-                                break;
-                            }
-                        }
-                        Err(_) => break,
+                let mut buffer = [0; 8192];
+                loop {
+                    match std::io::Read::read(&mut stderr, &mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {}
                     }
                 }
             });
@@ -391,10 +385,12 @@ pub fn probe_usi_options(
                 }
             }
         };
+        // Release blocked senders before joining the pumps.
+        drop(line_rx);
         // Quit + reap INSIDE the scope: killing the child unblocks the pump
         // threads (EOF) so the scope can join. Doing this after the scope
         // would deadlock when the engine never answers.
-        if let Some(mut stdin) = child.stdin.take() {
+        if let Some(mut stdin) = child.stdin().take() {
             let _ = stdin.write_all(b"quit\n");
             let _ = stdin.flush();
         }
@@ -406,23 +402,25 @@ pub fn probe_usi_options(
                     std::thread::sleep(Duration::from_millis(20))
                 }
                 _ => {
-                    kill_probe_tree(pid);
+                    let _ = child.kill();
                     let _ = child.wait();
                     break;
                 }
             }
         }
+        // Helpers may still own the pipes after the leader exits normally.
+        // The retained process group / Job remains valid after try_wait().
+        let _ = child.kill();
         outcome
     });
 
     result.map(|_| options)
 }
 
-fn spawn_probe(path: &Path, cwd: &Path) -> std::io::Result<std::process::Child> {
+fn spawn_probe(path: &Path, cwd: &Path) -> std::io::Result<crate::process::ManagedChild> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let is_batch = path
             .extension()
             .and_then(|e| e.to_str())
@@ -430,10 +428,8 @@ fn spawn_probe(path: &Path, cwd: &Path) -> std::io::Result<std::process::Child> 
             .unwrap_or(false);
         let mut cmd = if is_batch {
             let mut c = Command::new("cmd");
-            c.arg("/d")
-                .arg("/s")
-                .arg("/c")
-                .arg(format!("\"{}\"", path.display()));
+            c.args(["/d", "/s", "/c"])
+                .raw_arg(format!("\"\"{}\"\"", path.display()));
             c
         } else {
             Command::new(path)
@@ -441,52 +437,17 @@ fn spawn_probe(path: &Path, cwd: &Path) -> std::io::Result<std::process::Child> 
         cmd.current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .creation_flags(CREATE_NO_WINDOW);
-        cmd.spawn()
+            .stderr(Stdio::piped());
+        crate::process::spawn(cmd)
     }
-    #[cfg(unix)]
+    #[cfg(not(windows))]
     {
-        use std::os::unix::process::CommandExt as _;
         let mut cmd = Command::new(path);
         cmd.current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-        cmd.spawn()
-    }
-    #[cfg(not(any(windows, unix)))]
-    {
-        Command::new(path)
-            .current_dir(cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-    }
-}
-
-fn kill_probe_tree(pid: u32) {
-    #[cfg(unix)]
-    {
-        unsafe {
-            libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
-        }
-    }
-    #[cfg(windows)]
-    {
-        let _ = Command::new("taskkill")
-            .args(["/F", "/T", "/PID", &pid.to_string()])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        crate::process::spawn(cmd)
     }
 }
 
@@ -678,16 +639,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn probe_fake_engine_and_cancel() {
-        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("tests")
-            .join("fixtures")
-            .join("probe_engine.py");
-        std::fs::create_dir_all(fixture.parent().unwrap()).unwrap();
+        let dir = std::env::temp_dir().join(format!("probe-options-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fixture = dir.join("probe_engine.py");
         std::fs::write(
             &fixture,
-            "#!/usr/bin/env python3\nimport sys\nfor line in sys.stdin:\n    c = line.strip()\n    if c == 'usi':\n        sys.stdout.write('option name Threads type spin default 1 min 1 max 128\\n')\n        sys.stdout.write('option name USI_Ponder type check default true\\n')\n        sys.stdout.write('usiok\\n')\n        sys.stdout.flush()\n    elif c == 'quit':\n        break\n",
+            include_str!("../../tests/fixtures/probe_engine.py"),
         )
         .unwrap();
         #[cfg(unix)]
@@ -717,6 +676,55 @@ mod tests {
             probe_usi_options(&slow, Path::new("/tmp"), &cancel2),
             Err(ProbeError::Cancelled)
         ));
-        std::fs::remove_file(&slow).ok();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn probe_parent_exit_does_not_wait_for_inherited_pipes() {
+        let dir = std::env::temp_dir().join(format!("probe-descendant-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("engine.py");
+        std::fs::write(&script, "import subprocess,sys\nfor line in sys.stdin:\n if line.strip() == 'usi':\n  p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'])\n  open('helper.pid','w').write(str(p.pid))\n  print('usiok',flush=True)\n elif line.strip() == 'quit': break\n").unwrap();
+        let launcher = dir.join(if cfg!(windows) {
+            "engine probe.cmd"
+        } else {
+            "engine.sh"
+        });
+        std::fs::write(
+            &launcher,
+            if cfg!(windows) {
+                format!("@echo off\npython \"{}\"\n", script.display())
+            } else {
+                format!("#!/bin/sh\nexec python3 \"{}\"\n", script.display())
+            },
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let base = dir.clone();
+        let worker = std::thread::spawn(move || {
+            let result = probe_usi_options(&launcher, &base, &AtomicBool::new(false));
+            tx.send(result).ok();
+        });
+        let result = rx.recv_timeout(Duration::from_secs(3));
+        if let Ok(pid) = std::fs::read_to_string(dir.join("helper.pid")) {
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(pid.parse().unwrap(), libc::SIGKILL);
+            }
+            #[cfg(windows)]
+            {
+                let _ = Command::new("taskkill")
+                    .args(["/F", "/PID", pid.trim()])
+                    .output();
+            }
+        }
+        worker.join().unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+        assert!(result.expect("probe blocked on inherited pipes").is_ok());
     }
 }

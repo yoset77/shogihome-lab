@@ -11,19 +11,17 @@
 //! excluded from the Linux workspace because it needs WebView system libs.
 
 use shogihome_launcher::{
-    editor, logs, migration, network, permissions, service, settings, supervisor, update,
+    controller, editor, logs, migration, network, permissions, service, settings, update,
 };
-use tauri::{Emitter, Manager};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use tauri::{Emitter, Manager};
 
 struct LauncherState {
     dist_root: PathBuf,
-    supervisor: Mutex<supervisor::Supervisor>,
-    services: Mutex<HashMap<String, service::RunningService>>,
+    controller: Arc<controller::Controller>,
     quitting: AtomicBool,
     next_probe: AtomicU64,
     probes: Mutex<HashMap<u64, Arc<AtomicBool>>>,
@@ -37,7 +35,9 @@ fn check(window: &tauri::Window, command: &str) -> Result<(), String> {
     if permissions::is_command_allowed(command, window.label()) {
         Ok(())
     } else {
-        Err(format!("command '{command}' is not allowed from this window"))
+        Err(format!(
+            "command '{command}' is not allowed from this window"
+        ))
     }
 }
 
@@ -54,210 +54,96 @@ fn log_dir(handle: &tauri::AppHandle) -> PathBuf {
 // --- Service control ---
 
 #[tauri::command]
-fn start_services(window: tauri::Window, handle: tauri::AppHandle) -> Result<u64, String> {
+async fn start_services(window: tauri::Window, handle: tauri::AppHandle) -> Result<u64, String> {
     check(&window, "start_services")?;
-    let st = state(&handle);
-    let mut sup = st.supervisor.lock().map_err(|e| e.to_string())?;
-    let generation = sup.request(supervisor::SupervisorRequest::Start).ok_or("already running")?;
-    drop(sup);
-    let handle_clone = handle.clone();
-    std::thread::spawn(move || run_services(handle_clone, generation));
-    Ok(generation)
+    let controller = state(&handle).controller.clone();
+    let root = state(&handle).dist_root.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        controller.start(|| service::portable_services(&root))
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    emit_status(&handle);
+    result
 }
 
-fn service_specs(handle: &tauri::AppHandle) -> Result<(service::ServiceSpec, service::ServiceSpec, service::ReadyExpectation, service::ReadyExpectation), String> {
-    let st = state(handle);
-    let root = &st.dist_root;
-    let (values, _) = settings::load_settings(&env_paths(handle));
-    let text = |id: &str, fallback: &str| match values.get(id) {
-        Some(settings::SettingValue::Text(t)) => t.clone(),
-        _ => fallback.to_string(),
-    };
-    let server_port: u16 = text("PORT", "8140").parse().unwrap_or(8140);
-    let bind = text("BIND_ADDRESS", "0.0.0.0");
-    let wrapper_port: u16 = text("LISTEN_PORT", "4082").parse().unwrap_or(4082);
-
-    let server_exe = root.join("shogihome").join("shogihome-server.exe");
-    let server_entry = root.join("shogihome").join("dist").join("server").join("server.js");
-    let server = service::ServiceSpec {
-        name: "server".to_string(),
-        program: server_exe,
-        args: vec![server_entry.to_string_lossy().into_owned()],
-        cwd: root.join("shogihome"),
-        env: vec![],
-        inherit_env: true,
-    };
-    let wrapper_bin = std::env::current_exe()
-        .map_err(|e| e.to_string())?
-        .parent()
-        .ok_or("no exe dir")?
-        .join("wrapper.exe");
-    let wrapper = service::ServiceSpec {
-        name: "wrapper".to_string(),
-        program: wrapper_bin,
-        args: vec!["--config-dir".to_string(), root.join("engine-wrapper").to_string_lossy().into_owned()],
-        cwd: root.join("engine-wrapper"),
-        env: vec![],
-        inherit_env: true,
-    };
-    let server_host = if bind == "0.0.0.0" { "127.0.0.1".to_string() } else { bind };
-    Ok((
-        server,
-        wrapper,
-        service::ReadyExpectation { host: server_host, port: server_port },
-        service::ReadyExpectation { host: "127.0.0.1".to_string(), port: wrapper_port },
-    ))
-}
-
-fn run_services(handle: tauri::AppHandle, generation: u64) {
-    let st = state(&handle);
-    if let Err(e) = logs::rotate_logs(&log_dir(&handle)) {
-        finish_generation(&handle, generation, false);
-        eprintln!("log rotation failed: {e}");
-        return;
-    }
-    let (server_spec, wrapper_spec, server_exp, wrapper_exp) = match service_specs(&handle) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("service spec failed: {e}");
-            finish_generation(&handle, generation, false);
-            return;
-        }
-    };
-    let dir = log_dir(&handle);
-    let mut services = st.services.lock().unwrap();
-    let mut ok = true;
-    for spec in [server_spec, wrapper_spec] {
-        match service::spawn_service(&spec, &dir) {
-            Ok(running) => {
-                services.insert(running.name.clone(), running);
-            }
-            Err(e) => {
-                eprintln!("spawn {} failed: {e}", spec.name);
-                let mut sup = st.supervisor.lock().unwrap();
-                sup.service_failed(generation, &spec.name);
-                ok = false;
-            }
-        }
-    }
-    if ok {
-        let mut expectations = HashMap::new();
-        expectations.insert("server".to_string(), server_exp);
-        expectations.insert("wrapper".to_string(), wrapper_exp);
-        match service::wait_ready(&mut services, &expectations, service::READY_TIMEOUT) {
-            Ok(()) => {
-                let mut sup = st.supervisor.lock().unwrap();
-                sup.service_ready(generation, "server");
-                sup.service_ready(generation, "wrapper");
-            }
-            Err(failed) => {
-                eprintln!("services not ready: {failed:?}");
-                for name in &failed {
-                    let mut sup = st.supervisor.lock().unwrap();
-                    sup.service_failed(generation, name);
-                }
-                ok = false;
-            }
-        }
-    }
-    drop(services);
-    if !ok {
-        // Partial-start rollback: never leave a live sibling behind.
-        let mut services = st.services.lock().unwrap();
-        service::stop_all(&mut services);
-    }
-    finish_generation(&handle, generation, ok);
-}
-
-fn finish_generation(handle: &tauri::AppHandle, generation: u64, success: bool) {
-    let st = state(handle);
-    let mut sup = st.supervisor.lock().unwrap();
-    sup.complete(generation, success);
+fn emit_status(handle: &tauri::AppHandle) {
     if let Some(main) = handle.get_webview_window("main") {
         let _ = main.emit("launcher-status", status_payload(handle));
     }
 }
 
 #[tauri::command]
-fn stop_services(window: tauri::Window, handle: tauri::AppHandle) -> Result<(), String> {
+async fn stop_services(window: tauri::Window, handle: tauri::AppHandle) -> Result<(), String> {
     check(&window, "stop_services")?;
-    let st = state(&handle);
-    let mut sup = st.supervisor.lock().map_err(|e| e.to_string())?;
-    let generation = sup.request(supervisor::SupervisorRequest::Stop).ok_or("not running")?;
-    drop(sup);
-    let handle_clone = handle.clone();
-    std::thread::spawn(move || {
-        let st = state(&handle_clone);
-        let mut services = st.services.lock().unwrap();
-        service::stop_all(&mut services);
-        drop(services);
-        std::thread::sleep(service::RESTART_SETTLE);
-        finish_generation(&handle_clone, generation, true);
-    });
-    Ok(())
+    let controller = state(&handle).controller.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || controller.stop())
+        .await
+        .map_err(|e| e.to_string())?;
+    emit_status(&handle);
+    result
 }
 
 #[tauri::command]
-fn restart_services(window: tauri::Window, handle: tauri::AppHandle) -> Result<u64, String> {
+async fn restart_services(window: tauri::Window, handle: tauri::AppHandle) -> Result<u64, String> {
     check(&window, "restart_services")?;
-    let st = state(&handle);
-    {
-        let mut sup = st.supervisor.lock().map_err(|e| e.to_string())?;
-        if matches!(
-            sup.state(),
-            supervisor::SupervisorState::Running | supervisor::SupervisorState::Failed
-        ) {
-            let gen = sup.request(supervisor::SupervisorRequest::Stop).ok_or("cannot stop")?;
-            drop(sup);
-            let mut services = st.services.lock().unwrap();
-            service::stop_all(&mut services);
-            drop(services);
-            std::thread::sleep(service::RESTART_SETTLE);
-            let _ = gen;
-        }
-    }
-    start_services(window, handle)
+    let controller = state(&handle).controller.clone();
+    let root = state(&handle).dist_root.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        controller.restart(|| service::portable_services(&root))
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    emit_status(&handle);
+    result
 }
 
 #[tauri::command]
-fn stop_and_exit(window: tauri::Window, handle: tauri::AppHandle) -> Result<(), String> {
+async fn stop_and_exit(window: tauri::Window, handle: tauri::AppHandle) -> Result<(), String> {
     check(&window, "stop_and_exit")?;
     let st = state(&handle);
     st.quitting.store(true, Ordering::SeqCst);
-    {
-        let mut sup = st.supervisor.lock().map_err(|e| e.to_string())?;
-        let _ = sup.request(supervisor::SupervisorRequest::Quit);
-    }
     cancel_all_probes(handle.clone());
-    let mut services = st.services.lock().unwrap();
-    service::stop_all(&mut services);
-    drop(services);
-    handle.exit(0);
+    let controller = st.controller.clone();
+    drop(st);
+    tauri::async_runtime::spawn_blocking(move || controller.quit())
+        .await
+        .map_err(|e| e.to_string())?;
+    // Probe workers own processes too. Do not terminate the application before
+    // their cancellation cleanup has released inherited pipes and Job handles.
+    let probes_done = tauri::async_runtime::spawn_blocking(move || {
+        let deadline = std::time::Instant::now()
+            + editor::PROBE_USIOK_TIMEOUT
+            + editor::PROBE_QUIT_TIMEOUT
+            + std::time::Duration::from_secs(1);
+        loop {
+            if state(&handle).probes.lock().unwrap().is_empty() {
+                return Ok(handle);
+            }
+            if std::time::Instant::now() >= deadline {
+                state(&handle).quitting.store(false, Ordering::SeqCst);
+                return Err("probe cleanup did not complete".to_string());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    probes_done.exit(0);
     Ok(())
 }
 
 #[tauri::command]
-fn get_status(window: tauri::Window, handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
+fn get_status(
+    window: tauri::Window,
+    handle: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
     check(&window, "get_status")?;
     Ok(status_payload(&handle))
 }
 
 fn status_payload(handle: &tauri::AppHandle) -> serde_json::Value {
-    let st = state(handle);
-    let sup = st.supervisor.lock().unwrap();
-    let state_name = match sup.state() {
-        supervisor::SupervisorState::Stopped => "stopped",
-        supervisor::SupervisorState::Starting => "starting",
-        supervisor::SupervisorState::Running => "running",
-        supervisor::SupervisorState::Stopping => "stopping",
-        supervisor::SupervisorState::Failed => "failed",
-        supervisor::SupervisorState::Quitting => "quitting",
-    };
-    serde_json::json!({
-        "state": state_name,
-        "server": format!("{:?}", sup.service_status("server")),
-        "wrapper": format!("{:?}", sup.service_status("wrapper")),
-    })
+    serde_json::to_value(state(handle).controller.status()).expect("status is serializable")
 }
 
 // --- Settings ---
@@ -269,7 +155,10 @@ fn get_settings_schema(window: tauri::Window) -> Result<serde_json::Value, Strin
 }
 
 #[tauri::command]
-fn load_settings(window: tauri::Window, handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
+fn load_settings(
+    window: tauri::Window,
+    handle: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
     check(&window, "load_settings")?;
     let (values, mismatches) = settings::load_settings(&env_paths(&handle));
     let values_json: serde_json::Map<String, serde_json::Value> = values
@@ -294,7 +183,10 @@ fn save_settings(
     check(&window, "save_settings")?;
     let mut typed = HashMap::new();
     for setting in settings::SETTINGS {
-        let value = values.get(setting.id).cloned().unwrap_or(serde_json::Value::Null);
+        let value = values
+            .get(setting.id)
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
         typed.insert(
             setting.id.to_string(),
             match value {
@@ -323,7 +215,10 @@ fn generate_token(window: tauri::Window) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn get_pc_url(window: tauri::Window, handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
+fn get_pc_url(
+    window: tauri::Window,
+    handle: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
     check(&window, "get_pc_url")?;
     let (values, _) = settings::load_settings(&env_paths(&handle));
     let text = |id: &str| match values.get(id) {
@@ -335,10 +230,19 @@ fn get_pc_url(window: tauri::Window, handle: tauri::AppHandle) -> Result<serde_j
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    let strict = matches!(values.get("DISABLE_AUTO_ALLOWED_ORIGINS"), Some(settings::SettingValue::Bool(true)));
+    let strict = matches!(
+        values.get("DISABLE_AUTO_ALLOWED_ORIGINS"),
+        Some(settings::SettingValue::Bool(true))
+    );
     let port: u16 = text("PORT").parse().unwrap_or(8140);
-    let (url, allowed) = network::pc_url_config(&text("BIND_ADDRESS"), port, strict, &origins, &network::local_ip());
-    Ok(serde_json::json!({"url": url, "allowed": allowed}))
+    Ok(serde_json::to_value(network::access_urls(
+        &text("BIND_ADDRESS"),
+        port,
+        strict,
+        &origins,
+        &network::local_ip(),
+    ))
+    .expect("access URLs are serializable"))
 }
 
 // --- Logs / updates ---
@@ -354,19 +258,36 @@ fn read_logs(window: tauri::Window, handle: tauri::AppHandle) -> Result<serde_js
 }
 
 #[tauri::command]
-fn check_update(window: tauri::Window, handle: tauri::AppHandle) -> Result<Option<update::UpdateInfo>, String> {
+async fn check_update(
+    window: tauri::Window,
+    handle: tauri::AppHandle,
+) -> Result<Option<update::UpdateInfo>, String> {
     check(&window, "check_update")?;
-    let st = state(&handle);
-    let version_path = st.dist_root.join("engine-wrapper").join("VERSION");
-    let current = update::load_current_version(&version_path).ok_or("no VERSION file")?;
-    let payload = update::fetch_releases_json(update::DEFAULT_REPO_OWNER, update::DEFAULT_REPO_NAME, &current)?;
-    Ok(update::select_best_release(&current, &payload))
+    let dir = state(&handle).dist_root.join("engine-wrapper");
+    tauri::async_runtime::spawn_blocking(move || {
+        update::check_bundled_update(&dir, |current| {
+            update::fetch_releases_json(
+                update::DEFAULT_REPO_OWNER,
+                update::DEFAULT_REPO_NAME,
+                current,
+            )
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn snooze_update(window: tauri::Window, handle: tauri::AppHandle, version: String) -> Result<(), String> {
+fn snooze_update(
+    window: tauri::Window,
+    handle: tauri::AppHandle,
+    version: String,
+) -> Result<(), String> {
     check(&window, "snooze_update")?;
-    let path = state(&handle).dist_root.join("engine-wrapper").join(".update_cache.json");
+    let path = state(&handle)
+        .dist_root
+        .join("engine-wrapper")
+        .join(".update_cache.json");
     let mut cache = update::UpdateCache::load(&path);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -380,7 +301,8 @@ fn snooze_update(window: tauri::Window, handle: tauri::AppHandle, version: Strin
 // --- Editor window ---
 
 #[tauri::command]
-fn open_editor(window: tauri::Window, handle: tauri::AppHandle) -> Result<(), String> {
+async fn open_editor(window: tauri::Window, handle: tauri::AppHandle) -> Result<(), String> {
+    // WebView2 creation deadlocks inside synchronous IPC handlers on Windows.
     check(&window, "open_editor")?;
     match handle.get_webview_window("editor") {
         Some(editor) => {
@@ -388,48 +310,70 @@ fn open_editor(window: tauri::Window, handle: tauri::AppHandle) -> Result<(), St
             let _ = editor.set_focus();
         }
         None => {
-            tauri::WebviewWindowBuilder::new(&handle, "editor", tauri::WebviewUrl::App("editor.html".into()))
-                .title("ShogiHome Lab Config Editor")
-                .inner_size(800.0, 900.0)
-                .min_inner_size(600.0, 600.0)
-                .build()
-                .map_err(|e| e.to_string())?;
+            tauri::WebviewWindowBuilder::new(
+                &handle,
+                "editor",
+                tauri::WebviewUrl::App("editor.html".into()),
+            )
+            .title("ShogiHome Lab Config Editor")
+            .inner_size(800.0, 900.0)
+            .min_inner_size(600.0, 600.0)
+            .build()
+            .map_err(|e| e.to_string())?;
         }
     }
     Ok(())
 }
 
 fn engines_path(handle: &tauri::AppHandle) -> PathBuf {
-    state(handle).dist_root.join("engine-wrapper").join("engines.json")
+    state(handle)
+        .dist_root
+        .join("engine-wrapper")
+        .join("engines.json")
 }
 
 #[tauri::command]
-fn editor_load(window: tauri::Window, handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
+fn editor_load(
+    window: tauri::Window,
+    handle: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
     check(&window, "editor_load")?;
     let engines = editor::load_engines_file(&engines_path(&handle))?;
     Ok(serde_json::json!({"engines": engines}))
 }
 
 #[tauri::command]
-fn editor_save(window: tauri::Window, handle: tauri::AppHandle, engines: serde_json::Value) -> Result<(), String> {
+fn editor_save(
+    window: tauri::Window,
+    handle: tauri::AppHandle,
+    engines: serde_json::Value,
+) -> Result<(), String> {
     check(&window, "editor_save")?;
     editor::save_engines_file(&engines_path(&handle), &engines)
 }
 
 #[tauri::command]
-fn editor_browse(window: tauri::Window, handle: tauri::AppHandle) -> Result<Option<String>, String> {
+async fn editor_browse(
+    window: tauri::Window,
+    handle: tauri::AppHandle,
+) -> Result<Option<String>, String> {
     check(&window, "editor_browse")?;
     use tauri_plugin_dialog::DialogExt;
-    let picked = handle
-        .dialog()
-        .file()
-        .add_filter("Executable", &["exe"])
-        .blocking_pick_file();
-    Ok(picked.map(|p| p.to_string()))
+    // The blocking dialog API must not occupy the UI or async executor thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        handle
+            .dialog()
+            .file()
+            .add_filter("Executable", &["exe"])
+            .blocking_pick_file()
+            .map(|p| p.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn editor_probe(
+async fn editor_probe(
     window: tauri::Window,
     handle: tauri::AppHandle,
     path: String,
@@ -438,11 +382,25 @@ fn editor_probe(
     let st = state(&handle);
     let id = st.next_probe.fetch_add(1, Ordering::SeqCst) + 1;
     let cancel = Arc::new(AtomicBool::new(false));
-    st.probes.lock().map_err(|e| e.to_string())?.insert(id, cancel.clone());
+    {
+        let mut probes = st.probes.lock().map_err(|e| e.to_string())?;
+        if st.quitting.load(Ordering::SeqCst) {
+            return Err("launcher is quitting".into());
+        }
+        probes.insert(id, cancel.clone());
+    }
     let base = st.dist_root.join("engine-wrapper");
-    let found = shogihome_launcher::editor::probe_usi_options(std::path::Path::new(&path), &base, &cancel)
-        .map_err(|e| e.to_string())?;
+    // Blocking child I/O must leave the main thread: Tauri runs non-async
+    // commands there, and a probe can take seconds (engine timeout + quit
+    // grace). Cancellation still works via the shared flag.
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        shogihome_launcher::editor::probe_usi_options(std::path::Path::new(&path), &base, &cancel)
+    })
+    .await;
     st.probes.lock().map_err(|e| e.to_string())?.remove(&id);
+    let found = result
+        .map_err(|e| format!("probe task failed: {e}"))?
+        .map_err(|e| e.to_string())?;
     let options: serde_json::Map<String, serde_json::Value> = found
         .into_iter()
         .map(|(name, opt)| {
@@ -455,8 +413,14 @@ fn editor_probe(
                 editor::UsiOptionType::Filename => "filename",
             };
             let mut value = serde_json::Map::new();
-            value.insert("type".to_string(), serde_json::Value::String(option_type.to_string()));
-            value.insert("default".to_string(), serde_json::Value::String(opt.default));
+            value.insert(
+                "type".to_string(),
+                serde_json::Value::String(option_type.to_string()),
+            );
+            value.insert(
+                "default".to_string(),
+                serde_json::Value::String(opt.default),
+            );
             if let Some(min) = opt.min {
                 value.insert("min".to_string(), serde_json::Value::from(min));
             }
@@ -464,7 +428,15 @@ fn editor_probe(
                 value.insert("max".to_string(), serde_json::Value::from(max));
             }
             if !opt.vars.is_empty() {
-                value.insert("vars".to_string(), serde_json::Value::Array(opt.vars.into_iter().map(serde_json::Value::String).collect()));
+                value.insert(
+                    "vars".to_string(),
+                    serde_json::Value::Array(
+                        opt.vars
+                            .into_iter()
+                            .map(serde_json::Value::String)
+                            .collect(),
+                    ),
+                );
             }
             (name, serde_json::Value::Object(value))
         })
@@ -497,22 +469,37 @@ fn editor_refresh(
             name.clone(),
             editor::UsiOption {
                 option_type,
-                default: def.get("default").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                default: def
+                    .get("default")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 min: def.get("min").and_then(|v| v.as_i64()),
                 max: def.get("max").and_then(|v| v.as_i64()),
                 vars: def
                     .get("vars")
                     .and_then(|v| v.as_array())
-                    .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect()
+                    })
                     .unwrap_or_default(),
             },
         );
     }
-    Ok(serde_json::Value::Object(editor::refresh_options(&existing_map, &defs)))
+    Ok(serde_json::Value::Object(editor::refresh_options(
+        &existing_map,
+        &defs,
+    )))
 }
 
 #[tauri::command]
-fn editor_probe_cancel(window: tauri::Window, handle: tauri::AppHandle, id: u64) -> Result<(), String> {
+fn editor_probe_cancel(
+    window: tauri::Window,
+    handle: tauri::AppHandle,
+    id: u64,
+) -> Result<(), String> {
     check(&window, "editor_probe_cancel")?;
     let st = state(&handle);
     let probes = st.probes.lock().map_err(|e| e.to_string())?;
@@ -533,9 +520,21 @@ fn cancel_all_probes(handle: tauri::AppHandle) {
 // --- Migration ---
 
 #[tauri::command]
-fn migration_plan(
+fn migration_status(
     window: tauri::Window,
     handle: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
+    check(&window, "migration_status")?;
+    let paths = migration::MigrationPaths::new(&state(&handle).dist_root);
+    Ok(
+        serde_json::json!({"needed": paths.needs_migration(), "pendingSource": paths.pending_source()}),
+    )
+}
+
+#[tauri::command]
+fn migration_plan(
+    window: tauri::Window,
+    _handle: tauri::AppHandle,
     selected: String,
 ) -> Result<serde_json::Value, String> {
     check(&window, "migration_plan")?;
@@ -552,20 +551,26 @@ fn migration_plan(
 }
 
 #[tauri::command]
-fn migration_run(
+async fn migration_run(
     window: tauri::Window,
     handle: tauri::AppHandle,
     selected: String,
 ) -> Result<serde_json::Value, String> {
     check(&window, "migration_run")?;
-    let st = state(&handle);
-    if !migration::MigrationPaths::new(&st.dist_root).needs_migration() {
-        return Ok(serde_json::json!({"migrated": false, "reason": "data dir already present"}));
-    }
-    let root = migration::resolve_old_root(std::path::Path::new(&selected));
-    let plan = migration::plan_migration(&root);
-    migration::execute_migration(&plan, &migration::MigrationPaths::new(&st.dist_root))?;
-    Ok(serde_json::json!({"migrated": true}))
+    let controller = state(&handle).controller.clone();
+    let dest = migration::MigrationPaths::new(&state(&handle).dist_root);
+    tauri::async_runtime::spawn_blocking(move || {
+        controller.while_stopped(|| {
+            if !dest.needs_migration() {
+                return Ok(serde_json::json!({"migrated": false}));
+            }
+            let root = migration::resolve_old_root(std::path::Path::new(&selected));
+            migration::execute_migration(&migration::plan_migration(&root), &dest)?;
+            Ok(serde_json::json!({"migrated": true}))
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // --- App setup ---
@@ -580,7 +585,14 @@ fn build_tray(handle: &tauri::AppHandle) -> tauri::Result<()> {
     let menu = MenuBuilder::new(handle)
         .items(&[&open, &dashboard, &editor_item, &exit])
         .build()?;
+    // Windows requires an explicit tray icon: prefer the bundled app icon,
+    // fall back to a 1x1 transparent pixel so the tray still builds.
+    let icon = handle
+        .default_window_icon()
+        .cloned()
+        .unwrap_or_else(|| tauri::image::Image::new_owned(vec![0, 0, 0, 0], 1, 1));
     let _tray = TrayIconBuilder::new()
+        .icon(icon)
         .menu(&menu)
         .tooltip("ShogiHome Lab")
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -613,19 +625,29 @@ fn build_tray(handle: &tauri::AppHandle) -> tauri::Result<()> {
 
 pub fn run() {
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
-    let dist_root = exe.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+    let dist_root = exe
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(LauncherState {
             dist_root,
-            supervisor: Mutex::new(supervisor::Supervisor::new(&["server", "wrapper"])),
-            services: Mutex::new(HashMap::new()),
+            controller: Arc::new(controller::Controller::new(&["server", "wrapper"])),
             quitting: AtomicBool::new(false),
             next_probe: AtomicU64::new(0),
             probes: Mutex::new(HashMap::new()),
         })
         .setup(|app| {
+            let controller = Arc::downgrade(&state(app.handle()).controller);
+            std::thread::spawn(move || {
+                while let Some(controller) = controller.upgrade() {
+                    controller.check_health();
+                    drop(controller);
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+            });
             // Tray is best-effort: if it cannot be created, the main window
             // stays visible so the app never becomes unreachable.
             if build_tray(app.handle()).is_err() {
@@ -651,7 +673,7 @@ pub fn run() {
                     }
                     // The editor owns probes: cancel them, then destroy.
                     "editor" => {
-                        cancel_all_probes(window.app_handle());
+                        cancel_all_probes(window.app_handle().clone());
                         let _ = window.destroy();
                     }
                     _ => {}
@@ -681,6 +703,7 @@ pub fn run() {
             editor_probe_cancel,
             migration_plan,
             migration_run,
+            migration_status,
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|e| {

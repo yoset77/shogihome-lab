@@ -2,7 +2,7 @@
 //! identically through the REAL python-dotenv and Node `parseEnv` parsers.
 //! Mirrors `test_upsert_env_values_round_trip_special_characters`.
 
-use shogihome_launcher::env_codec::format_env_value;
+use shogihome_launcher::env_codec::{format_env_value, parse_env};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -34,11 +34,18 @@ fn parse_with_python(path: &std::path::Path) -> String {
         print(dotenv_values(sys.argv[1]).get('KIFU_DIR','<<MISSING>>'),end='')";
     let out = Command::new("uv")
         .args(["run", "python", "-c", script, &path.to_string_lossy()])
+        // Windows runners use a non-UTF-8 console codepage (e.g. cp1252),
+        // which makes `print` of non-ASCII values fail. Force UTF-8 stdout.
+        .env("PYTHONIOENCODING", "utf-8")
         .current_dir(env!("CARGO_MANIFEST_DIR").to_string() + "/..")
         .output()
         .expect("uv + python-dotenv are required for parser parity tests");
     assert!(out.status.success(), "python dotenv parse failed: {out:?}");
-    String::from_utf8(out.stdout).expect("python output must be UTF-8")
+    // Windows stdout is text mode, so decoded "\n" arrives as "\r\n".
+    // Compare parser output, not transport newlines.
+    String::from_utf8(out.stdout)
+        .expect("python output must be UTF-8")
+        .replace("\r\n", "\n")
 }
 
 #[test]
@@ -62,4 +69,26 @@ fn formatted_values_round_trip_through_both_parsers() {
         );
     }
     std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn existing_quoted_files_decode_like_python_dotenv() {
+    let dir = std::env::temp_dir().join(format!("read-parity-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(".env");
+    for input in [
+        "KIFU_DIR=\"9000\" # custom port\n",
+        "KIFU_DIR=\"C:\\Users\\someone\\kifu\"\n",
+        "export KIFU_DIR='C:\\new\\棋譜 #1' # comment\n",
+        "KIFU_DIR='it\\'s a path'\n",
+        "KIFU_DIR=\"a\\tb\\nc\\q\"\n",
+    ] {
+        std::fs::write(&path, input).unwrap();
+        assert_eq!(
+            parse_env(input)["KIFU_DIR"],
+            parse_with_python(&path),
+            "{input}"
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
 }

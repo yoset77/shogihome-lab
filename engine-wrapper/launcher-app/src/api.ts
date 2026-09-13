@@ -7,8 +7,7 @@ export type LauncherState = "stopped" | "starting" | "running" | "stopping" | "f
 
 export interface StatusPayload {
   state: LauncherState;
-  server: string;
-  wrapper: string;
+  services: Record<string, "pending" | "ready" | "failed">;
 }
 
 export interface SettingsSchema {
@@ -57,7 +56,7 @@ export const api = {
   loadSettings: () => invoke<{ values: SettingValues; mismatches: string[] }>("load_settings"),
   saveSettings: (values: SettingValues) => invoke<void>("save_settings", { values }),
   generateToken: () => invoke<string>("generate_token"),
-  getPcUrl: () => invoke<{ url: string; allowed: boolean }>("get_pc_url"),
+  getPcUrl: () => invoke<{ url: string; allowed: boolean; qrUrl: string | null }>("get_pc_url"),
   readLogs: () => invoke<{ server: string; wrapper: string }>("read_logs"),
   checkUpdate: () => invoke<{ version: string; tag: string; url: string } | null>("check_update"),
   snoozeUpdate: (version: string) => invoke<void>("snooze_update", { version }),
@@ -67,6 +66,7 @@ export const api = {
       "migration_plan",
       { selected },
     ),
+  migrationStatus: () => invoke<{ needed: boolean; pendingSource: string | null }>("migration_status"),
   migrationRun: (selected: string) => invoke<{ migrated: boolean; reason?: string }>("migration_run", { selected }),
   editorLoad: () => invoke<{ engines: EngineEntry[] }>("editor_load"),
   editorSave: (engines: EngineEntry[]) => invoke<void>("editor_save", { engines }),

@@ -18,3 +18,7 @@ ureq = { version = "3", default-features = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+process-wrap = { version = "10", default-features = false, features = ["std", "creation-flags", "job-object"] }
+windows = { version = "0.62", features = ["Win32_System_Threading"] }

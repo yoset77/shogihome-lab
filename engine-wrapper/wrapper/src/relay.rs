@@ -17,16 +17,16 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
-use tokio::process::Child;
 use tokio::sync::watch;
 
 use crate::auth;
 use crate::config::{find_engine, format_option, load_engines, log, resolve_engine_path};
 use crate::encoding::{decode_line, MAX_LINE_BYTES};
-use crate::process::{is_not_found, spawn_engine, terminate_tree};
+use crate::process::{is_not_found, spawn_engine, EngineChild};
 
 const QUIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const TERM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+const DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Shared per-listener state cloned into each connection task.
 #[derive(Clone)]
@@ -211,15 +211,15 @@ async fn write_error(writer: &mut OwnedWriteHalf, msg: &str) {
 async fn relay_loop(
     reader: &mut BufReader<OwnedReadHalf>,
     writer: &mut OwnedWriteHalf,
-    child: &mut Child,
+    child: &mut EngineChild,
     option_lines: Vec<String>,
     ctx: &RelayContext,
 ) -> Option<tokio::process::ChildStdin> {
-    let mut stdin = child.stdin.take();
+    let mut stdin = child.stdin().take();
     let mut stdout: Option<Box<dyn AsyncRead + Unpin + Send>> =
-        child.stdout.take().map(|p| Box::new(p) as _);
+        child.stdout().take().map(|p| Box::new(p) as _);
     let mut stderr: Option<Box<dyn AsyncRead + Unpin + Send>> =
-        child.stderr.take().map(|p| Box::new(p) as _);
+        child.stderr().take().map(|p| Box::new(p) as _);
     let mut options_applied = false;
     let mut shutdown = ctx.shutdown.clone();
 
@@ -242,14 +242,18 @@ async fn relay_loop(
                     Ok(status) => log::info(&format!("engine exited with {status}")),
                     Err(e) => log::warn_compat(&format!("engine wait failed: {e}")),
                 }
-                // Drain any terminal output before closing, so a final
-                // bestmove is never lost to a cancelled relay task.
-                if let Some(out) = stdout.as_mut() {
-                    drain_stream(out, &mut obuf, writer).await;
-                }
-                if let Some(err) = stderr.as_mut() {
-                    drain_stream(err, &mut ebuf, writer).await;
-                }
+                // Reaped leaders may leave helpers holding the inherited pipes.
+                child.terminate_tree(false);
+                // Preserve buffered terminal output, but never wait indefinitely
+                // on a pipe or on a client that has stopped reading.
+                let _ = tokio::time::timeout(DRAIN_TIMEOUT, async {
+                    if let Some(out) = stdout.as_mut() {
+                        drain_stream(out, &mut obuf, writer).await;
+                    }
+                    if let Some(err) = stderr.as_mut() {
+                        drain_stream(err, &mut ebuf, writer).await;
+                    }
+                }).await;
                 break;
             }
 
@@ -386,17 +390,16 @@ async fn drain_stream(
 /// engines skip escalation; every child is reaped with `wait()`.
 async fn cleanup(
     writer: &mut OwnedWriteHalf,
-    child: &mut Child,
+    child: &mut EngineChild,
     mut stdin: Option<tokio::process::ChildStdin>,
 ) {
-    let pid = child.id();
     match child.try_wait() {
         Ok(Some(status)) => {
             log::info(&format!("engine already exited with {status}"));
         }
         Ok(None) => {
             if stdin.is_none() {
-                stdin = child.stdin.take();
+                stdin = child.stdin().take();
             }
             if let Some(mut stdin) = stdin {
                 let _ = stdin.write_all(b"quit\n").await;
@@ -409,18 +412,14 @@ async fn cleanup(
                 }
                 _ => {
                     log::warn_compat("engine did not exit after quit; escalating");
-                    if let Some(pid) = pid {
-                        terminate_tree(pid, true);
-                    }
+                    child.terminate_tree(true);
                     match tokio::time::timeout(TERM_TIMEOUT, child.wait()).await {
                         Ok(Ok(status)) => {
                             log::info(&format!("engine exited after terminate with {status}"));
                         }
                         _ => {
                             log::warn_compat("engine did not terminate; killing");
-                            if let Some(pid) = pid {
-                                terminate_tree(pid, false);
-                            }
+                            child.terminate_tree(false);
                             let _ = child.wait().await;
                         }
                     }
@@ -431,14 +430,6 @@ async fn cleanup(
             log::warn_compat(&format!("engine wait failed during cleanup: {e}"));
         }
     }
-    // The leader is reaped above, but backgrounded grandchildren (e.g. a
-    // shell launcher whose `sleep` outlives the shell's stdin EOF) stay in
-    // the process group. Sweep the group like the Node wrapper does on
-    // engine close, so normal `quit`-then-EOF exits cannot leak strays.
-    // (Windows `taskkill /T` cannot resolve a tree from a dead PID; full
-    // containment there needs a Job Object in the launcher.)
-    if let Some(pid) = pid {
-        terminate_tree(pid, false);
-    }
+    child.terminate_tree(false);
     let _ = writer.shutdown().await;
 }

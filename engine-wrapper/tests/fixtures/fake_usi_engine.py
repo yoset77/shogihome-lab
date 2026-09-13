@@ -12,6 +12,7 @@ Every received stdin line is appended to the file named by FAKE_ENGINE_LOG
 """
 
 import os
+import subprocess
 import sys
 
 
@@ -42,6 +43,12 @@ def main():
             out.write("test_cp932_ok\n")
             out.flush()
         elif line == "quit":
+            break
+        elif line == "test_background_exit":
+            helper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+            out.write(f"info string helper_pid {helper.pid}\n")
+            out.write("bestmove resign")
+            out.flush()
             break
 
 

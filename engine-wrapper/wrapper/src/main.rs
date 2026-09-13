@@ -8,7 +8,7 @@
 //! - `LISTEN_PORT` / `--port` (default `4082`)
 //! - `WRAPPER_ACCESS_TOKEN` (unset/empty disables authentication)
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
@@ -81,11 +81,7 @@ fn main() {
     }
 
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
-    let exe_dir = exe
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."));
-    let config_dir = resolve_config_dir(&exe_dir, config_override.as_deref());
+    let config_dir = resolve_config_dir(&exe, config_override.as_deref());
 
     let token = std::env::var("WRAPPER_ACCESS_TOKEN")
         .ok()

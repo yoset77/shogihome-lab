@@ -21,5 +21,9 @@ serde_json = { version = "1", features = ["preserve_order"] }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(windows)'.dependencies]
+process-wrap = { version = "10", default-features = false, features = ["tokio1", "creation-flags", "job-object", "kill-on-drop"] }
+windows = { version = "0.62", features = ["Win32_System_Threading"] }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

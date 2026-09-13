@@ -42,7 +42,16 @@ impl MigrationPaths {
     }
 
     pub fn needs_migration(&self) -> bool {
-        !self.data_dir.exists()
+        match load_record(&self.completion_record()) {
+            Some(record) => !record.is_complete(),
+            None => !self.data_dir.exists(),
+        }
+    }
+
+    pub fn pending_source(&self) -> Option<PathBuf> {
+        load_record(&self.completion_record())
+            .filter(|record| !record.is_complete())
+            .map(|record| PathBuf::from(record.old_root))
     }
 
     pub fn completion_record(&self) -> PathBuf {
@@ -112,6 +121,14 @@ struct CompletionRecord {
     data_copied: bool,
     engines_copied: bool,
     envs_merged: bool,
+    #[serde(default)]
+    finished: bool,
+}
+
+impl CompletionRecord {
+    fn is_complete(&self) -> bool {
+        self.finished || (self.data_copied && self.engines_copied && self.envs_merged)
+    }
 }
 
 /// Execute the migration. Idempotent: completed steps are skipped on retry.
@@ -125,7 +142,13 @@ pub fn execute_migration(plan: &MigrationPlan, dest: &MigrationPaths) -> Result<
         data_copied: false,
         engines_copied: false,
         envs_merged: false,
+        finished: false,
     });
+    if Path::new(&record.old_root) != plan.old_root {
+        return Err("resume migration from the original source folder".to_string());
+    }
+    // Persist intent before publishing data, including if a later write fails.
+    save_record(&record_path, &record)?;
 
     if plan.has_data && !record.data_copied {
         copy_dir_staged(
@@ -155,7 +178,8 @@ pub fn execute_migration(plan: &MigrationPlan, dest: &MigrationPaths) -> Result<
         record.envs_merged = true;
         save_record(&record_path, &record)?;
     }
-    Ok(())
+    record.finished = true;
+    save_record(&record_path, &record)
 }
 
 fn load_record(path: &Path) -> Option<CompletionRecord> {
@@ -263,6 +287,51 @@ mod tests {
         // Second run is a no-op success (resume path).
         execute_migration(&plan, &dest).unwrap();
         std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn partial_migration_remains_available_after_data_copy() {
+        let base = std::env::temp_dir().join(format!("mig-resume-{}", std::process::id()));
+        let dest = MigrationPaths::new(&base);
+        std::fs::create_dir_all(&dest.data_dir).unwrap();
+        save_record(
+            &dest.completion_record(),
+            &CompletionRecord {
+                old_root: "old".into(),
+                data_copied: true,
+                engines_copied: false,
+                envs_merged: false,
+                finished: false,
+            },
+        )
+        .unwrap();
+        assert!(dest.needs_migration());
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn failed_registry_copy_can_resume_without_starting_services() {
+        let base = std::env::temp_dir().join(format!("mig-failed-{}", std::process::id()));
+        let old = base.join("old");
+        fixture_old(&old);
+        let root = base.join("new");
+        let dest = MigrationPaths::new(&root);
+        // Force the engines.json publication to fail after data is published.
+        std::fs::create_dir_all(&dest.engines_json).unwrap();
+        let plan = plan_migration(&old);
+        assert!(execute_migration(&plan, &dest).is_err());
+        assert!(dest.data_dir.join("a.db").exists());
+        assert!(dest.needs_migration());
+        assert!(crate::service::portable_services(&root).is_err());
+        std::fs::remove_dir(&dest.engines_json).unwrap();
+        execute_migration(&plan, &dest).unwrap();
+        assert!(!dest.needs_migration());
+        assert!(crate::service::portable_services(&root).is_ok());
+        assert_eq!(
+            std::fs::read_to_string(dest.server_env).unwrap(),
+            "PORT=9000\n"
+        );
+        std::fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

@@ -50,6 +50,101 @@ jobs:
         working-directory: engine-wrapper
         run: npm run test:node
 
+      - name: Check single version authority
+        working-directory: .
+        run: python3 engine-wrapper/scripts/check_versions.py
+
+  test-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: engine-wrapper
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Set up Python
+        run: uv python install
+      - name: Install dependencies
+        run: uv sync --all-groups
+      - name: Format check
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Unit tests
+        run: cargo test --workspace
+      - name: Contract tests (Rust wrapper)
+        run: uv run pytest tests/test_wrapper_contract.py
+        env:
+          WRAPPER_CMD: rust
+
+  test-launcher-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: engine-wrapper/launcher-app
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Run tests
+        run: npx vitest run
+      - name: Production build
+        run: npm run build
+
+  test-launcher-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: engine-wrapper
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v7
+      - name: Install Python dependencies
+        run: uv sync --all-groups
+      - name: Build wrapper
+        run: cargo build --locked -p shogihome-engine-wrapper
+      - name: Windows service and probe regressions
+        run: |
+          cargo test --locked -p shogihome-launcher controller::tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p shogihome-launcher probe_parent_exit_does_not_wait_for_inherited_pipes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p shogihome-engine-wrapper --test config_dir
+      - name: Windows wrapper contract
+        run: uv run pytest tests/test_wrapper_contract.py
+        env:
+          WRAPPER_CMD: rust
+      - name: Build Tauri shell and verify portable binary name
+        working-directory: engine-wrapper/launcher-app
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx tauri build --no-bundle
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path "src-tauri/target/release/ShogiHomeLab.exe")) {
+            throw "Portable launcher binary is missing"
+          }
+      - name: Windows launcher GUI regression
+        run: uv run --with playwright pytest tests/test_launcher_gui.py -q
+        env:
+          SHOGIHOME_GUI_EXE: launcher-app/src-tauri/target/release/ShogiHomeLab.exe
+
   test-python:
     runs-on: ubuntu-latest
     timeout-minutes: 5

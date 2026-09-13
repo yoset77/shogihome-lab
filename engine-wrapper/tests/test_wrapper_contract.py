@@ -41,7 +41,7 @@ def _rust_binary():
     """Path to the built Rust wrapper, building it once on demand."""
     global _RUST_BINARY
     if _RUST_BINARY is None:
-        target = WRAPPER_DIR / "target" / "debug" / "shogihome-wrapper"
+        target = WRAPPER_DIR / "target" / "debug" / ("shogihome-wrapper.exe" if os.name == "nt" else "shogihome-wrapper")
         if not target.exists():
             subprocess.run(["cargo", "build"], cwd=str(WRAPPER_DIR), check=True, timeout=600)
         _RUST_BINARY = target
@@ -69,8 +69,9 @@ def _wait_port(port, timeout=10.0):
 
 
 def _write_fake_engine_launcher(tmp: Path) -> Path:
-    launcher = tmp / "fake-engine"
-    launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{FIXTURE_ENGINE}"\n', encoding="utf-8")
+    launcher = tmp / ("fake engine.cmd" if os.name == "nt" else "fake-engine")
+    command = f'"{sys.executable}" "{FIXTURE_ENGINE}"'
+    launcher.write_text(f"@echo off\n{command}\n" if os.name == "nt" else f"#!/bin/sh\nexec {command}\n", encoding="utf-8")
     launcher.chmod(launcher.stat().st_mode | stat.S_IEXEC)
     return launcher
 
@@ -318,3 +319,24 @@ def test_cp932_engine_output_arrives_as_utf8(wrapper):
             break
     assert "info string こんにちは" in lines, f"missing converted line in {lines}"
     sock.close()
+
+
+def test_rust_parent_exit_cleans_inherited_pipes_and_flushes_final_line(wrapper):
+    if wrapper["impl"] != "rust":
+        pytest.skip("Rust process-tree regression")
+    sock, f = _run_and_wait_usiok(wrapper["port"])
+    helper_pid = None
+    try:
+        sock.sendall(b"test_background_exit\n")
+        helper_pid = int(_readline(f).split()[-1])
+        sock.settimeout(3)
+        assert f.read() == "bestmove resign\n"
+    finally:
+        # Also releases the inherited pipes when testing the broken version.
+        if helper_pid is not None:
+            try:
+                os.kill(helper_pid, 15)
+            except OSError:
+                pass
+        f.close()
+        sock.close()

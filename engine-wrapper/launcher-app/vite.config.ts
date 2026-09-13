@@ -7,8 +7,8 @@ export default defineConfig({
     outDir: "dist",
     rollupOptions: {
       input: {
-        main: "src/index.html",
-        editor: "src/editor.html",
+        main: "index.html",
+        editor: "editor.html",
       },
     },
   },
