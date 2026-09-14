@@ -1,12 +1,18 @@
 //! `shogihome-wrapper`: standalone TCP relay between the ShogiHome server
 //! and USI engines.
 //!
-//! Configuration (CLI wins over environment):
-//! - `--config-dir <dir>` — directory holding `engines.json` (default: the
-//!   directory containing this executable; never the process CWD).
+//! Configuration (CLI > environment > `<config-dir>/.env` > defaults):
+//! - `--config-dir <dir>` — directory holding `engines.json` and `.env`
+//!   (default: the directory containing this executable; never the process
+//!   CWD and never an ancestor search).
 //! - `BIND_ADDRESS` / `--bind-address` (default `127.0.0.1`)
 //! - `LISTEN_PORT` / `--port` (default `4082`)
 //! - `WRAPPER_ACCESS_TOKEN` (unset/empty disables authentication)
+//! - `--no-env-file` — skip `<config-dir>/.env` (the launcher passes this
+//!   and hands over an already-resolved environment snapshot instead).
+//!
+//! File values are literal (`${VAR}` is not expanded). An explicitly
+//! exported (even empty) environment variable always wins over the file.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -26,47 +32,59 @@ use crate::relay::{handle_connection, RelayContext};
 const SHUTDOWN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn print_usage() {
-    eprintln!("usage: shogihome-wrapper [--config-dir DIR] [--bind-address ADDR] [--port PORT]");
+    eprintln!(
+        "usage: shogihome-wrapper [--config-dir DIR] [--bind-address ADDR] [--port PORT] [--no-env-file]"
+    );
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut config_override: Option<PathBuf> = None;
-    let mut bind = std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let mut port: u16 = std::env::var("LISTEN_PORT")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(4082);
+    let mut cli_bind: Option<String> = None;
+    let mut cli_port: Option<u16> = None;
+    let mut no_env_file = false;
 
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "--config-dir" => {
                 i += 1;
-                if i >= args.len() {
-                    print_usage();
-                    std::process::exit(2);
-                }
-                config_override = Some(PathBuf::from(&args[i]));
-            }
-            "--bind-address" => {
-                i += 1;
-                if i >= args.len() {
-                    print_usage();
-                    std::process::exit(2);
-                }
-                bind = args[i].clone();
-            }
-            "--port" => {
-                i += 1;
-                match args.get(i).and_then(|v| v.parse().ok()) {
-                    Some(p) => port = p,
-                    None => {
+                match args.get(i) {
+                    Some(dir) if !dir.starts_with("--") => {
+                        config_override = Some(PathBuf::from(dir));
+                    }
+                    _ => {
+                        eprintln!("missing value for --config-dir");
                         print_usage();
                         std::process::exit(2);
                     }
                 }
             }
+            "--bind-address" => {
+                i += 1;
+                match args.get(i) {
+                    Some(addr) if !addr.starts_with("--") => {
+                        cli_bind = Some(addr.clone());
+                    }
+                    _ => {
+                        eprintln!("missing value for --bind-address");
+                        print_usage();
+                        std::process::exit(2);
+                    }
+                }
+            }
+            "--port" => {
+                i += 1;
+                match args.get(i).and_then(|v| v.parse::<u16>().ok()) {
+                    Some(p) => cli_port = Some(p),
+                    None => {
+                        eprintln!("missing or invalid value for --port");
+                        print_usage();
+                        std::process::exit(2);
+                    }
+                }
+            }
+            "--no-env-file" => no_env_file = true,
             "--help" | "-h" => {
                 print_usage();
                 return;
@@ -83,15 +101,44 @@ fn main() {
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
     let config_dir = resolve_config_dir(&exe, config_override.as_deref());
 
-    let token = std::env::var("WRAPPER_ACCESS_TOKEN")
-        .ok()
-        .filter(|t| !t.is_empty());
+    let file_values = if no_env_file {
+        std::collections::HashMap::new()
+    } else {
+        let content = match shogihome_env_file::read_env_file(&config_dir.join(".env")) {
+            Ok(content) => content,
+            Err(e) => {
+                eprintln!("failed to read {}: {e}", config_dir.join(".env").display());
+                std::process::exit(1);
+            }
+        };
+        shogihome_env_file::parse_env(&content)
+    };
+    let mut env_values = std::collections::HashMap::new();
+    for key in ["BIND_ADDRESS", "LISTEN_PORT", "WRAPPER_ACCESS_TOKEN"] {
+        // Presence (even empty) beats the file, like load_dotenv.
+        if let Ok(value) = std::env::var(key) {
+            env_values.insert(key.to_string(), value);
+        }
+    }
+    let runtime =
+        match crate::config::resolve_runtime(cli_bind, cli_port, &env_values, &file_values) {
+            Ok(runtime) => runtime,
+            Err(e) => {
+                eprintln!("invalid wrapper configuration: {e}");
+                std::process::exit(2);
+            }
+        };
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .expect("failed to build tokio runtime");
-    rt.block_on(async_main(config_dir, bind, port, token));
+    rt.block_on(async_main(
+        config_dir,
+        runtime.bind,
+        runtime.port,
+        runtime.token,
+    ));
 }
 
 async fn async_main(config_dir: PathBuf, bind: String, port: u16, token: Option<String>) {

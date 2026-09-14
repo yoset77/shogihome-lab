@@ -17,6 +17,7 @@ sha2 = "0.10"
 subtle = "1"
 rand = "0.8"
 serde_json = { version = "1", features = ["preserve_order"] }
+shogihome-env-file = { path = "../env-file" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

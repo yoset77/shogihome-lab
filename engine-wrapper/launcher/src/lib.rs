@@ -8,12 +8,14 @@
 pub mod controller;
 pub mod editor;
 pub mod env_codec;
+pub mod launch_mode;
 pub mod logs;
 pub mod migration;
 pub mod network;
 pub mod permissions;
 pub mod process;
 pub mod service;
+pub mod session_lock;
 pub mod settings;
 pub mod supervisor;
 pub mod update;

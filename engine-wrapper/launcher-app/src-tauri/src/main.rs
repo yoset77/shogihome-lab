@@ -7,11 +7,21 @@
 //! explicit paths (no shell), so Windows Job-Object assignment can use
 //! suspended creation without fighting the shell plugin.
 //!
+//! Launch modes (`shogihome_launcher::launch_mode`):
+//! - default: dashboard + tray + service supervision (`main` window);
+//! - `--config-editor [--config-dir DIR]`: editor window only, no services,
+//!   no tray; the process exits when the editor closes (after probe cleanup).
+//! Initial windows are created in `setup` (not `tauri.conf.json`) so editor
+//! mode never initializes the dashboard. Edit sessions hold a per-config-dir
+//! lock (`session_lock`); standalone shutdown runs Running → Closing →
+//! ReadyToExit with distinct exit codes for drained vs timed-out cleanup.
+//!
 //! NOTE: this crate is compiled for Windows targets in Phase 4; it is
 //! excluded from the Linux workspace because it needs WebView system libs.
 
 use shogihome_launcher::{
-    controller, editor, logs, migration, network, permissions, service, settings, update,
+    controller, editor, launch_mode, logs, migration, network, permissions, service, session_lock,
+    settings, update,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -19,12 +29,34 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 
+/// Shutdown phases for the standalone editor: `Running` accepts probes,
+/// `Closing` rejects new probes and holds process exit until in-flight
+/// probes release their children, `ReadyToExit` lets the exit proceed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EditorShutdown {
+    Running,
+    Closing,
+    ReadyToExit,
+}
+
 struct LauncherState {
     dist_root: PathBuf,
+    /// Directory holding `engines.json`. Launcher mode uses
+    /// `<dist_root>/engine-wrapper`; `--config-editor` may override it.
+    config_dir: PathBuf,
+    /// True when started as `ShogiHomeLab.exe --config-editor`.
+    is_editor: bool,
     controller: Arc<controller::Controller>,
     quitting: AtomicBool,
     next_probe: AtomicU64,
     probes: Mutex<HashMap<u64, Arc<AtomicBool>>>,
+    /// Cross-process edit-session lock, held while an editor session is
+    /// open. Same-process reopen reuses it; another process is rejected.
+    editor_lock: Mutex<Option<session_lock::SessionLock>>,
+    editor_shutdown: Mutex<EditorShutdown>,
+    /// Bumped every time an editor window is created; lets deferred lock
+    /// release tell a reopened session apart from the closed one.
+    editor_generation: AtomicU64,
 }
 
 fn state(handle: &tauri::AppHandle) -> tauri::State<'_, LauncherState> {
@@ -112,10 +144,7 @@ async fn stop_and_exit(window: tauri::Window, handle: tauri::AppHandle) -> Resul
     // Probe workers own processes too. Do not terminate the application before
     // their cancellation cleanup has released inherited pipes and Job handles.
     let probes_done = tauri::async_runtime::spawn_blocking(move || {
-        let deadline = std::time::Instant::now()
-            + editor::PROBE_USIOK_TIMEOUT
-            + editor::PROBE_QUIT_TIMEOUT
-            + std::time::Duration::from_secs(1);
+        let deadline = probe_drain_deadline();
         loop {
             if state(&handle).probes.lock().unwrap().is_empty() {
                 return Ok(handle);
@@ -310,26 +339,32 @@ async fn open_editor(window: tauri::Window, handle: tauri::AppHandle) -> Result<
             let _ = editor.set_focus();
         }
         None => {
-            tauri::WebviewWindowBuilder::new(
-                &handle,
-                "editor",
-                tauri::WebviewUrl::App("editor.html".into()),
-            )
-            .title("ShogiHome Lab Config Editor")
-            .inner_size(800.0, 900.0)
-            .min_inner_size(600.0, 600.0)
-            .build()
-            .map_err(|e| e.to_string())?;
+            // Cross-process edit session: hold the lock while the window
+            // is open; a reopen while it is still held reuses it.
+            let config = state(&handle).config_dir.clone();
+            let mut guard = state(&handle)
+                .editor_lock
+                .lock()
+                .map_err(|e| e.to_string())?;
+            if guard.is_none() {
+                *guard = Some(session_lock::acquire(&config)?);
+            }
+            drop(guard);
+            create_editor_window(&handle).map_err(|e| e.to_string())?;
+            let st = state(&handle);
+            st.editor_generation.fetch_add(1, Ordering::SeqCst);
+            // A previous session may have left `Closing` behind; a new
+            // window accepts probes again.
+            if let Ok(mut shutdown) = st.editor_shutdown.lock() {
+                *shutdown = EditorShutdown::Running;
+            }
         }
     }
     Ok(())
 }
 
 fn engines_path(handle: &tauri::AppHandle) -> PathBuf {
-    state(handle)
-        .dist_root
-        .join("engine-wrapper")
-        .join("engines.json")
+    state(handle).config_dir.join("engines.json")
 }
 
 #[tauri::command]
@@ -384,12 +419,16 @@ async fn editor_probe(
     let cancel = Arc::new(AtomicBool::new(false));
     {
         let mut probes = st.probes.lock().map_err(|e| e.to_string())?;
-        if st.quitting.load(Ordering::SeqCst) {
+        if st.is_editor {
+            if *st.editor_shutdown.lock().map_err(|e| e.to_string())? != EditorShutdown::Running {
+                return Err("config editor is closing".into());
+            }
+        } else if st.quitting.load(Ordering::SeqCst) {
             return Err("launcher is quitting".into());
         }
         probes.insert(id, cancel.clone());
     }
-    let base = st.dist_root.join("engine-wrapper");
+    let base = st.config_dir.clone();
     // Blocking child I/O must leave the main thread: Tauri runs non-async
     // commands there, and a probe can take seconds (engine timeout + quit
     // grace). Cancellation still works via the shared flag.
@@ -623,23 +662,172 @@ fn build_tray(handle: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+fn create_main_window(handle: &tauri::AppHandle) -> tauri::Result<()> {
+    // Initial windows are created here (not in tauri.conf.json) so
+    // `--config-editor` can start without ever creating the dashboard.
+    tauri::WebviewWindowBuilder::new(handle, "main", tauri::WebviewUrl::App("index.html".into()))
+        .title("ShogiHome Lab")
+        .inner_size(400.0, 560.0)
+        .resizable(false)
+        .build()?;
+    Ok(())
+}
+
+fn create_editor_window(handle: &tauri::AppHandle) -> tauri::Result<()> {
+    tauri::WebviewWindowBuilder::new(
+        handle,
+        "editor",
+        tauri::WebviewUrl::App("editor.html".into()),
+    )
+    .title("ShogiHome Lab Config Editor")
+    .inner_size(800.0, 900.0)
+    .min_inner_size(600.0, 600.0)
+    .build()?;
+    Ok(())
+}
+
+/// Shared probe-drain budget: worst-case USI answer wait plus quit grace,
+/// plus a margin for pipe reaping.
+fn probe_drain_deadline() -> std::time::Instant {
+    std::time::Instant::now()
+        + editor::PROBE_USIOK_TIMEOUT
+        + editor::PROBE_QUIT_TIMEOUT
+        + std::time::Duration::from_secs(1)
+}
+
+/// Wait for in-flight probes to finish cleanup, then exit the process.
+/// Used by standalone editor shutdown: the editor window is already gone,
+/// but probe children still own process groups / Job Objects until their
+/// quit grace expires. Cleanup completion and deadline expiry are told
+/// apart: only a drained probe set exits 0, otherwise the process exits 1
+/// so a stuck cleanup can never look like a clean shutdown.
+fn wait_for_probes_then_exit(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let deadline = probe_drain_deadline();
+        let drained = loop {
+            let empty = app
+                .state::<LauncherState>()
+                .probes
+                .lock()
+                .map(|p| p.is_empty())
+                .unwrap_or(true);
+            if empty {
+                break true;
+            }
+            if std::time::Instant::now() >= deadline {
+                break false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        // Release the session before the process goes away.
+        app.state::<LauncherState>()
+            .editor_lock
+            .lock()
+            .map(|mut guard| guard.take())
+            .ok();
+        // The exit below re-enters ExitRequested; mark it terminal first.
+        if let Ok(mut shutdown) = app.state::<LauncherState>().editor_shutdown.lock() {
+            *shutdown = EditorShutdown::ReadyToExit;
+        }
+        if drained {
+            app.exit(0);
+        } else {
+            eprintln!("editor probe cleanup did not complete; exiting with an error");
+            app.exit(1);
+        }
+    });
+}
+
+/// Release the edit-session lock once in-flight probes have drained and no
+/// editor window is open. The captured `generation` keeps a reopened
+/// session (which reuses the still-held lock) from being unlocked by the
+/// previous session's deferred release.
+fn release_editor_lock_when_idle(app: tauri::AppHandle, generation: u64) {
+    std::thread::spawn(move || {
+        let deadline = probe_drain_deadline();
+        loop {
+            let st = app.state::<LauncherState>();
+            let probes_empty = st.probes.lock().map(|p| p.is_empty()).unwrap_or(true);
+            let editor_gone = app.get_webview_window("editor").is_none();
+            let same_session = st.editor_generation.load(Ordering::SeqCst) == generation;
+            drop(st);
+            if (probes_empty && editor_gone && same_session)
+                || std::time::Instant::now() >= deadline
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let st = app.state::<LauncherState>();
+        if st.editor_generation.load(Ordering::SeqCst) == generation
+            && app.get_webview_window("editor").is_none()
+        {
+            st.editor_lock.lock().map(|mut guard| guard.take()).ok();
+        }
+    });
+}
+
 pub fn run() {
+    let raw_args: Vec<String> = std::env::args().collect();
+    let launch = match launch_mode::parse_args(&raw_args) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(2);
+        }
+    };
+    if launch.show_help {
+        println!("{}", launch_mode::usage());
+        println!();
+        println!("  (no flags)                  Start the launcher (dashboard + services).");
+        println!("  --config-editor             Open only the engine config editor.");
+        println!("  --config-editor --config-dir DIR");
+        println!("                              Edit DIR/engines.json (default: <exe-dir>/engine-wrapper).");
+        println!();
+        println!("The standalone editor never starts services and exits with the window.");
+        println!(
+            "The wrapper itself stays separate: run wrapper.exe --config-dir DIR for TCP relay."
+        );
+        return;
+    }
+    let is_editor = launch.mode == launch_mode::LaunchMode::ConfigEditor;
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
     let dist_root = exe
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
+    let config_dir =
+        launch_mode::resolve_editor_config_dir(&exe, launch.config_dir_override.as_deref());
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(LauncherState {
             dist_root,
+            config_dir,
+            is_editor,
             controller: Arc::new(controller::Controller::new(&["server", "wrapper"])),
             quitting: AtomicBool::new(false),
             next_probe: AtomicU64::new(0),
             probes: Mutex::new(HashMap::new()),
+            editor_lock: Mutex::new(None),
+            editor_shutdown: Mutex::new(EditorShutdown::Running),
+            editor_generation: AtomicU64::new(0),
         })
         .setup(|app| {
+            if state(app.handle()).is_editor {
+                // Reject a second editor process on the same registry instead
+                // of letting two windows last-writer-win each other.
+                let config = state(app.handle()).config_dir.clone();
+                let lock = session_lock::acquire(&config).map_err(std::io::Error::other)?;
+                let st = state(app.handle());
+                *st.editor_lock
+                    .lock()
+                    .map_err(|e| std::io::Error::other(e.to_string()))? = Some(lock);
+                st.editor_generation.fetch_add(1, Ordering::SeqCst);
+                create_editor_window(app.handle())?;
+                return Ok(());
+            }
+            create_main_window(app.handle())?;
             let controller = Arc::downgrade(&state(app.handle()).controller);
             std::thread::spawn(move || {
                 while let Some(controller) = controller.upgrade() {
@@ -671,10 +859,27 @@ pub fn run() {
                         api.prevent_close();
                         let _ = window.hide();
                     }
-                    // The editor owns probes: cancel them, then destroy.
+                    // The editor owns probes: cancel them, destroy the
+                    // window, and release the session lock once probe
+                    // cleanup has drained (a reopen reuses the held lock).
                     "editor" => {
-                        cancel_all_probes(window.app_handle().clone());
+                        let app = window.app_handle().clone();
+                        let st = window.state::<LauncherState>();
+                        let generation = st.editor_generation.load(Ordering::SeqCst);
+                        // Launcher-embedded editors share this path: stop
+                        // accepting probes for the closing session. In
+                        // standalone mode the shutdown stays `Running` here
+                        // so the following ExitRequested drives a single
+                        // Running → Closing → ReadyToExit transition.
+                        if !st.is_editor {
+                            if let Ok(mut shutdown) = st.editor_shutdown.lock() {
+                                *shutdown = EditorShutdown::Closing;
+                            }
+                        }
+                        drop(st);
+                        cancel_all_probes(app.clone());
                         let _ = window.destroy();
+                        release_editor_lock_when_idle(app, generation);
                     }
                     _ => {}
                 }
@@ -713,6 +918,35 @@ pub fn run() {
         })
         .run(|app, event| {
             if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                let st = app.state::<LauncherState>();
+                if st.is_editor {
+                    // Standalone editor: exit with the window. While probes
+                    // are still cleaning up, hold EVERY exit request (the
+                    // first one starts the single drain waiter) and only let
+                    // the terminal `ReadyToExit` request through. Cleanup
+                    // success and deadline expiry exit with distinct codes.
+                    let pending = !st.probes.lock().map(|p| p.is_empty()).unwrap_or(true);
+                    let shutdown = *st.editor_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+                    drop(st);
+                    match shutdown {
+                        EditorShutdown::ReadyToExit => {}
+                        EditorShutdown::Closing => {
+                            api.prevent_exit();
+                        }
+                        EditorShutdown::Running if pending => {
+                            api.prevent_exit();
+                            if let Ok(mut guard) =
+                                app.state::<LauncherState>().editor_shutdown.lock()
+                            {
+                                *guard = EditorShutdown::Closing;
+                            }
+                            cancel_all_probes(app.clone());
+                            wait_for_probes_then_exit(app.clone());
+                        }
+                        EditorShutdown::Running => {}
+                    }
+                    return;
+                }
                 let quitting = app.state::<LauncherState>().quitting.load(Ordering::SeqCst);
                 if !quitting {
                     // Tray resident: keep running when all windows close.
