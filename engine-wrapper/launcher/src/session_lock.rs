@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 /// An acquired edit-session lock. Dropping it (or exiting the process)
 /// releases the lock.
+#[derive(Debug)]
 pub struct SessionLock {
     _file: std::fs::File,
     /// Configuration directory this lock guards (for diagnostics).

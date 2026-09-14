@@ -4,12 +4,14 @@
 import { api, type EngineEntry } from "./api";
 import {
   addGroup,
+  applyEngineEdit,
   collectOptions,
   deleteGroup,
   duplicateEngine,
   generateId,
   moveEngine,
   normalizeType,
+  ProbeSession,
   renameGroup,
   uniqueGroups,
   validateRegistry,
@@ -17,14 +19,23 @@ import {
   type OptionRow,
   type OptionRowType,
 } from "./editor-state";
-import { detectLang, text, type Lang } from "./i18n";
+import { detectLang, normalizeLang, storeLang, text, type Lang } from "./i18n";
 
 export function initEditor(): void {
-  const lang: Lang = detectLang();
+  let lang: Lang = detectLang();
   let engines: EngineEntry[] = [];
   let virtualGroups: Group[] = [];
   let editingIndex = -1;
-  let probeSeq = 0;
+  const probeSession = new ProbeSession();
+
+  // Close the engine modal and invalidate any in-flight probe so a late
+  // result cannot populate the next session's form. Shared by cancel,
+  // backdrop click, and post-save close.
+  function closeEngineModal(): void {
+    probeSession.next();
+    $("modalLoading").style.display = "none";
+    $("engineModal").style.display = "none";
+  }
 
   const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
     const el = document.getElementById(id);
@@ -90,15 +101,15 @@ export function initEditor(): void {
       typeTd.textContent = Array.isArray(eng.type) ? eng.type.join(", ") : String(eng.type ?? "");
       const actionTd = document.createElement("td");
       actionTd.append(
-        actionButton("↑", "", () => { moveEngine(engines, idx, -1); renderTable(); }, idx === 0),
+        actionButton(text("editor.moveUp", lang), "", () => { moveEngine(engines, idx, -1); renderTable(); }, idx === 0),
         document.createTextNode(" "),
-        actionButton("↓", "", () => { moveEngine(engines, idx, 1); renderTable(); }, idx === engines.length - 1),
+        actionButton(text("editor.moveDown", lang), "", () => { moveEngine(engines, idx, 1); renderTable(); }, idx === engines.length - 1),
         document.createTextNode(" "),
-        actionButton("複製", "btn-info", () => { duplicateEngine(engines, idx, generateId); renderTable(); }),
+        actionButton(text("editor.duplicate", lang), "btn-info", () => { duplicateEngine(engines, idx, generateId); renderTable(); }),
         document.createTextNode(" "),
-        actionButton("編集", "btn-primary", () => openEngineModal(idx)),
+        actionButton(text("editor.edit", lang), "btn-primary", () => openEngineModal(idx)),
         document.createTextNode(" "),
-        actionButton("削除", "btn-danger", () => {
+        actionButton(text("editor.delete", lang), "btn-danger", () => {
           if (window.confirm(text("editor.confirmDelete", lang))) {
             engines.splice(idx, 1);
             renderTable();
@@ -148,11 +159,16 @@ export function initEditor(): void {
     div.className = "option-row";
     div.dataset.type = type;
     div.dataset.extra = JSON.stringify(extra);
-    const typeLabels: Record<OptionRowType, string> = { string: "文字", boolean: "真偽", spin: "数値", combo: "選択" };
+    const typeLabels: Record<OptionRowType, string> = {
+      string: text("editor.optString", lang),
+      boolean: text("editor.optBool", lang),
+      spin: text("editor.optSpin", lang),
+      combo: text("editor.optCombo", lang),
+    };
 
     const keyInput = document.createElement("input");
     keyInput.type = "text";
-    keyInput.placeholder = "名前";
+    keyInput.placeholder = text("editor.optName", lang);
     keyInput.value = key;
     keyInput.className = "opt-key";
     div.append(keyInput);
@@ -170,6 +186,14 @@ export function initEditor(): void {
       label.className = "bool-label";
       label.textContent = checked ? "true" : "false";
       input.addEventListener("change", () => { label.textContent = (input as HTMLInputElement).checked ? "true" : "false"; });
+      container.classList.add("bool");
+      // Wide click target: the whole box toggles. Direct clicks on the
+      // checkbox itself fall through to avoid a double toggle.
+      container.addEventListener("click", (e) => {
+        if (e.target === input) return;
+        (input as HTMLInputElement).checked = !(input as HTMLInputElement).checked;
+        input.dispatchEvent(new Event("change"));
+      });
       container.append(input, label);
     } else if (type === "spin") {
       input = document.createElement("input");
@@ -203,7 +227,7 @@ export function initEditor(): void {
     const resetBtn = document.createElement("button");
     resetBtn.className = "btn btn-sm btn-warning";
     resetBtn.textContent = "↺";
-    resetBtn.title = "既定値に戻す";
+    resetBtn.title = text("editor.resetOne", lang);
     resetBtn.style.display = "none";
     const checkModified = (): void => {
       if (extra.default === undefined) return;
@@ -246,10 +270,12 @@ export function initEditor(): void {
 
   function openEngineModal(index = -1): void {
     editingIndex = index;
+    // A new editing session: drop results from any previous form.
+    probeSession.next();
     $("optionsList").replaceChildren();
     $("resetAllBtn").style.display = "none";
     if (index >= 0) {
-      $("modalTitle").textContent = "エンジン編集";
+      $("modalTitle").textContent = text("editor.editTitle", lang);
       const eng = engines[index];
       $<HTMLInputElement>("editName").value = eng.name || "";
       $<HTMLInputElement>("editId").value = eng.id || generateId();
@@ -270,7 +296,7 @@ export function initEditor(): void {
       }
       if (eng.path) void analyzeEngine(false);
     } else {
-      $("modalTitle").textContent = "エンジン追加";
+      $("modalTitle").textContent = text("editor.addTitle", lang);
       $<HTMLInputElement>("editName").value = "";
       $<HTMLInputElement>("editId").value = generateId();
       document.querySelectorAll('#editTypeContainer input[name="type"]').forEach((cb) => {
@@ -291,25 +317,31 @@ export function initEditor(): void {
       if (showAlert) toast(text("editor.pathRequired", lang), "error");
       return;
     }
-    const myProbe = ++probeSeq;
+    const myProbe = probeSession.next();
     $("loadingText").textContent = text("editor.probing", lang);
     $("modalLoading").style.display = "flex";
     try {
-      const [probeId, discovered] = await api.editorProbe(path);
-      if (myProbe !== probeSeq) {
+      const [probeId, discovered, arrivalOrder] = await api.editorProbe(path);
+      if (!probeSession.isCurrent(myProbe)) {
         await api.editorProbeCancel(probeId).catch(() => undefined);
         return;
       }
       // Merge on the backend: current row values win, manual entries survive.
+      // Display order follows the engine's arrival order, not key sorting.
       const existing: Record<string, string | number | boolean> = {};
+      const existingDomOrder: string[] = [];
       for (const row of readOptionRows()) {
-        if (row.key) existing[row.key] = row.type === "boolean" ? row.value === true : row.type === "spin" ? Number(row.value) : String(row.value);
+        if (row.key) {
+          existing[row.key] = row.type === "boolean" ? row.value === true : row.type === "spin" ? Number(row.value) : String(row.value);
+          existingDomOrder.push(row.key);
+        }
       }
-      const merged = await api.editorRefresh(existing, discovered);
-      if (myProbe !== probeSeq) return;
+      const { values: merged, order: discoveredOrder } = await api.editorRefresh(existing, discovered, arrivalOrder);
+      if (!probeSession.isCurrent(myProbe)) return;
       $("optionsList").replaceChildren();
       const defs = new Map(Object.entries(discovered));
-      const order = [...defs.keys(), ...Object.keys(merged).filter((k) => !defs.has(k))];
+      const manualOrder = existingDomOrder.filter((k) => !defs.has(k) && k in merged);
+      const order = [...discoveredOrder.filter((k) => k in merged), ...manualOrder.filter((k) => !discoveredOrder.includes(k))];
       for (const name of order) {
         const def = defs.get(name);
         const val = merged[name];
@@ -326,7 +358,7 @@ export function initEditor(): void {
     } catch (e) {
       if (showAlert) toast(text("editor.probeFailed", lang, e instanceof Error ? e.message : String(e)), "error");
     } finally {
-      if (myProbe === probeSeq) $("modalLoading").style.display = "none";
+      if (probeSession.isCurrent(myProbe)) $("modalLoading").style.display = "none";
     }
   }
 
@@ -352,14 +384,21 @@ export function initEditor(): void {
     const { options, errors } = collectOptions(readOptionRows());
     if (errors.length > 0) { toast(errors.join("\n"), "error", 5000); return; }
 
-    const entry: EngineEntry = { id, name, type, path, options };
-    if (!saveAnalysisDB) entry.skipAnalysisDB = true;
-    if (groupId) entry.analysisDBGroupId = groupId;
-    if (groupName) entry.analysisDBGroupName = groupName;
+    const original = editingIndex >= 0 ? engines[editingIndex] : undefined;
+    const entry = applyEngineEdit(original, {
+      id,
+      name,
+      type,
+      path,
+      options,
+      saveAnalysisDB,
+      groupId,
+      groupName,
+    });
     if (editingIndex >= 0) engines[editingIndex] = entry;
     else engines.push(entry);
     renderTable();
-    $("engineModal").style.display = "none";
+    closeEngineModal();
   }
 
   function renderGroupTable(): void {
@@ -376,7 +415,7 @@ export function initEditor(): void {
       const actionTd = document.createElement("td");
       const renameBtn = document.createElement("button");
       renameBtn.className = "btn btn-sm btn-primary";
-      renameBtn.textContent = "リネーム";
+      renameBtn.textContent = text("editor.rename", lang);
       renameBtn.addEventListener("click", () => {
         const next = window.prompt(text("editor.groupRenamePrompt", lang), group.name);
         if (next === null) return;
@@ -388,7 +427,7 @@ export function initEditor(): void {
       });
       const delBtn = document.createElement("button");
       delBtn.className = "btn btn-sm btn-danger";
-      delBtn.textContent = "削除";
+      delBtn.textContent = text("editor.delete", lang);
       delBtn.addEventListener("click", () => {
         if (!window.confirm(text("editor.groupDeleteConfirm", lang, group.name, String(count)))) return;
         virtualGroups = deleteGroup(engines, virtualGroups, group.id);
@@ -402,18 +441,118 @@ export function initEditor(): void {
     }
   }
 
-  async function init(): Promise<void> {
+  function applyStaticTexts(): void {
+    $<HTMLSelectElement>("langSelect").value = lang;
+    document.title = text("editor.title", lang);
+    $("editorTitle").textContent = text("editor.title", lang);
+    $("loadErrorTitle").textContent = text("editor.loadError", lang);
+    $("retryLoadBtn").textContent = text("editor.retry", lang);
+    $("newEmptyBtn").textContent = text("editor.startEmpty", lang);
+    $("loadErrorHint").textContent = text("editor.loadErrorHint", lang);
+    $("listTitle").textContent = text("editor.listTitle", lang);
+    $("manageGroupsBtn").textContent = text("editor.manageGroups", lang);
+    $("addEngineBtn").textContent = text("editor.addEngine", lang);
+    $("saveBtn").textContent = text("editor.save", lang);
+    $("colName").textContent = text("editor.colName", lang);
+    $("colType").textContent = text("editor.colType", lang);
+    $("colActions").textContent = text("editor.colActions", lang);
+    $("editNameLabel").textContent = text("editor.nameLabel", lang);
+    $("editTypeLabel").textContent = text("editor.typeLabel", lang);
+    $("typeGameLabel").textContent = text("editor.typeGame", lang);
+    $("typeResearchLabel").textContent = text("editor.typeResearch", lang);
+    $("typeMateLabel").textContent = text("editor.typeMate", lang);
+    $("editPathLabel").textContent = text("editor.pathLabel", lang);
+    $("pathHint").textContent = text("editor.pathHint", lang);
+    $("browseBtn").textContent = text("editor.browse", lang);
+    $("analyzeBtn").textContent = text("editor.probe", lang);
+    $("saveDbLabel").textContent = text("editor.saveDbLabel", lang);
+    $("groupLabel").textContent = text("editor.groupLabel", lang);
+    $("noGroupOption").textContent = text("editor.noGroup", lang);
+    $("addGroupBtn").textContent = text("editor.newGroup", lang);
+    $("groupHint").textContent = text("editor.groupHint", lang);
+    $("optionsLabel").textContent = text("editor.optionsLabel", lang);
+    $("addStringOptionBtn").textContent = text("editor.addString", lang);
+    $("addSpinOptionBtn").textContent = text("editor.addSpin", lang);
+    $("addBoolOptionBtn").textContent = text("editor.addBool", lang);
+    $("resetAllBtn").textContent = text("editor.resetAll", lang);
+    $("cancelModalBtn").textContent = text("editor.cancel", lang);
+    $("saveEngineBtn").textContent = text("editor.apply", lang);
+    $("groupModalTitle").textContent = text("editor.groupTitle", lang);
+    $("groupModalDesc").textContent = text("editor.groupDesc", lang);
+    $("groupColName").textContent = text("editor.groupColName", lang);
+    $("groupColCount").textContent = text("editor.groupColCount", lang);
+    $("groupColActions").textContent = text("editor.colActions", lang);
+    $("closeGroupModalBtn").textContent = text("editor.close", lang);
+    // Dynamic content follows the new language on next open; refresh the
+    // visible tables and modal title immediately.
+    $("modalTitle").textContent = text(editingIndex >= 0 ? "editor.editTitle" : "editor.addTitle", lang);
+    renderTable();
+    if ($("groupModal").style.display === "block") renderGroupTable();
+  }
+
+  async function setLang(next: Lang): Promise<void> {
+    lang = next;
+    storeLang(next);
+    try {
+      await api.setUiLanguage(next);
+    } catch {
+      // Persistence is best-effort; the in-memory language still applies.
+    }
+    applyStaticTexts();
+  }
+
+  // Load state: saving is only possible after a successful load or an
+  // explicit "start empty" action. A failed load must never leave `engines`
+  // as [] behind an enabled save button (that would overwrite engines.json
+  // with an empty array).
+  let loaded = false;
+
+  function setLoaded(value: boolean): void {
+    loaded = value;
+    $<HTMLButtonElement>("saveBtn").disabled = !value;
+    $("editorSection").style.display = value ? "block" : "none";
+    $("loadErrorSection").style.display = value ? "none" : "block";
+  }
+
+  async function loadRegistry(): Promise<void> {
     try {
       const data = await api.editorLoad();
       engines = data.engines || [];
       virtualGroups = [];
       renderTable();
-      $("editorSection").style.display = "block";
+      setLoaded(true);
     } catch (e) {
-      toast(text("editor.loadFailed", lang, e instanceof Error ? e.message : String(e)), "error");
+      setLoaded(false);
+      const detail = e instanceof Error ? e.message : String(e);
+      $("loadErrorText").textContent = text("editor.loadFailed", lang, detail);
+      toast(text("editor.loadFailed", lang, detail), "error", 0);
     }
+  }
+
+  async function init(): Promise<void> {
+    // Hide both sections until the load outcome is known; the save button
+    // starts disabled so a failed load cannot overwrite the registry.
+    $("editorSection").style.display = "none";
+    $("loadErrorSection").style.display = "none";
+    $<HTMLButtonElement>("saveBtn").disabled = true;
+    try {
+      const saved = normalizeLang(await api.getUiLanguage());
+      if (saved && saved !== lang) {
+        lang = saved;
+        storeLang(saved);
+      }
+    } catch {
+      // Standalone/dev mode without the backend: keep detected language.
+    }
+    applyStaticTexts();
+    $("langSelect").addEventListener("change", (e) => {
+      const next = normalizeLang((e.target as HTMLSelectElement).value) ?? "ja";
+      void setLang(next);
+    });
+    await loadRegistry();
 
     $("saveBtn").addEventListener("click", async () => {
+      if (!loaded) return;
       const btn = $<HTMLButtonElement>("saveBtn");
       btn.disabled = true;
       try {
@@ -422,10 +561,22 @@ export function initEditor(): void {
       } catch (e) {
         toast(text("editor.saveFailed", lang, e instanceof Error ? e.message : String(e)), "error");
       } finally {
-        btn.disabled = false;
+        btn.disabled = !loaded;
       }
     });
+    $("retryLoadBtn").addEventListener("click", () => void loadRegistry());
+    $("newEmptyBtn").addEventListener("click", () => {
+      if (!window.confirm(text("editor.confirmNew", lang))) return;
+      engines = [];
+      virtualGroups = [];
+      renderTable();
+      setLoaded(true);
+      toast(text("editor.startedEmpty", lang), "info");
+    });
     $("analyzeBtn").addEventListener("click", () => void analyzeEngine(true));
+    $("addStringOptionBtn").addEventListener("click", () => addOptionRow("", "", "string"));
+    $("addSpinOptionBtn").addEventListener("click", () => addOptionRow("", 0, "spin"));
+    $("addBoolOptionBtn").addEventListener("click", () => addOptionRow("", true, "boolean"));
     $("browseBtn").addEventListener("click", async () => {
       try {
         const path = await api.editorBrowse();
@@ -436,7 +587,7 @@ export function initEditor(): void {
     });
     $("addEngineBtn").addEventListener("click", () => openEngineModal(-1));
     $("saveEngineBtn").addEventListener("click", saveEngineFromModal);
-    $("cancelModalBtn").addEventListener("click", () => { $("engineModal").style.display = "none"; });
+    $("cancelModalBtn").addEventListener("click", closeEngineModal);
     $("regenerateIdBtn").addEventListener("click", () => {
       if (window.confirm(text("editor.confirmRegenId", lang))) $<HTMLInputElement>("editId").value = generateId();
     });
@@ -469,21 +620,13 @@ export function initEditor(): void {
       $("groupModal").style.display = "block";
     });
     $("closeGroupModalBtn").addEventListener("click", () => { $("groupModal").style.display = "none"; });
-    $("newEngineBtn2")?.addEventListener("click", () => {
-      if (window.confirm(text("editor.confirmNew", lang))) {
-        engines = [];
-        virtualGroups = [];
-        renderTable();
-        $("editorSection").style.display = "block";
-      }
-    });
     window.addEventListener("click", (event) => {
-      if (event.target === $("engineModal")) $("engineModal").style.display = "none";
+      if (event.target === $("engineModal")) closeEngineModal();
       if (event.target === $("groupModal")) $("groupModal").style.display = "none";
     });
     window.addEventListener("beforeunload", () => {
       // Best effort: cancel any running probe so no engine is orphaned.
-      probeSeq++;
+      probeSession.next();
     });
   }
 

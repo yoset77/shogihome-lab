@@ -60,7 +60,13 @@ export const api = {
   readLogs: () => invoke<{ server: string; wrapper: string }>("read_logs"),
   checkUpdate: () => invoke<{ version: string; tag: string; url: string } | null>("check_update"),
   snoozeUpdate: (version: string) => invoke<void>("snooze_update", { version }),
+  getUiLanguage: () => invoke<string | null>("get_ui_language"),
+  setUiLanguage: (lang: string) => invoke<void>("set_ui_language", { lang }),
   openEditor: () => invoke<void>("open_editor"),
+  openSettingsWindow: () => invoke<void>("open_settings_window"),
+  openLogsWindow: () => invoke<void>("open_logs_window"),
+  closeSettingsWindow: () => invoke<void>("close_settings_window"),
+  closeLogsWindow: () => invoke<void>("close_logs_window"),
   migrationPlan: (selected: string) =>
     invoke<{ oldRoot: string; hasData: boolean; hasEngines: boolean; hasAnyEnv: boolean; missing: string[]; empty: boolean }>(
       "migration_plan",
@@ -71,8 +77,16 @@ export const api = {
   editorLoad: () => invoke<{ engines: EngineEntry[] }>("editor_load"),
   editorSave: (engines: EngineEntry[]) => invoke<void>("editor_save", { engines }),
   editorBrowse: () => invoke<string | null>("editor_browse"),
-  editorProbe: (path: string) => invoke<[number, Record<string, ProbeOptionDef>]>("editor_probe", { path }),
-  editorRefresh: (existing: Record<string, string | number | boolean>, discovered: Record<string, ProbeOptionDef>) =>
-    invoke<Record<string, string | number | boolean>>("editor_refresh", { existing, discovered }),
+  editorProbe: (path: string) => invoke<[number, Record<string, ProbeOptionDef>, string[]]>("editor_probe", { path }),
+  editorRefresh: (
+    existing: Record<string, string | number | boolean>,
+    discovered: Record<string, ProbeOptionDef>,
+    order: string[],
+  ) =>
+    invoke<{ values: Record<string, string | number | boolean>; order: string[] }>("editor_refresh", {
+      existing,
+      discovered,
+      order,
+    }),
   editorProbeCancel: (id: number) => invoke<void>("editor_probe_cancel", { id }),
 };

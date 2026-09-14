@@ -110,6 +110,74 @@ export function collectOptions(rows: OptionRow[]): { options: Record<string, str
   return { options, errors };
 }
 
+export interface EngineEditPatch {
+  id: string;
+  name: string;
+  type: string[];
+  path: string;
+  options: Record<string, string | number | boolean>;
+  saveAnalysisDB: boolean;
+  groupId: string;
+  groupName: string;
+}
+
+/**
+ * Apply a modal edit onto an engine entry, preserving unknown fields.
+ * The backend `normalize_engine_entry` keeps unknown keys on round-trip;
+ * the UI must do the same so editing a name does not drop extra metadata.
+ * DB-related keys are removed explicitly when unset (not by rebuilding).
+ */
+export function applyEngineEdit(original: EngineEntry | undefined, patch: EngineEditPatch): EngineEntry {
+  const entry: EngineEntry = original ? { ...original } : { id: "", name: "", path: "" };
+  entry.id = patch.id;
+  entry.name = patch.name;
+  entry.type = patch.type;
+  entry.path = patch.path;
+  entry.options = patch.options;
+  if (patch.saveAnalysisDB) {
+    delete entry.skipAnalysisDB;
+  } else {
+    entry.skipAnalysisDB = true;
+  }
+  if (patch.groupId) {
+    entry.analysisDBGroupId = patch.groupId;
+    if (patch.groupName) {
+      entry.analysisDBGroupName = patch.groupName;
+    } else {
+      delete entry.analysisDBGroupName;
+    }
+  } else {
+    delete entry.analysisDBGroupId;
+    delete entry.analysisDBGroupName;
+  }
+  return entry;
+}
+
+/**
+ * Probe generation counter. Each modal session (open/close/switch) starts a
+ * new generation so a late probe result from a previous form can never
+ * populate the current one. The backend still merges options; this only
+ * decides whether a result belongs to the visible session.
+ */
+export class ProbeSession {
+  private seq = 0;
+
+  /**
+   * Begin a new generation. Callers that only close a session (modal
+   * close, page unload) discard the id; the increment alone invalidates
+   * every in-flight probe.
+   */
+  next(): number {
+    this.seq += 1;
+    return this.seq;
+  }
+
+  /** True when `id` was issued by the latest `next()` call. */
+  isCurrent(id: number): boolean {
+    return id === this.seq;
+  }
+}
+
 /** Engine-registry validation shared by the editor save path (backend revalidates). */
 export function validateRegistry(engines: EngineEntry[], editingIndex: number, candidate: EngineEntry): string | null {
   if (!candidate.name.trim() || !candidate.id.trim() || !candidate.path.trim()) return "required";

@@ -49,7 +49,7 @@ WrapperはUSI session stateやBrowserの再接続状態を所有しません。R
 
 配布版 Launcher は wrapper の `.env` を decode して環境変数へ渡し、wrapper へは `--no-env-file` を付けて再読込による snapshot ずれを抑止します。standalone Rust wrapper は `<config-dir>/.env` を自動読込します（優先順位: CLI > 環境変数 > `.env` > 既定値。既定で設定済みの環境変数—空文字列を含む—が `.env` より優先されます）。registry は `--config-dir`（省略時は実行ファイルの directory）から取得します。`.env` の値はリテラルであり、`${VAR}` 展開は行いません。
 
-エンジン側ホストでは `ShogiHomeLab.exe --config-editor [--config-dir DIR]` で設定 GUI のみを起動できます（dashboard・service・tray なし、editor 終了で process 終了）。editor と wrapper の `--config-dir` は同じ意味（`engines.json` と `.env` の所在、相対 path と probe の基準）です。`--config-dir` は `--config-editor` との組み合わせでのみ受け付けます。編集中は設定 directory 単位の session lock を保持し、他プロセスの同時編集を拒否します。`engine-tools` ZIP はこの分割配置のための wrapper + GUI のみ配布物です。
+エンジン側ホストでは `ShogiHomeLab[.exe] --config-editor [--config-dir DIR]` で設定 GUI のみを起動できます（controller・dashboard・service・tray なし、editor close で cleanup 後に process 終了）。Tauri shell は Windows／Linux／macOS の native build を対象とします。editor と wrapper の `--config-dir` は同じ意味（`engines.json` と `.env` の所在、相対 engine path の基準）で、probe の CWD は解決した engine の directory です。`--config-dir` は `--config-editor` との組み合わせでのみ受け付けます。編集中は設定 directory 単位の session lock を保持し、他プロセスの同時編集を拒否します。詳細は [Launcher Architecture](launcher.md) を参照してください。現行の Windows `engine-tools` ZIP はこの分割配置のための wrapper + GUI のみ配布物です。
 
 ## Lifecycle
 

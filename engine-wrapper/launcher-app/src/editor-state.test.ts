@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { EngineEntry } from "./api";
 import {
   addGroup,
+  applyEngineEdit,
   collectOptions,
   deleteGroup,
   duplicateEngine,
   generateId,
   moveEngine,
   normalizeType,
+  ProbeSession,
   renameGroup,
   uniqueGroups,
   validateRegistry,
@@ -71,6 +73,68 @@ describe("groups", () => {
     const created = addGroup(engines, rest, "G3", () => "g3");
     expect(created).toEqual({ id: "g3", created: true });
     expect(addGroup(engines, rest, "G2", () => "nope")).toEqual({ id: "g2", created: false });
+  });
+});
+
+describe("applyEngineEdit", () => {
+  it("preserves unknown fields when editing known fields", () => {
+    const original = engine({
+      name: "Old",
+      customMeta: "keep-me",
+      analysisDBGroupId: "g1",
+      analysisDBGroupName: "G1",
+    } as Partial<EngineEntry>);
+    const next = applyEngineEdit(original, {
+      id: "e1",
+      name: "New",
+      type: ["game"],
+      path: "/bin/engine",
+      options: {},
+      saveAnalysisDB: true,
+      groupId: "g1",
+      groupName: "G1",
+    });
+    expect(next.name).toBe("New");
+    expect(next.customMeta).toBe("keep-me");
+    expect(next.analysisDBGroupId).toBe("g1");
+  });
+
+  it("removes DB keys explicitly when unset", () => {
+    const original = engine({
+      skipAnalysisDB: undefined,
+      analysisDBGroupId: "g1",
+      analysisDBGroupName: "G1",
+    });
+    const next = applyEngineEdit(original, {
+      id: "e1",
+      name: "Engine",
+      type: ["game"],
+      path: "/bin/engine",
+      options: {},
+      saveAnalysisDB: false,
+      groupId: "",
+      groupName: "",
+    });
+    expect(next.skipAnalysisDB).toBe(true);
+    expect(next.analysisDBGroupId).toBeUndefined();
+    expect(next.analysisDBGroupName).toBeUndefined();
+  });
+});
+
+describe("ProbeSession", () => {
+  it("invalidates the previous form's probe when a session ends or a new one starts", () => {
+    const session = new ProbeSession();
+    // Engine A edit starts a probe.
+    const probeA = session.next();
+    expect(session.isCurrent(probeA)).toBe(true);
+    // Closing the modal (cancel, backdrop, or save) retires it.
+    session.next();
+    expect(session.isCurrent(probeA)).toBe(false);
+    // Engine B add starts a probe; reopening another form retires that too.
+    const probeB = session.next();
+    expect(session.isCurrent(probeB)).toBe(true);
+    session.next();
+    expect(session.isCurrent(probeB)).toBe(false);
   });
 });
 

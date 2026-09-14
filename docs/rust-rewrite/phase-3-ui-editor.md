@@ -4,11 +4,10 @@
 
 ```text
 launcher-app/
-├── package.json            # Vanilla TS + vite + vitest; tauri CLI via npx in Phase 4
+├── package.json            # Vanilla TS + vite + vitest; Tauri CLI via npx
+├── index.html / editor.html # independent dashboard/editor entry points
 ├── vite.config.ts / tsconfig.json
 ├── src/
-│   ├── index.html          # dashboard (status, QR, controls, dialogs)
-│   ├── editor.html         # config editor 2nd window
 │   ├── styles.css          # ported editor styles + dashboard
 │   ├── main.ts / editor-main.ts
 │   ├── api.ts              # typed invoke bindings
@@ -17,12 +16,15 @@ launcher-app/
 │   ├── editor.ts           # editor DOM wiring (textContent only, no innerHTML)
 │   └── editor-state.ts     # pure registry/group/option logic (vitest)
 ├── src-tauri/
-│   ├── Cargo.toml          # EXCLUDED from workspace; built on Windows (Phase 4)
+│   ├── Cargo.toml          # excluded from headless workspace; native desktop CI
 │   ├── tauri.conf.json     # CSP only; initial windows are created in setup per launch mode
 │   ├── capabilities/       # plugin permissions per window
 │   ├── build.rs
-│   └── src/main.rs         # commands, tray, launch modes, close/exit policy
-├── ../launcher/src/launch_mode.rs  # --config-editor / --config-dir parsing + config-dir resolution
+│   └── src/                # main, app, state, editor, launcher, tray, shutdown
+├── ../launcher/src/launch_mode.rs  # --config-editor / --config-dir / tray CLI parsing
+├── ../launcher/src/paths.rs        # portable root, native executable names
+├── ../launcher/src/lifecycle.rs    # close/quit policy
+├── ../launcher/src/editor_session.rs # edit lock and probe worker lifetime
 ```
 
 ## 2. Security and lifecycle decisions
@@ -47,12 +49,14 @@ launcher-app/
 - Probe merges go through the backend `editor_refresh` command as the
   single source of truth: current values win, manual entries the engine no
   longer advertises are kept (old UI dropped them).
-- Main-window close hides to tray; `stop_and_exit` sets the quitting flag,
-  stops services, then exits. Tray creation failure leaves the dashboard
-  visible instead of an unreachable hidden app.
+- Main-window close hides only when tray residency is active. Linux defaults
+  to no tray (`--tray` opts in); `--no-tray` works on all desktops. A missing
+  tray turns close into stop-and-exit. Native/IPC quits share `shutdown.rs`;
+  macOS editor close explicitly starts cleanup without waiting for an implicit
+  last-window ExitRequested event.
 - Launch modes: default creates the `main` window + tray + health polling;
   `--config-editor [--config-dir DIR]` creates only the `editor` window with
-  no services, no tray, and no dashboard init. `tauri.conf.json` keeps
+  no controller, services, tray, or dashboard init. `tauri.conf.json` keeps
   `windows: []`; `setup` owns initial-window creation so hidden-dashboard
   startup can never auto-start services in editor mode.
 - Editor shutdown is `Running → Closing → ReadyToExit`: `Closing` rejects
@@ -90,10 +94,26 @@ launcher-app/
   probe incl. cancel, network URL selection, permissions isolation).
 - Frontend `tsc --noEmit` clean; `vitest`: 9 passed (registry/groups/
   options/i18n).
-- `src-tauri` is NOT compiled here (needs WebView system libs); it is
-  excluded from the Cargo workspace and gets its first build on Windows
-  in Phase 4. Its Tauri API usage follows the v2 window/tray/event
-  patterns; review checklist lives in §4.
+- The initial Phase 3 checks above covered backend and frontend separately.
+  Desktop CI now builds `src-tauri` natively on Windows, Linux, and macOS.
+  Linux WebKitGTK GUI regressions cover file selection, extensionless probes,
+  edit-session exclusion, close during a probe, service restart, editor reopen,
+  and no-tray shutdown. See [native build and acceptance guide](../../engine-wrapper/launcher-app/README.md).
+
+## Cross-platform follow-up
+
+The editor remains a launch mode of one binary. Shell modules separate native
+events, editor IPC, launcher IPC, and shutdown without duplicating the editor.
+The backend owns portable paths and the lifecycle policy. A probe registration
+belongs to its blocking worker (RAII), not to the IPC future; close rejects new
+probes/saves and retains the lock until the last worker finishes, including a
+worker completing after a UI drain timeout. Reopening changes the session
+generation so an older completion cannot unlock the new session.
+
+Windows file selection supports exe/bat/cmd and all files; Unix has no extension
+filter. Native shell messages are embedded from the shared i18n resources.
+The current portable-root contract remains separate from future installer
+layouts. Details: [Launcher Architecture](../architecture/launcher.md).
 
 ## 4. Phase 4 entry checklist (Windows)
 

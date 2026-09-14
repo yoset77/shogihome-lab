@@ -42,6 +42,8 @@ const ja: Record<string, Entry> = {
   settingsCancel: "キャンセル",
   settingsBrowse: "参照...",
   settingsTokenGenerate: "生成",
+  settingsListAdd: "＋ 追加",
+  settingsListRemove: (f) => `${f} の項目を削除`,
   settingsRestartPrompt: () => "設定を保存しました。サーバーを再起動しますか？",
   settingsMismatch: (keys) => `連動する設定が一致していません: ${keys}。保存時に同期します。`,
   migrationTitle: "データの引継ぎ",
@@ -76,6 +78,7 @@ const ja: Record<string, Entry> = {
   settingsDesc_SBK_ONTHEFLY_THRESHOLD_MB: "SBK定跡をOn-the-fly読み込みに切り替える閾値（MB）",
   networkInfo: (bind, auto) =>
     `Binding: ${bind}\nAuto-Origins: ${auto === "on" ? "有効" : "無効"}\n\n手動で設定したURLや\nプロキシを使用して\n他の端末からアクセスしてください。`,
+  close: "閉じる",
   "editor.title": "ShogiHome Lab 設定エディタ",
   "editor.save": "設定を保存",
   "editor.saved": "engines.json に保存しました",
@@ -88,6 +91,7 @@ const ja: Record<string, Entry> = {
   "editor.probeFailed": (e) => `解析失敗: ${e}`,
   "editor.probing": "エンジン解析中...",
   "editor.pathRequired": "パスを入力してください。",
+  "editor.startedEmpty": "空の状態で新規作成しました",
   "editor.confirmNew": "現在の編集内容を破棄して新規作成しますか？",
   "editor.confirmDelete": "本当に削除しますか？",
   "editor.confirmRegenId": "IDを再生成しますか？\n（通常は変更する必要はありません）",
@@ -103,6 +107,56 @@ const ja: Record<string, Entry> = {
     Number(count) > 0
       ? `グループ「${name}」を削除しますか？\n所属する ${count} 個のエンジンのグループ設定は解除されます。`
       : `グループ「${name}」を削除しますか？`,
+  "editor.listTitle": "エンジン一覧",
+  "editor.manageGroups": "エンジングループ管理",
+  "editor.addEngine": "+ エンジン追加",
+  "editor.colName": "名前 (Name)",
+  "editor.colType": "種類 (Type)",
+  "editor.colActions": "操作",
+  "editor.editTitle": "エンジン編集",
+  "editor.addTitle": "エンジン追加",
+  "editor.nameLabel": "名前 (Name)",
+  "editor.typeLabel": "種類 (Type)",
+  "editor.typeGame": "対局 (game)",
+  "editor.typeResearch": "検討 (research)",
+  "editor.typeMate": "詰み探索 (mate)",
+  "editor.pathLabel": "実行ファイルのパス (Path)",
+  "editor.pathHint": "絶対パス、または engine-wrapper からの相対パス。",
+  "editor.saveDbLabel": "読み筋をデータベースに保存",
+  "editor.groupLabel": "所属エンジングループ",
+  "editor.noGroup": "個別管理 (グループなし)",
+  "editor.newGroup": "＋ 新規作成",
+  "editor.groupHint": "同じグループに設定されたエンジンはデータベース上で単一のエンジンとして集約されます。",
+  "editor.optionsLabel": "オプション (Options)",
+  "editor.addString": "+ 文字列",
+  "editor.addSpin": "+ 数値",
+  "editor.addBool": "+ 真偽値",
+  "editor.resetAll": "すべて既定値に戻す",
+  "editor.cancel": "キャンセル",
+  "editor.apply": "反映",
+  "editor.groupTitle": "エンジングループ管理",
+  "editor.groupDesc": "ここでは既存グループの名前を一括変更できます。エンジンへの割り当てはエンジン編集画面で行ってください。",
+  "editor.groupColName": "グループ名",
+  "editor.groupColCount": "所属エンジン数",
+  "editor.close": "閉じる",
+  "editor.moveUp": "↑",
+  "editor.moveDown": "↓",
+  "editor.duplicate": "複製",
+  "editor.edit": "編集",
+  "editor.delete": "削除",
+  "editor.rename": "リネーム",
+  "editor.loadError": "読み込みエラー",
+  "editor.retry": "再試行",
+  "editor.startEmpty": "空で新規作成",
+  "editor.loadErrorHint": "設定ファイルが壊れている可能性があるため、読み込みに成功するか「空で新規作成」を選ぶまで保存は無効化されています。",
+  "editor.browse": "参照...",
+  "editor.probe": "オプション取得",
+  "editor.resetOne": "既定値に戻す",
+  "editor.optName": "名前",
+  "editor.optString": "文字",
+  "editor.optBool": "真偽",
+  "editor.optSpin": "数値",
+  "editor.optCombo": "選択",
 };
 
 const en: Record<string, Entry> = {
@@ -140,6 +194,8 @@ const en: Record<string, Entry> = {
   settingsCancel: "Cancel",
   settingsBrowse: "Browse...",
   settingsTokenGenerate: "Generate",
+  settingsListAdd: "+ Add",
+  settingsListRemove: (f) => `Remove item from ${f}`,
   settingsRestartPrompt: () => "Settings saved. Restart the server now?",
   settingsMismatch: (keys) => `Linked settings are out of sync: ${keys}. Saving will synchronize them.`,
   migrationTitle: "Data Migration",
@@ -174,6 +230,7 @@ const en: Record<string, Entry> = {
   settingsDesc_SBK_ONTHEFLY_THRESHOLD_MB: "Size threshold (MB) to open .sbk book files on-the-fly",
   networkInfo: (bind, auto) =>
     `Binding: ${bind}\nAuto-Origins: ${auto === "on" ? "Enabled" : "Disabled"}\n\nPlease use your manually\nconfigured URL or proxy\nto access from other devices.`,
+  close: "Close",
   "editor.title": "ShogiHome Lab Config Editor",
   "editor.save": "Save settings",
   "editor.saved": "Saved to engines.json",
@@ -186,6 +243,7 @@ const en: Record<string, Entry> = {
   "editor.probeFailed": (e) => `Probe failed: ${e}`,
   "editor.probing": "Probing engine...",
   "editor.pathRequired": "Enter a path.",
+  "editor.startedEmpty": "Started with an empty registry",
   "editor.confirmNew": "Discard current edits and start over?",
   "editor.confirmDelete": "Really delete?",
   "editor.confirmRegenId": "Regenerate the ID?\n(Usually unnecessary)",
@@ -201,14 +259,90 @@ const en: Record<string, Entry> = {
     Number(count) > 0
       ? `Delete group "${name}"?\n${count} engine(s) will be ungrouped.`
       : `Delete group "${name}"?`,
+  "editor.listTitle": "Engine List",
+  "editor.manageGroups": "Manage Engine Groups",
+  "editor.addEngine": "+ Add Engine",
+  "editor.colName": "Name",
+  "editor.colType": "Type",
+  "editor.colActions": "Actions",
+  "editor.editTitle": "Edit Engine",
+  "editor.addTitle": "Add Engine",
+  "editor.nameLabel": "Name",
+  "editor.typeLabel": "Type",
+  "editor.typeGame": "Game (game)",
+  "editor.typeResearch": "Research (research)",
+  "editor.typeMate": "Mate (mate)",
+  "editor.pathLabel": "Executable Path",
+  "editor.pathHint": "Absolute path, or a path relative to engine-wrapper.",
+  "editor.saveDbLabel": "Save analysis results to the database",
+  "editor.groupLabel": "Engine Group",
+  "editor.noGroup": "Ungrouped",
+  "editor.newGroup": "+ New",
+  "editor.groupHint": "Engines in the same group are aggregated as a single engine in the database.",
+  "editor.optionsLabel": "Options",
+  "editor.addString": "+ String",
+  "editor.addSpin": "+ Number",
+  "editor.addBool": "+ Boolean",
+  "editor.resetAll": "Reset all to defaults",
+  "editor.cancel": "Cancel",
+  "editor.apply": "Apply",
+  "editor.groupTitle": "Engine Group Management",
+  "editor.groupDesc": "Rename existing groups here. Assign engines to groups in the engine edit dialog.",
+  "editor.groupColName": "Group name",
+  "editor.groupColCount": "Engines",
+  "editor.close": "Close",
+  "editor.moveUp": "↑",
+  "editor.moveDown": "↓",
+  "editor.duplicate": "Duplicate",
+  "editor.edit": "Edit",
+  "editor.delete": "Delete",
+  "editor.rename": "Rename",
+  "editor.loadError": "Load Error",
+  "editor.retry": "Retry",
+  "editor.startEmpty": "Start Empty",
+  "editor.loadErrorHint": "The config file may be corrupt. Saving stays disabled until loading succeeds or you start empty.",
+  "editor.browse": "Browse...",
+  "editor.probe": "Probe Options",
+  "editor.resetOne": "Reset to default",
+  "editor.optName": "Name",
+  "editor.optString": "string",
+  "editor.optBool": "bool",
+  "editor.optSpin": "number",
+  "editor.optCombo": "choice",
 };
 
 const tables: Record<Lang, Record<string, Entry>> = { ja, en };
 
+const LANG_STORAGE_KEY = "shogihome-lab-lang";
+
+export function normalizeLang(value: unknown): Lang | null {
+  return value === "en" || value === "ja" ? value : null;
+}
+
+export function storedLang(): Lang | null {
+  try {
+    const ls = (globalThis as { localStorage?: { getItem(k: string): string | null } }).localStorage;
+    return normalizeLang(ls?.getItem(LANG_STORAGE_KEY) ?? null);
+  } catch {
+    return null;
+  }
+}
+
+export function storeLang(lang: Lang): void {
+  try {
+    (globalThis as { localStorage?: { setItem(k: string, v: string): void } }).localStorage?.setItem(
+      LANG_STORAGE_KEY,
+      lang,
+    );
+  } catch {
+    // Private mode etc: language simply won't persist.
+  }
+}
+
 export function detectLang(): Lang {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
     ?.SHOGIHOME_LAB_LANG;
-  return env === "en" || env === "ja" ? env : "ja";
+  return normalizeLang(env) ?? storedLang() ?? "ja";
 }
 
 export function text(key: string, lang: Lang, ...args: string[]): string {

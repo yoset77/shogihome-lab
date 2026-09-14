@@ -27,6 +27,10 @@ use crate::process::{is_not_found, spawn_engine, EngineChild};
 const QUIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const TERM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 const DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+/// Upper bound for one socket/stdin write (including flush). Every relay
+/// write races this timeout against listener shutdown so a peer that stops
+/// reading can never wedge termination or cancellation.
+const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Shared per-listener state cloned into each connection task.
 #[derive(Clone)]
@@ -38,28 +42,37 @@ pub struct RelayContext {
 
 /// Serve one client connection until close. Owns the engine child (if any)
 /// and runs exactly one cleanup at the end.
+///
+/// Every pre-spawn wait (auth challenge/response, first command, `list`
+/// reply) races listener shutdown: no child is owned yet, so a shutdown
+/// simply ends the connection and lets the listener drain finish.
 pub async fn handle_connection(stream: TcpStream, ctx: RelayContext) {
     let (read_half, write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
     let mut writer = write_half;
+    let mut shutdown = ctx.shutdown.clone();
+    if *shutdown.borrow() {
+        let _ = writer.shutdown().await;
+        return;
+    }
 
     if let Some(token) = ctx.access_token.clone() {
-        if !handshake(&mut reader, &mut writer, &token).await {
+        if !handshake(&mut reader, &mut writer, &token, &mut shutdown).await {
             return;
         }
     }
 
-    let command = match read_line(&mut reader).await {
+    let command = match read_line_cancel(&mut reader, &mut shutdown).await {
         Some(line) => line,
-        None => return, // EOF before command (e.g. health check).
+        None => return, // EOF, error, or shutdown before command.
     };
 
     if command == "list" {
         let engines = load_engines(&ctx.config_dir);
         let body = serde_json::to_string(&engines).unwrap_or_else(|_| "[]".to_string());
-        let _ = writer.write_all(body.as_bytes()).await;
-        let _ = writer.write_all(b"\n").await;
-        let _ = writer.flush().await;
+        let mut payload = body.into_bytes();
+        payload.push(b'\n');
+        let _ = socket_write(&mut writer, &payload, &mut shutdown).await;
         let _ = writer.shutdown().await;
         return;
     }
@@ -72,6 +85,7 @@ pub async fn handle_connection(stream: TcpStream, ctx: RelayContext) {
         write_error(
             &mut writer,
             "WRAPPER_ERROR: Invalid command. Use 'list' or 'run <id>'.",
+            &mut shutdown,
         )
         .await;
         return;
@@ -82,6 +96,7 @@ pub async fn handle_connection(stream: TcpStream, ctx: RelayContext) {
         write_error(
             &mut writer,
             &format!("WRAPPER_ERROR: Engine ID '{engine_id}' not found."),
+            &mut shutdown,
         )
         .await;
         return;
@@ -90,6 +105,7 @@ pub async fn handle_connection(stream: TcpStream, ctx: RelayContext) {
         write_error(
             &mut writer,
             "WRAPPER_ERROR: Engine path configuration error.",
+            &mut shutdown,
         )
         .await;
         return;
@@ -98,6 +114,7 @@ pub async fn handle_connection(stream: TcpStream, ctx: RelayContext) {
         write_error(
             &mut writer,
             "WRAPPER_ERROR: Engine path configuration error.",
+            &mut shutdown,
         )
         .await;
         return;
@@ -129,7 +146,7 @@ pub async fn handle_connection(stream: TcpStream, ctx: RelayContext) {
             } else {
                 "WRAPPER_ERROR: Failed to start engine process."
             };
-            write_error(&mut writer, msg).await;
+            write_error(&mut writer, msg, &mut shutdown).await;
             return;
         }
     };
@@ -144,60 +161,69 @@ pub async fn handle_connection(stream: TcpStream, ctx: RelayContext) {
 }
 
 /// CRAM-SHA256 handshake. Returns true when the client may proceed.
+/// Every wait races shutdown: aborting here owns no child, so there is
+/// nothing to clean up beyond closing the socket.
 async fn handshake(
     reader: &mut BufReader<OwnedReadHalf>,
     writer: &mut OwnedWriteHalf,
     token: &str,
+    shutdown: &mut watch::Receiver<bool>,
 ) -> bool {
     let nonce = auth::generate_nonce();
-    if writer
-        .write_all(format!("auth_cram_sha256 {nonce}\n").as_bytes())
+    let challenge = format!("auth_cram_sha256 {nonce}\n");
+    if socket_write(writer, challenge.as_bytes(), shutdown)
         .await
         .is_err()
     {
         return false;
     }
-    if writer.flush().await.is_err() {
-        return false;
-    }
-    let line = match read_line(reader).await {
+    let line = match read_line_cancel(reader, shutdown).await {
         Some(line) => line,
         None => return false,
     };
     if let Some(digest) = line.strip_prefix("auth ") {
         if auth::verify_digest(token, &nonce, digest.trim()) {
-            return writer.write_all(b"auth_ok\n").await.is_ok() && writer.flush().await.is_ok();
+            return socket_write(writer, b"auth_ok\n", shutdown).await.is_ok();
         }
         log::warn_compat("authentication failed");
-        write_error(writer, "WRAPPER_ERROR: Authentication failed").await;
+        write_error(writer, "WRAPPER_ERROR: Authentication failed", shutdown).await;
         return false;
     }
     log::warn_compat("unexpected command during auth");
-    write_error(writer, "WRAPPER_ERROR: Authentication required").await;
+    write_error(writer, "WRAPPER_ERROR: Authentication required", shutdown).await;
     false
 }
 
 /// Read one `\n`-terminated line, returning the trimmed text.
-/// `None` on EOF (no bytes) or read error. Buffered bytes stay in `reader`.
-async fn read_line(reader: &mut BufReader<OwnedReadHalf>) -> Option<String> {
+/// `None` on EOF (no bytes), read error, oversized line, or listener
+/// shutdown. Buffered bytes stay in `reader`. Only used before an engine
+/// is spawned, where ending the whole connection is always safe.
+async fn read_line_cancel(
+    reader: &mut BufReader<OwnedReadHalf>,
+    shutdown: &mut watch::Receiver<bool>,
+) -> Option<String> {
     let mut buf = Vec::new();
-    match reader.read_until(b'\n', &mut buf).await {
-        Ok(0) => None,
-        Ok(_) => {
-            if buf.len() > MAX_LINE_BYTES {
-                return None;
+    tokio::select! {
+        biased;
+        _ = shutdown.changed() => None,
+        result = reader.read_until(b'\n', &mut buf) => match result {
+            Ok(0) => None,
+            Ok(_) => {
+                if buf.len() > MAX_LINE_BYTES {
+                    return None;
+                }
+                let text = String::from_utf8_lossy(&buf);
+                Some(text.trim_end_matches(['\r', '\n']).to_string())
             }
-            let text = String::from_utf8_lossy(&buf);
-            Some(text.trim_end_matches(['\r', '\n']).to_string())
-        }
-        Err(_) => None,
+            Err(_) => None,
+        },
     }
 }
 
-async fn write_error(writer: &mut OwnedWriteHalf, msg: &str) {
-    let _ = writer.write_all(msg.as_bytes()).await;
-    let _ = writer.write_all(b"\n").await;
-    let _ = writer.flush().await;
+async fn write_error(writer: &mut OwnedWriteHalf, msg: &str, shutdown: &mut watch::Receiver<bool>) {
+    let mut payload = msg.as_bytes().to_vec();
+    payload.push(b'\n');
+    let _ = socket_write(writer, &payload, shutdown).await;
     let _ = writer.shutdown().await;
 }
 
@@ -248,10 +274,10 @@ async fn relay_loop(
                 // on a pipe or on a client that has stopped reading.
                 let _ = tokio::time::timeout(DRAIN_TIMEOUT, async {
                     if let Some(out) = stdout.as_mut() {
-                        drain_stream(out, &mut obuf, writer).await;
+                        drain_stream(out, &mut obuf, writer, &mut shutdown).await;
                     }
                     if let Some(err) = stderr.as_mut() {
-                        drain_stream(err, &mut ebuf, writer).await;
+                        drain_stream(err, &mut ebuf, writer, &mut shutdown).await;
                     }
                 }).await;
                 break;
@@ -269,21 +295,25 @@ async fn relay_loop(
                         cbuf.clear();
                         let Some(stdin) = stdin.as_mut() else { break };
                         if command == "isready" && !options_applied {
+                            let mut failed = false;
                             for line in &option_lines {
-                                if stdin.write_all(line.as_bytes()).await.is_err()
-                                    || stdin.write_all(b"\n").await.is_err()
-                                {
+                                let mut payload = line.as_bytes().to_vec();
+                                payload.push(b'\n');
+                                if stdin_write(stdin, &payload, &mut shutdown).await.is_err() {
+                                    failed = true;
                                     break;
                                 }
                             }
+                            if failed {
+                                break;
+                            }
                             options_applied = true;
                         }
-                        if stdin.write_all(command.as_bytes()).await.is_err()
-                            || stdin.write_all(b"\n").await.is_err()
-                        {
+                        let mut payload = command.into_bytes();
+                        payload.push(b'\n');
+                        if stdin_write(stdin, &payload, &mut shutdown).await.is_err() {
                             break;
                         }
-                        let _ = stdin.flush().await;
                     }
                     Err(_) => break,
                 }
@@ -298,9 +328,15 @@ async fn relay_loop(
                 match result {
                     Ok(0) => {
                         stdout_eof = true;
-                        flush_remainder(&mut obuf, writer).await;
+                        if flush_remainder(&mut obuf, writer, &mut shutdown).await.is_err() {
+                            break;
+                        }
                     }
-                    Ok(n) => forward_bytes(&otmp[..n], &mut obuf, writer).await,
+                    Ok(n) => {
+                        if forward_bytes(&otmp[..n], &mut obuf, writer, &mut shutdown).await.is_err() {
+                            break;
+                        }
+                    }
                     Err(_) => stdout_eof = true,
                 }
             }
@@ -314,9 +350,15 @@ async fn relay_loop(
                 match result {
                     Ok(0) => {
                         stderr_eof = true;
-                        flush_remainder(&mut ebuf, writer).await;
+                        if flush_remainder(&mut ebuf, writer, &mut shutdown).await.is_err() {
+                            break;
+                        }
                     }
-                    Ok(n) => forward_bytes(&etmp[..n], &mut ebuf, writer).await,
+                    Ok(n) => {
+                        if forward_bytes(&etmp[..n], &mut ebuf, writer, &mut shutdown).await.is_err() {
+                            break;
+                        }
+                    }
                     Err(_) => stderr_eof = true,
                 }
             }
@@ -333,31 +375,112 @@ async fn relay_loop(
     stdin
 }
 
+/// Write one payload to the socket, racing shutdown and a per-write timeout.
+/// `Err(())` means the relay loop must stop: shutdown, timeout, or a write
+/// failure (all route to the single cleanup path).
+async fn socket_write(
+    writer: &mut OwnedWriteHalf,
+    data: &[u8],
+    shutdown: &mut watch::Receiver<bool>,
+) -> Result<(), ()> {
+    tokio::select! {
+        biased;
+        _ = shutdown.changed() => Err(()),
+        res = tokio::time::timeout(WRITE_TIMEOUT, writer.write_all(data)) => {
+            match res {
+                Ok(Ok(())) => Ok(()),
+                _ => Err(()),
+            }
+        }
+    }?;
+    tokio::select! {
+        biased;
+        _ = shutdown.changed() => Err(()),
+        res = tokio::time::timeout(WRITE_TIMEOUT, writer.flush()) => {
+            match res {
+                Ok(Ok(())) => Ok(()),
+                _ => Err(()),
+            }
+        }
+    }
+}
+
+/// Write one payload to the engine stdin under the same cancel/timeout
+/// budget as socket writes.
+async fn stdin_write(
+    stdin: &mut tokio::process::ChildStdin,
+    data: &[u8],
+    shutdown: &mut watch::Receiver<bool>,
+) -> Result<(), ()> {
+    tokio::select! {
+        biased;
+        _ = shutdown.changed() => Err(()),
+        res = tokio::time::timeout(WRITE_TIMEOUT, stdin.write_all(data)) => {
+            match res {
+                Ok(Ok(())) => Ok(()),
+                _ => Err(()),
+            }
+        }
+    }?;
+    tokio::select! {
+        biased;
+        _ = shutdown.changed() => Err(()),
+        res = tokio::time::timeout(WRITE_TIMEOUT, stdin.flush()) => {
+            match res {
+                Ok(Ok(())) => Ok(()),
+                _ => Err(()),
+            }
+        }
+    }
+}
+
 /// Append `chunk` to the pending buffer and forward complete lines.
-async fn forward_bytes(chunk: &[u8], pending: &mut Vec<u8>, writer: &mut OwnedWriteHalf) {
+/// A socket write failure aborts the relay (callers break to cleanup).
+async fn forward_bytes(
+    chunk: &[u8],
+    pending: &mut Vec<u8>,
+    writer: &mut OwnedWriteHalf,
+    shutdown: &mut watch::Receiver<bool>,
+) -> Result<(), ()> {
     if pending.len() + chunk.len() > MAX_LINE_BYTES * 2 {
-        return; // Shed overload instead of growing without bound.
+        return Ok(()); // Shed overload instead of growing without bound.
     }
     pending.extend_from_slice(chunk);
     while let Some(pos) = pending.iter().position(|&b| b == b'\n') {
         let line: Vec<u8> = pending.drain(..=pos).collect();
         let text = decode_line(trim_newline(&line));
-        let _ = writer.write_all(text.as_bytes()).await;
-        let _ = writer.write_all(b"\n").await;
+        let mut payload = text.into_bytes();
+        payload.push(b'\n');
+        socket_write(writer, &payload, shutdown).await?;
     }
-    let _ = writer.flush().await;
+    // Flush even with no complete line so partial output is not stuck behind
+    // a full buffer; a failed flush is a failed client.
+    tokio::select! {
+        biased;
+        _ = shutdown.changed() => Err(()),
+        res = tokio::time::timeout(WRITE_TIMEOUT, writer.flush()) => {
+            match res {
+                Ok(Ok(())) => Ok(()),
+                _ => Err(()),
+            }
+        }
+    }
 }
 
 /// Forward an unterminated trailing line (Node parity: flush on EOF).
-async fn flush_remainder(pending: &mut Vec<u8>, writer: &mut OwnedWriteHalf) {
+async fn flush_remainder(
+    pending: &mut Vec<u8>,
+    writer: &mut OwnedWriteHalf,
+    shutdown: &mut watch::Receiver<bool>,
+) -> Result<(), ()> {
     if pending.is_empty() {
-        return;
+        return Ok(());
     }
     let rest: Vec<u8> = std::mem::take(pending);
     let text = decode_line(trim_newline(&rest));
-    let _ = writer.write_all(text.as_bytes()).await;
-    let _ = writer.write_all(b"\n").await;
-    let _ = writer.flush().await;
+    let mut payload = text.into_bytes();
+    payload.push(b'\n');
+    socket_write(writer, &payload, shutdown).await
 }
 
 fn trim_newline(line: &[u8]) -> &[u8] {
@@ -369,20 +492,30 @@ fn trim_newline(line: &[u8]) -> &[u8] {
 }
 
 /// Read a pipe to EOF, forwarding everything (used after engine exit).
+/// Stops early on a dead client so the post-exit drain cannot wedge cleanup.
 async fn drain_stream(
     pipe: &mut (dyn AsyncRead + Unpin + Send),
     pending: &mut Vec<u8>,
     writer: &mut OwnedWriteHalf,
+    shutdown: &mut watch::Receiver<bool>,
 ) {
     let mut tmp = vec![0u8; 8192];
     loop {
         match pipe.read(&mut tmp).await {
             Ok(0) => break,
-            Ok(n) => forward_bytes(&tmp[..n], pending, writer).await,
+            Ok(n) => {
+                if forward_bytes(&tmp[..n], pending, writer, shutdown)
+                    .await
+                    .is_err()
+                {
+                    pending.clear();
+                    break;
+                }
+            }
             Err(_) => break,
         }
     }
-    flush_remainder(pending, writer).await;
+    let _ = flush_remainder(pending, writer, shutdown).await;
 }
 
 /// Idempotent end-of-session cleanup: `quit` -> 5s -> tree SIGTERM/taskkill
@@ -401,16 +534,39 @@ async fn cleanup(
             if stdin.is_none() {
                 stdin = child.stdin().take();
             }
+            // The whole quit handshake shares QUIT_TIMEOUT: the write itself
+            // must not extend the documented "quit -> 5s -> terminate" bound.
+            let quit_deadline = std::time::Instant::now() + QUIT_TIMEOUT;
             if let Some(mut stdin) = stdin {
-                let _ = stdin.write_all(b"quit\n").await;
-                let _ = stdin.flush().await;
+                let remaining = quit_deadline.saturating_duration_since(std::time::Instant::now());
+                if !remaining.is_zero() {
+                    let _ = tokio::time::timeout(remaining, async {
+                        stdin.write_all(b"quit\n").await?;
+                        stdin.flush().await
+                    })
+                    .await;
+                }
                 drop(stdin);
             }
-            match tokio::time::timeout(QUIT_TIMEOUT, child.wait()).await {
-                Ok(Ok(status)) => {
-                    log::info(&format!("engine exited gracefully with {status}"));
+            let remaining = quit_deadline.saturating_duration_since(std::time::Instant::now());
+            // When the quit write consumed the whole budget, skip straight to
+            // escalation instead of waiting with a zero timeout.
+            let graceful: bool = if remaining.is_zero() {
+                false
+            } else {
+                match tokio::time::timeout(remaining, child.wait()).await {
+                    Ok(Ok(status)) => {
+                        log::info(&format!("engine exited gracefully with {status}"));
+                        true
+                    }
+                    _ => false,
                 }
-                _ => {
+            };
+            // `graceful` replaces the old match arm; escalation below handles
+            // the non-graceful case uniformly.
+            match graceful {
+                true => {}
+                false => {
                     log::warn_compat("engine did not exit after quit; escalating");
                     child.terminate_tree(true);
                     match tokio::time::timeout(TERM_TIMEOUT, child.wait()).await {

@@ -58,10 +58,17 @@ jobs:
         working-directory: engine-wrapper/launcher-app
         run: npm ci
 
+      - name: Verify Tauri shell lockfile
+        working-directory: engine-wrapper/launcher-app/src-tauri
+        # src-tauri is excluded from the workspace with its own lockfile:
+        # fail here instead of silently resolving new Tauri dependencies.
+        run: cargo fetch --locked
+
       - name: Build launcher (Tauri, no bundle)
         working-directory: engine-wrapper/launcher-app
         # Portable ZIP distribution: the exe is assembled into the ZIP below.
         # `tauri build` (with bundling) is only for local installer experiments.
+        # The lockfile check above guarantees locked dependency resolution.
         run: npx tauri build --no-bundle
 
       # --- Licenses (replaces the old embedded-Python license step) ---
