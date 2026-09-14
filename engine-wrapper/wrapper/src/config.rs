@@ -7,6 +7,7 @@
 //! wrapper) strips private fields.
 
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Resolve the configuration root: explicit `--config-dir` wins, otherwise
@@ -94,6 +95,59 @@ pub fn format_option(name: &str, value: &Value) -> Option<String> {
     Some(format!("setoption name {name} value {value_str}"))
 }
 
+/// Resolved TCP/auth settings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeConfig {
+    pub bind: String,
+    pub port: u16,
+    pub token: Option<String>,
+}
+
+/// Resolve runtime settings with the documented precedence:
+///
+/// CLI > process environment > `<config_dir>/.env` > defaults.
+///
+/// This mirrors `engine_wrapper.py` (`load_dotenv` without override):
+/// an environment variable that is already set — even to the empty
+/// string — always wins over the `.env` file. An empty
+/// `WRAPPER_ACCESS_TOKEN` disables authentication from any source.
+/// `${VAR}` interpolation is NOT expanded; file values are literal.
+pub fn resolve_runtime(
+    cli_bind: Option<String>,
+    cli_port: Option<u16>,
+    env: &HashMap<String, String>,
+    file: &HashMap<String, String>,
+) -> Result<RuntimeConfig, String> {
+    let bind = cli_bind
+        .or_else(|| env.get("BIND_ADDRESS").cloned())
+        .or_else(|| file.get("BIND_ADDRESS").cloned())
+        .unwrap_or_else(|| "127.0.0.1".to_string());
+    let port_raw = cli_port.map(|p| p.to_string()).or_else(|| {
+        env.get("LISTEN_PORT")
+            .cloned()
+            .or_else(|| file.get("LISTEN_PORT").cloned())
+    });
+    let port = match port_raw {
+        None => 4082,
+        Some(raw) => raw
+            .trim()
+            .parse::<u16>()
+            .map_err(|_| format!("invalid LISTEN_PORT value {raw:?}: must be 1-65535"))?,
+    };
+    // Presence wins (even empty): an explicitly exported empty token
+    // disables authentication instead of falling back to the file.
+    let token = if env.contains_key("WRAPPER_ACCESS_TOKEN") {
+        env.get("WRAPPER_ACCESS_TOKEN")
+            .filter(|t| !t.is_empty())
+            .cloned()
+    } else {
+        file.get("WRAPPER_ACCESS_TOKEN")
+            .filter(|t| !t.is_empty())
+            .cloned()
+    };
+    Ok(RuntimeConfig { bind, port, token })
+}
+
 /// Minimal logger shim: the wrapper logs to stderr without a logging
 /// dependency to keep the dependency list small.
 pub mod log {
@@ -170,5 +224,84 @@ mod tests {
     #[test]
     fn load_missing_file_yields_empty_list() {
         assert!(load_engines(Path::new("/nonexistent-config-dir-xyz")).is_empty());
+    }
+
+    fn str_map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn runtime_defaults_without_any_source() {
+        let cfg = resolve_runtime(None, None, &HashMap::new(), &HashMap::new()).unwrap();
+        assert_eq!(
+            cfg,
+            RuntimeConfig {
+                bind: "127.0.0.1".to_string(),
+                port: 4082,
+                token: None,
+            }
+        );
+    }
+
+    #[test]
+    fn runtime_precedence_cli_over_env_over_file() {
+        let env = str_map(&[("BIND_ADDRESS", "10.0.0.1"), ("LISTEN_PORT", "5001")]);
+        let file = str_map(&[
+            ("BIND_ADDRESS", "10.0.0.2"),
+            ("LISTEN_PORT", "5002"),
+            ("WRAPPER_ACCESS_TOKEN", "file-token"),
+        ]);
+        // Env beats file.
+        let cfg = resolve_runtime(None, None, &env, &file).unwrap();
+        assert_eq!(cfg.bind, "10.0.0.1");
+        assert_eq!(cfg.port, 5001);
+        assert_eq!(cfg.token.as_deref(), Some("file-token"));
+        // CLI beats both.
+        let cfg = resolve_runtime(Some("10.0.0.9".to_string()), Some(5009), &env, &file).unwrap();
+        assert_eq!(cfg.bind, "10.0.0.9");
+        assert_eq!(cfg.port, 5009);
+        // File alone supplies everything.
+        let cfg = resolve_runtime(None, None, &HashMap::new(), &file).unwrap();
+        assert_eq!(cfg.bind, "10.0.0.2");
+        assert_eq!(cfg.port, 5002);
+        assert_eq!(cfg.token.as_deref(), Some("file-token"));
+    }
+
+    #[test]
+    fn runtime_empty_env_token_disables_auth() {
+        let env = str_map(&[("WRAPPER_ACCESS_TOKEN", "")]);
+        let file = str_map(&[("WRAPPER_ACCESS_TOKEN", "file-token")]);
+        let cfg = resolve_runtime(None, None, &env, &file).unwrap();
+        assert_eq!(cfg.token, None);
+        // Empty file token is also "unset".
+        let cfg = resolve_runtime(
+            None,
+            None,
+            &HashMap::new(),
+            &str_map(&[("WRAPPER_ACCESS_TOKEN", "")]),
+        )
+        .unwrap();
+        assert_eq!(cfg.token, None);
+    }
+
+    #[test]
+    fn runtime_invalid_port_is_an_error() {
+        assert!(resolve_runtime(
+            None,
+            None,
+            &str_map(&[("LISTEN_PORT", "not-a-port")]),
+            &HashMap::new(),
+        )
+        .is_err());
+        assert!(resolve_runtime(
+            None,
+            None,
+            &HashMap::new(),
+            &str_map(&[("LISTEN_PORT", "99999")]),
+        )
+        .is_err());
     }
 }

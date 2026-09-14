@@ -178,6 +178,34 @@ jobs:
           # Zip it
           Compress-Archive -Path "$pkgName" -DestinationPath "$pkgName.zip"
 
+          # 4. Engine-tools package (wrapper + GUI only, no server bundle):
+          #    for split hosts where the Middle Server runs elsewhere
+          #    (remote PC / Docker). Same exes, editor-only entry point.
+          $toolsName = "shogihome-lab-engine-tools-$tagName"
+          New-Item -ItemType Directory -Path $toolsName -Force
+          Copy-Item "engine-wrapper/launcher-app/src-tauri/target/release/ShogiHomeLab.exe" -Destination "$toolsName/"
+          Copy-Item "engine-wrapper/target/release/shogihome-wrapper.exe" -Destination "$toolsName/wrapper.exe"
+          Copy-Item "engine-wrapper/ConfigEditor.cmd" -Destination "$toolsName/"
+          Copy-Item "shogihome/build/icon.png" -Destination "$toolsName/icon.png"
+          Copy-Item "assets/release/README-engine-tools.txt" -Destination "$toolsName/README.txt"
+          New-Item -ItemType Directory -Path "$toolsName/engine-wrapper" -Force
+          Copy-Item "engine-wrapper/engines.json.default" -Destination "$toolsName/engine-wrapper/engines.json"
+          Copy-Item "engine-wrapper/.env.example" -Destination "$toolsName/engine-wrapper/.env"
+          Copy-Item "engine-wrapper/VERSION" -Destination "$toolsName/engine-wrapper/"
+          New-Item -ItemType Directory -Path "$toolsName/engine-wrapper/licenses" -Force
+          Copy-Item "pkg-licenses/*" -Destination "$toolsName/engine-wrapper/licenses/"
+          $toolsRequired = @(
+              "ShogiHomeLab.exe", "wrapper.exe", "ConfigEditor.cmd", "icon.png", "README.txt",
+              "engine-wrapper/engines.json", "engine-wrapper/.env", "engine-wrapper/VERSION",
+              "engine-wrapper/licenses/RUST-THIRD-PARTY-NOTICES.txt",
+              "engine-wrapper/licenses/UI-THIRD-PARTY.json"
+          )
+          foreach ($rel in $toolsRequired) {
+              if (-not (Test-Path "$toolsName/$rel")) { throw "Engine-tools package missing: $rel" }
+          }
+          if (Test-Path "$toolsName/shogihome") { throw "Engine-tools package must not contain a server bundle" }
+          Compress-Archive -Path "$toolsName" -DestinationPath "$toolsName.zip"
+
       - name: Attest Build Provenance
         uses: actions/attest@v4
         with:

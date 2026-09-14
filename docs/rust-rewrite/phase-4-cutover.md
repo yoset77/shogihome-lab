@@ -20,6 +20,28 @@ shogihome-lab-vX.Y.Z/
         └── UI-THIRD-PARTY.json           # license-checker (launcher UI)
 ```
 
+Split-host layout (same build outputs, no server bundle):
+
+```text
+shogihome-lab-engine-tools-vX.Y.Z/
+├── ShogiHomeLab.exe        # same binary; run with --config-editor
+├── wrapper.exe             # same binary; run with --config-dir DIR
+├── ConfigEditor.cmd        # editor-only entry point (no services)
+├── icon.png / README.txt   # dedicated engine-tools guide
+└── engine-wrapper/
+    ├── engines.json        # seed
+    ├── .env                # seed (wrapper autoloads <config-dir>/.env)
+    ├── VERSION
+    └── licenses/
+```
+
+`ConfigEditor.cmd` launches
+`ShogiHomeLab.exe --config-editor --config-dir "<cmd-dir>\engine-wrapper"`.
+The wrapper side reads `<config-dir>/.env` automatically
+(precedence: CLI > environment > `.env` > defaults; `${VAR}` is literal).
+The launcher still owns its resolved snapshot and passes `--no-env-file`
+to the supervised wrapper so readiness and runtime cannot drift.
+
 Dropped from the package: embedded Python, `launcher.py`,
 `engine_wrapper.py`, `config_editor.py`, `config_editor.html`, `common.py`,
 `i18n.py`, `server_settings.py`, `update_checker.py`, the C# shim. The
@@ -50,6 +72,19 @@ sources stay in the repo as fallback (see §7).
   `dist/index.html` + `dist/editor.html` (verified on Linux), matching the
   `main`/`editor` window URLs. `src/*.html` was moved to the package root
   (standard Vite layout), which also fixes `npm run dev` under `devUrl`.
+- **Initial windows move to Rust `setup`**: `tauri.conf.json` keeps
+  `windows: []`; launcher mode builds `main`, `--config-editor` builds only
+  `editor`. This keeps dashboard init (migration + service autostart) from
+  ever running in standalone mode. Editor shutdown runs
+  `Running → Closing → ReadyToExit` (drained → exit 0, deadline → exit 1);
+  edit sessions hold a per-config-dir OS-managed lock; `--config-dir`
+  requires `--config-editor`; saves use a per-process unique tmp + atomic
+  rename.
+- **Wrapper `.env` autoload**: standalone `wrapper.exe` reads
+  `<config-dir>/.env` (CLI > env > file > defaults, empty env wins over
+  the file, invalid ports fail startup). Decode/parse lives in the shared
+  `shogihome-env-file` crate reused by the launcher; the launcher passes
+  `--no-env-file` with its resolved snapshot.
 - **`editor_probe` is async**: Tauri runs non-async commands on the main
   thread, and a probe can take seconds, so the command now wraps the
   blocking probe in `spawn_blocking`. Cancellation via the shared flag is

@@ -235,15 +235,49 @@ pub fn load_engines_file(path: &Path) -> Result<Vec<serde_json::Value>, String> 
 }
 
 /// Validate + atomically save `engines.json`.
+///
+/// The temporary file uses a per-process unique name in the same directory
+/// so concurrent editor sessions (launcher-embedded and standalone
+/// `--config-editor`) cannot truncate each other's file. Last writer still
+/// wins, but the registry is never left half-written.
 pub fn save_engines_file(path: &Path, data: &serde_json::Value) -> Result<(), String> {
     let engines = validate_engines(data)?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
     }
     let content = serde_json::to_string_pretty(&engines).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("tmp");
+    let tmp = unique_tmp_path(path);
     std::fs::write(&tmp, content.as_bytes()).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+    match std::fs::rename(&tmp, path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e.to_string())
+        }
+    }
+}
+
+fn unique_tmp_path(path: &Path) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "engines.json".to_string());
+    let tmp_name = format!("{file_name}.{}.tmp", std::process::id());
+    // Same-process concurrent saves share the pid; disambiguate with a counter.
+    let tmp_name = if seq == 0 {
+        tmp_name
+    } else {
+        format!("{tmp_name}.{seq}")
+    };
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.join(tmp_name),
+        _ => std::path::PathBuf::from(tmp_name),
+    }
 }
 
 #[derive(Debug)]
@@ -592,7 +626,17 @@ mod tests {
         let path = dir.join("engines.json");
         let data = serde_json::json!([{"id": "a", "name": "A", "path": "x", "type": "both"}]);
         save_engines_file(&path, &data).unwrap();
-        assert!(!path.with_extension("tmp").exists());
+        save_engines_file(&path, &data).unwrap();
+        // No temporary file may survive successful saves. Unique tmp names
+        // carry suffixes (`.tmp.1`, …), so anything but the registry itself
+        // counts as a leftover.
+        let mut names: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["engines.json".to_string()]);
         let loaded = load_engines_file(&path).unwrap();
         assert_eq!(
             loaded[0]["type"],

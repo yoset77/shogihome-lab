@@ -321,6 +321,41 @@ def test_cp932_engine_output_arrives_as_utf8(wrapper):
     sock.close()
 
 
+def test_rust_dotenv_supplies_listen_port_when_env_absent(tmp_path):
+    if "rust" not in SELECTED:
+        pytest.skip("Rust .env autoload regression")
+    port = _free_port()
+    launcher = _write_fake_engine_launcher(tmp_path)
+    _write_engines_json(tmp_path, launcher)
+    (tmp_path / ".env").write_text(f"LISTEN_PORT={port}\n", encoding="utf-8")
+    env = {**os.environ, "BIND_ADDRESS": "127.0.0.1", "FAKE_ENGINE_LOG": str(tmp_path / "engine.log")}
+    env.pop("LISTEN_PORT", None)
+    env.pop("WRAPPER_ACCESS_TOKEN", None)
+    proc = subprocess.Popen(
+        [str(_rust_binary()), "--config-dir", str(tmp_path)],
+        cwd=str(tmp_path),
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        _wait_port(port)
+        sock = _connect(port)
+        f = sock.makefile("r", encoding="utf-8", newline="\n")
+        sock.sendall(b"list\n")
+        engines = json.loads(_readline(f, "no list response"))
+        assert any(e["id"] == "test-engine" for e in engines)
+        assert f.read() == ""
+        sock.close()
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=10)
+
+
 def test_rust_parent_exit_cleans_inherited_pipes_and_flushes_final_line(wrapper):
     if wrapper["impl"] != "rust":
         pytest.skip("Rust process-tree regression")

@@ -79,6 +79,10 @@ pub fn portable_services(root: &Path) -> Result<ServicePlan, String> {
             vec![
                 "--config-dir".into(),
                 wrapper_dir.to_string_lossy().into_owned(),
+                // The launcher owns the resolved snapshot (file values are
+                // already merged into `env` below); the wrapper must not
+                // re-read the file and drift from the readiness check.
+                "--no-env-file".into(),
             ],
             "LISTEN_PORT",
             "4082",

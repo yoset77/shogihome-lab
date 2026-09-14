@@ -1,5 +1,5 @@
 [workspace]
-members = ["wrapper", "launcher"]
+members = ["wrapper", "launcher", "env-file"]
 # rust-poc is a standalone experiment; src-tauri needs WebView system libs
 # and is built on Windows in Phase 4.
 exclude = ["rust-poc", "launcher-app/src-tauri"]

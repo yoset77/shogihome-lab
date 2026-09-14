@@ -18,10 +18,11 @@ launcher-app/
 │   └── editor-state.ts     # pure registry/group/option logic (vitest)
 ├── src-tauri/
 │   ├── Cargo.toml          # EXCLUDED from workspace; built on Windows (Phase 4)
-│   ├── tauri.conf.json     # main window and CSP; editor is created on demand
+│   ├── tauri.conf.json     # CSP only; initial windows are created in setup per launch mode
 │   ├── capabilities/       # plugin permissions per window
 │   ├── build.rs
-│   └── src/main.rs         # commands, tray, close/exit policy
+│   └── src/main.rs         # commands, tray, launch modes, close/exit policy
+├── ../launcher/src/launch_mode.rs  # --config-editor / --config-dir parsing + config-dir resolution
 ```
 
 ## 2. Security and lifecycle decisions
@@ -49,6 +50,26 @@ launcher-app/
 - Main-window close hides to tray; `stop_and_exit` sets the quitting flag,
   stops services, then exits. Tray creation failure leaves the dashboard
   visible instead of an unreachable hidden app.
+- Launch modes: default creates the `main` window + tray + health polling;
+  `--config-editor [--config-dir DIR]` creates only the `editor` window with
+  no services, no tray, and no dashboard init. `tauri.conf.json` keeps
+  `windows: []`; `setup` owns initial-window creation so hidden-dashboard
+  startup can never auto-start services in editor mode.
+- Editor shutdown is `Running → Closing → ReadyToExit`: `Closing` rejects
+  new probes and holds every exit request while a single drain waiter runs;
+  only a drained probe set exits 0, deadline expiry exits 1 (never confused
+  with a clean shutdown). The budget matches `stop_and_exit`.
+- Edit sessions hold a per-config-dir OS-managed lock (`session_lock`:
+  Unix `flock`, Windows share-mode-0; auto-released on crash). Launcher and
+  standalone editors on the same registry never last-writer-win each other;
+  same-process reopen reuses the held lock, and the lock releases after
+  probe cleanup drains. `stop_and_exit` keeps its abort-on-timeout contract.
+- CLI validation: `--config-dir` requires `--config-editor` (an editor
+  pointed elsewhere would save settings the supervised wrapper never
+  reads); a following flag is a missing value, never a directory.
+- Editor `--config-dir` matches the wrapper meaning (registry location,
+  relative-path and probe base; default `<exe-dir>/engine-wrapper`).
+  `engines.json` saves use a per-process unique tmp file + atomic rename.
 - The editor is created on demand by the **async** `open_editor` command.
   Creating a WebView in a synchronous IPC handler deadlocks on Windows
   ([upstream issue](https://github.com/tauri-apps/wry/issues/583)), leaving
@@ -77,9 +98,15 @@ launcher-app/
 ## 4. Phase 4 entry checklist (Windows)
 
 - `cargo build` + `npx tauri build` for `launcher-app/src-tauri`.
-- Contract suite against a Windows wrapper build (`.bat` path).
+- Contract suite against a Windows wrapper build (`.bat` path), plus the
+  Rust-only `.env` autoload case (file supplies `LISTEN_PORT` with the
+  environment absent).
 - Tray hide/show, Stop&Exit descendant check, editor probe cancel on
-  window close, WebView2-absent guidance on a clean VM.
+  window close, standalone `--config-editor` (custom `--config-dir` with a
+  space, no server bundle, service IPC blocked, single CDP page,
+  in-flight probe cancelled with `quit` delivered, window close exits 0,
+  saved registry readable back through `wrapper --config-dir`),
+  `ConfigEditor.cmd` entry point, WebView2-absent guidance on a clean VM.
 - `tauri.conf.json` bundle resources: Node runtime, server bundle,
   Vision assets, webapp, `.env`/engines seeds, licenses (see
   `phase-0-baseline.md` §4).
@@ -109,6 +136,15 @@ WebView2 storage. CDP is enabled only in the test child's environment. It checks
 - Cancelling the picker and posting native `WM_CLOSE` closes the editor.
 - Reopening the editor renders its controls again.
 - Stop&Exit terminates the launcher successfully while the editor is open.
+
+`test_config_editor_standalone_mode` covers the no-server layout in two cases:
+explicit `--config-editor --config-dir "<tmp>/my config"` from an unrelated
+CWD, and the shipped `ConfigEditor.cmd` with the default `<exe-dir>/
+engine-wrapper` layout. It checks editor-only rendering (exactly one CDP
+page, `editor.html`, no dashboard controls), the custom config-dir registry,
+blocked service IPC (`get_status` rejected), an in-flight probe cancelled
+with `quit` delivered to the engine child, process exit 0 on window close,
+and the saved registry reading back through `wrapper --config-dir`.
 
 The GUI driver runs in a separate process with a hard deadline and process-tree
 cleanup, so a native deadlock fails the test instead of hanging CI indefinitely.
