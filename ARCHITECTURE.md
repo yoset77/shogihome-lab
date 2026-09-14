@@ -27,6 +27,7 @@ ShogiHome Lab は、PC 上の USI 将棋エンジンをブラウザーから利�
 - **Middle Server**: Hono API、静的配信、WebSocket session、USI state machine、永続化、および外部プロセス管理を所有します。
 - **Engine Wrapper**: 設定された USI engine process を起動し、TCP と stdin/stdout を中継します。Rust 実装が配布の正本であり、Python 版と Node.js 版は legacy fallback 兼 contract 参照実装として残ります。
 - **Launcher**: 配布版の常駐 UI です。Tauri shell が service 起動・停止、設定編集、移行、更新通知を提供します。`shogihome-launcher` の controller が起動・再起動・停止・移行を直列化し、状態 snapshot と稼働中の process 監視を所有します。時間のかかる IPC は UI event loop の外で実行します。
+- Launcher と設定エディタは単一 Tauri アプリとして Windows／Linux／macOS で native build します。shell は app・editor・launcher・tray・shutdown に分割し、portable path、close policy、編集セッションは headless backend が所有します。
 - **USI Engine**: YaneuraOu などの外部将棋エンジンです。
 - **Vision Worker**: Middle Server が子プロセスとして管理する画像認識 worker です。独立サービスでも Engine Wrapper の一部でもありません。
 
@@ -156,7 +157,8 @@ Database、filesystem、browser storage は互いに代替可能な正本では�
 - Engine Wrapper は Rust 版が配布の正本です。Python 版・Node.js 版は fallback として残り、protocol 変更時は共通 contract suite で 3 実装を同期します。
 - 配布版の Launcher は Tauri app です。設定フォームの schema は `shogihome-launcher` の `settings` module が所有し、server / wrapper の両 `.env` を読み書きします。設定の正本は引き続き各 `.env` と `shogihome/src/server/config.ts` であり、Launcher は読み書きの bridge に留まります。旧 Tk Launcher (`engine-wrapper/launcher.py`) は移行期の fallback として残ります。
 - Launcher は各 service の `.env` を別々の環境変数 snapshot として子プロセスへ渡し、同じ snapshot から readiness の host / port を決定します。ファイルにある値は継承環境より優先します。初回移行と未完了移行の再開は、server が data directory を作成する前に完了させます。
-- Launcher は `ShogiHomeLab.exe --config-editor [--config-dir DIR]` で設定エディタ単独起動ができます。dashboard・tray・service 監視は初期化せず、editor window 終了時に probe cleanup 完了を待って process を終了します。初期 window は `setup` で mode に応じて生成し、`tauri.conf.json` に静的 window は持ちません。
+- Launcher は `ShogiHomeLab[.exe] --config-editor [--config-dir DIR]` で設定エディタ単独起動ができます。controller・dashboard・tray・service 監視は初期化せず、editor close が明示的に共通 shutdown を開始して probe cleanup 完了を待ちます。初期 window は `setup` で mode に応じて生成し、`tauri.conf.json` に静的 window は持ちません。
+- `paths` module は portable root と native 実行ファイル名を一元化し、service 起動と設定編集は同じ配置契約を使います。トレイ常駐時だけ main close を hide に変換し、トレイなしでは service・probe を停止して終了します。Linux は `--tray` による opt-in、全 OS で `--no-tray` を利用できます。native／IPC の Quit は `lifecycle` の終了方針に従い、cleanup 前の終了を保留します。インストール型パッケージの保存先分離は別段階で扱います。
 - Editor の設定 directory は wrapper と同じ意味の `--config-dir`（`engines.json` と `.env` の所在、相対 engine path と probe の基準）です。省略時は portable 既定 `<exe-dir>/engine-wrapper` を使います。`--config-dir` は `--config-editor` との組み合わせでのみ受け付け、通常 Launcher の supervision 対象と編集対象がずれないようにします。編集中は設定 directory 単位の OS 管理 session lock（異常終了時は自動解放）を保持し、同時編集の上書き消失を防ぎます。保存は process 単位の一意な tmp file 経由の atomic rename とします。
 - Rust wrapper と launcher の probe は、親 process の終了状態とは別に POSIX process group / Windows Job Object を保持します。親の正常終了後も子孫を回収してから pipe を閉じ、Launcher の明示終了と standalone editor 終了はいずれも probe の cleanup 完了も待ちます。
 - Docker構成はMiddle Serverを実行し、Engine Wrapperは別プロセスまたは別ホストで動作します。分割配置向けに wrapper + GUI のみの `engine-tools` ZIP（`ShogiHomeLab.exe`、`wrapper.exe`、`ConfigEditor.cmd`、`engine-wrapper/`、専用 README）も配布します。standalone wrapper は `<config-dir>/.env` を自動読込します（優先順位: CLI > 環境変数 > `.env` > 既定値。Launcher 経由では確定済み snapshot を渡すため `--no-env-file` で再読込を抑止します）。
@@ -166,5 +168,6 @@ Database、filesystem、browser storage は互いに代替可能な正本では�
 ## Detailed References
 
 - [Remote Engine Architecture](docs/architecture/remote-engine.md)
+- [Launcher / Config Editor Architecture](docs/architecture/launcher.md)
 - [Vision Architecture](docs/architecture/vision.md)
 - [Storage Architecture](docs/architecture/storage.md)

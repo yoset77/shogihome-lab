@@ -9,6 +9,8 @@ export default defineConfig({
       input: {
         main: "index.html",
         editor: "editor.html",
+        settings: "settings.html",
+        logs: "logs.html",
       },
     },
   },

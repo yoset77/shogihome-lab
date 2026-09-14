@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:," />
+  <title>ShogiHome Lab Logs</title>
+  <link rel="stylesheet" href="./src/styles.css" />
+  <script type="module" src="./src/logs-main.ts"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="spread">
+      <h1 id="logsTitle">ログビューアー</h1>
+    </div>
+    <div class="card">
+      <h2 id="serverLogTitle">サーバーログ</h2>
+      <pre id="serverLogPre" class="log log-tall"></pre>
+      <h2 id="wrapperLogTitle">ラッパーログ</h2>
+      <pre id="wrapperLogPre" class="log log-tall"></pre>
+      <div class="modal-footer">
+        <button class="btn" id="refreshLogsBtn">更新</button>
+        <button class="btn btn-primary" id="closeLogsBtn">閉じる</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -54,16 +54,16 @@ pub fn portable_services(root: &Path) -> Result<ServicePlan, String> {
     {
         return Err("finish the pending migration before starting services".into());
     }
-    let root = std::path::absolute(root).map_err(|e| e.to_string())?;
-    let server_dir = root.join("shogihome");
-    let wrapper_dir = root.join("engine-wrapper");
+    let paths = crate::paths::PortablePaths::new(root).map_err(|e| e.to_string())?;
+    let server_dir = paths.server_dir();
+    let wrapper_dir = paths.config_dir();
     let mut specs = Vec::new();
     let mut expectations = HashMap::new();
     for (name, cwd, program, args, port_key, default_port, default_host) in [
         (
             "server",
             server_dir.clone(),
-            server_dir.join("shogihome-server.exe"),
+            paths.server_program(),
             vec![server_dir
                 .join("dist/server/server.js")
                 .to_string_lossy()
@@ -75,7 +75,7 @@ pub fn portable_services(root: &Path) -> Result<ServicePlan, String> {
         (
             "wrapper",
             wrapper_dir.clone(),
-            root.join("wrapper.exe"),
+            paths.wrapper_program(),
             vec![
                 "--config-dir".into(),
                 wrapper_dir.to_string_lossy().into_owned(),
@@ -118,7 +118,7 @@ pub fn portable_services(root: &Path) -> Result<ServicePlan, String> {
     Ok(ServicePlan {
         specs,
         expectations,
-        log_dir: wrapper_dir.join("logs"),
+        log_dir: paths.log_dir(),
     })
 }
 
@@ -250,11 +250,11 @@ mod tests {
     use super::*;
 
     fn test_spec(name: &str, dir: &Path) -> ServiceSpec {
-        // `sleep` is universally available on the CI/test platforms used here.
+        // Python is available on all desktop CI runners, unlike POSIX sleep.
         ServiceSpec {
             name: name.to_string(),
-            program: PathBuf::from("sleep"),
-            args: vec!["30".to_string()],
+            program: PathBuf::from(if cfg!(windows) { "python" } else { "python3" }),
+            args: vec!["-c".into(), "import time; time.sleep(30)".into()],
             cwd: dir.to_path_buf(),
             env: vec![],
             inherit_env: true,
@@ -278,8 +278,8 @@ mod tests {
         let dir = std::env::temp_dir();
         let log_dir = dir.join(format!("svc-dead-{}", std::process::id()));
         let mut spec = test_spec("short", &dir);
-        spec.args = vec!["0".to_string()];
-        // sleep 0 exits immediately; spawn may catch it at exec check or here.
+        spec.args = vec!["-c".into(), "pass".into()];
+        // The child exits immediately; spawn may catch it at exec check or here.
         let spawned = spawn_service(&spec, &log_dir);
         if let Ok(svc) = spawned {
             let mut map = HashMap::from([(svc.name.clone(), svc)]);

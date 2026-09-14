@@ -10,20 +10,36 @@
 </head>
 <body>
   <div class="container">
-    <h1>ShogiHome Lab 設定エディタ</h1>
+    <div class="spread">
+      <h1 id="editorTitle">ShogiHome Lab 設定エディタ</h1>
+      <select id="langSelect" class="btn btn-sm" aria-label="Language">
+        <option value="ja">日本語</option>
+        <option value="en">English</option>
+      </select>
+    </div>
 
-    <div class="card" id="editorSection">
+    <div class="card" id="loadErrorSection" style="display:none;">
+      <h2 id="loadErrorTitle">読み込みエラー</h2>
+      <p id="loadErrorText"></p>
+      <div class="row">
+        <button class="btn btn-sm btn-primary" id="retryLoadBtn">再試行</button>
+        <button class="btn btn-sm" id="newEmptyBtn">空で新規作成</button>
+      </div>
+      <p class="hint" id="loadErrorHint">設定ファイルが壊れている可能性があるため、読み込みに成功するか「空で新規作成」を選ぶまで保存は無効化されています。</p>
+    </div>
+
+    <div class="card" id="editorSection" style="display:none;">
       <div class="spread">
-        <h2>エンジン一覧</h2>
+        <h2 id="listTitle">エンジン一覧</h2>
         <div class="row">
-          <button class="btn btn-sm" id="manageGroupsBtn">グループ管理</button>
-          <button class="btn btn-sm btn-success" id="addEngineBtn">追加</button>
-          <button class="btn btn-sm btn-primary" id="saveBtn">設定を保存</button>
+          <button class="btn btn-sm btn-info" id="manageGroupsBtn">エンジングループ管理</button>
+          <button class="btn btn-sm btn-primary" id="addEngineBtn">+ エンジン追加</button>
+          <button class="btn btn-sm btn-success" id="saveBtn">設定を保存</button>
         </div>
       </div>
       <div class="table-responsive">
         <table id="engineTable">
-          <thead><tr><th>名前</th><th>種類</th><th>操作</th></tr></thead>
+          <thead><tr><th id="colName">名前 (Name)</th><th id="colType">種類 (Type)</th><th id="colActions">操作</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -33,43 +49,59 @@
       <div class="modal-content">
         <h2 id="modalTitle">エンジン追加</h2>
         <div class="form-group">
-          <label for="editName">名前</label>
-          <input type="text" id="editName" />
+          <label for="editName"><span id="editNameLabel">名前 (Name)</span> <span style="color:red">*</span></label>
+          <input type="text" id="editName" placeholder="例: YaneuraOu" />
         </div>
-        <div class="form-group">
-          <label for="editId">ID</label>
+        <div class="form-group" id="editIdGroup" style="display:none;">
+          <label for="editId">ID (自動生成) <span style="color:red">*</span></label>
           <div class="row">
-            <input type="text" id="editId" />
-            <button class="btn btn-sm" id="regenerateIdBtn">再生成</button>
+            <input type="text" id="editId" readonly />
+            <button class="btn btn-sm" id="regenerateIdBtn" title="IDを再生成">↺</button>
           </div>
         </div>
         <div class="form-group" id="editTypeContainer">
-          <label>種類</label>
-          <label class="check"><input type="checkbox" name="type" value="game" /> game</label>
-          <label class="check"><input type="checkbox" name="type" value="research" /> research</label>
-          <label class="check"><input type="checkbox" name="type" value="mate" /> mate</label>
+          <label><span id="editTypeLabel">種類 (Type)</span> <span style="color:red">*</span></label>
+          <label class="check"><input type="checkbox" name="type" value="game" /> <span id="typeGameLabel">対局 (game)</span></label>
+          <label class="check"><input type="checkbox" name="type" value="research" /> <span id="typeResearchLabel">検討 (research)</span></label>
+          <label class="check"><input type="checkbox" name="type" value="mate" /> <span id="typeMateLabel">詰み探索 (mate)</span></label>
+        </div>
+        <div class="form-group save-db-row">
+          <label id="saveDbLabel">読み筋をデータベースに保存</label>
+          <label class="check"><input type="checkbox" id="editSaveAnalysisDB" /> <span id="editSaveAnalysisDBLabel" class="bool-label">true</span></label>
         </div>
         <div class="form-group">
-          <label for="editPath">パス</label>
+          <label for="editAnalysisDBGroupId" id="groupLabel">所属エンジングループ</label>
           <div class="row">
-            <input type="text" id="editPath" />
-            <button class="btn btn-sm" id="browseBtn">参照</button>
-            <button class="btn btn-sm btn-info" id="analyzeBtn">解析</button>
+            <select id="editAnalysisDBGroupId"><option value="" id="noGroupOption">個別管理 (グループなし)</option></select>
+            <button class="btn btn-sm" id="addGroupBtn">＋ 新規作成</button>
+          </div>
+          <div class="hint" id="groupHint">
+            同じグループに設定されたエンジンはデータベース上で単一のエンジンとして集約されます。
           </div>
         </div>
         <div class="form-group">
-          <label class="check"><input type="checkbox" id="editSaveAnalysisDB" /> <span id="editSaveAnalysisDBLabel">true</span> 解析結果をDBに保存</label>
-        </div>
-        <div class="form-group">
-          <label for="editAnalysisDBGroupId">グループ</label>
+          <label for="editPath"><span id="editPathLabel">実行ファイルのパス (Path)</span> <span style="color:red">*</span></label>
           <div class="row">
-            <select id="editAnalysisDBGroupId"><option value="">（なし）</option></select>
-            <button class="btn btn-sm" id="addGroupBtn">新規グループ</button>
+            <input type="text" id="editPath" placeholder="例: C:\Engines\yaneuraou.exe" />
+            <button class="btn btn-sm" id="browseBtn">参照...</button>
+            <button class="btn btn-sm btn-info" id="analyzeBtn">オプション取得</button>
+          </div>
+          <div class="hint" id="pathHint">
+            絶対パス、または engine-wrapper からの相対パス。
           </div>
         </div>
-        <h3>オプション</h3>
+        <div class="form-group">
+          <div class="options-header">
+            <h3 id="optionsLabel">オプション (Options)</h3>
+            <button class="btn btn-sm btn-warning" id="resetAllBtn" style="display:none;">すべて既定値に戻す</button>
+          </div>
         <div id="optionsList"></div>
-        <button class="btn btn-sm btn-warning" id="resetAllBtn" style="display:none;">すべて既定値に戻す</button>
+        <div class="row" style="margin-top:10px;">
+          <button class="btn btn-sm" id="addStringOptionBtn">+ 文字列</button>
+          <button class="btn btn-sm" id="addSpinOptionBtn">+ 数値</button>
+          <button class="btn btn-sm" id="addBoolOptionBtn">+ 真偽値</button>
+        </div>
+        </div>
         <div class="modal-footer">
           <button class="btn" id="cancelModalBtn">キャンセル</button>
           <button class="btn btn-primary" id="saveEngineBtn">反映</button>
@@ -82,9 +114,10 @@
 
     <div class="modal" id="groupModal" style="display:none;">
       <div class="modal-content">
-        <h2>グループ管理</h2>
+        <h2 id="groupModalTitle">エンジングループ管理</h2>
+        <p class="hint" id="groupModalDesc">ここでは既存グループの名前を一括変更できます。エンジンへの割り当てはエンジン編集画面で行ってください。</p>
         <table id="groupTable">
-          <thead><tr><th>名前</th><th>所属数</th><th>操作</th></tr></thead>
+          <thead><tr><th id="groupColName">グループ名</th><th id="groupColCount">所属エンジン数</th><th id="groupColActions">操作</th></tr></thead>
           <tbody></tbody>
         </table>
         <div class="modal-footer">

@@ -1,7 +1,7 @@
 //! Launcher launch mode: full dashboard vs standalone config editor.
 //!
 //! The standalone editor exists so engine-side hosts (remote PC, Docker
-//! split, etc.) can run `ShogiHomeLab.exe --config-editor` without the
+//! split, etc.) can run `ShogiHomeLab[.exe] --config-editor` without the
 //! Middle Server bundle. It shares the editor backend (`editor.rs`) and the
 //! Tauri shell, but never spawns services, never shows the dashboard or
 //! tray, and exits when the editor window closes.
@@ -11,7 +11,7 @@
 //! probes resolve against it. When omitted, the portable layout default
 //! (`<exe-dir>/engine-wrapper`) is used.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Which top-level window the Tauri shell should create.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,10 +28,14 @@ pub struct LaunchConfig {
     pub mode: LaunchMode,
     pub config_dir_override: Option<PathBuf>,
     pub show_help: bool,
+    pub tray_enabled: bool,
 }
 
-pub fn usage() -> &'static str {
-    "usage: ShogiHomeLab.exe [--config-editor [--config-dir DIR]] [--help]"
+pub fn usage() -> String {
+    format!(
+        "usage: {} [--config-editor [--config-dir DIR]] [--tray | --no-tray] [--help]",
+        crate::paths::executable_name("ShogiHomeLab")
+    )
 }
 
 /// Parse `std::env::args`-style arguments (including argv[0]).
@@ -46,10 +50,22 @@ pub fn parse_args(args: &[String]) -> Result<LaunchConfig, String> {
     let mut mode = LaunchMode::Launcher;
     let mut config_dir_override = None;
     let mut show_help = false;
+    let mut tray_override = None;
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "--config-editor" => mode = LaunchMode::ConfigEditor,
+            "--tray" | "--no-tray" => {
+                let enabled = args[i] == "--tray";
+                if tray_override.is_some_and(|previous| previous != enabled) {
+                    return Err(format!(
+                        "{}\n{}",
+                        crate::native_text::text("trayConflict"),
+                        usage()
+                    ));
+                }
+                tray_override = Some(enabled);
+            }
             "--config-dir" => {
                 i += 1;
                 match args.get(i) {
@@ -81,27 +97,22 @@ pub fn parse_args(args: &[String]) -> Result<LaunchConfig, String> {
             usage = usage()
         ));
     }
+    if mode == LaunchMode::ConfigEditor && tray_override.is_some() {
+        return Err(format!(
+            "{}\n{}",
+            crate::native_text::text("trayLauncherOnly"),
+            usage()
+        ));
+    }
     Ok(LaunchConfig {
         mode,
         config_dir_override,
         show_help,
+        // Linux tray construction can succeed without a visible tray host.
+        // Make residency opt-in there; --no-tray works on every desktop OS.
+        tray_enabled: mode == LaunchMode::Launcher
+            && tray_override.unwrap_or(!cfg!(target_os = "linux")),
     })
-}
-
-/// Resolve the editor configuration directory.
-///
-/// - Explicit `--config-dir` wins (made absolute, like the wrapper).
-/// - Otherwise the portable default `<exe-dir>/engine-wrapper` is used.
-///   The process CWD is never used implicitly.
-pub fn resolve_editor_config_dir(exe_path: &Path, override_dir: Option<&Path>) -> PathBuf {
-    if let Some(dir) = override_dir {
-        return std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
-    }
-    let exe_dir = exe_path
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."));
-    exe_dir.join("engine-wrapper")
 }
 
 #[cfg(test)]
@@ -158,11 +169,24 @@ mod tests {
     }
 
     #[test]
-    fn config_dir_prefers_override_and_ignores_cwd() {
-        let dir =
-            resolve_editor_config_dir(Path::new("/app/ShogiHomeLab"), Some(Path::new("/cfg")));
-        assert_eq!(dir, PathBuf::from("/cfg"));
-        let dir = resolve_editor_config_dir(Path::new("/app/ShogiHomeLab"), None);
-        assert_eq!(dir, PathBuf::from("/app/engine-wrapper"));
+    fn tray_residency_is_explicit_and_editor_never_uses_it() {
+        assert_eq!(
+            parse_args(&args(&["app"])).unwrap().tray_enabled,
+            !cfg!(target_os = "linux")
+        );
+        assert!(
+            !parse_args(&args(&["app", "--no-tray"]))
+                .unwrap()
+                .tray_enabled
+        );
+        assert!(parse_args(&args(&["app", "--tray"])).unwrap().tray_enabled);
+        assert!(
+            !parse_args(&args(&["app", "--config-editor"]))
+                .unwrap()
+                .tray_enabled
+        );
+        assert!(parse_args(&args(&["app", "--tray", "--no-tray"])).is_err());
+        assert!(parse_args(&args(&["app", "--config-editor", "--tray"])).is_err());
+        assert!(parse_args(&args(&["app", "--config-editor", "--no-tray"])).is_err());
     }
 }

@@ -121,9 +121,7 @@ jobs:
         run: cargo build --locked -p shogihome-engine-wrapper
       - name: Windows service and probe regressions
         run: |
-          cargo test --locked -p shogihome-launcher controller::tests
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p shogihome-launcher probe_parent_exit_does_not_wait_for_inherited_pipes
+          cargo test --locked -p shogihome-launcher
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p shogihome-engine-wrapper --test config_dir
       - name: Windows wrapper contract
@@ -135,15 +133,103 @@ jobs:
         run: |
           npm ci
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npx tauri build --no-bundle
+          cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx tauri build --no-bundle -- --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Test-Path "src-tauri/target/release/ShogiHomeLab.exe")) {
             throw "Portable launcher binary is missing"
           }
+      - name: Check WebView2 runtime
+        run: |
+          $client = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+          if (Test-Path $client) {
+            Write-Host ("WebView2 Runtime: " + (Get-ItemProperty $client).pv)
+          } else {
+            Write-Host "WebView2 Runtime key missing; installed EdgeUpdate clients:"
+            Get-ChildItem "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients" | ForEach-Object { $_.PSChildName }
+          }
       - name: Windows launcher GUI regression
-        run: uv run --with playwright pytest tests/test_launcher_gui.py -q
+        run: uv run --with playwright pytest tests/test_launcher_gui.py tests/test_launcher_cli.py tests/test_server_runtime.py -q --basetemp="${{ runner.temp }}/launcher-gui-win"
         env:
           SHOGIHOME_GUI_EXE: launcher-app/src-tauri/target/release/ShogiHomeLab.exe
+      - name: Upload Windows GUI failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-windows-gui-diagnostics
+          path: |
+            ${{ runner.temp }}/launcher-gui-win/**/launcher.log
+            ${{ runner.temp }}/launcher-gui-win/**/gui-driver.log
+            ${{ runner.temp }}/launcher-gui-win/**/editor-standalone*.log
+            ${{ runner.temp }}/launcher-gui-win/**/logs/server.log
+            ${{ runner.temp }}/launcher-gui-win/**/logs/wrapper.log
+
+  test-launcher-unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: engine-wrapper
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: astral-sh/setup-uv@v7
+      - name: Install Linux WebView and GUI test dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev pkg-config webkit2gtk-driver xvfb xauth dbus-x11 openbox xdotool wmctrl scrot
+      - name: Install Python dependencies
+        run: uv sync --all-groups
+      - name: Native backend tests
+        run: cargo test --locked --workspace
+      - name: Wrapper contract
+        run: uv run pytest tests/test_wrapper_contract.py
+        env:
+          WRAPPER_CMD: rust
+      - name: Build native Tauri shell
+        working-directory: engine-wrapper/launcher-app
+        run: |
+          npm ci
+          cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+          npx tauri build --no-bundle -- --locked
+          test -x src-tauri/target/release/ShogiHomeLab
+      - name: Check shell formatting and lint
+        working-directory: engine-wrapper/launcher-app
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --check
+          cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
+      - name: Native CLI and runtime assembly
+        run: uv run pytest tests/test_launcher_cli.py tests/test_server_runtime.py -q
+        env:
+          SHOGIHOME_GUI_EXE: launcher-app/src-tauri/target/release/ShogiHomeLab
+      - name: Install WebDriver
+        if: runner.os == 'Linux'
+        run: cargo install tauri-driver --version 2.0.5 --locked
+      - name: Linux native GUI regressions
+        if: runner.os == 'Linux'
+        run: dbus-run-session -- xvfb-run -a uv run pytest tests/test_launcher_linux_gui.py -q --basetemp="${{ runner.temp }}/launcher-gui"
+        env:
+          SHOGIHOME_GUI_EXE: launcher-app/src-tauri/target/release/ShogiHomeLab
+      - name: Upload GUI failure diagnostics
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-linux-gui-diagnostics
+          path: |
+            ${{ runner.temp }}/launcher-gui/**/gui.log
+            ${{ runner.temp }}/launcher-gui/**/failure.png
+            ${{ runner.temp }}/launcher-gui/**/engine-wrapper/logs/*.log
 
   test-python:
     runs-on: ubuntu-latest

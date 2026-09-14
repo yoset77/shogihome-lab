@@ -8,6 +8,9 @@
 //!   cancellation flag so closing the editor never orphans a probe;
 //! - `refresh_options` keeps manual/unadvertised options instead of
 //!   silently dropping them on every probe.
+//! - probe and refresh carry the engine's `option name ...` arrival order
+//!   alongside the (sorted) option map so the UI lists options in engine
+//!   order like the old UI did.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
@@ -303,11 +306,14 @@ impl std::fmt::Display for ProbeError {
 /// `option` lines until `usiok`, send `quit`, tree-kill leftovers.
 /// Both stdout and stderr are drained (stderr discarded); total output is
 /// bounded; `cancel` aborts promptly.
+/// Returns the options plus the engine's arrival order: `BTreeMap` lookups
+/// sort keys alphabetically, so the UI needs the separate `order` vector to
+/// display options in `option name ...` arrival order (legacy parity).
 pub fn probe_usi_options(
     engine_path: &Path,
     base_dir: &Path,
     cancel: &AtomicBool,
-) -> Result<BTreeMap<String, UsiOption>, ProbeError> {
+) -> Result<(BTreeMap<String, UsiOption>, Vec<String>), ProbeError> {
     let resolved = if engine_path.is_absolute() {
         engine_path.to_path_buf()
     } else {
@@ -342,6 +348,7 @@ pub fn probe_usi_options(
     // below only blocks 100ms at a time so cancel/deadline stay responsive.
     let (line_tx, line_rx) = std::sync::mpsc::sync_channel::<Option<Vec<u8>>>(64);
     let mut options = BTreeMap::new();
+    let mut order: Vec<String> = Vec::new();
     let mut lines = 0usize;
     let mut bytes = 0usize;
     let deadline = Instant::now() + PROBE_USIOK_TIMEOUT;
@@ -409,6 +416,9 @@ pub fn probe_usi_options(
                         break Ok(());
                     }
                     if let Some((name, opt)) = parse_usi_option_line(text) {
+                        if !options.contains_key(&name) {
+                            order.push(name.clone());
+                        }
                         options.insert(name, opt);
                     }
                 }
@@ -448,7 +458,7 @@ pub fn probe_usi_options(
         outcome
     });
 
-    result.map(|_| options)
+    result.map(|_| (options, order))
 }
 
 fn spawn_probe(path: &Path, cwd: &Path) -> std::io::Result<crate::process::ManagedChild> {
@@ -489,10 +499,19 @@ fn spawn_probe(path: &Path, cwd: &Path) -> std::io::Result<crate::process::Manag
 /// the existing value when present (spin clamped to the advertised range,
 /// combo falling back to default when the value is not offered); manual
 /// entries the engine no longer advertises are KEPT (old UI dropped them).
+/// Returns the merged values plus the display order: `discovery_order`
+/// (minus `button` options, which are never shown) — callers append manual
+/// extras after it. `existing` iteration order is NOT used because
+/// `serde_json::Map` sorts keys; the frontend appends manual rows in DOM
+/// order itself.
 pub fn refresh_options(
     existing: &serde_json::Map<String, serde_json::Value>,
     discovered: &BTreeMap<String, UsiOption>,
-) -> serde_json::Map<String, serde_json::Value> {
+    discovery_order: &[String],
+) -> (
+    serde_json::Map<String, serde_json::Value>,
+    Vec<String>,
+) {
     let mut merged = serde_json::Map::new();
     for (name, opt) in discovered {
         if opt.option_type == UsiOptionType::Button {
@@ -510,7 +529,12 @@ pub fn refresh_options(
             merged.insert(name.clone(), value.clone());
         }
     }
-    merged
+    let order = discovery_order
+        .iter()
+        .filter(|name| merged.contains_key(*name))
+        .cloned()
+        .collect();
+    (merged, order)
 }
 
 fn default_value(opt: &UsiOption) -> serde_json::Value {
@@ -673,13 +697,50 @@ mod tests {
                 vars: vec!["Normal".to_string()],
             },
         );
-        let merged = refresh_options(&existing, &discovered);
+        let (merged, order) = refresh_options(
+            &existing,
+            &discovered,
+            &["Threads".to_string(), "Style".to_string(), "Hidden".to_string()],
+        );
         // Out-of-range manual Threads falls back to default...
         assert_eq!(merged["Threads"], serde_json::json!(1));
         // ...new options get defaults, unadvertised manual entries survive.
         assert_eq!(merged["Style"], serde_json::json!("Normal"));
         assert_eq!(merged["BookFile"], serde_json::json!("mine.bin"));
         assert_eq!(merged["Manual"], serde_json::json!("x"));
+        // Display order follows discovery order; `button` options never
+        // appear; manual extras are left for the caller to append.
+        assert_eq!(order, vec!["Threads".to_string(), "Style".to_string()]);
+    }
+
+    #[test]
+    fn refresh_preserves_engine_arrival_order() {
+        // BTreeMap iteration would yield Book, Threads, Zebra — the UI must
+        // show engine arrival order instead.
+        let existing = serde_json::Map::new();
+        let mut discovered = BTreeMap::new();
+        for name in ["Zebra", "Threads", "Book"] {
+            discovered.insert(
+                name.to_string(),
+                UsiOption {
+                    option_type: UsiOptionType::String,
+                    default: String::new(),
+                    min: None,
+                    max: None,
+                    vars: vec![],
+                },
+            );
+        }
+        let (_, order) = refresh_options(
+            &existing,
+            &discovered,
+            &[
+                "Zebra".to_string(),
+                "Threads".to_string(),
+                "Book".to_string(),
+            ],
+        );
+        assert_eq!(order, vec!["Zebra", "Threads", "Book"]);
     }
 
     #[test]
@@ -687,7 +748,7 @@ mod tests {
     fn probe_fake_engine_and_cancel() {
         let dir = std::env::temp_dir().join(format!("probe-options-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let fixture = dir.join("probe_engine.py");
+        let fixture = dir.join("probe 日本語 engine");
         std::fs::write(
             &fixture,
             include_str!("../../tests/fixtures/probe_engine.py"),
@@ -699,9 +760,19 @@ mod tests {
             std::fs::set_permissions(&fixture, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         let cancel = AtomicBool::new(false);
-        let opts = probe_usi_options(&fixture, Path::new("/tmp"), &cancel).unwrap();
+        let (opts, order) =
+            probe_usi_options(Path::new(fixture.file_name().unwrap()), &dir, &cancel).unwrap();
         assert_eq!(opts["Threads"].max, Some(128));
         assert_eq!(opts["USI_Ponder"].default, "true");
+        // Arrival order (Threads before USI_Ponder) survives the BTreeMap.
+        assert_eq!(order, vec!["Threads".to_string(), "USI_Ponder".to_string()]);
+
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fixture, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            probe_usi_options(&fixture, &dir, &cancel),
+            Err(ProbeError::Io(_))
+        ));
 
         // Cancelled probe reports cancellation.
         let slow = fixture.parent().unwrap().join("probe_slow.py");

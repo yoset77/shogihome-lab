@@ -131,6 +131,19 @@ impl Controller {
         self.start_inner(plan)
     }
 
+    /// Persist `.env` settings while holding the same operation lock that
+    /// serializes start/stop/restart/migration. The server+wrapper snapshot
+    /// used at startup is taken under this lock, so saving here prevents a
+    /// mixed plan (new server values + old wrapper values) from forming.
+    pub fn save_settings(
+        &self,
+        values: &std::collections::HashMap<String, crate::settings::SettingValue>,
+        paths: &crate::settings::EnvPaths,
+    ) -> Result<(), String> {
+        let _operation = self.operation.lock().unwrap();
+        crate::settings::save(values, paths)
+    }
+
     pub fn quit(&self) {
         self.quitting.store(true, Ordering::SeqCst);
         let _operation = self.operation.lock().unwrap();
@@ -329,6 +342,63 @@ mod tests {
         assert_eq!(controller.status().state, SupervisorState::Failed);
         assert!(controller.services.lock().unwrap().is_empty());
         controller.while_stopped(|| Ok(())).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn save_settings_shares_the_operation_lock_with_startup_snapshot() {
+        use crate::settings::{EnvPaths, SettingValue};
+        use std::sync::mpsc;
+        let dir = fixture("save-lock");
+        let controller = Arc::new(Controller::new(&["server", "wrapper"]));
+        let (locked_tx, locked_rx) = mpsc::channel::<()>();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        // Hold the operation lock in the background (as start/migration do).
+        // The holder signals once the lock is owned and only releases when
+        // the test says so: no sleep-based assumptions about scheduling.
+        let holder = {
+            let controller = controller.clone();
+            std::thread::spawn(move || {
+                controller.while_stopped(|| {
+                    locked_tx.send(()).expect("test must be listening");
+                    release_rx.recv().expect("test must release the lock");
+                    Ok(())
+                })
+            })
+        };
+        locked_rx.recv().expect("holder must acquire the lock");
+        let paths = EnvPaths::new(&dir.join("shogihome"), &dir.join("engine-wrapper"));
+        let mut values = HashMap::new();
+        values.insert(
+            "WRAPPER_ACCESS_TOKEN".to_string(),
+            SettingValue::Text("locked-token".to_string()),
+        );
+        let (done_tx, done_rx) = mpsc::channel();
+        let saver = {
+            let controller = controller.clone();
+            std::thread::spawn(move || {
+                let result = controller.save_settings(&values, &paths);
+                done_tx.send(result).expect("test must be listening");
+            })
+        };
+        // While the lock is held, the saver must not complete. A broken
+        // implementation (no shared lock) would finish immediately and fail
+        // here; a correct one stays blocked without any timing guess.
+        assert!(
+            done_rx.recv_timeout(Duration::from_millis(300)).is_err(),
+            "save_settings must wait for the operation lock"
+        );
+        release_tx.send(()).expect("holder must be waiting");
+        done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("save must complete after release")
+            .unwrap();
+        saver.join().expect("saver thread must finish");
+        holder.join().expect("holder thread must finish").unwrap();
+        let server_env = std::fs::read_to_string(dir.join("shogihome").join(".env")).unwrap();
+        let wrapper_env = std::fs::read_to_string(dir.join("engine-wrapper").join(".env")).unwrap();
+        assert!(server_env.contains("locked-token"));
+        assert!(wrapper_env.contains("locked-token"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

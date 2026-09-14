@@ -89,6 +89,10 @@ npm run build
 
 #### 3. エンジンラッパー (engine-wrapper) のセットアップ
 
+Rust 版 wrapper と Tauri 版設定エディタは Windows／Linux／macOS でビルドできます。GUI の前提環境、単独起動、launcher の portable 配置は **[Native launcher / config editor](engine-wrapper/launcher-app/README.md)** を参照してください。Linux は既定でトレイに常駐せず、閉じる操作で停止して終了します。
+
+以下は Python 版を fallback として使用する場合の手順です。
+
 ```shell
 cd engine-wrapper
 uv sync
@@ -108,6 +112,8 @@ npm run server:start
 ```
 
 **エンジンラッパー:**
+
+Rust 版は `engine-wrapper/` で `cargo run --locked -p shogihome-engine-wrapper -- --config-dir .` を実行します。Python／Node.js 版を使う場合:
 ```shell
 cd engine-wrapper
 uv run engine_wrapper.py
