@@ -14,12 +14,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 rand = "0.8"
 encoding_rs = "0.8"
+thiserror = "2"
 ureq = { version = "3", default-features = true }
 shogihome-env-file = { path = "../env-file" }
+shogihome-process = { path = "../process" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-
-[target.'cfg(windows)'.dependencies]
-process-wrap = { version = "10", default-features = false, features = ["std", "creation-flags", "job-object"] }
-windows = { version = "0.62", features = ["Win32_System_Threading"] }

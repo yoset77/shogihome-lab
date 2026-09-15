@@ -9,6 +9,7 @@ pub mod controller;
 pub mod editor;
 pub mod editor_session;
 pub mod env_codec;
+pub mod error;
 pub mod launch_mode;
 pub mod lifecycle;
 pub mod logs;

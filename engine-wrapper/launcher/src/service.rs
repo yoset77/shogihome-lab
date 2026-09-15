@@ -4,6 +4,8 @@
 //! - stdout+stderr append to per-service log files under `<base>/logs`.
 //! - POSIX children start as process-group leaders so `stop_tree` reaches
 //!   descendants (the old `kill_proc_tree` only signalled the root PID).
+//!   Engines spawned by the wrapper form their own groups, so `stop_all`
+//!   SIGTERMs first (wrapper session cleanup) and only then SIGKILLs.
 //! - Readiness = expected TCP ports open AND owned PIDs alive, with early
 //!   exit when a child dies (mirrors the launcher port wait, minus the
 //!   loopback-only wrapper assumption: the wrapper host is configurable).
@@ -16,8 +18,18 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use crate::error::LauncherError;
+
 /// How long startup waits for all services to become ready.
 pub const READY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Wrapper `.env` keys forwarded to the supervised wrapper process. The
+/// wrapper's `.env` file is wrapper configuration only: anything outside
+/// this list is ignored and never reaches engines (matching standalone
+/// `shogihome-wrapper`, which resolves the same three keys). Engines inherit
+/// the OS/launcher environment (PATH, system GPU/library setup), not
+/// wrapper config extras.
+pub const WRAPPER_ENV_FORWARD: &[&str] = &["BIND_ADDRESS", "LISTEN_PORT", "WRAPPER_ACCESS_TOKEN"];
 /// UI-level delay after stop before ports are reused (matches restart's 1s).
 pub const RESTART_SETTLE: Duration = Duration::from_secs(1);
 
@@ -46,15 +58,17 @@ pub struct ServicePlan {
 }
 
 /// Build one configuration snapshot for both spawning and readiness checks.
-pub fn portable_services(root: &Path) -> Result<ServicePlan, String> {
+pub fn portable_services(root: &Path) -> Result<ServicePlan, LauncherError> {
     use crate::env_codec::{parse_env, read_env_file};
     if crate::migration::MigrationPaths::new(root)
         .pending_source()
         .is_some()
     {
-        return Err("finish the pending migration before starting services".into());
+        return Err(LauncherError::msg(
+            "finish the pending migration before starting services",
+        ));
     }
-    let paths = crate::paths::PortablePaths::new(root).map_err(|e| e.to_string())?;
+    let paths = crate::paths::PortablePaths::new(root)?;
     let server_dir = paths.server_dir();
     let wrapper_dir = paths.config_dir();
     let mut specs = Vec::new();
@@ -89,7 +103,10 @@ pub fn portable_services(root: &Path) -> Result<ServicePlan, String> {
             "127.0.0.1",
         ),
     ] {
-        let env = parse_env(&read_env_file(&cwd.join(".env")).map_err(|e| e.to_string())?);
+        let env = parse_env(
+            &read_env_file(&cwd.join(".env"))
+                .map_err(|e| LauncherError::io(format!("reading {}", cwd.display()), e))?,
+        );
         let value = |key: &str, default: &str| {
             env.get(key)
                 .cloned()
@@ -104,14 +121,24 @@ pub fn portable_services(root: &Path) -> Result<ServicePlan, String> {
         };
         let port = value(port_key, default_port)
             .parse::<u16>()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| LauncherError::msg(format!("invalid {port_key}: {e}")))?;
         expectations.insert(name.to_string(), ReadyExpectation { host, port });
+        // The wrapper only forwards its three known keys so standalone and
+        // supervised launches observe the same engine environment. The
+        // server keeps its full snapshot (it consumes many keys itself).
+        let snapshot: Vec<(String, String)> = if name == "wrapper" {
+            env.into_iter()
+                .filter(|(k, _)| WRAPPER_ENV_FORWARD.contains(&k.as_str()))
+                .collect()
+        } else {
+            env.into_iter().collect()
+        };
         specs.push(ServiceSpec {
             name: name.into(),
             program,
             args,
             cwd,
-            env: env.into_iter().collect(),
+            env: snapshot,
             inherit_env: true,
         });
     }
@@ -235,10 +262,38 @@ pub fn wait_ready_until(
     }
 }
 
-/// Stop every service and wait for reaping.
+/// How long graceful stop waits after SIGTERM before escalating to SIGKILL.
+/// Normal exits return early; the full wait only applies to stuck children.
+/// Must cover the wrapper's session drain (its own 10s shutdown deadline).
+pub const STOP_GRACEFUL_TIMEOUT: Duration = Duration::from_secs(12);
+
+/// Stop every service gracefully, then force-kill survivors and reap.
+///
+/// SIGTERM first so the wrapper runs its session cleanup (`quit` → engine
+/// tree SIGTERM/SIGKILL) and reaps grandchildren in their own process
+/// groups; an immediate SIGKILL would skip that handler and orphan engines.
+/// Survivors past the timeout are SIGKILLed and reaped as before.
 pub fn stop_all(services: &mut HashMap<String, RunningService>) {
+    stop_all_with_timeout(services, STOP_GRACEFUL_TIMEOUT);
+}
+
+pub fn stop_all_with_timeout(services: &mut HashMap<String, RunningService>, timeout: Duration) {
     for svc in services.values_mut() {
-        let _ = svc.child.kill();
+        let _ = svc.child.terminate_tree(true);
+    }
+    let deadline = Instant::now() + timeout;
+    let probe = Duration::from_millis(50);
+    for svc in services.values_mut() {
+        while svc.child.try_wait().map(|s| s.is_none()).unwrap_or(false) {
+            if Instant::now() >= deadline {
+                break;
+            }
+            std::thread::sleep(probe);
+        }
+        // Escalate anything still alive, then reap below.
+        if svc.child.try_wait().map(|s| s.is_none()).unwrap_or(false) {
+            let _ = svc.child.kill();
+        }
     }
     for (_, mut svc) in services.drain() {
         let _ = svc.child.wait();
@@ -315,5 +370,83 @@ mod tests {
         stop_all(&mut map);
         drop(listener);
         std::fs::remove_dir_all(&log_dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_all_delivers_sigterm_before_sigkill() {
+        // A service that traps SIGTERM must observe it: immediate SIGKILL
+        // (the old behavior) would never run the handler.
+        let dir = std::env::temp_dir().join(format!("svc-term-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join("got-sigterm");
+        let ready = dir.join("ready");
+        let mut spec = test_spec("trap", &dir);
+        spec.args = vec![
+            "-c".into(),
+            format!(
+                "import signal,time,pathlib;signal.signal(signal.SIGTERM,lambda *a:(pathlib.Path({:?}).touch(),exit(0)));pathlib.Path({:?}).touch();time.sleep(30)",
+                marker.to_string_lossy().into_owned(),
+                ready.to_string_lossy().into_owned(),
+            ),
+        ];
+        // Readiness is signalled after the SIGTERM handler is installed, so
+        // the stop below cannot land in the pre-handler window.
+        let log_dir = dir.join("logs");
+        let svc = spawn_service(&spec, &log_dir).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !ready.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(ready.exists(), "child must start before stop");
+        let mut map = HashMap::from([(svc.name.clone(), svc)]);
+        stop_all_with_timeout(&mut map, Duration::from_secs(10));
+        assert!(map.is_empty());
+        assert!(marker.exists(), "SIGTERM handler must have run before exit");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_all_force_kills_sigterm_ignorers() {
+        let dir = std::env::temp_dir().join(format!("svc-ign-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let ready = dir.join("ready");
+        let log_dir = dir.join("logs");
+        let mut spec = test_spec("ignore", &dir);
+        spec.args = vec![
+            "-c".into(),
+            format!(
+                "import signal,time,pathlib;signal.signal(signal.SIGTERM,signal.SIG_IGN);pathlib.Path({:?}).touch();time.sleep(30)",
+                ready.to_string_lossy().into_owned(),
+            ),
+        ];
+        let svc = spawn_service(&spec, &log_dir).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !ready.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(ready.exists(), "child must ignore SIGTERM before stop");
+        let mut map = HashMap::from([(svc.name.clone(), svc)]);
+        // Short timeout keeps the test fast; escalation must still reap.
+        // Duration bounds prove the escalation path: near-instant return
+        // would mean no graceful wait, while ~30s would mean waiting out
+        // the natural exit instead of SIGKILLing.
+        let timeout = Duration::from_millis(500);
+        let start = Instant::now();
+        stop_all_with_timeout(&mut map, timeout);
+        let elapsed = start.elapsed();
+        assert!(map.is_empty());
+        assert!(
+            elapsed >= timeout - Duration::from_millis(100),
+            "must wait out the graceful period before escalating, took {elapsed:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(20),
+            "must escalate to SIGKILL instead of awaiting natural exit, took {elapsed:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

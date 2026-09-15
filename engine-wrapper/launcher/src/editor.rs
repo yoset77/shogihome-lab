@@ -19,6 +19,8 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::error::LauncherError;
+
 pub const PROBE_USIOK_TIMEOUT: Duration = Duration::from_secs(5);
 pub const PROBE_QUIT_TIMEOUT: Duration = Duration::from_secs(1);
 /// Cap per probe: lines and total bytes (noisy engines cannot OOM the launcher).
@@ -152,22 +154,27 @@ pub fn parse_usi_option_line(line: &str) -> Option<(String, UsiOption)> {
 pub const ENGINE_TYPES: &[&str] = &["game", "research", "mate"];
 
 /// Validate one engine entry, normalizing legacy `type` forms.
-/// Returns the normalized entry or an error string.
-pub fn normalize_engine_entry(entry: &serde_json::Value) -> Result<serde_json::Value, String> {
-    let obj = entry.as_object().ok_or("entry must be an object")?;
+/// Returns the normalized entry or a validation error.
+pub fn normalize_engine_entry(
+    entry: &serde_json::Value,
+) -> Result<serde_json::Value, LauncherError> {
+    let invalid = LauncherError::Engines as fn(String) -> LauncherError;
+    let obj = entry
+        .as_object()
+        .ok_or_else(|| invalid("entry must be an object".to_string()))?;
     let get_str = |field: &str| {
         obj.get(field)
             .and_then(|v| v.as_str())
-            .ok_or(format!("missing required field '{field}'"))
+            .ok_or_else(|| invalid(format!("missing required field '{field}'")))
     };
     let id = get_str("id")?;
     let name = get_str("name")?;
     let path = get_str("path")?;
     if id.trim().is_empty() {
-        return Err("engine id cannot be empty".to_string());
+        return Err(invalid("engine id cannot be empty".to_string()));
     }
     if path.trim().is_empty() {
-        return Err("engine path cannot be empty".to_string());
+        return Err(invalid("engine path cannot be empty".to_string()));
     }
     let mut out = serde_json::Map::new();
     // Preserve unknown fields (DB group metadata, future keys).
@@ -199,11 +206,11 @@ pub fn normalize_engine_entry(entry: &serde_json::Value) -> Result<serde_json::V
                 .map(|v| v.as_str().unwrap_or("").to_string())
                 .collect()
         } else {
-            return Err("field 'type' must be a string or list".to_string());
+            return Err(invalid("field 'type' must be a string or list".to_string()));
         };
         for t in &types {
             if !ENGINE_TYPES.contains(&t.as_str()) {
-                return Err(format!("invalid engine type '{t}'"));
+                return Err(invalid(format!("invalid engine type '{t}'")));
             }
         }
         types.sort();
@@ -215,72 +222,69 @@ pub fn normalize_engine_entry(entry: &serde_json::Value) -> Result<serde_json::V
     }
     if let Some(options) = obj.get("options") {
         if !options.is_object() {
-            return Err("field 'options' must be an object".to_string());
+            return Err(invalid("field 'options' must be an object".to_string()));
         }
     }
     Ok(serde_json::Value::Object(out))
 }
 
 /// Validate a full engines document (load AND save paths).
-pub fn validate_engines(data: &serde_json::Value) -> Result<Vec<serde_json::Value>, String> {
-    let arr = data.as_array().ok_or("root must be a list")?;
-    arr.iter().map(normalize_engine_entry).collect()
+///
+/// Engine `id`s must be unique: a colliding edit would otherwise silently
+/// shadow an existing engine at runtime (the wrapper resolves by id).
+pub fn validate_engines(data: &serde_json::Value) -> Result<Vec<serde_json::Value>, LauncherError> {
+    let arr = data
+        .as_array()
+        .ok_or_else(|| LauncherError::Engines("root must be a list".to_string()))?;
+    let mut engines = Vec::with_capacity(arr.len());
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for entry in arr {
+        let engine = normalize_engine_entry(entry)?;
+        let id = engine
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        if !seen.insert(id.clone()) {
+            return Err(LauncherError::Engines(format!(
+                "duplicate engine id '{id}'"
+            )));
+        }
+        engines.push(engine);
+    }
+    Ok(engines)
 }
 
 /// Load + validate `engines.json`. Missing file → empty list.
-pub fn load_engines_file(path: &Path) -> Result<Vec<serde_json::Value>, String> {
+pub fn load_engines_file(path: &Path) -> Result<Vec<serde_json::Value>, LauncherError> {
     if !path.exists() {
         return Ok(Vec::new());
     }
-    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let data: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| LauncherError::io(format!("reading {}", path.display()), e))?;
+    let data: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| LauncherError::json(format!("parsing {}", path.display()), e))?;
     validate_engines(&data)
 }
 
 /// Validate + atomically save `engines.json`.
 ///
-/// The temporary file uses a per-process unique name in the same directory
-/// so concurrent editor sessions (launcher-embedded and standalone
+/// The write goes through the shared unique-tmp + rename helper so
+/// concurrent editor sessions (launcher-embedded and standalone
 /// `--config-editor`) cannot truncate each other's file. Last writer still
 /// wins, but the registry is never left half-written.
-pub fn save_engines_file(path: &Path, data: &serde_json::Value) -> Result<(), String> {
+pub fn save_engines_file(path: &Path, data: &serde_json::Value) -> Result<(), LauncherError> {
     let engines = validate_engines(data)?;
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| LauncherError::io(format!("creating {}", parent.display()), e))?;
         }
     }
-    let content = serde_json::to_string_pretty(&engines).map_err(|e| e.to_string())?;
-    let tmp = unique_tmp_path(path);
-    std::fs::write(&tmp, content.as_bytes()).map_err(|e| e.to_string())?;
-    match std::fs::rename(&tmp, path) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            let _ = std::fs::remove_file(&tmp);
-            Err(e.to_string())
-        }
-    }
-}
-
-fn unique_tmp_path(path: &Path) -> std::path::PathBuf {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let file_name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "engines.json".to_string());
-    let tmp_name = format!("{file_name}.{}.tmp", std::process::id());
-    // Same-process concurrent saves share the pid; disambiguate with a counter.
-    let tmp_name = if seq == 0 {
-        tmp_name
-    } else {
-        format!("{tmp_name}.{seq}")
-    };
-    match path.parent() {
-        Some(parent) if !parent.as_os_str().is_empty() => parent.join(tmp_name),
-        _ => std::path::PathBuf::from(tmp_name),
-    }
+    let content = serde_json::to_string_pretty(&engines)
+        .map_err(|e| LauncherError::json("serializing engines.json".to_string(), e))?;
+    shogihome_env_file::write_atomic(path, content.as_bytes())
+        .map_err(|e| LauncherError::io(format!("writing {}", path.display()), e))
 }
 
 #[derive(Debug)]
@@ -465,12 +469,7 @@ fn spawn_probe(path: &Path, cwd: &Path) -> std::io::Result<crate::process::Manag
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        let is_batch = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.eq_ignore_ascii_case("bat") || e.eq_ignore_ascii_case("cmd"))
-            .unwrap_or(false);
-        let mut cmd = if is_batch {
+        let mut cmd = if crate::process::is_batch_script(path) {
             let mut c = Command::new("cmd");
             c.args(["/d", "/s", "/c"])
                 .raw_arg(format!("\"\"{}\"\"", path.display()));
@@ -508,10 +507,7 @@ pub fn refresh_options(
     existing: &serde_json::Map<String, serde_json::Value>,
     discovered: &BTreeMap<String, UsiOption>,
     discovery_order: &[String],
-) -> (
-    serde_json::Map<String, serde_json::Value>,
-    Vec<String>,
-) {
+) -> (serde_json::Map<String, serde_json::Value>, Vec<String>) {
     let mut merged = serde_json::Map::new();
     for (name, opt) in discovered {
         if opt.option_type == UsiOptionType::Button {
@@ -644,6 +640,30 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_engine_ids_are_rejected() {
+        // Same id twice — including via an edit that renames an existing
+        // entry onto a colliding id — must fail instead of shadowing.
+        let data = serde_json::json!([
+            {"id": "a", "name": "A", "path": "x"},
+            {"id": "b", "name": "B", "path": "y"},
+        ]);
+        assert!(validate_engines(&data).is_ok());
+        let dup = serde_json::json!([
+            {"id": "a", "name": "A", "path": "x"},
+            {"id": "a", "name": "A2", "path": "y"},
+        ]);
+        let err = validate_engines(&dup).expect_err("duplicate id must fail");
+        assert!(err.to_string().contains("duplicate engine id 'a'"), "{err}");
+        // Save path enforces the same rule.
+        let dir = std::env::temp_dir().join(format!("ed-dup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("engines.json");
+        assert!(save_engines_file(&path, &dup).is_err());
+        assert!(!path.exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn save_round_trips_atomically() {
         let dir = std::env::temp_dir().join(format!("ed-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -700,7 +720,11 @@ mod tests {
         let (merged, order) = refresh_options(
             &existing,
             &discovered,
-            &["Threads".to_string(), "Style".to_string(), "Hidden".to_string()],
+            &[
+                "Threads".to_string(),
+                "Style".to_string(),
+                "Hidden".to_string(),
+            ],
         );
         // Out-of-range manual Threads falls back to default...
         assert_eq!(merged["Threads"], serde_json::json!(1));

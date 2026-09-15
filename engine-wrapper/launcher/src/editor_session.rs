@@ -5,6 +5,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::error::LauncherError;
+
 #[derive(Default)]
 pub struct EditorSession {
     generation: u64,
@@ -15,7 +17,7 @@ pub struct EditorSession {
 }
 
 impl EditorSession {
-    pub fn open(&mut self, config_dir: &Path) -> Result<(), String> {
+    pub fn open(&mut self, config_dir: &Path) -> Result<(), LauncherError> {
         if self.lock.is_none() {
             self.lock = Some(crate::session_lock::acquire(config_dir)?);
         }
@@ -24,8 +26,10 @@ impl EditorSession {
         Ok(())
     }
 
-    pub fn begin_probe(session: &Arc<Mutex<Self>>) -> Result<ProbeRegistration, String> {
-        let mut state = session.lock().map_err(|e| e.to_string())?;
+    pub fn begin_probe(session: &Arc<Mutex<Self>>) -> Result<ProbeRegistration, LauncherError> {
+        let mut state = session
+            .lock()
+            .map_err(|e| LauncherError::msg(e.to_string()))?;
         state.ensure_open()?;
         state.next_probe += 1;
         let id = state.next_probe;
@@ -38,7 +42,7 @@ impl EditorSession {
         })
     }
 
-    pub fn ensure_open(&self) -> Result<(), String> {
+    pub fn ensure_open(&self) -> Result<(), LauncherError> {
         if self.closing || self.lock.is_none() {
             Err(crate::native_text::text("editorClosing").into())
         } else {

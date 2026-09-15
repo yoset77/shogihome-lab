@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
+use crate::error::LauncherError;
 use crate::service::{self, RunningService, ServicePlan};
 use crate::supervisor::{StatusSnapshot, Supervisor, SupervisorRequest, SupervisorState};
 
@@ -30,15 +31,18 @@ impl Controller {
         self.supervisor.lock().unwrap().snapshot()
     }
 
-    pub fn start(&self, plan: impl FnOnce() -> Result<ServicePlan, String>) -> Result<u64, String> {
+    pub fn start(
+        &self,
+        plan: impl FnOnce() -> Result<ServicePlan, LauncherError>,
+    ) -> Result<u64, LauncherError> {
         let _operation = self.operation.lock().unwrap();
         self.start_inner(plan)
     }
 
     fn start_inner(
         &self,
-        plan: impl FnOnce() -> Result<ServicePlan, String>,
-    ) -> Result<u64, String> {
+        plan: impl FnOnce() -> Result<ServicePlan, LauncherError>,
+    ) -> Result<u64, LauncherError> {
         if self.quitting.load(Ordering::SeqCst) {
             return Err("launcher is quitting".into());
         }
@@ -65,7 +69,7 @@ impl Controller {
                             .lock()
                             .unwrap()
                             .service_failed(generation, &spec.name);
-                        return Err(format!("{}: {error}", spec.name));
+                        return Err(LauncherError::msg(format!("{}: {error}", spec.name)));
                     }
                 }
             }
@@ -87,7 +91,7 @@ impl Controller {
                     for name in &failed {
                         supervisor.service_failed(generation, name);
                     }
-                    Err(format!("services not ready: {}", failed.join(", ")))
+                    Err(format!("services not ready: {}", failed.join(", ")).into())
                 }
             }
         })();
@@ -101,12 +105,12 @@ impl Controller {
         result.map(|()| generation)
     }
 
-    pub fn stop(&self) -> Result<(), String> {
+    pub fn stop(&self) -> Result<(), LauncherError> {
         let _operation = self.operation.lock().unwrap();
         self.stop_inner()
     }
 
-    fn stop_inner(&self) -> Result<(), String> {
+    fn stop_inner(&self) -> Result<(), LauncherError> {
         if self.status().state == SupervisorState::Stopped {
             return Ok(());
         }
@@ -123,8 +127,8 @@ impl Controller {
 
     pub fn restart(
         &self,
-        plan: impl FnOnce() -> Result<ServicePlan, String>,
-    ) -> Result<u64, String> {
+        plan: impl FnOnce() -> Result<ServicePlan, LauncherError>,
+    ) -> Result<u64, LauncherError> {
         let _operation = self.operation.lock().unwrap();
         self.stop_inner()?;
         std::thread::sleep(service::RESTART_SETTLE);
@@ -139,7 +143,7 @@ impl Controller {
         &self,
         values: &std::collections::HashMap<String, crate::settings::SettingValue>,
         paths: &crate::settings::EnvPaths,
-    ) -> Result<(), String> {
+    ) -> Result<(), LauncherError> {
         let _operation = self.operation.lock().unwrap();
         crate::settings::save(values, paths)
     }
@@ -182,8 +186,8 @@ impl Controller {
 
     pub fn while_stopped<T>(
         &self,
-        action: impl FnOnce() -> Result<T, String>,
-    ) -> Result<T, String> {
+        action: impl FnOnce() -> Result<T, LauncherError>,
+    ) -> Result<T, LauncherError> {
         let _operation = self.operation.lock().unwrap();
         if !matches!(
             self.status().state,
@@ -231,7 +235,7 @@ mod tests {
         dir
     }
 
-    fn plan(dir: &Path, listening: bool) -> Result<ServicePlan, String> {
+    fn plan(dir: &Path, listening: bool) -> Result<ServicePlan, LauncherError> {
         let mut plan = service::portable_services(dir)?;
         for spec in &mut plan.specs {
             let port_key = if spec.name == "server" {

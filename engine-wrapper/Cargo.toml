@@ -1,5 +1,5 @@
 [workspace]
-members = ["wrapper", "launcher", "env-file"]
+members = ["wrapper", "launcher", "env-file", "process"]
 # rust-poc is a standalone experiment. The desktop shell needs native WebView
 # libraries and has dedicated Windows/Linux/macOS CI jobs and its own lockfile.
 exclude = ["rust-poc", "launcher-app/src-tauri"]

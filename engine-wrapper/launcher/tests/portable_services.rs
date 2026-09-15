@@ -13,7 +13,7 @@ fn portable_plan_uses_native_names_and_one_config_snapshot() {
     .unwrap();
     std::fs::write(
         root.join("engine-wrapper/.env"),
-        "LISTEN_PORT=14082\nBIND_ADDRESS=127.0.0.1\n",
+        "LISTEN_PORT=14082\nBIND_ADDRESS=127.0.0.1\nCUDA_VISIBLE_DEVICES=0\n",
     )
     .unwrap();
     let plan = portable_services(&root).unwrap();
@@ -38,4 +38,14 @@ fn portable_plan_uses_native_names_and_one_config_snapshot() {
     assert!(plan.specs[1]
         .env
         .contains(&("LISTEN_PORT".into(), "14082".into())));
+    // Wrapper config extras never reach engines: standalone resolves the
+    // same three keys, so supervised launches must match.
+    assert!(
+        !plan.specs[1]
+            .env
+            .iter()
+            .any(|(k, _)| k == "CUDA_VISIBLE_DEVICES"),
+        "wrapper snapshot must drop non-forwarded keys: {:?}",
+        plan.specs[1].env
+    );
 }

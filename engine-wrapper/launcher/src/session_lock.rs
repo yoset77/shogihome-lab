@@ -16,6 +16,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::error::LauncherError;
+
 /// An acquired edit-session lock. Dropping it (or exiting the process)
 /// releases the lock.
 #[derive(Debug)]
@@ -38,14 +40,19 @@ fn locked_error(path: &Path) -> String {
 
 /// Acquire the session lock for `config_dir`, creating the directory and
 /// the lock file as needed. Fails when another process holds the lock.
-pub fn acquire(config_dir: &Path) -> Result<SessionLock, String> {
+pub fn acquire(config_dir: &Path) -> Result<SessionLock, LauncherError> {
     if config_dir.as_os_str().is_empty() {
-        return Err("configuration directory must not be empty".to_string());
+        return Err(LauncherError::msg(
+            "configuration directory must not be empty",
+        ));
     }
     std::fs::create_dir_all(config_dir).map_err(|e| {
-        format!(
-            "cannot create configuration directory {}: {e}",
-            config_dir.display()
+        LauncherError::io(
+            format!(
+                "cannot create configuration directory {}",
+                config_dir.display()
+            ),
+            e,
         )
     })?;
     let lock_path = config_dir.join(LOCK_FILE_NAME);
@@ -65,7 +72,7 @@ pub fn acquire(config_dir: &Path) -> Result<SessionLock, String> {
                 _file: file,
                 config_dir: config_dir.to_path_buf(),
             }),
-            Err(e) => Err(format!("{}: {e}", locked_error(config_dir))),
+            Err(e) => Err(LauncherError::io(locked_error(config_dir), e)),
         }
     }
 
@@ -78,12 +85,14 @@ pub fn acquire(config_dir: &Path) -> Result<SessionLock, String> {
             // The handle only owns the flock; file content is unused.
             .truncate(false)
             .open(&lock_path)
-            .map_err(|e| format!("cannot open lock file {}: {e}", lock_path.display()))?;
+            .map_err(|e| {
+                LauncherError::io(format!("cannot open lock file {}", lock_path.display()), e)
+            })?;
         // SAFETY: flock on our own open file descriptor; no memory unsafety.
         let ret = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
         if ret != 0 {
             let err = std::io::Error::last_os_error();
-            return Err(format!("{}: {err}", locked_error(config_dir)));
+            return Err(LauncherError::io(locked_error(config_dir), err));
         }
         Ok(SessionLock {
             _file: file,
@@ -94,7 +103,9 @@ pub fn acquire(config_dir: &Path) -> Result<SessionLock, String> {
     #[cfg(not(any(windows, unix)))]
     {
         let _ = lock_path;
-        Err("edit-session locking is not supported on this platform".to_string())
+        Err(LauncherError::msg(
+            "edit-session locking is not supported on this platform",
+        ))
     }
 }
 
@@ -137,7 +148,8 @@ mod tests {
         let _held = acquire(&config).expect("first acquire must succeed");
         let err = acquire(&config).expect_err("second acquire must fail while held");
         assert!(
-            err.contains("another engine config editor session"),
+            err.to_string()
+                .contains("another engine config editor session"),
             "{err}"
         );
         std::fs::remove_dir_all(&dir).ok();

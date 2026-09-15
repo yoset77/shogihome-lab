@@ -2,10 +2,12 @@
 // no innerHTML is built from engine data. Probe results flow through the
 // backend `editor_refresh` merge so manual options are never dropped.
 import { api, type EngineEntry } from "./api";
+import { confirmAction } from "./confirm";
 import {
   addGroup,
   applyEngineEdit,
   collectOptions,
+  deleteEngineIfConfirmed,
   deleteGroup,
   duplicateEngine,
   generateId,
@@ -76,7 +78,7 @@ export function initEditor(): void {
     return span;
   }
 
-  function actionButton(label: string, cls: string, onClick: () => void, disabled = false): HTMLButtonElement {
+  function actionButton(label: string, cls: string, onClick: () => void | Promise<void>, disabled = false): HTMLButtonElement {
     const btn = document.createElement("button");
     btn.className = `btn btn-sm ${cls}`;
     btn.textContent = label;
@@ -109,9 +111,8 @@ export function initEditor(): void {
         document.createTextNode(" "),
         actionButton(text("editor.edit", lang), "btn-primary", () => openEngineModal(idx)),
         document.createTextNode(" "),
-        actionButton(text("editor.delete", lang), "btn-danger", () => {
-          if (window.confirm(text("editor.confirmDelete", lang))) {
-            engines.splice(idx, 1);
+        actionButton(text("editor.delete", lang), "btn-danger", async () => {
+          if (await deleteEngineIfConfirmed(engines, idx, () => confirmAction(text("editor.confirmDelete", lang)))) {
             renderTable();
           }
         }),
@@ -428,8 +429,8 @@ export function initEditor(): void {
       const delBtn = document.createElement("button");
       delBtn.className = "btn btn-sm btn-danger";
       delBtn.textContent = text("editor.delete", lang);
-      delBtn.addEventListener("click", () => {
-        if (!window.confirm(text("editor.groupDeleteConfirm", lang, group.name, String(count)))) return;
+      delBtn.addEventListener("click", async () => {
+        if (!(await confirmAction(text("editor.groupDeleteConfirm", lang, group.name, String(count))))) return;
         virtualGroups = deleteGroup(engines, virtualGroups, group.id);
         renderGroupTable();
         renderTable();
@@ -565,8 +566,8 @@ export function initEditor(): void {
       }
     });
     $("retryLoadBtn").addEventListener("click", () => void loadRegistry());
-    $("newEmptyBtn").addEventListener("click", () => {
-      if (!window.confirm(text("editor.confirmNew", lang))) return;
+    $("newEmptyBtn").addEventListener("click", async () => {
+      if (!(await confirmAction(text("editor.confirmNew", lang)))) return;
       engines = [];
       virtualGroups = [];
       renderTable();
@@ -588,11 +589,11 @@ export function initEditor(): void {
     $("addEngineBtn").addEventListener("click", () => openEngineModal(-1));
     $("saveEngineBtn").addEventListener("click", saveEngineFromModal);
     $("cancelModalBtn").addEventListener("click", closeEngineModal);
-    $("regenerateIdBtn").addEventListener("click", () => {
-      if (window.confirm(text("editor.confirmRegenId", lang))) $<HTMLInputElement>("editId").value = generateId();
+    $("regenerateIdBtn").addEventListener("click", async () => {
+      if (await confirmAction(text("editor.confirmRegenId", lang))) $<HTMLInputElement>("editId").value = generateId();
     });
-    $("resetAllBtn").addEventListener("click", () => {
-      if (!window.confirm(text("editor.confirmResetAll", lang))) return;
+    $("resetAllBtn").addEventListener("click", async () => {
+      if (!(await confirmAction(text("editor.confirmResetAll", lang)))) return;
       document.querySelectorAll("#optionsList .option-row").forEach((row) => {
         const extra = (row as HTMLElement).dataset.extra ? JSON.parse((row as HTMLElement).dataset.extra as string) as { default?: unknown } : {};
         if (extra.default === undefined) return;

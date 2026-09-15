@@ -87,9 +87,13 @@ sources stay in the repo as fallback (see §7).
   rename.
 - **Wrapper `.env` autoload**: standalone `wrapper.exe` reads
   `<config-dir>/.env` (CLI > env > file > defaults, empty env wins over
-  the file, invalid ports fail startup). Decode/parse lives in the shared
+  the file, invalid ports fail startup). Only `BIND_ADDRESS`,
+  `LISTEN_PORT`, and `WRAPPER_ACCESS_TOKEN` are consumed; other entries
+  are ignored and never reach engines (engines inherit the OS/launcher
+  environment). Decode/parse lives in the shared
   `shogihome-env-file` crate reused by the launcher; the launcher passes
-  `--no-env-file` with its resolved snapshot.
+  `--no-env-file` with its resolved snapshot, forwarding the same three
+  keys so supervised and standalone launches agree.
 - **`editor_probe` is async**: Tauri runs non-async commands on the main
   thread, and a probe can take seconds, so the command now wraps the
   blocking probe in `spawn_blocking`. Cancellation via the shared flag is

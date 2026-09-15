@@ -13,6 +13,8 @@
 
 use std::path::PathBuf;
 
+use crate::error::LauncherError;
+
 /// Which top-level window the Tauri shell should create.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaunchMode {
@@ -46,7 +48,7 @@ pub fn usage() -> String {
 /// supervision, migration, and readiness stay on one snapshot, and an
 /// editor pointed elsewhere would save settings the supervised wrapper
 /// never reads.
-pub fn parse_args(args: &[String]) -> Result<LaunchConfig, String> {
+pub fn parse_args(args: &[String]) -> Result<LaunchConfig, LauncherError> {
     let mut mode = LaunchMode::Launcher;
     let mut config_dir_override = None;
     let mut show_help = false;
@@ -58,11 +60,11 @@ pub fn parse_args(args: &[String]) -> Result<LaunchConfig, String> {
             "--tray" | "--no-tray" => {
                 let enabled = args[i] == "--tray";
                 if tray_override.is_some_and(|previous| previous != enabled) {
-                    return Err(format!(
+                    return Err(LauncherError::msg(format!(
                         "{}\n{}",
                         crate::native_text::text("trayConflict"),
                         usage()
-                    ));
+                    )));
                 }
                 tray_override = Some(enabled);
             }
@@ -74,35 +76,35 @@ pub fn parse_args(args: &[String]) -> Result<LaunchConfig, String> {
                         config_dir_override = Some(PathBuf::from(dir));
                     }
                     _ => {
-                        return Err(format!(
+                        return Err(LauncherError::msg(format!(
                             "missing value for --config-dir\n{usage}",
                             usage = usage()
-                        ));
+                        )));
                     }
                 }
             }
             "--help" | "-h" => show_help = true,
             other => {
-                return Err(format!(
+                return Err(LauncherError::msg(format!(
                     "unknown argument: {other}\n{usage}",
                     usage = usage()
-                ));
+                )));
             }
         }
         i += 1;
     }
     if config_dir_override.is_some() && mode != LaunchMode::ConfigEditor {
-        return Err(format!(
+        return Err(LauncherError::msg(format!(
             "--config-dir requires --config-editor\n{usage}",
             usage = usage()
-        ));
+        )));
     }
     if mode == LaunchMode::ConfigEditor && tray_override.is_some() {
-        return Err(format!(
+        return Err(LauncherError::msg(format!(
             "{}\n{}",
             crate::native_text::text("trayLauncherOnly"),
             usage()
-        ));
+        )));
     }
     Ok(LaunchConfig {
         mode,

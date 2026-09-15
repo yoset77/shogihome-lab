@@ -4,6 +4,7 @@ import {
   addGroup,
   applyEngineEdit,
   collectOptions,
+  deleteEngineIfConfirmed,
   deleteGroup,
   duplicateEngine,
   generateId,
@@ -150,5 +151,36 @@ describe("collectOptions", () => {
     expect(options).toEqual({ USI_Ponder: true, Threads: 8, Bad: 999, Book: "a.bin" });
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain("Bad");
+  });
+});
+
+describe("deleteEngineIfConfirmed", () => {
+  it("keeps the entry while confirmation is pending", async () => {
+    const list = [engine({ id: "a" }), engine({ id: "b" })];
+    let resolve!: (value: boolean) => void;
+    const pending = deleteEngineIfConfirmed(
+      list,
+      0,
+      () => new Promise<boolean>((r) => { resolve = r; }),
+    );
+    // Let any synchronous prefix run: the list must still be intact until
+    // the dialog settles. Dropping the `await` at the call site would
+    // delete here instead.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(list.map((e) => e.id)).toEqual(["a", "b"]);
+    resolve(true);
+    await expect(pending).resolves.toBe(true);
+    expect(list.map((e) => e.id)).toEqual(["b"]);
+  });
+
+  it("keeps the entry on decline or dialog error", async () => {
+    const declined = [engine({ id: "a" })];
+    await expect(deleteEngineIfConfirmed(declined, 0, async () => false)).resolves.toBe(false);
+    expect(declined.map((e) => e.id)).toEqual(["a"]);
+    const failed = [engine({ id: "a" })];
+    await expect(
+      deleteEngineIfConfirmed(failed, 0, async () => { throw new Error("denied"); }),
+    ).resolves.toBe(false);
+    expect(failed.map((e) => e.id)).toEqual(["a"]);
   });
 });

@@ -62,8 +62,8 @@ flowchart LR
 | `shogihome/src/common/`                    | Browser と Server が共有する純粋な型、codec、domain utility                 |
 | `shogihome/src/node/`                      | Node.js runtime に依存する共有 utility                                      |
 | `shogihome/src/server/`                    | HTTP、WebSocket、engine session、filesystem、database、worker orchestration |
-| `engine-wrapper/`                          | engine 設定の読み込み、process 起動、TCP/stdio relay、process cleanup。Rust 実装が正本 |
-| `engine-wrapper/launcher-app/` + `launcher/` | Tauri shell（window/tray/IPC）と `shogihome-launcher` library（supervision、設定、移行、更新）。UI は process 起動や設定書き込みを直接行わない |
+| `engine-wrapper/`                          | engine 設定の読み込み、process 起動、TCP/stdio relay、process cleanup。Rust 実装が正本。process 所有は共有 `process` crate、`.env` codec は共有 `env-file` crate に集約し、各実装は薄い adapter に留める |
+| `engine-wrapper/launcher-app/` + `launcher/` | Tauri shell（window/tray/IPC）と `shogihome-launcher` library（supervision、設定、移行、更新、型付き `LauncherError`）。UI は process 起動や設定書き込みを直接行わない |
 | `shogihome/src/server/vision/node-worker/` | 画像推論、盤面幾何処理、候補生成、診断 warning                              |
 
 複雑な状態や business logic は UI component ではなく、renderer store、domain module、または server module が所有します。

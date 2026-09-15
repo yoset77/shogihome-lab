@@ -78,6 +78,26 @@ export function duplicateEngine(engines: EngineEntry[], index: number, idGen: ()
   engines.splice(index + 1, 0, copy);
 }
 
+// Confirm-gated engine removal. The confirmation is awaited before touching
+// `engines`: dropping the `await` at the call site (or a dialog that never
+// settles) must leave the list unchanged. Dialog failures fail closed.
+export async function deleteEngineIfConfirmed(
+  engines: EngineEntry[],
+  index: number,
+  confirm: () => Promise<boolean>,
+): Promise<boolean> {
+  let ok = false;
+  try {
+    ok = await confirm();
+  } catch {
+    return false;
+  }
+  if (!ok) return false;
+  if (index < 0 || index >= engines.length) return false;
+  engines.splice(index, 1);
+  return true;
+}
+
 export type OptionRowType = "string" | "boolean" | "spin" | "combo";
 
 export interface OptionRow {

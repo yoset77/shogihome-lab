@@ -13,6 +13,13 @@
 //!
 //! File values are literal (`${VAR}` is not expanded). An explicitly
 //! exported (even empty) environment variable always wins over the file.
+//!
+//! Only `BIND_ADDRESS`, `LISTEN_PORT`, and `WRAPPER_ACCESS_TOKEN` are read
+//! from `<config-dir>/.env`. Other entries are ignored and never reach
+//! engines: engines inherit the OS/launcher process environment (PATH and
+//! system-wide GPU/library setup belong there). The launcher forwards the
+//! same three keys to supervised wrappers, so standalone and supervised
+//! launches observe the same engine environment.
 
 use std::path::PathBuf;
 use std::sync::Arc;
