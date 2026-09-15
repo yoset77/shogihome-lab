@@ -4,7 +4,7 @@
 Stdlib only. Measures the current (Python/Node) implementation on this
 machine so the Rust rewrite has something concrete to compare against.
 Memory numbers are whole-process RSS snapshots of the just-started wrapper,
-not a full idle-tree profile (see docs/rust-rewrite/phase-0-baseline.md).
+not a full idle-tree profile (see docs/rust-rewrite.md).
 """
 
 import json
