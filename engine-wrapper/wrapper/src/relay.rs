@@ -1,6 +1,6 @@
 //! Per-connection TCP relay between the server and one engine process.
 //!
-//! Protocol (see `docs/rust-rewrite/phase-0-compat.md`):
+//! Protocol (see `docs/rust-rewrite.md` §1):
 //! - optional CRAM-SHA256 auth, then one command line (`list` / `run <id>`
 //!   / legacy `research` / `game`);
 //! - `list` writes the full `engines.json` array and closes (server parses
