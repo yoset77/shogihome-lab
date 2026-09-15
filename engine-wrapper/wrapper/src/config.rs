@@ -11,16 +11,20 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Resolve the configuration root: explicit `--config-dir` wins, otherwise
-/// the directory containing the executable (portable ZIP layout). The process
-/// CWD is never used implicitly.
+/// `<exe-dir>/engine-wrapper` when it holds `engines.json` (portable ZIP
+/// layout, shared with the launcher editor default), else the directory
+/// containing the executable. The process CWD is never used implicitly.
 pub fn resolve_config_dir(exe_path: &Path, override_dir: Option<&Path>) -> PathBuf {
     if let Some(dir) = override_dir {
         return std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
     }
-    exe_path
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."))
+    let exe_dir = exe_path.parent().map(Path::to_path_buf);
+    if let Some(ref dir) = exe_dir {
+        if dir.join("engine-wrapper").join("engines.json").is_file() {
+            return dir.join("engine-wrapper");
+        }
+    }
+    exe_dir.unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// Load the raw engine array. Returns an empty vec when the file is missing
@@ -180,6 +184,24 @@ mod tests {
         assert_eq!(dir, PathBuf::from("/cfg"));
         let dir = resolve_config_dir(Path::new("/app/wrapper"), None);
         assert_eq!(dir, PathBuf::from("/app"));
+    }
+
+    #[test]
+    fn resolve_prefers_bundled_engine_wrapper_dir() {
+        let root = std::env::temp_dir().join(format!("wrapper-resolve-{}", std::process::id()));
+        let exe = root.join("wrapper");
+        let bundled = root.join("engine-wrapper");
+        std::fs::create_dir_all(&bundled).unwrap();
+        // Sibling dir alone is not enough; engines.json selects the layout.
+        assert_eq!(resolve_config_dir(&exe, None), root);
+        std::fs::write(bundled.join("engines.json"), "[]").unwrap();
+        assert_eq!(resolve_config_dir(&exe, None), bundled);
+        // Explicit override still wins over the bundled layout.
+        assert_eq!(
+            resolve_config_dir(&exe, Some(Path::new("/cfg"))),
+            PathBuf::from("/cfg")
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

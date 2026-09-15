@@ -3,7 +3,8 @@
 //!
 //! Configuration (CLI > environment > `<config-dir>/.env` > defaults):
 //! - `--config-dir <dir>` — directory holding `engines.json` and `.env`
-//!   (default: the directory containing this executable; never the process
+//!   (default: `<exe-dir>/engine-wrapper` when it holds `engines.json`,
+//!   else the directory containing this executable; never the process
 //!   CWD and never an ancestor search).
 //! - `BIND_ADDRESS` / `--bind-address` (default `127.0.0.1`)
 //! - `LISTEN_PORT` / `--port` (default `4082`)
