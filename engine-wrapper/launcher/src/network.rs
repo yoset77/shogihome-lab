@@ -9,9 +9,15 @@ pub struct AccessUrls {
     pub url: String,
     pub allowed: bool,
     pub qr_url: Option<String>,
+    pub bind: String,
+    pub auto_origins: bool,
 }
 
 /// QR codes are for another device, never for the PC's loopback endpoint.
+/// Default mode (`strict == false`) always uses the LAN address. Strict mode
+/// only uses it when the LAN URL is explicitly listed in allowed origins;
+/// otherwise no QR is shown and the UI explains the custom network setup
+/// (Python `customNetworkActive` parity).
 pub fn access_urls(
     bind: &str,
     port: u16,
@@ -24,15 +30,32 @@ pub fn access_urls(
         .parse::<std::net::IpAddr>()
         .ok()
         .filter(|ip| !ip.is_loopback() && !ip.is_unspecified());
-    let qr_url = if bind == "0.0.0.0" && !strict {
-        lan_ip.map(|ip| format!("http://{}", std::net::SocketAddr::new(ip, port)))
-    } else {
+    let lan_url = lan_ip.map(|ip| format!("http://{}", std::net::SocketAddr::new(ip, port)));
+    let qr_url = if bind != "0.0.0.0" {
         None
+    } else if !strict {
+        lan_url
+    } else {
+        match lan_url {
+            Some(ref candidate) => {
+                let allowed = origins
+                    .iter()
+                    .any(|o| o.trim_end_matches('/') == candidate.as_str());
+                if allowed {
+                    lan_url
+                } else {
+                    None
+                }
+            }
+            None => None,
+        }
     };
     AccessUrls {
         url,
         allowed,
         qr_url,
+        bind: bind.to_string(),
+        auto_origins: !strict,
     }
 }
 
@@ -101,6 +124,8 @@ mod tests {
         let urls = access_urls("0.0.0.0", 9000, false, &[], "192.168.1.10");
         assert_eq!(urls.url, "http://127.0.0.1:9000");
         assert_eq!(urls.qr_url.as_deref(), Some("http://192.168.1.10:9000"));
+        assert_eq!(urls.bind, "0.0.0.0");
+        assert!(urls.auto_origins);
         assert!(access_urls("127.0.0.1", 9000, false, &[], "192.168.1.10")
             .qr_url
             .is_none());
@@ -110,6 +135,49 @@ mod tests {
         assert!(access_urls("0.0.0.0", 9000, false, &[], "127.0.0.1")
             .qr_url
             .is_none());
+    }
+
+    #[test]
+    fn qr_shown_in_strict_mode_only_when_lan_origin_allowed() {
+        let allowed = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // LAN URL explicitly allowed: QR is safe to show.
+        let urls = access_urls(
+            "0.0.0.0",
+            9000,
+            true,
+            &allowed(&["http://192.168.1.10:9000"]),
+            "192.168.1.10",
+        );
+        assert_eq!(urls.qr_url.as_deref(), Some("http://192.168.1.10:9000"));
+        assert_eq!(urls.bind, "0.0.0.0");
+        assert!(!urls.auto_origins);
+        // Trailing slash is normalized.
+        let urls = access_urls(
+            "0.0.0.0",
+            9000,
+            true,
+            &allowed(&["http://192.168.1.10:9000/"]),
+            "192.168.1.10",
+        );
+        assert_eq!(urls.qr_url.as_deref(), Some("http://192.168.1.10:9000"));
+        // Proxy-only origins: no LAN QR (would fail on the phone).
+        let urls = access_urls(
+            "0.0.0.0",
+            9000,
+            true,
+            &allowed(&["https://shogi.example.com"]),
+            "192.168.1.10",
+        );
+        assert!(urls.qr_url.is_none());
+        // Loopback bind never shows a QR, even when allowed.
+        let urls = access_urls(
+            "127.0.0.1",
+            9000,
+            true,
+            &allowed(&["http://127.0.0.1:9000"]),
+            "192.168.1.10",
+        );
+        assert!(urls.qr_url.is_none());
     }
 
     #[test]

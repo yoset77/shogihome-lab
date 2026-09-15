@@ -31,6 +31,9 @@ export function initDashboard(): void {
     $("updateOpenBtn").textContent = text("updateDownload", lang);
     $("updateLaterBtn").textContent = text("updateRemindLater", lang);
     if (lastUpdate) $("updateLabel").textContent = text("latestVersionReleased", lang, lastUpdate.version);
+    // Re-render the custom-network notice so a language switch applies
+    // even without refetching (Python setup_info_panel parity).
+    if (lastNetwork && !lastNetwork.hasQr) renderCustomNetwork(lastNetwork.bind, lastNetwork.autoOrigins);
   }
 
   async function setLang(next: Lang): Promise<void> {
@@ -68,10 +71,23 @@ export function initDashboard(): void {
 
   // Displayed URL follows the QR payload (LAN URL) when available so the
   // QR code and the text always match. The PC opener uses the same value.
+  // Without a QR (127.0.0.1 bind, strict origins, ...), show the Python
+  // parity notice instead of leaving a blank space.
   let displayedUrl = "";
+  let lastNetwork: { bind: string; autoOrigins: boolean; hasQr: boolean } | null = null;
+  function renderCustomNetwork(bind: string, autoOrigins: boolean): void {
+    const box = $("customNetwork");
+    box.hidden = false;
+    $("customNetworkTitle").textContent = text("customNetworkActive", lang);
+    $("customNetworkBody").textContent = text("networkInfo", lang, bind, autoOrigins ? "on" : "off");
+  }
   async function refreshPcUrl(): Promise<void> {
     try {
-      const { url, allowed, qrUrl } = await api.getPcUrl();
+      const info = await api.getPcUrl();
+      const { url, allowed, qrUrl } = info;
+      const bind = info.bind ?? "0.0.0.0";
+      const autoOrigins = info.autoOrigins ?? true;
+      lastNetwork = { bind, autoOrigins, hasQr: !!qrUrl };
       displayedUrl = qrUrl ?? url;
       const pcUrlEl = $("pcUrl");
       pcUrlEl.textContent = displayedUrl;
@@ -80,8 +96,13 @@ export function initDashboard(): void {
       $("openPcBtn").toggleAttribute("disabled", !allowed);
       const image = $<HTMLImageElement>("qrImg");
       image.hidden = !qrUrl;
-      if (qrUrl) image.src = await QRCode.toDataURL(qrUrl, { width: 160, margin: 1 });
-      else image.removeAttribute("src");
+      if (qrUrl) {
+        $("customNetwork").hidden = true;
+        image.src = await QRCode.toDataURL(qrUrl, { width: 160, margin: 1 });
+      } else {
+        image.removeAttribute("src");
+        renderCustomNetwork(bind, autoOrigins);
+      }
     } catch {
       $("pcUrl").textContent = text("statusError", lang);
     }

@@ -53,7 +53,7 @@ window allowlist と Tauri capability を維持します。UI は filesystem や
 - `settings`／`logs` は単一インスタンスで、存在すれば show＋focus する。閉鎖はバックエンドの `close_settings_window`／`close_logs_window`（`window.destroy()`、エディタの `close_window` と同パターン）で行い、フロントの window 権限に依存しない。保存後は `settings-saved` イベントで dashboard が QR／URL を再読込する。
 - window 別の command allowlist（`launcher/src/permissions.rs`）と capability（`src-tauri/capabilities/{settings,logs}.json`）を持つ。`settings` は設定系＋再起動のみ、`logs` はログ読込のみ許可する。
 - データ移行に常設ボタンは置かない。初回起動時（`shogihome/data` 不在）のみ `startAfterMigration` が案内し、既存データへの上書きは提供しない。
-- dashboard の表示 URL は QR ペイロード（LAN URL）と一致させる。QR がない構成（127.0.0.1 bind・strict 等）では従来通り PC URL を表示する。
+- dashboard の表示 URL は QR ペイロード（LAN URL）と一致させる。QR がない構成では PC URL に加えてカスタムネットワーク文言（Python 版の info card 相当）を表示する。strict 設定でも LAN URL が `ALLOWED_ORIGINS` に明示されている場合に限り QR を生成し、それ以外（127.0.0.1 bind・許可なし・proxy のみ等）では QR を出さない。
 
 ## UI Language
 
