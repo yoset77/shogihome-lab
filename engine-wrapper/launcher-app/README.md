@@ -42,7 +42,7 @@ Windows では `ShogiHomeLab.exe --config-editor --config-dir "D:\engine-config"
 - Linux／macOS では拡張子のないエンジンも選択できます。実行権限はエンジン側で設定してください。権限不足は probe エラーになります。
 - 同じ設定ディレクトリの同時編集は OS 管理ロックで拒否します。
 
-wrapper の単独実行は `engine-wrapper/` で `cargo run --locked -p shogihome-engine-wrapper -- --config-dir /absolute/path/to/engine-config` とします。GUI は TCP relay を起動しません。
+wrapper の単独実行は `engine-wrapper/` で `cargo run --locked -p shogihome-engine-wrapper -- --config-dir /absolute/path/to/engine-config` とします。`--config-dir` 省略時は `engines.json` のある実行ファイル横の `engine-wrapper/`、なければ実行ファイルの directory を使うため、portable 配置では `wrapper[.exe]` のダブルクリックで同梱設定が読まれます。GUI は TCP relay を起動しません。
 
 ## Launcher として使う
 

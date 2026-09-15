@@ -681,22 +681,21 @@ def test_config_editor_standalone_mode(tmp_path):
     assert (config_a / "got-quit.txt").is_file(), "cancelled probe never delivered quit"
     _check_wrapper_lists_config(wrapper, config_a, "standalone-marker")
 
-    # Case B: the shipped ConfigEditor.cmd entry point with the default
+    # Case B: direct `--config-editor` launch with the default
     # <exe-dir>/engine-wrapper layout (no --config-dir, no server bundle).
     config_b = tmp_path / "engine-wrapper"
     config_b.mkdir(parents=True)
     (config_b / "engines.json").write_text(
-        '[{"id": "cmd-marker", "name": "CmdMarker", "path": "dummy.exe"}]',
+        '[{"id": "bundled-marker", "name": "BundledMarker", "path": "dummy.exe"}]',
         encoding="utf-8",
     )
-    shutil.copy2(root / "ConfigEditor.cmd", tmp_path / "ConfigEditor.cmd")
     _launch_and_drive_standalone(
         base_env,
         tmp_path,
-        "cmd-entry",
-        ["cmd", "/d", "/s", "/c", f'""{tmp_path / "ConfigEditor.cmd"}""'],
+        "default-entry",
+        [str(executable), "--config-editor"],
         str(workdir),
-        "cmd-marker",
+        "bundled-marker",
     )
 
 

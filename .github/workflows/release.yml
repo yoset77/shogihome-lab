@@ -145,8 +145,6 @@ jobs:
               throw "Empty Rust license notices"
           }
 
-          $smokeDir = New-Item -ItemType Directory -Path (Join-Path $env:TEMP "wrapper-smoke") -Force
-          '[]' | Set-Content (Join-Path $smokeDir "engines.json") -NoNewline
           $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
           $listener.Start()
           $smokePort = $listener.LocalEndpoint.Port
@@ -157,8 +155,10 @@ jobs:
           $env:WRAPPER_ACCESS_TOKEN = ""
           Push-Location $env:TEMP
           try {
-              $proc = Start-Process $wrapperExe `
-                  -ArgumentList "--config-dir", $smokeDir.FullName -PassThru
+              # No --config-dir: this exercises the same default resolution
+              # as double-clicking wrapper.exe (sibling engine-wrapper/).
+              # The packaged engines.json seed is [], so `list` must return [].
+              $proc = Start-Process $wrapperExe -PassThru
               try {
                   $client = New-Object Net.Sockets.TcpClient
                   $deadline = (Get-Date).AddSeconds(20)
@@ -187,12 +187,13 @@ jobs:
 
           # 4. Engine-tools package (wrapper + GUI only, no server bundle):
           #    for split hosts where the Middle Server runs elsewhere
-          #    (remote PC / Docker). Same exes, editor-only entry point.
+          #    (remote PC / Docker). Same exes, launched directly:
+          #    wrapper.exe by double-click, the editor via
+          #    `ShogiHomeLab.exe --config-editor`.
           $toolsName = "shogihome-lab-engine-tools-$tagName"
           New-Item -ItemType Directory -Path $toolsName -Force
           Copy-Item "engine-wrapper/launcher-app/src-tauri/target/release/ShogiHomeLab.exe" -Destination "$toolsName/"
           Copy-Item "engine-wrapper/target/release/shogihome-wrapper.exe" -Destination "$toolsName/wrapper.exe"
-          Copy-Item "engine-wrapper/ConfigEditor.cmd" -Destination "$toolsName/"
           Copy-Item "shogihome/build/icon.png" -Destination "$toolsName/icon.png"
           Copy-Item "assets/release/README-engine-tools.txt" -Destination "$toolsName/README.txt"
           New-Item -ItemType Directory -Path "$toolsName/engine-wrapper" -Force
@@ -202,7 +203,7 @@ jobs:
           New-Item -ItemType Directory -Path "$toolsName/engine-wrapper/licenses" -Force
           Copy-Item "pkg-licenses/*" -Destination "$toolsName/engine-wrapper/licenses/"
           $toolsRequired = @(
-              "ShogiHomeLab.exe", "wrapper.exe", "ConfigEditor.cmd", "icon.png", "README.txt",
+              "ShogiHomeLab.exe", "wrapper.exe", "icon.png", "README.txt",
               "engine-wrapper/engines.json", "engine-wrapper/.env", "engine-wrapper/VERSION",
               "engine-wrapper/licenses/RUST-THIRD-PARTY-NOTICES.txt",
               "engine-wrapper/licenses/UI-THIRD-PARTY.json"

@@ -90,7 +90,7 @@ TCP line protocol 自体は不変。Middle Server の再配線は不要。
   `ShogiHomeLab.exe`（`tauri build --no-bundle`）、`wrapper.exe`（`shogihome-wrapper` release 改名）、
   `icon.png` / `README.txt`、`shogihome/`（dist/bin + docs/webapp + `.env`）、
   `engine-wrapper/`（`engines.json` / `.env` seed、`VERSION`、`licenses/`）。
-  分割配置向け `engine-tools` ZIP（`ShogiHomeLab.exe`、`wrapper.exe`、`ConfigEditor.cmd`、
+  分割配置向け `engine-tools` ZIP（`ShogiHomeLab.exe`、`wrapper.exe`、
   `engine-wrapper/`、専用 README）も配布する。
 - 配布物から除外：embedded Python、`launcher.py`、`engine_wrapper.py`、`config_editor.py`、
   `config_editor.html`、`common.py`、`i18n.py`、`server_settings.py`、`update_checker.py`、C# shim。
