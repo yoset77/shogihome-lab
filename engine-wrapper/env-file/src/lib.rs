@@ -58,20 +58,25 @@ pub fn parse_env(content: &str) -> HashMap<String, String> {
     map
 }
 
+/// Strip a leading `export ` / `export\t` prefix (plus following
+/// whitespace), returning the remainder. This is the single scanner for the
+/// prefix so `parse_line` and the upsert/merge writers cannot drift.
+pub fn strip_export_prefix(s: &str) -> &str {
+    if let Some(rest) = s.strip_prefix("export") {
+        if rest.starts_with([' ', '\t']) {
+            return rest.trim_start_matches([' ', '\t']);
+        }
+    }
+    s
+}
+
 /// Parse one line. Returns `None` for blanks, comments, and non-assignments.
 fn parse_line(line: &str) -> Option<(String, String)> {
     let trimmed = line.trim();
     if trimmed.is_empty() || trimmed.starts_with('#') {
         return None;
     }
-    let rest = trimmed
-        .strip_prefix("export ")
-        .map(str::trim_start)
-        .unwrap_or(trimmed);
-    let rest = rest
-        .strip_prefix("export\t")
-        .map(str::trim_start)
-        .unwrap_or(rest);
+    let rest = strip_export_prefix(trimmed);
     let eq = rest.find('=')?;
     let (raw_key, raw_value) = rest.split_at(eq);
     let key = raw_key.trim();
@@ -110,6 +115,65 @@ pub fn is_valid_key(key: &str) -> bool {
         _ => return false,
     }
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Temporary path for an atomic write: same directory (so `rename` stays on
+/// one filesystem), per-process unique so concurrent writers — or a
+/// launcher-embedded and a standalone editor session — cannot truncate each
+/// other's file. Same-process concurrent saves disambiguate via a counter.
+fn atomic_tmp_path(path: &Path) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "tmp".to_string());
+    let tmp_name = if seq == 0 {
+        format!("{file_name}.{}.tmp", std::process::id())
+    } else {
+        format!("{file_name}.{}.{seq}.tmp", std::process::id())
+    };
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.join(tmp_name),
+        _ => std::path::PathBuf::from(tmp_name),
+    }
+}
+
+/// Atomically write `content` to `path` via a unique temporary file in the
+/// same directory + rename, so readers never observe a half-written file.
+/// Cleans up the temporary file when the write or rename fails.
+pub fn write_atomic(path: &Path, content: &[u8]) -> io::Result<()> {
+    let tmp = atomic_tmp_path(path);
+    if let Err(e) = std::fs::write(&tmp, content) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Atomically publish `src` at `dest` (copy + rename), creating `dest`'s
+/// parent directory. Used for registry/record publication.
+pub fn copy_file_atomic(src: &Path, dest: &Path) -> io::Result<()> {
+    if let Some(parent) = dest.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let tmp = atomic_tmp_path(dest);
+    if let Err(e) = std::fs::copy(src, &tmp) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    if let Err(e) = std::fs::rename(&tmp, dest) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
 }
 
 fn unescape_quoted(s: &str, quote: char) -> String {
@@ -184,5 +248,36 @@ mod tests {
         let path = dir.join(format!("env-file-missing-{}", std::process::id()));
         let _ = std::fs::remove_file(&path);
         assert_eq!(read_env_file(&path).unwrap(), "");
+    }
+
+    #[test]
+    fn export_prefix_scanner_handles_space_and_tab() {
+        assert_eq!(strip_export_prefix("export FOO=1"), "FOO=1");
+        assert_eq!(strip_export_prefix("export\tFOO=1"), "FOO=1");
+        assert_eq!(strip_export_prefix("export  \t FOO=1"), "FOO=1");
+        // Bare `export` without whitespace is not a prefix.
+        assert_eq!(strip_export_prefix("exportFOO=1"), "exportFOO=1");
+        assert_eq!(strip_export_prefix("FOO=1"), "FOO=1");
+        // Both spellings parse identically.
+        assert_eq!(parse_env("export\tE=5\n")["E"], "5");
+        assert_eq!(parse_env("export E=5\n")["E"], "5");
+    }
+
+    #[test]
+    fn atomic_write_leaves_no_tmp_behind() {
+        let dir = std::env::temp_dir().join(format!("env-atomic-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(".env");
+        write_atomic(&path, b"A=1\n").unwrap();
+        write_atomic(&path, b"A=2\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "A=2\n");
+        let names: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec![".env".to_string()]);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::env_codec::{load_env_value, upsert_env_values, EnvValue};
+use crate::error::LauncherError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingType {
@@ -141,7 +142,7 @@ pub fn load_settings(paths: &EnvPaths) -> (HashMap<String, SettingValue>, Vec<St
     let mut mismatches = Vec::new();
     for setting in SETTINGS {
         let mut seen: Vec<String> = Vec::new();
-        for (key, kind) in setting.keys {
+        for (index, (key, kind)) in setting.keys.iter().enumerate() {
             let content = contents
                 .iter()
                 .find(|(k, _)| *k == *kind)
@@ -154,7 +155,11 @@ pub fn load_settings(paths: &EnvPaths) -> (HashMap<String, SettingValue>, Vec<St
             };
             let raw = load_env_value(content, key, default);
             seen.push(formatted_raw(&raw));
-            if setting.keys[0].0 == *key {
+            // First mapping wins. Compare the mapping index, not the key
+            // name: linked keys may share a name across files
+            // (WRAPPER_ACCESS_TOKEN), where a name comparison would let the
+            // second file overwrite the first.
+            if index == 0 {
                 values.insert(setting.id.to_string(), raw_to_value(setting, &raw));
             }
         }
@@ -297,12 +302,15 @@ fn format_value(setting: &Setting, value: &SettingValue) -> String {
 /// Validate and persist. On validation failure nothing is written. Writes go
 /// through atomic upserts per file; if the second file fails, the first is
 /// restored from a backup so linked keys cannot diverge.
-pub fn save(values: &HashMap<String, SettingValue>, paths: &EnvPaths) -> Result<(), String> {
+pub fn save(values: &HashMap<String, SettingValue>, paths: &EnvPaths) -> Result<(), LauncherError> {
     let errors = validate(values);
     if !errors.is_empty() {
         let mut ids: Vec<_> = errors.keys().cloned().collect();
         ids.sort();
-        return Err(format!("Invalid settings: {}", ids.join(", ")));
+        return Err(LauncherError::InvalidSettings(format!(
+            "Invalid settings: {}",
+            ids.join(", ")
+        )));
     }
     let mut server_updates = HashMap::new();
     let mut wrapper_updates = HashMap::new();
@@ -355,7 +363,7 @@ struct FileBackup {
     backup: Option<std::path::PathBuf>,
 }
 
-fn backup_file(path: &Path) -> Result<FileBackup, String> {
+fn backup_file(path: &Path) -> Result<FileBackup, LauncherError> {
     if !path.exists() {
         return Ok(FileBackup {
             original: path.to_path_buf(),
@@ -363,7 +371,8 @@ fn backup_file(path: &Path) -> Result<FileBackup, String> {
         });
     }
     let backup = path.with_extension("env.bak");
-    std::fs::copy(path, &backup).map_err(|e| e.to_string())?;
+    std::fs::copy(path, &backup)
+        .map_err(|e| LauncherError::io(format!("backing up {}", path.display()), e))?;
     Ok(FileBackup {
         original: path.to_path_buf(),
         backup: Some(backup),
@@ -550,6 +559,23 @@ mod tests {
             values["LISTEN_PORT"],
             SettingValue::Text("5001".to_string())
         );
+        cleanup(&base);
+    }
+
+    #[test]
+    fn same_name_linked_key_keeps_first_mapping() {
+        // WRAPPER_ACCESS_TOKEN shares its key name across both files, so a
+        // name-only "first mapping" check would let the server value
+        // overwrite the wrapper value. The wrapper mapping must win.
+        let (base, paths) = dirs("set-token");
+        std::fs::write(&paths.wrapper, "WRAPPER_ACCESS_TOKEN=wrapper-token\n").unwrap();
+        std::fs::write(&paths.server, "").unwrap();
+        let (values, mismatches) = load_settings(&paths);
+        assert_eq!(
+            values["WRAPPER_ACCESS_TOKEN"],
+            SettingValue::Text("wrapper-token".to_string())
+        );
+        assert!(mismatches.contains(&"WRAPPER_ACCESS_TOKEN".to_string()));
         cleanup(&base);
     }
 

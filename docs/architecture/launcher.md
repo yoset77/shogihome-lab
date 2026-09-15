@@ -15,9 +15,12 @@ Windows・Linux・macOS で同じ Tauri shell を native build します。設�
 | `engine-wrapper/launcher/src/paths.rs` | portable root、native 実行ファイル名、設定・ログの所在 |
 | `launcher/src/lifecycle.rs` | close／quit の方針と `Running → Closing → ReadyToExit` |
 | `launcher/src/editor_session.rs` | session lock の寿命、probe 登録・キャンセル・完了の直列化 |
-| `launcher/src/editor.rs` | registry 検証・atomic save・USI option probe |
+| `launcher/src/editor.rs` | registry 検証（engine `id` の一意性を含む）・atomic save・USI option probe |
 | `launcher/src/controller.rs` + `service.rs` | service lifecycle、設定 snapshot、readiness、移行との排他 |
-| `launcher/src/process.rs` + `session_lock.rs` | Windows Job／Unix process group と OS 管理ファイルロック |
+| `engine-wrapper/process/` | 子プロセスの tree 所有（POSIX process group／Windows Job）。sync (`SyncChild`) と tokio (`AsyncChild`) を一元化し、`launcher/src/process.rs` と `wrapper/src/process.rs` は互換 shims に留める。`.bat`/`.cmd` 判定もここに集約する |
+| `launcher/src/session_lock.rs` | OS 管理の編集セッションロック（`.engines.lock`） |
+| `launcher/src/error.rs` | backend の型付きエラー（`LauncherError`）。`Io`／`Json` は source chain を保持し、Tauri IPC 境界でのみ `String` 化する |
+| `engine-wrapper/env-file/` | `.env` decode／parse（`export ` と `export\t` の単一スキャナ）と atomic write（プロセス一意 tmp＋rename）の共有実装 |
 
 Tauri shell は GUI システム依存を通常の backend test から切り離すため、Cargo workspace とは独立した manifest／lockfile を持ちます。これは Windows 限定の境界ではありません。
 

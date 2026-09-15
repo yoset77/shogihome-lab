@@ -128,7 +128,7 @@ pub async fn start_services(
     .await
     .map_err(|e| e.to_string())?;
     emit_status(&handle);
-    result
+    result.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -139,7 +139,7 @@ pub async fn stop_services(window: tauri::Window, handle: tauri::AppHandle) -> R
         .await
         .map_err(|e| e.to_string())?;
     emit_status(&handle);
-    result
+    result.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -156,7 +156,7 @@ pub async fn restart_services(
     .await
     .map_err(|e| e.to_string())?;
     emit_status(&handle);
-    result
+    result.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -237,6 +237,7 @@ pub async fn save_settings(
     tauri::async_runtime::spawn_blocking(move || controller.save_settings(&typed, &paths))
         .await
         .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -305,6 +306,7 @@ pub async fn check_update(
     })
     .await
     .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -321,7 +323,7 @@ pub fn snooze_update(
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     update::snooze(&mut cache, &version, now);
-    cache.save(&path)
+    cache.save(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -347,7 +349,7 @@ pub fn set_ui_language(
     let path = state(&handle).paths.config_dir().join(".update_cache.json");
     let mut cache = update::UpdateCache::load(&path);
     cache.ui_language = Some(lang);
-    cache.save(&path)
+    cache.save(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -397,4 +399,5 @@ pub async fn migration_run(
     })
     .await
     .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }

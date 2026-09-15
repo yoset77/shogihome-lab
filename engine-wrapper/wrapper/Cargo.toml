@@ -18,13 +18,10 @@ subtle = "1"
 rand = "0.8"
 serde_json = { version = "1", features = ["preserve_order"] }
 shogihome-env-file = { path = "../env-file" }
+shogihome-process = { path = "../process", features = ["async"] }
 
-[target.'cfg(unix)'.dependencies]
+[target.'cfg(unix)'.dev-dependencies]
 libc = "0.2"
-
-[target.'cfg(windows)'.dependencies]
-process-wrap = { version = "10", default-features = false, features = ["tokio1", "creation-flags", "job-object", "kill-on-drop"] }
-windows = { version = "0.62", features = ["Win32_System_Threading"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

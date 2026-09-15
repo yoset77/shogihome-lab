@@ -14,6 +14,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::env_codec::smart_merge_env;
+use crate::error::LauncherError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationPlan {
@@ -132,9 +133,11 @@ impl CompletionRecord {
 }
 
 /// Execute the migration. Idempotent: completed steps are skipped on retry.
-pub fn execute_migration(plan: &MigrationPlan, dest: &MigrationPaths) -> Result<(), String> {
+pub fn execute_migration(plan: &MigrationPlan, dest: &MigrationPaths) -> Result<(), LauncherError> {
     if plan.has_nothing() {
-        return Err("no migratable data found in the selected folder".to_string());
+        return Err(LauncherError::msg(
+            "no migratable data found in the selected folder",
+        ));
     }
     let record_path = dest.completion_record();
     let mut record = load_record(&record_path).unwrap_or(CompletionRecord {
@@ -145,7 +148,9 @@ pub fn execute_migration(plan: &MigrationPlan, dest: &MigrationPaths) -> Result<
         finished: false,
     });
     if Path::new(&record.old_root) != plan.old_root {
-        return Err("resume migration from the original source folder".to_string());
+        return Err(LauncherError::msg(
+            "resume migration from the original source folder",
+        ));
     }
     // Persist intent before publishing data, including if a later write fails.
     save_record(&record_path, &record)?;
@@ -187,58 +192,65 @@ fn load_record(path: &Path) -> Option<CompletionRecord> {
     serde_json::from_str(&content).ok()
 }
 
-fn save_record(path: &Path, record: &CompletionRecord) -> Result<(), String> {
+fn save_record(path: &Path, record: &CompletionRecord) -> Result<(), LauncherError> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| LauncherError::io(format!("creating {}", parent.display()), e))?;
     }
-    let content = serde_json::to_string_pretty(record).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, content.as_bytes()).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+    let content = serde_json::to_string_pretty(record)
+        .map_err(|e| LauncherError::json("serializing migration record".to_string(), e))?;
+    shogihome_env_file::write_atomic(path, content.as_bytes())
+        .map_err(|e| LauncherError::io(format!("writing {}", path.display()), e))
 }
 
-fn copy_file_atomic(src: &Path, dest: &Path) -> Result<(), String> {
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let tmp = dest.with_extension("tmp");
-    std::fs::copy(src, &tmp).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, dest).map_err(|e| e.to_string())
+fn copy_file_atomic(src: &Path, dest: &Path) -> Result<(), LauncherError> {
+    shogihome_env_file::copy_file_atomic(src, dest)
+        .map_err(|e| LauncherError::io(format!("copying {}", dest.display()), e))
 }
 
-fn copy_dir_contents(src: &Path, dest: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
-    let entries = std::fs::read_dir(src).map_err(|e| e.to_string())?;
+fn copy_dir_contents(src: &Path, dest: &Path) -> Result<(), LauncherError> {
+    std::fs::create_dir_all(dest)
+        .map_err(|e| LauncherError::io(format!("creating {}", dest.display()), e))?;
+    let entries = std::fs::read_dir(src)
+        .map_err(|e| LauncherError::io(format!("reading {}", src.display()), e))?;
     for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
+        let entry =
+            entry.map_err(|e| LauncherError::io(format!("reading {}", src.display()), e))?;
         let from = entry.path();
         let to = dest.join(entry.file_name());
-        let file_type = entry.file_type().map_err(|e| e.to_string())?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| LauncherError::io(format!("reading {}", from.display()), e))?;
         if file_type.is_dir() {
             copy_dir_contents(&from, &to)?;
         } else if file_type.is_file() {
-            std::fs::copy(&from, &to).map_err(|e| e.to_string())?;
+            std::fs::copy(&from, &to)
+                .map_err(|e| LauncherError::io(format!("copying {}", to.display()), e))?;
         }
         // Symlinks and special files are skipped deliberately.
     }
     Ok(())
 }
 
-fn copy_dir_staged(src: &Path, dest: &Path) -> Result<(), String> {
+fn copy_dir_staged(src: &Path, dest: &Path) -> Result<(), LauncherError> {
     if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| LauncherError::io(format!("creating {}", parent.display()), e))?;
     }
     let staging = dest.with_extension("tmp");
     if staging.exists() {
-        std::fs::remove_dir_all(&staging).map_err(|e| e.to_string())?;
+        std::fs::remove_dir_all(&staging)
+            .map_err(|e| LauncherError::io(format!("cleaning {}", staging.display()), e))?;
     }
     copy_dir_contents(src, &staging)?;
     if dest.exists() {
         // Another concurrent run finished first; keep the winner.
-        std::fs::remove_dir_all(&staging).map_err(|e| e.to_string())?;
+        std::fs::remove_dir_all(&staging)
+            .map_err(|e| LauncherError::io(format!("cleaning {}", staging.display()), e))?;
         return Ok(());
     }
-    std::fs::rename(&staging, dest).map_err(|e| e.to_string())
+    std::fs::rename(&staging, dest)
+        .map_err(|e| LauncherError::io(format!("publishing {}", dest.display()), e))
 }
 
 #[cfg(test)]

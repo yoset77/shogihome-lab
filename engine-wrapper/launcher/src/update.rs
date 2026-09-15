@@ -12,6 +12,8 @@
 use std::path::Path;
 use std::time::Duration;
 
+use crate::error::LauncherError;
+
 pub const DEFAULT_REPO_OWNER: &str = "yoset77";
 pub const DEFAULT_REPO_NAME: &str = "shogihome-lab";
 pub const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
@@ -228,8 +230,12 @@ pub fn select_best_release(current_version: &str, releases_json: &str) -> Option
         {
             continue;
         }
-        let tag = release.get("tag_name").and_then(|v| v.as_str())?;
-        let version = parse_version(tag)?;
+        let Some(tag) = release.get("tag_name").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some(version) = parse_version(tag) else {
+            continue;
+        };
         if version > current && best.as_ref().map(|(v, _)| &version > v).unwrap_or(true) {
             let url = release
                 .get("html_url")
@@ -265,7 +271,7 @@ pub fn fetch_releases_json(
     owner: &str,
     repo: &str,
     current_version: &str,
-) -> Result<String, String> {
+) -> Result<String, LauncherError> {
     let url = format!("https://api.github.com/repos/{owner}/{repo}/releases?per_page=20");
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(FETCH_TIMEOUT))
@@ -276,11 +282,11 @@ pub fn fetch_releases_json(
         .header("User-Agent", &format!("ShogiHomeLab/{current_version}"))
         .header("Accept", "application/vnd.github+json")
         .call()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| LauncherError::msg(format!("update check request failed: {e}")))?;
     response
         .body_mut()
         .read_to_string()
-        .map_err(|e| e.to_string())
+        .map_err(|e| LauncherError::msg(format!("update check response failed: {e}")))
 }
 
 /// Check for updates. `fetch` is injectable for tests; production passes
@@ -289,8 +295,8 @@ pub fn check_for_update(
     current_version: &str,
     cache: &UpdateCache,
     now_unix: i64,
-    fetch: impl FnOnce() -> Result<String, String>,
-) -> Result<Option<UpdateInfo>, String> {
+    fetch: impl FnOnce() -> Result<String, LauncherError>,
+) -> Result<Option<UpdateInfo>, LauncherError> {
     let payload = fetch()?;
     let info = select_best_release(current_version, &payload);
     Ok(info.filter(|i| !is_snoozed(cache, &i.version, now_unix)))
@@ -299,13 +305,13 @@ pub fn check_for_update(
 /// The production entry point reads the same cache written by the snooze IPC.
 pub fn check_bundled_update(
     config_dir: &Path,
-    fetch: impl FnOnce(&str) -> Result<String, String>,
-) -> Result<Option<UpdateInfo>, String> {
+    fetch: impl FnOnce(&str) -> Result<String, LauncherError>,
+) -> Result<Option<UpdateInfo>, LauncherError> {
     let current = load_current_version(&config_dir.join("VERSION")).ok_or("no VERSION file")?;
     let cache = UpdateCache::load(&config_dir.join(".update_cache.json"));
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
+        .map_err(|e| LauncherError::msg(e.to_string()))?
         .as_secs() as i64;
     check_for_update(&current, &cache, now, || fetch(&current))
 }
@@ -364,17 +370,17 @@ impl UpdateCache {
         }
     }
 
-    pub fn save(&self, path: &Path) -> Result<(), String> {
+    pub fn save(&self, path: &Path) -> Result<(), LauncherError> {
         let value = serde_json::json!({
             "cache_version": CACHE_VERSION,
             "snoozed_version": self.snoozed_version,
             "snoozed_until": self.snoozed_until_unix,
             "ui_language": self.ui_language,
         });
-        let content = serde_json::to_string(&value).map_err(|e| e.to_string())?;
-        let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, content.as_bytes()).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+        let content = serde_json::to_string(&value)
+            .map_err(|e| LauncherError::json("serializing update cache".to_string(), e))?;
+        shogihome_env_file::write_atomic(path, content.as_bytes())
+            .map_err(|e| LauncherError::io(format!("writing {}", path.display()), e))
     }
 }
 
@@ -493,6 +499,28 @@ mod tests {
                 .tag,
             "v1.2.0-beta.2"
         );
+    }
+
+    #[test]
+    fn unparsable_tags_are_skipped_not_fatal() {
+        // A nightly-style tag before AND after the valid candidate must not
+        // discard the whole notification (old `?` returned None entirely).
+        let releases = serde_json::json!([
+            {"tag_name": "nightly", "draft": false, "prerelease": false, "html_url": "u/n"},
+            {"tag_name": "v1.2.0", "draft": false, "prerelease": false, "html_url": "u/1.2.0"},
+            {"tag_name": "not-a-version", "draft": false, "prerelease": false, "html_url": "u/x"},
+            {"tag_name": null, "draft": false, "prerelease": false, "html_url": "u/null"},
+        ]);
+        let info = select_best_release("1.0.0", &releases.to_string()).unwrap();
+        assert_eq!(
+            (info.tag.as_str(), info.version.as_str()),
+            ("v1.2.0", "1.2.0")
+        );
+        // Only unparsable candidates → no update, not a crash.
+        let junk = serde_json::json!([
+            {"tag_name": "nightly", "draft": false, "prerelease": false, "html_url": "u/n"},
+        ]);
+        assert!(select_best_release("1.0.0", &junk.to_string()).is_none());
     }
 
     #[test]

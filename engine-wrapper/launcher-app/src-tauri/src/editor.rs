@@ -122,7 +122,7 @@ pub fn editor_save(
     let st = state(&handle);
     let session = st.editor.session.lock().unwrap();
     session.ensure_open()?;
-    editor::save_engines_file(&engines_path(&handle), &engines)
+    editor::save_engines_file(&engines_path(&handle), &engines).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

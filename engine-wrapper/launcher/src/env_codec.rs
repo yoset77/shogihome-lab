@@ -21,7 +21,12 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-pub use shogihome_env_file::{decode_env_bytes, is_valid_key, parse_env, read_env_file, UTF8_SIG};
+use crate::error::LauncherError;
+
+pub use shogihome_env_file::{
+    copy_file_atomic, decode_env_bytes, is_valid_key, parse_env, read_env_file,
+    strip_export_prefix, write_atomic, UTF8_SIG,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnvValue {
@@ -55,9 +60,11 @@ pub fn load_env_value(content: &str, key: &str, default: EnvValue) -> EnvValue {
 
 /// Render a value so python-dotenv and Node `parseEnv` read it back
 /// identically. Errors before writing when no representation round-trips.
-pub fn format_env_value(key: &str, value: &str) -> Result<String, String> {
+pub fn format_env_value(key: &str, value: &str) -> Result<String, LauncherError> {
     if value.contains('\n') || value.contains('\r') {
-        return Err(format!("Value for '{key}' must not contain newlines"));
+        return Err(LauncherError::msg(format!(
+            "Value for '{key}' must not contain newlines"
+        )));
     }
     let mut candidates = Vec::new();
     if !value.contains('#')
@@ -78,9 +85,9 @@ pub fn format_env_value(key: &str, value: &str) -> Result<String, String> {
             return Ok(candidate);
         }
     }
-    Err(format!(
+    Err(LauncherError::msg(format!(
         "Value for '{key}' cannot be represented consistently in Python and Node .env files"
-    ))
+    )))
 }
 
 #[derive(Debug)]
@@ -110,10 +117,9 @@ fn split_entries(content: &str) -> (Vec<Entry>, std::collections::HashSet<String
         }
         let mut key = None;
         if commented || !stripped.starts_with('#') {
-            let body = rest
-                .strip_prefix("export ")
-                .map(str::trim_start)
-                .unwrap_or(rest);
+            // Single scanner shared with `parse_env`: `export ` and
+            // `export\t` (plus extra whitespace) all count as active.
+            let body = strip_export_prefix(rest);
             if let Some(eq) = body.find('=') {
                 let candidate = body[..eq].trim();
                 if is_valid_key(candidate) {
@@ -147,7 +153,10 @@ fn split_entries(content: &str) -> (Vec<Entry>, std::collections::HashSet<String
 ///   exists.
 /// - Missing keys are appended. The file is written back as UTF-8 via a
 ///   temporary file + rename. Empty updates touch nothing.
-pub fn upsert_env_values(path: &Path, updates: &HashMap<String, String>) -> Result<(), String> {
+pub fn upsert_env_values(
+    path: &Path,
+    updates: &HashMap<String, String>,
+) -> Result<(), LauncherError> {
     if updates.is_empty() {
         return Ok(());
     }
@@ -156,7 +165,8 @@ pub fn upsert_env_values(path: &Path, updates: &HashMap<String, String>) -> Resu
         formatted.insert(key.clone(), format_env_value(key, value)?);
     }
 
-    let content = read_env_file(path).map_err(|e| e.to_string())?;
+    let content = read_env_file(path)
+        .map_err(|e| LauncherError::io(format!("reading {}", path.display()), e))?;
     let (entries, active_keys) = split_entries(&content);
     let mut remaining = formatted.clone();
     let mut out: Vec<String> = Vec::new();
@@ -190,27 +200,26 @@ pub fn upsert_env_values(path: &Path, updates: &HashMap<String, String>) -> Resu
         }
     }
 
-    write_atomic(path, &out.join(""))
-}
-
-fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, content.as_bytes()).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        e.to_string()
-    })
+    write_atomic(path, out.join("").as_bytes())
+        .map_err(|e| LauncherError::io(format!("writing {}", path.display()), e))
 }
 
 /// Merge old user values onto a new template file (ported from
 /// `smart_merge_env`): the new file wins structurally; old values overlay
 /// matching active keys; old-only keys are dropped.
-pub fn smart_merge_env(old_path: &Path, new_path: &Path, dest_path: &Path) -> Result<(), String> {
-    let old_content = read_env_file(old_path).map_err(|e| e.to_string())?;
+pub fn smart_merge_env(
+    old_path: &Path,
+    new_path: &Path,
+    dest_path: &Path,
+) -> Result<(), LauncherError> {
+    let old_content = read_env_file(old_path)
+        .map_err(|e| LauncherError::io(format!("reading {}", old_path.display()), e))?;
     if old_content.is_empty() && !old_path.exists() {
         if new_path != dest_path && new_path.exists() {
-            let bytes = std::fs::read(new_path).map_err(|e| e.to_string())?;
-            std::fs::write(dest_path, bytes).map_err(|e| e.to_string())?;
+            let bytes = std::fs::read(new_path)
+                .map_err(|e| LauncherError::io(format!("reading {}", new_path.display()), e))?;
+            std::fs::write(dest_path, bytes)
+                .map_err(|e| LauncherError::io(format!("writing {}", dest_path.display()), e))?;
         }
         return Ok(());
     }
@@ -219,13 +228,17 @@ pub fn smart_merge_env(old_path: &Path, new_path: &Path, dest_path: &Path) -> Re
         if old_path != dest_path {
             std::fs::write(
                 dest_path,
-                decode_env_bytes(&std::fs::read(old_path).map_err(|e| e.to_string())?).as_bytes(),
+                decode_env_bytes(&std::fs::read(old_path).map_err(|e| {
+                    LauncherError::io(format!("reading {}", old_path.display()), e)
+                })?)
+                .as_bytes(),
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| LauncherError::io(format!("writing {}", dest_path.display()), e))?;
         }
         return Ok(());
     }
-    let new_content = std::fs::read_to_string(new_path).map_err(|e| e.to_string())?;
+    let new_content = std::fs::read_to_string(new_path)
+        .map_err(|e| LauncherError::io(format!("reading {}", new_path.display()), e))?;
     let mut merged = String::new();
     for line in new_content.split_inclusive('\n') {
         let stripped = line.trim();
@@ -234,17 +247,24 @@ pub fn smart_merge_env(old_path: &Path, new_path: &Path, dest_path: &Path) -> Re
             continue;
         }
         if let Some(eq) = line.find('=') {
-            let key = line[..eq].trim();
+            let lhs = line[..eq].trim();
+            // Templates may carry `export ` (space or tab); overlay old
+            // values while preserving the prefix spelling.
+            let body = strip_export_prefix(lhs);
+            let prefix_len = lhs.len() - body.len();
+            let prefix = &lhs[..prefix_len];
+            let key = body.trim();
             if is_valid_key(key) {
                 if let Some(old) = old_values.get(key) {
-                    merged.push_str(&format!("{key}={}\n", format_env_value(key, old)?));
+                    merged.push_str(&format!("{prefix}{key}={}\n", format_env_value(key, old)?));
                     continue;
                 }
             }
         }
         merged.push_str(line);
     }
-    write_atomic(dest_path, &merged)
+    write_atomic(dest_path, merged.as_bytes())
+        .map_err(|e| LauncherError::io(format!("writing {}", dest_path.display()), e))
 }
 
 #[cfg(test)]
@@ -378,6 +398,40 @@ mod tests {
             std::fs::read_to_string(&path).unwrap(),
             "PORT=8140\nBIND_ADDRESS=127.0.0.1\n"
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn upsert_treats_export_tab_like_export_space() {
+        // Single-scanner parity: `parse_env` accepts `export\t`, so the
+        // writer must update (not duplicate) such lines.
+        let dir = std::env::temp_dir().join(format!("upsert-tab-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(".env");
+        std::fs::write(&path, "export\tPORT=9000\n").unwrap();
+        upsert_env_values(
+            &path,
+            &HashMap::from([("PORT".to_string(), "9999".to_string())]),
+        )
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "PORT=9999\n");
+        assert_eq!(parse_env("export\tPORT=9000\n")["PORT"], "9000");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn merge_overlays_export_prefixed_template_keys() {
+        let dir = std::env::temp_dir().join(format!("merge-export-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let old = dir.join("old.env");
+        let new = dir.join("new.env");
+        let dest = dir.join("dest.env");
+        std::fs::write(&old, "PORT=9000\n").unwrap();
+        std::fs::write(&new, "export PORT=8140\nexport\tOTHER=1\n").unwrap();
+        smart_merge_env(&old, &new, &dest).unwrap();
+        let merged = std::fs::read_to_string(&dest).unwrap();
+        assert!(merged.contains("export PORT=9000"), "{merged}");
+        assert!(merged.contains("export\tOTHER=1"), "{merged}");
         std::fs::remove_dir_all(&dir).ok();
     }
 }
