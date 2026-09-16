@@ -1,0 +1,20 @@
+[package]
+name = "shogihome-process"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared child-process ownership: POSIX process groups / Windows Job Objects (sync + tokio)"
+
+[dependencies]
+tokio = { version = "1", features = ["process"], optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+process-wrap = { version = "10", default-features = false, features = ["std", "tokio1", "creation-flags", "job-object", "kill-on-drop"] }
+windows = { version = "0.62", features = ["Win32_System_Threading"] }
+
+[features]
+default = []
+async = ["dep:tokio"]

@@ -1,0 +1,9 @@
+[package]
+name = "shogihome-env-file"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared .env decoding and parsing (UTF-8 BOM / UTF-8 / CP932 fallback, python-dotenv compatible)"
+
+[dependencies]
+encoding_rs = "0.8"

@@ -21,6 +21,12 @@ jobs:
         with:
           lfs: true
 
+      - name: Version gate (single version authority)
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python engine-wrapper/scripts/check_versions.py --tag $env:RELEASE_TAG
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -28,17 +34,10 @@ jobs:
           cache: "npm"
           cache-dependency-path: shogihome/package-lock.json
 
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.13.11"
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: false
-
-      # --- Frontend & Server Build ---
+      # --- Frontend & Server Build (unchanged layout) ---
       - name: Install Node dependencies
         working-directory: shogihome
         run: npm ci
@@ -50,27 +49,43 @@ jobs:
           npm run build
           npm run server:runtime
 
-      # --- Engine Wrapper Build ---
-      - name: Install Python dependencies
+      # --- Rust Wrapper & Launcher Build ---
+      - name: Build wrapper (release)
         working-directory: engine-wrapper
-        run: uv sync
+        run: cargo build --release --locked -p shogihome-engine-wrapper
 
-      - name: Generate Python Licenses
-        working-directory: engine-wrapper
-        run: uv run python scripts/generate_licenses.py
+      - name: Install launcher UI dependencies
+        working-directory: engine-wrapper/launcher-app
+        run: npm ci
 
-      - name: Build Embedded Python Distribution
+      - name: Verify Tauri shell lockfile
+        working-directory: engine-wrapper/launcher-app/src-tauri
+        # src-tauri is excluded from the workspace with its own lockfile:
+        # fail here instead of silently resolving new Tauri dependencies.
+        run: cargo fetch --locked
+
+      - name: Build launcher (Tauri, no bundle)
+        working-directory: engine-wrapper/launcher-app
+        # Portable ZIP distribution: the exe is assembled into the ZIP below.
+        # `tauri build` (with bundling) is only for local installer experiments.
+        # The lockfile check above guarantees locked dependency resolution.
+        run: npx tauri build --no-bundle
+
+      # --- Licenses (replaces the old embedded-Python license step) ---
+      - name: Install cargo-about (pinned)
+        run: cargo install cargo-about --version 0.9.2 --locked --features=cli
+
+      - name: Generate Rust third-party notices
+        shell: pwsh
         run: |
-          python engine-wrapper/scripts/build_dist.py
+          New-Item -ItemType Directory -Path "pkg-licenses" -Force
+          python engine-wrapper/scripts/generate_rust_licenses.py --manifest-dir engine-wrapper --section "Rust workspace (wrapper + launcher)" --append "pkg-licenses/RUST-THIRD-PARTY-NOTICES.txt"
+          python engine-wrapper/scripts/generate_rust_licenses.py --manifest-dir engine-wrapper/launcher-app/src-tauri --config engine-wrapper/about.toml --section "Tauri shell" --append "pkg-licenses/RUST-THIRD-PARTY-NOTICES.txt"
 
-      - name: Build Shim (C#)
-        run: |
-          $csc = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-          if (-not (Test-Path $csc)) {
-              $csc = (where.exe csc.exe | Select-Object -First 1)
-          }
-          if (-not $csc) { throw "csc.exe not found. Cannot build Shim." }
-          & $csc /target:winexe /out:ShogiHomeLab.exe /r:System.Windows.Forms.dll "assets\release\shim.cs"
+      - name: Generate launcher UI third-party notices
+        working-directory: engine-wrapper/launcher-app
+        # Pinned to the same license-checker major used by shogihome.
+        run: npx --yes license-checker@25.0.1 --production --json > ../../pkg-licenses/UI-THIRD-PARTY.json
 
       - name: Write Version File
         env:
@@ -92,47 +107,112 @@ jobs:
           $pkgName = "shogihome-lab-$tagName"
           New-Item -ItemType Directory -Path $pkgName -Force
 
-          # 0. Shim & Root
-          Copy-Item "ShogiHomeLab.exe" -Destination "$pkgName/"
+          # 0. Launcher & Wrapper exes + Root
+          Copy-Item "engine-wrapper/launcher-app/src-tauri/target/release/ShogiHomeLab.exe" -Destination "$pkgName/"
+          Copy-Item "engine-wrapper/target/release/shogihome-wrapper.exe" -Destination "$pkgName/wrapper.exe"
           Copy-Item "shogihome/build/icon.png" -Destination "$pkgName/icon.png"
           Copy-Item "assets/release/README.txt" -Destination "$pkgName/"
 
-          # 1. Server & Webapp
+          # 1. Server & Webapp (unchanged)
           New-Item -ItemType Directory -Path "$pkgName/shogihome" -Force
           Copy-Item -Path "shogihome/dist/bin/*" -Destination "$pkgName/shogihome/" -Recurse
           Copy-Item -Path "shogihome/docs/webapp" -Destination "$pkgName/shogihome/docs/webapp" -Recurse
           Copy-Item "shogihome/.env.example" -Destination "$pkgName/shogihome/.env"
 
-          # 2. Engine Wrapper & Embedded Python
+          # 2. Engine Wrapper config seeds, VERSION, licenses
           New-Item -ItemType Directory -Path "$pkgName/engine-wrapper" -Force
-          Copy-Item -Path "engine-wrapper/python" -Destination "$pkgName/engine-wrapper/python" -Recurse
-
-          # Explicitly copy required scripts and VERSION file
-          @("launcher.py", "engine_wrapper.py", "config_editor.py", "common.py", "i18n.py", "server_settings.py", "update_checker.py", "VERSION") | ForEach-Object {
-              Copy-Item "engine-wrapper/$_" -Destination "$pkgName/engine-wrapper/"
-          }
-
           Copy-Item "engine-wrapper/engines.json.default" -Destination "$pkgName/engine-wrapper/engines.json"
           Copy-Item "engine-wrapper/.env.example" -Destination "$pkgName/engine-wrapper/.env"
-          Copy-Item "engine-wrapper/config_editor.html" -Destination "$pkgName/engine-wrapper/"
-
-          # Wrapper Licenses
+          Copy-Item "engine-wrapper/VERSION" -Destination "$pkgName/engine-wrapper/"
           New-Item -ItemType Directory -Path "$pkgName/engine-wrapper/licenses" -Force
-          if (Test-Path "engine-wrapper/licenses") {
-              Copy-Item "engine-wrapper/licenses/*" -Destination "$pkgName/engine-wrapper/licenses/" -ErrorAction SilentlyContinue
+          Copy-Item "pkg-licenses/*" -Destination "$pkgName/engine-wrapper/licenses/"
+
+          # 3. Artifact validation WITHOUT repo files (phase-0-baseline.md section 4):
+          #    boot the assembled tree from an unrelated CWD and speak the
+          #    wrapper TCP contract against it.
+          $required = @(
+              "ShogiHomeLab.exe", "wrapper.exe", "icon.png", "README.txt",
+              "shogihome/shogihome-server.exe", "shogihome/dist/server/server.js",
+              "shogihome/docs/webapp", "shogihome/.env",
+              "engine-wrapper/engines.json", "engine-wrapper/.env", "engine-wrapper/VERSION",
+              "engine-wrapper/licenses/RUST-THIRD-PARTY-NOTICES.txt",
+              "engine-wrapper/licenses/UI-THIRD-PARTY.json"
+          )
+          foreach ($rel in $required) {
+              if (-not (Test-Path "$pkgName/$rel")) { throw "Package missing: $rel" }
+          }
+          if ((Get-Item "$pkgName/engine-wrapper/licenses/RUST-THIRD-PARTY-NOTICES.txt").Length -eq 0) {
+              throw "Empty Rust license notices"
           }
 
-          # Smoke test: the launcher must import cleanly in the packaged environment
-          Push-Location "$pkgName/engine-wrapper"
+          $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
+          $listener.Start()
+          $smokePort = $listener.LocalEndpoint.Port
+          $listener.Stop()
+          $wrapperExe = Join-Path (Get-Location).Path "$pkgName/wrapper.exe"
+          $env:BIND_ADDRESS = "127.0.0.1"
+          $env:LISTEN_PORT = "$smokePort"
+          $env:WRAPPER_ACCESS_TOKEN = ""
+          Push-Location $env:TEMP
           try {
-              & ".\python\python.exe" -c "import launcher"
-              if ($LASTEXITCODE -ne 0) { throw "Launcher import smoke test failed" }
+              # No --config-dir: this exercises the same default resolution
+              # as double-clicking wrapper.exe (sibling engine-wrapper/).
+              # The packaged engines.json seed is [], so `list` must return [].
+              $proc = Start-Process $wrapperExe -PassThru
+              try {
+                  $client = New-Object Net.Sockets.TcpClient
+                  $deadline = (Get-Date).AddSeconds(20)
+                  while (-not $client.Connected -and (Get-Date) -lt $deadline) {
+                      try { $client.Connect("127.0.0.1", $smokePort) }
+                      catch { Start-Sleep -Milliseconds 200 }
+                  }
+                  if (-not $client.Connected) { throw "Packaged wrapper did not listen" }
+                  $stream = $client.GetStream()
+                  $writer = New-Object IO.StreamWriter($stream)
+                  $writer.Write("list`n")
+                  $writer.Flush()
+                  $reader = New-Object IO.StreamReader($stream)
+                  $body = $reader.ReadToEnd()
+                  $client.Close()
+                  if ((@($body | ConvertFrom-Json)).Count -ne 0) { throw "Expected empty engines array, got: $body" }
+              } finally {
+                  Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+              }
           } finally {
               Pop-Location
           }
 
           # Zip it
           Compress-Archive -Path "$pkgName" -DestinationPath "$pkgName.zip"
+
+          # 4. Engine-tools package (wrapper + GUI only, no server bundle):
+          #    for split hosts where the Middle Server runs elsewhere
+          #    (remote PC / Docker). Same exes, launched directly:
+          #    wrapper.exe by double-click, the editor via
+          #    `ShogiHomeLab.exe --config-editor`.
+          $toolsName = "shogihome-lab-engine-tools-$tagName"
+          New-Item -ItemType Directory -Path $toolsName -Force
+          Copy-Item "engine-wrapper/launcher-app/src-tauri/target/release/ShogiHomeLab.exe" -Destination "$toolsName/"
+          Copy-Item "engine-wrapper/target/release/shogihome-wrapper.exe" -Destination "$toolsName/wrapper.exe"
+          Copy-Item "shogihome/build/icon.png" -Destination "$toolsName/icon.png"
+          Copy-Item "assets/release/README-engine-tools.txt" -Destination "$toolsName/README.txt"
+          New-Item -ItemType Directory -Path "$toolsName/engine-wrapper" -Force
+          Copy-Item "engine-wrapper/engines.json.default" -Destination "$toolsName/engine-wrapper/engines.json"
+          Copy-Item "engine-wrapper/.env.example" -Destination "$toolsName/engine-wrapper/.env"
+          Copy-Item "engine-wrapper/VERSION" -Destination "$toolsName/engine-wrapper/"
+          New-Item -ItemType Directory -Path "$toolsName/engine-wrapper/licenses" -Force
+          Copy-Item "pkg-licenses/*" -Destination "$toolsName/engine-wrapper/licenses/"
+          $toolsRequired = @(
+              "ShogiHomeLab.exe", "wrapper.exe", "icon.png", "README.txt",
+              "engine-wrapper/engines.json", "engine-wrapper/.env", "engine-wrapper/VERSION",
+              "engine-wrapper/licenses/RUST-THIRD-PARTY-NOTICES.txt",
+              "engine-wrapper/licenses/UI-THIRD-PARTY.json"
+          )
+          foreach ($rel in $toolsRequired) {
+              if (-not (Test-Path "$toolsName/$rel")) { throw "Engine-tools package missing: $rel" }
+          }
+          if (Test-Path "$toolsName/shogihome") { throw "Engine-tools package must not contain a server bundle" }
+          Compress-Archive -Path "$toolsName" -DestinationPath "$toolsName.zip"
 
       - name: Attest Build Provenance
         uses: actions/attest@v4

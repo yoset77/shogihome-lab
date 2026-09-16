@@ -1,0 +1,42 @@
+{
+  "ja": {
+    "help": "  (引数なし)       dashboard と service を起動します。\n  --config-editor  エンジン設定エディタだけを起動します。\n  --config-dir DIR 設定ディレクトリを指定します（--config-editor 専用）。\n                   省略時: <exe-dir>/engine-wrapper\n  --tray           閉じる操作でトレイに常駐します（Linux では明示指定）。\n  --no-tray        閉じる操作で service と probe を停止して終了します。\n\n設定エディタ単独起動では service は起動しません。\nTCP relay は {wrapper} --config-dir DIR で別途起動してください。",
+    "trayOpen": "ShogiHomeを開く",
+    "trayDashboard": "ダッシュボード",
+    "trayEditor": "設定",
+    "trayExit": "終了",
+    "executables": "実行ファイル",
+    "allFiles": "すべてのファイル",
+    "chooseEngine": "エンジンの実行ファイルを選択",
+    "trayUnavailable": "トレイを利用できません。閉じる操作で停止して終了します。",
+    "trayConflict": "--tray と --no-tray は同時に指定できません。",
+    "trayLauncherOnly": "トレイの指定は launcher モード専用です。",
+    "startupFailed": "アプリの起動に失敗しました。",
+    "webviewWindows": "ウィンドウが表示されない場合は WebView2 Runtime を確認してください: https://developer.microsoft.com/microsoft-edge/webview2/",
+    "webviewLinux": "GUI セッションと WebKitGTK 4.1 / GTK 3 の実行時ライブラリを確認してください。",
+    "webviewMacos": "GUI セッションと、ビルド対象の macOS バージョンを確認してください。",
+    "cleanupFailed": "probe の終了処理が完了しませんでした。",
+    "editorClosing": "設定エディタは終了処理中です。",
+    "launcherQuitting": "アプリは終了処理中です。"
+  },
+  "en": {
+    "help": "  (no flags)       Start the dashboard and services.\n  --config-editor  Open only the engine config editor.\n  --config-dir DIR Select the config directory (requires --config-editor).\n                   Default: <exe-dir>/engine-wrapper\n  --tray           Hide to tray on close (opt-in on Linux).\n  --no-tray        Stop services and probes and exit on close.\n\nThe standalone editor never starts services.\nRun {wrapper} --config-dir DIR separately for TCP relay.",
+    "trayOpen": "Open ShogiHome",
+    "trayDashboard": "Dashboard",
+    "trayEditor": "Settings",
+    "trayExit": "Exit",
+    "executables": "Executables",
+    "allFiles": "All files",
+    "chooseEngine": "Choose engine executable",
+    "trayUnavailable": "Tray unavailable; closing the dashboard will stop services and exit.",
+    "trayConflict": "--tray conflicts with --no-tray.",
+    "trayLauncherOnly": "Tray options require launcher mode.",
+    "startupFailed": "Application failed to start.",
+    "webviewWindows": "If no window appears, check the WebView2 Runtime: https://developer.microsoft.com/microsoft-edge/webview2/",
+    "webviewLinux": "Check the graphical session and the WebKitGTK 4.1 / GTK 3 runtime libraries.",
+    "webviewMacos": "Check the graphical session and the build's minimum macOS version.",
+    "cleanupFailed": "Probe cleanup did not complete.",
+    "editorClosing": "Config editor is closing.",
+    "launcherQuitting": "Application is quitting."
+  }
+}

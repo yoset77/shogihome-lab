@@ -8,7 +8,7 @@
 flowchart LR
     Browser["Browser<br/>LanPlayer / LanEngine"]
     Server["Middle Server<br/>EngineSession"]
-    Wrapper["Engine Wrapper<br/>Python or Node.js"]
+    Wrapper["Engine Wrapper<br/>Rust (Python/Node.js legacy)"]
     Engine["USI Engine"]
 
     Browser <-->|"WebSocket relay"| Server
@@ -36,7 +36,7 @@ Remote engine は `sessionId` で識別される論理sessionに属します。M
 
 ### Engine Wrapper
 
-[`engine_wrapper.py`](../../engine-wrapper/engine_wrapper.py) と [`engine-wrapper.mjs`](../../engine-wrapper/engine-wrapper.mjs) は、同じ基本責務を持ちます。
+Rust 実装 [`wrapper/`](../../engine-wrapper/wrapper/) が配布の正本であり、[`engine_wrapper.py`](../../engine-wrapper/engine_wrapper.py) と [`engine-wrapper.mjs`](../../engine-wrapper/engine-wrapper.mjs) は legacy fallback として同じ基本責務を持ちます。3 実装の等価性は共通 contract suite [`test_wrapper_contract.py`](../../engine-wrapper/tests/test_wrapper_contract.py) が保証します。
 
 - `engines.json` からengine定義を読み込みます。
 - 必要な場合はMiddle Serverを認証します。
@@ -45,7 +45,11 @@ Remote engine は `sessionId` で識別される論理sessionに属します。M
 - 設定されたengine optionを適切な時点で注入します。
 - TCP接続終了時にchild processをcleanupします。
 
-WrapperはUSI session stateやBrowserの再接続状態を所有しません。Node.js版のprocess tree cleanupは [`shutdown-coordinator.mjs`](../../engine-wrapper/shutdown-coordinator.mjs) に分離されています。
+WrapperはUSI session stateやBrowserの再接続状態を所有しません。Rust 版は relay と cleanup を単一 task で直列化し、POSIX process group / Windows Job Object で tree を回収します。Windows では `process-wrap` が suspended spawn → Job assignment → resume を行います。親の終了を観測しても tree の所有権を失わず、子孫を停止してから最終出力を期限付きで drain します。Node.js版のprocess tree cleanupは [`shutdown-coordinator.mjs`](../../engine-wrapper/shutdown-coordinator.mjs) に分離されています。
+
+配布版 Launcher は wrapper の `.env` を decode して環境変数へ渡し、wrapper へは `--no-env-file` を付けて再読込による snapshot ずれを抑止します。standalone Rust wrapper は `<config-dir>/.env` を自動読込します（優先順位: CLI > 環境変数 > `.env` > 既定値。既定で設定済みの環境変数—空文字列を含む—が `.env` より優先されます）。registry は `--config-dir`（省略時は `engines.json` のある `<exe-dir>/engine-wrapper`、なければ実行ファイルの directory）から取得します。`.env` の値はリテラルであり、`${VAR}` 展開は行いません。
+
+エンジン側ホストでは `ShogiHomeLab[.exe] --config-editor [--config-dir DIR]` で設定 GUI のみを起動できます（controller・dashboard・service・tray なし、editor close で cleanup 後に process 終了）。Tauri shell は Windows／Linux／macOS の native build を対象とします。editor と wrapper の `--config-dir` は同じ意味（`engines.json` と `.env` の所在、相対 engine path の基準）で、probe の CWD は解決した engine の directory です。`--config-dir` は `--config-editor` との組み合わせでのみ受け付けます。編集中は設定 directory 単位の session lock を保持し、他プロセスの同時編集を拒否します。詳細は [Launcher Architecture](launcher.md) を参照してください。現行の Windows `engine-tools` ZIP はこの分割配置のための wrapper + GUI のみ配布物です。
 
 ## Lifecycle
 
@@ -99,6 +103,8 @@ TCP protocolはWebSocket relayとは別のline-oriented contractです。次の�
 - [`auth.ts`](../../shogihome/src/server/engine/auth.ts)
 - [`engine_wrapper.py`](../../engine-wrapper/engine_wrapper.py)
 - [`engine-wrapper.mjs`](../../engine-wrapper/engine-wrapper.mjs)
+- [`wrapper/`](../../engine-wrapper/wrapper/)（Rust）
+- [`test_wrapper_contract.py`](../../engine-wrapper/tests/test_wrapper_contract.py)（3 実装共通の検証）
 
 ### Wrapper to USI Engine
 
