@@ -1,6 +1,6 @@
 //! Update notification (check only, never auto-install).
 //!
-//! Ported from `update_checker.py`: bundled-only execution, `VERSION` file,
+//! Bundled-only execution, `VERSION` file,
 //! 5s GitHub request, highest eligible release, prerelease-channel rule
 //! (prereleases considered only when current is a prerelease), 7-day snooze
 //! with newer-version bypass, cached UI language.

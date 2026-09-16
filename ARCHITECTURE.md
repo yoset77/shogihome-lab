@@ -25,7 +25,7 @@ ShogiHome Lab は、PC 上の USI 将棋エンジンをブラウザーから利�
 
 - **Browser**: Vue renderer を実行し、HTTP API と WebSocket を通じて Middle Server を利用します。
 - **Middle Server**: Hono API、静的配信、WebSocket session、USI state machine、永続化、および外部プロセス管理を所有します。
-- **Engine Wrapper**: 設定された USI engine process を起動し、TCP と stdin/stdout を中継します。Rust 実装が配布の正本であり、Python 版と Node.js 版は legacy fallback 兼 contract 参照実装として残ります。
+- **Engine Wrapper**: 設定された USI engine process を起動し、TCP と stdin/stdout を中継します。Rust 実装が配布の正本です。
 - **Launcher**: 配布版の常駐 UI です。Tauri shell が service 起動・停止、設定編集、移行、更新通知を提供します。`shogihome-launcher` の controller が起動・再起動・停止・移行を直列化し、状態 snapshot と稼働中の process 監視を所有します。時間のかかる IPC は UI event loop の外で実行します。
 - Launcher と設定エディタは単一 Tauri アプリとして Windows／Linux／macOS で native build します。shell は app・editor・launcher・tray・shutdown に分割し、portable path、close policy、編集セッションは headless backend が所有します。
 - **USI Engine**: YaneuraOu などの外部将棋エンジンです。
@@ -37,7 +37,7 @@ ShogiHome Lab は、PC 上の USI 将棋エンジンをブラウザーから利�
 flowchart LR
     Browser["Browser<br/>Vue Renderer"]
     Server["Middle Server<br/>Node.js / Hono"]
-    Wrapper["Engine Wrapper<br/>Rust (Python/Node.js legacy)"]
+    Wrapper["Engine Wrapper<br/>Rust"]
     Engine["USI Engine"]
     Vision["Vision Worker<br/>Node.js subprocess"]
     Files["KIFU_DIR / data stores"]
@@ -62,7 +62,7 @@ flowchart LR
 | `shogihome/src/common/`                    | Browser と Server が共有する純粋な型、codec、domain utility                 |
 | `shogihome/src/node/`                      | Node.js runtime に依存する共有 utility                                      |
 | `shogihome/src/server/`                    | HTTP、WebSocket、engine session、filesystem、database、worker orchestration |
-| `engine-wrapper/`                          | engine 設定の読み込み、process 起動、TCP/stdio relay、process cleanup。Rust 実装が正本。process 所有は共有 `process` crate、`.env` codec は共有 `env-file` crate に集約し、各実装は薄い adapter に留める |
+| `engine-wrapper/`                          | engine 設定の読み込み、process 起動、TCP/stdio relay、process cleanup。Rust 実装（`wrapper/`）が唯一の実装。process 所有は共有 `process` crate、`.env` codec は共有 `env-file` crate に集約する |
 | `engine-wrapper/launcher-app/` + `launcher/` | Tauri shell（window/tray/IPC）と `shogihome-launcher` library（supervision、設定、移行、更新、型付き `LauncherError`）。UI は process 起動や設定書き込みを直接行わない |
 | `shogihome/src/server/vision/node-worker/` | 画像推論、盤面幾何処理、候補生成、診断 warning                              |
 
@@ -99,7 +99,7 @@ flowchart LR
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | Browser ↔ Server WebSocket    | `src/common/engine/relay_protocol.ts` が共有契約を所有し、renderer と server の双方が frame を decode します。 |
 | Browser ↔ HTTP API            | Hono routes が body、query、session header を検証し、共有型がresponse contractを定義します。                   |
-| Server ↔ Engine Wrapper       | engine session、list、auth module と 3 つの wrapper 実装（Rust/Node.js/Python）が line protocol を共有します。共通 contract suite が全実装を同一条件で検証します。 |
+| Server ↔ Engine Wrapper       | engine session、list、auth module と Rust wrapper（`wrapper/`）が line protocol を共有します。共通 contract suite が wrapper を同一条件で検証します。 |
 | Wrapper ↔ USI Engine          | Wrapper は byte/line relay と process lifecycle を担当し、USI state は解釈しません。                           |
 | Server ↔ Vision Worker        | Server が JSON Lines envelope、response shape、SFEN を検証します。                                             |
 | Server ↔ `KIFU_DIR`           | 集中化された path resolver が traversal、real path、symlink、extension を検証します。Browser uploadは保存名と容量を検証してatomicに公開し、directory作成は検証済みparent直下の1階層に限定します。 |
@@ -154,8 +154,8 @@ Database、filesystem、browser storage は互いに代替可能な正本では�
 
 - 開発時は TypeScript entry point と、必要に応じて source の Vision worker を実行します。
 - 配布版は Middle Server、Vision worker、model、必要な runtime asset をビルドスクリプトで配置します。
-- Engine Wrapper は Rust 版が配布の正本です。Python 版・Node.js 版は fallback として残り、protocol 変更時は共通 contract suite で 3 実装を同期します。
-- 配布版の Launcher は Tauri app です。設定フォームの schema は `shogihome-launcher` の `settings` module が所有し、server / wrapper の両 `.env` を読み書きします。設定の正本は引き続き各 `.env` と `shogihome/src/server/config.ts` であり、Launcher は読み書きの bridge に留まります。旧 Tk Launcher (`engine-wrapper/launcher.py`) は移行期の fallback として残ります。
+- Engine Wrapper は Rust 版が配布の正本であり、唯一の実装です。protocol 変更時は共通 contract suite で検証します。
+- 配布版の Launcher は Tauri app です。設定フォームの schema は `shogihome-launcher` の `settings` module が所有し、server / wrapper の両 `.env` を読み書きします。設定の正本は引き続き各 `.env` と `shogihome/src/server/config.ts` であり、Launcher は読み書きの bridge に留まります。
 - Launcher は各 service の `.env` を別々の環境変数 snapshot として子プロセスへ渡し、同じ snapshot から readiness の host / port を決定します。ファイルにある値は継承環境より優先します。初回移行と未完了移行の再開は、server が data directory を作成する前に完了させます。
 - Launcher は `ShogiHomeLab[.exe] --config-editor [--config-dir DIR]` で設定エディタ単独起動ができます。controller・dashboard・tray・service 監視は初期化せず、editor close が明示的に共通 shutdown を開始して probe cleanup 完了を待ちます。初期 window は `setup` で mode に応じて生成し、`tauri.conf.json` に静的 window は持ちません。
 - `paths` module は portable root と native 実行ファイル名を一元化し、service 起動と設定編集は同じ配置契約を使います。トレイ常駐時だけ main close を hide に変換し、トレイなしでは service・probe を停止して終了します。Linux は `--tray` による opt-in、全 OS で `--no-tray` を利用できます。native／IPC の Quit は `lifecycle` の終了方針に従い、cleanup 前の終了を保留します。インストール型パッケージの保存先分離は別段階で扱います。

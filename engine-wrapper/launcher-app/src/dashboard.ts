@@ -174,7 +174,7 @@ export function initDashboard(): void {
 
   async function init(): Promise<void> {
     // Backend cache wins over localStorage so the language follows the
-    // installation across browsers/profiles (Python parity: ui_language).
+    // installation across browsers/profiles.
     try {
       const saved = normalizeLang(await api.getUiLanguage());
       if (saved && saved !== lang) {

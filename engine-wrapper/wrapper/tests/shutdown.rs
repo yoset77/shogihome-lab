@@ -1,6 +1,9 @@
 //! Shutdown regression tests: every connection phase must observe listener
 //! shutdown so the 10s drain deadline in `main.rs` is never the exit path.
 //!
+//! Intentional layering: per-phase drain here, tree kill in
+//! `launcher/tests/stop_tree.rs`, FIN behavior in the wrapper contract suite.
+//!
 //! Unix-only: graceful shutdown needs SIGTERM (Windows `Child::kill` is an
 //! uncancellable terminate), and the blocked-stdin case uses a shell script
 //! engine. The relay code under test is platform-independent.

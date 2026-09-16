@@ -2,7 +2,8 @@
 """Single version authority for the ShogiHome Lab release.
 
 Compares every version source that the release artifact derives from and
-fails on any mismatch (phase-0-baseline.md section 1):
+fails on any mismatch. The sources below are the single version authority
+(consumed by CI on every push and by the release workflow with `--tag`):
 
 - shogihome/package.json                   (middle server + webapp)
 - engine-wrapper/Cargo.toml                ([workspace.package] version)

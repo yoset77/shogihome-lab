@@ -49,17 +49,17 @@ window allowlist と Tauri capability を維持します。UI は filesystem や
 
 ## Dashboard Windows
 
-- dashboard（`main`）は状態表示・起動制御・QR／URL・更新通知・初回移行に専念し、サーバー設定とログ表示は持たない。設定は `settings` window（620x640）、ログは `logs` window（600x640）の独立 WebviewWindow で表示する（Python 版の別 Toplevel 相当）。
+- dashboard（`main`）は状態表示・起動制御・QR／URL・更新通知・初回移行に専念し、サーバー設定とログ表示は持たない。設定とログは独立した単一インスタンスの WebviewWindow（`settings`、`logs`）で表示する。
 - `settings`／`logs` は単一インスタンスで、存在すれば show＋focus する。閉鎖はバックエンドの `close_settings_window`／`close_logs_window`（`window.destroy()`、エディタの `close_window` と同パターン）で行い、フロントの window 権限に依存しない。保存後は `settings-saved` イベントで dashboard が QR／URL を再読込する。
 - window 別の command allowlist（`launcher/src/permissions.rs`）と capability（`src-tauri/capabilities/{settings,logs}.json`）を持つ。`settings` は設定系＋再起動のみ、`logs` はログ読込のみ許可する。
 - データ移行に常設ボタンは置かない。初回起動時（`shogihome/data` 不在）のみ `startAfterMigration` が案内し、既存データへの上書きは提供しない。
-- dashboard の表示 URL は QR ペイロード（LAN URL）と一致させる。QR がない構成では PC URL に加えてカスタムネットワーク文言（Python 版の info card 相当）を表示する。strict 設定でも LAN URL が `ALLOWED_ORIGINS` に明示されている場合に限り QR を生成し、それ以外（127.0.0.1 bind・許可なし・proxy のみ等）では QR を出さない。
+- dashboard の表示 URL は QR ペイロード（LAN URL）と一致させる。QR がない構成では PC URL に加えてカスタムネットワーク文言を表示する。strict 設定でも LAN URL が `ALLOWED_ORIGINS` に明示されている場合に限り QR を生成し、それ以外（127.0.0.1 bind・許可なし・proxy のみ等）では QR を出さない。
 
 ## UI Language
 
-- WebView 内の表示言語は日英切替可能で、セレクトは dashboard（`main`）と editor のヘッダー右にのみ置く（幅90px固定のコンパクト表示）。`settings`／`logs` にセレクトは置かず、保存済み言語に追従する。全窓のタイトル文字サイズは共通（1.25rem）で、400px幅の dashboard でも1行に収まる。全窓が `src/i18n.ts` を共用する。選択は localStorage と backend の `.update_cache.json`（`ui_language`、Python 版と同キー）に保存し、backend 保存値を優先する。
+- WebView 内の表示言語は日英切替可能で、セレクトは dashboard（`main`）と editor のヘッダー右にのみ置く。`settings`／`logs` にセレクトは置かず、保存済み言語に追従する。全窓が `src/i18n.ts` を共用する。選択は localStorage と backend の `.update_cache.json`（`ui_language`）に保存し、backend 保存値を優先する。
 - native shell 文言（tray・起動前エラー・`--help`）は `shogihome/src/common/i18n/launcher-native.json` を Rust backend に埋め込み、OS locale（`LC_ALL`→`LC_MESSAGES`→`LANG`）で選択する。WebView 内の言語選択とは独立している。
 
 ネイティブファイル選択は Windows で実行ファイルと全ファイルを提供し、Unix では拡張子による制約を設けません。実行エラーは既存 probe 経路で報告し、任意ファイルを shell 経由で実行するフォールバックは追加しません。
 
-native shell 文言は `shogihome/src/common/i18n/launcher-native.json` を Rust backend に埋め込みます。詳細な build／検証手順は [launcher-app README](../../engine-wrapper/launcher-app/README.md) に記載します。
+詳細な build／検証手順は [launcher-app README](../../engine-wrapper/launcher-app/README.md) に記載します。

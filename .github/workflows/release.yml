@@ -127,7 +127,7 @@ jobs:
           New-Item -ItemType Directory -Path "$pkgName/engine-wrapper/licenses" -Force
           Copy-Item "pkg-licenses/*" -Destination "$pkgName/engine-wrapper/licenses/"
 
-          # 3. Artifact validation WITHOUT repo files (phase-0-baseline.md section 4):
+          # 3. Artifact validation WITHOUT repo files:
           #    boot the assembled tree from an unrelated CWD and speak the
           #    wrapper TCP contract against it.
           $required = @(

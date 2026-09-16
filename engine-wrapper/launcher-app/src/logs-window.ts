@@ -1,4 +1,4 @@
-// Log viewer in a dedicated window (Python parity: separate Toplevel).
+// Log viewer in a dedicated window.
 // Read-only tails of server.log / wrapper.log with a manual refresh.
 // Closing goes through the backend (close_logs_window) so no frontend
 // window permission is required; failures are reported, never swallowed.

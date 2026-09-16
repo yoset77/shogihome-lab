@@ -1,6 +1,8 @@
 //! Cross-parser parity: values formatted by the Rust backend must read back
 //! identically through the REAL python-dotenv and Node `parseEnv` parsers.
-//! Mirrors `test_upsert_env_values_round_trip_special_characters`.
+//!
+//! Intentional layering: unit shape lives in `env_codec` tests, real-parser
+//! round-trip here, and `.env`-to-listen behavior in the wrapper contract suite.
 
 use shogihome_launcher::env_codec::{format_env_value, parse_env};
 use std::path::PathBuf;

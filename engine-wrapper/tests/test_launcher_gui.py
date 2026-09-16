@@ -1,4 +1,9 @@
-"""Opt-in Windows regression against a real Tauri executable and WebView2."""
+"""Opt-in Windows regression against a real Tauri executable and WebView2.
+
+The standalone-editor matrix intentionally mirrors
+test_launcher_linux_gui.py: only the driver layer (CDP + Win32 here,
+tauri-driver + xdotool there) is OS-specific.
+"""
 
 import os
 import shutil
@@ -61,23 +66,46 @@ def _clear_cdp_policy():
             print(f"WARNING: could not clear WebView2 CDP policy: {e}", flush=True)
 
 
-def _drive_gui(port, pid):
-    # Run out of process: even a stuck CDP evaluate must have a hard deadline.
+def _win32_api(with_class_name=False):
+    """Shared ctypes bindings for native window driving (Windows only)."""
     import ctypes
-    import urllib.error
-    import urllib.request
     from ctypes import wintypes
-
-    from playwright.sync_api import expect, sync_playwright
 
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
     user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
     user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
-    user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    if with_class_name:
+        user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
     user32.IsWindowVisible.argtypes = [wintypes.HWND]
     user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    return user32, callback_type, ctypes, wintypes
+
+
+def _wait_cdp_ready(port):
+    """Wait for the WebView2 debugging endpoint; return its CDP URL."""
+    import urllib.error
+    import urllib.request
+
+    endpoint = f"http://127.0.0.1:{port}"
+
+    def cdp_ready():
+        try:
+            with urllib.request.urlopen(f"{endpoint}/json/version", timeout=1) as response:
+                return response.status == 200
+        except (OSError, urllib.error.URLError):
+            return False
+
+    _wait_until(cdp_ready, "WebView2 debugging endpoint", timeout=30)
+    return endpoint
+
+
+def _drive_gui(port, pid):
+    # Run out of process: even a stuck CDP evaluate must have a hard deadline.
+    from playwright.sync_api import expect, sync_playwright
+
+    user32, callback_type, ctypes, wintypes = _win32_api(with_class_name=True)
 
     def native_window(title=None, class_name=None):
         matches = []
@@ -102,16 +130,7 @@ def _drive_gui(port, pid):
         # WM_CLOSE follows the native title-bar close path, not page.close().
         assert user32.PostMessageW(hwnd, 0x0010, 0, 0), ctypes.get_last_error()
 
-    endpoint = f"http://127.0.0.1:{port}"
-
-    def cdp_ready():
-        try:
-            with urllib.request.urlopen(f"{endpoint}/json/version", timeout=1) as response:
-                return response.status == 200
-        except (OSError, urllib.error.URLError):
-            return False
-
-    _wait_until(cdp_ready, "WebView2 debugging endpoint", timeout=30)
+    endpoint = _wait_cdp_ready(port)
 
     def launcher_state(page):
         status = page.evaluate("""() => Promise.race([
@@ -242,21 +261,10 @@ def _drive_editor_standalone(port, pid, expected_id, probe_path):
     # When probe_path is given, a probe is left in flight while the window
     # closes, proving cancellation + child cleanup drain before exit.
     import time
-    import urllib.error
-    import urllib.request
 
     from playwright.sync_api import expect, sync_playwright
 
-    import ctypes
-    from ctypes import wintypes
-
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
-    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
-    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
-    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
-    user32.IsWindowVisible.argtypes = [wintypes.HWND]
-    user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user32, callback_type, ctypes, wintypes = _win32_api()
 
     def native_window(title=None):
         matches = []
@@ -278,16 +286,7 @@ def _drive_editor_standalone(port, pid, expected_id, probe_path):
     def close_native(hwnd):
         assert user32.PostMessageW(hwnd, 0x0010, 0, 0), ctypes.get_last_error()
 
-    endpoint = f"http://127.0.0.1:{port}"
-
-    def cdp_ready():
-        try:
-            with urllib.request.urlopen(f"{endpoint}/json/version", timeout=1) as response:
-                return response.status == 200
-        except (OSError, urllib.error.URLError):
-            return False
-
-    _wait_until(cdp_ready, "WebView2 debugging endpoint", timeout=30)
+    endpoint = _wait_cdp_ready(port)
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.connect_over_cdp(endpoint, timeout=15000)
@@ -341,10 +340,6 @@ def _drive_editor_standalone(port, pid, expected_id, probe_path):
         print("Standalone editor closed", flush=True)
 
 
-@pytest.mark.skipif(
-    sys.platform != "win32" or not os.environ.get("SHOGIHOME_GUI_EXE"),
-    reason="requires Windows, WebView2, Playwright and SHOGIHOME_GUI_EXE",
-)
 def _run_editor_driver(env, tmp_path, tag, port, pid, expected_id, probe_path, process):
     """Run the out-of-process CDP driver for one standalone editor launch."""
     driver_log = tmp_path / f"editor-standalone-driver-{tag}.log"

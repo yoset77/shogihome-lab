@@ -111,9 +111,8 @@ pub struct RuntimeConfig {
 ///
 /// CLI > process environment > `<config_dir>/.env` > defaults.
 ///
-/// This mirrors `engine_wrapper.py` (`load_dotenv` without override):
-/// an environment variable that is already set — even to the empty
-/// string — always wins over the `.env` file. An empty
+/// An environment variable that is already set — even to the empty
+/// string — always wins over the `.env` file (`load_dotenv` without override). An empty
 /// `WRAPPER_ACCESS_TOKEN` disables authentication from any source.
 /// `${VAR}` interpolation is NOT expanded; file values are literal.
 pub fn resolve_runtime(

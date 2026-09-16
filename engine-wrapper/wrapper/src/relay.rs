@@ -1,6 +1,6 @@
 //! Per-connection TCP relay between the server and one engine process.
 //!
-//! Protocol (see `docs/rust-rewrite.md` §1):
+//! Protocol (see `docs/architecture/remote-engine.md` "Wrapper to USI Engine"):
 //! - optional CRAM-SHA256 auth, then one command line (`list` / `run <id>`
 //!   / legacy `research` / `game`);
 //! - `list` writes the full `engines.json` array and closes (server parses

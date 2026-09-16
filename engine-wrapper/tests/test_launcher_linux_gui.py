@@ -2,6 +2,10 @@
 
 Requires tauri-driver 2.0.5, WebKitWebDriver, openbox, xdotool, wmctrl and a built shell.
 Only the Python standard library and pytest are used by the WebDriver client.
+
+The standalone-editor matrix intentionally mirrors
+test_launcher_gui.py: only the driver layer (tauri-driver + xdotool here,
+CDP + Win32 there) is OS-specific.
 """
 
 import json

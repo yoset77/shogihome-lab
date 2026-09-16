@@ -1,6 +1,6 @@
 # cargo-about configuration: license gate + third-party notice generation.
 # Used by the release workflow for the workspace (wrapper + launcher) and
-# for launcher-app/src-tauri (Tauri shell). See docs/rust-rewrite.md.
+# for launcher-app/src-tauri (Tauri shell). See docs/architecture/remote-engine.md.
 accepted = [
   "MIT",
   "Apache-2.0",

@@ -1,6 +1,10 @@
-# Native launcher / config editor
+# Launcher / Config editor
 
-同じ Tauri アプリを Windows・Linux・macOS で native build します。`--config-editor` は設定エディタだけを起動し、サーバー一式を必要としません。現在の release workflow が生成する配布物は Windows 用 ZIP です。Linux／macOS のインストール型パッケージは別段階で整備します。
+この文書は、Tauri製ランチャーのビルド・実行・検証手順を示します。配布ZIPを使う場合はルート [README.md](../../README.md) と配布ZIP同梱 `README.txt` を参照してください。
+
+ランチャーと設定エディタは同一実行ファイル (`ShogiHomeLab[.exe]`) の2つの起動モードです。通常起動はWebサーバーとエンジンラッパーを常駐起動し、`--config-editor` は設定編集 (`engines.json`) のみ起動してサーバーバンドル (`shogihome/`) を必要としません。
+
+公式配布は現在Windows用portable ZIPのみです。Linux/macOSではソースからビルドしてportable配置で開発・検証できますが、一般利用はWindows版を推奨します。
 
 ## ビルド
 
@@ -86,10 +90,10 @@ portable/
 `engine-wrapper/` で:
 
 ```sh
-uv sync --all-groups
+python -m pip install "pytest==9.1.1" playwright python-dotenv
 cargo test --locked --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-uv run pytest tests/test_server_runtime.py
+python -m pytest tests/test_server_runtime.py
 ```
 
 `launcher-app/` で `npm test`、`npm run build`、`cargo fmt --manifest-path src-tauri/Cargo.toml --check`、`cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings` を実行します。
@@ -100,7 +104,7 @@ Linux の native GUI 回帰テスト（`engine-wrapper/` から）:
 sudo apt-get install -y webkit2gtk-driver xvfb xauth dbus-x11 openbox xdotool wmctrl scrot
 cargo install tauri-driver --version 2.0.5 --locked
 SHOGIHOME_GUI_EXE=launcher-app/src-tauri/target/release/ShogiHomeLab \
-  dbus-run-session -- xvfb-run -a uv run pytest tests/test_launcher_linux_gui.py tests/test_launcher_cli.py -q
+  dbus-run-session -- xvfb-run -a python -m pytest tests/test_launcher_linux_gui.py tests/test_launcher_cli.py -q
 ```
 
 GUI suite は別ディレクトリへ実行ファイルをコピーし、異なる CWD から起動します。editor の保存・実ファイル選択・probe・ロック・終了時回収、launcher の起動・再起動・editor 再表示・トレイなし終了・明示的なトレイ常駐と終了を検証します。Windows は `tests/test_launcher_gui.py` の WebView2 回帰テストを使います。

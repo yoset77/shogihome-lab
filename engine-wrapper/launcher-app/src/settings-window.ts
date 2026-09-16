@@ -1,4 +1,4 @@
-// Server settings in a dedicated window (Python parity: 620x640 dialog).
+// Server settings in a dedicated window.
 // Reads/writes through backend commands; notifies the dashboard via the
 // "settings-saved" event so it can refresh the QR/URL panel. Closing goes
 // through the backend (close_settings_window); failures are reported,
