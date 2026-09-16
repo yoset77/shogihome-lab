@@ -4,7 +4,6 @@
 Compares every version source that the release artifact derives from and
 fails on any mismatch (phase-0-baseline.md section 1):
 
-- engine-wrapper/pyproject.toml            (Python wrapper/launcher)
 - shogihome/package.json                   (middle server + webapp)
 - engine-wrapper/Cargo.toml                ([workspace.package] version)
 - engine-wrapper/wrapper/Cargo.toml        (must be `version.workspace = true`)
@@ -65,7 +64,6 @@ def main() -> int:
     args = parser.parse_args()
 
     versions: dict[str, str] = {
-        "engine-wrapper/pyproject.toml [project]": toml_version(WRAPPER_DIR / "pyproject.toml", "project.version"),
         "shogihome/package.json": json.loads(read_text(REPO_ROOT / "shogihome" / "package.json"))["version"],
         "engine-wrapper/Cargo.toml [workspace.package]": toml_version(WRAPPER_DIR / "Cargo.toml", "workspace.package.version"),
         "launcher-app/package.json": json.loads(read_text(WRAPPER_DIR / "launcher-app" / "package.json"))["version"],

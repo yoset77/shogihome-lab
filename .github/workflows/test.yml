@@ -39,17 +39,6 @@ jobs:
       - name: Run Tests
         run: npm run test
 
-      - name: Check engine-wrapper syntax
-        working-directory: .
-        run: |
-          node --check engine-wrapper/engine-wrapper.mjs
-          node --check engine-wrapper/shutdown-coordinator.mjs
-          python3 -m py_compile engine-wrapper/engine_wrapper.py
-
-      - name: Run Node engine-wrapper tests
-        working-directory: engine-wrapper
-        run: npm run test:node
-
       - name: Check single version authority
         working-directory: .
         run: python3 engine-wrapper/scripts/check_versions.py
@@ -65,12 +54,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
-      - name: Set up Python
-        run: uv python install
-      - name: Install dependencies
-        run: uv sync --all-groups
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install "pytest==9.1.1" python-dotenv
       - name: Format check
         run: cargo fmt --check
       - name: Clippy
@@ -78,9 +66,7 @@ jobs:
       - name: Unit tests
         run: cargo test --workspace
       - name: Contract tests (Rust wrapper)
-        run: uv run pytest tests/test_wrapper_contract.py
-        env:
-          WRAPPER_CMD: rust
+        run: python -m pytest tests/test_wrapper_contract.py -q
 
   test-launcher-ui:
     runs-on: ubuntu-latest
@@ -114,9 +100,11 @@ jobs:
         with:
           node-version: 26
       - uses: dtolnay/rust-toolchain@stable
-      - uses: astral-sh/setup-uv@v7
-      - name: Install Python dependencies
-        run: uv sync --all-groups
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install "pytest==9.1.1" playwright python-dotenv
       - name: Build wrapper
         run: cargo build --locked -p shogihome-engine-wrapper
       - name: Windows service and probe regressions
@@ -125,9 +113,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p shogihome-engine-wrapper --test config_dir
       - name: Windows wrapper contract
-        run: uv run pytest tests/test_wrapper_contract.py
-        env:
-          WRAPPER_CMD: rust
+        run: python -m pytest tests/test_wrapper_contract.py -q
       - name: Build Tauri shell and verify portable binary name
         working-directory: engine-wrapper/launcher-app
         run: |
@@ -150,7 +136,7 @@ jobs:
             Get-ChildItem "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients" | ForEach-Object { $_.PSChildName }
           }
       - name: Windows launcher GUI regression
-        run: uv run --with playwright pytest tests/test_launcher_gui.py tests/test_launcher_cli.py tests/test_server_runtime.py -q --basetemp="${{ runner.temp }}/launcher-gui-win"
+        run: python -m pytest tests/test_launcher_gui.py tests/test_launcher_cli.py tests/test_server_runtime.py -q --basetemp="${{ runner.temp }}/launcher-gui-win"
         env:
           SHOGIHOME_GUI_EXE: launcher-app/src-tauri/target/release/ShogiHomeLab.exe
       - name: Upload Windows GUI failure diagnostics
@@ -183,20 +169,20 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
       - name: Install Linux WebView and GUI test dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev pkg-config webkit2gtk-driver xvfb xauth dbus-x11 openbox xdotool wmctrl scrot
-      - name: Install Python dependencies
-        run: uv sync --all-groups
+      - name: Install test dependencies
+        run: python -m pip install "pytest==9.1.1" playwright python-dotenv
       - name: Native backend tests
         run: cargo test --locked --workspace
       - name: Wrapper contract
-        run: uv run pytest tests/test_wrapper_contract.py
-        env:
-          WRAPPER_CMD: rust
+        run: python -m pytest tests/test_wrapper_contract.py -q
       - name: Build native Tauri shell
         working-directory: engine-wrapper/launcher-app
         run: |
@@ -210,7 +196,7 @@ jobs:
           cargo fmt --manifest-path src-tauri/Cargo.toml --check
           cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
       - name: Native CLI and runtime assembly
-        run: uv run pytest tests/test_launcher_cli.py tests/test_server_runtime.py -q
+        run: python -m pytest tests/test_launcher_cli.py tests/test_server_runtime.py -q
         env:
           SHOGIHOME_GUI_EXE: launcher-app/src-tauri/target/release/ShogiHomeLab
       - name: Install WebDriver
@@ -218,7 +204,7 @@ jobs:
         run: cargo install tauri-driver --version 2.0.5 --locked
       - name: Linux native GUI regressions
         if: runner.os == 'Linux'
-        run: dbus-run-session -- xvfb-run -a uv run pytest tests/test_launcher_linux_gui.py -q --basetemp="${{ runner.temp }}/launcher-gui"
+        run: dbus-run-session -- xvfb-run -a python -m pytest tests/test_launcher_linux_gui.py -q --basetemp="${{ runner.temp }}/launcher-gui"
         env:
           SHOGIHOME_GUI_EXE: launcher-app/src-tauri/target/release/ShogiHomeLab
       - name: Upload GUI failure diagnostics
@@ -230,20 +216,3 @@ jobs:
             ${{ runner.temp }}/launcher-gui/**/gui.log
             ${{ runner.temp }}/launcher-gui/**/failure.png
             ${{ runner.temp }}/launcher-gui/**/engine-wrapper/logs/*.log
-
-  test-python:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    defaults:
-      run:
-        working-directory: engine-wrapper
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
-      - name: Set up Python
-        run: uv python install
-      - name: Install dependencies
-        run: uv sync --all-groups
-      - name: Run tests
-        run: uv run pytest

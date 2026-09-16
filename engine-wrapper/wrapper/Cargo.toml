@@ -3,7 +3,7 @@ name = "shogihome-engine-wrapper"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "TCP relay between ShogiHome server and USI engines (Rust rewrite of engine_wrapper.py / engine-wrapper.mjs)"
+description = "TCP relay between ShogiHome server and USI engines"
 
 [[bin]]
 name = "shogihome-wrapper"

@@ -775,7 +775,17 @@ mod tests {
         let fixture = dir.join("probe 日本語 engine");
         std::fs::write(
             &fixture,
-            include_str!("../../tests/fixtures/probe_engine.py"),
+            "#!/bin/sh\n\
+             while IFS= read -r line; do\n\
+             case \"$line\" in\n\
+             usi)\n\
+             printf 'option name Threads type spin default 1 min 1 max 128\\n'\n\
+             printf 'option name USI_Ponder type check default true\\n'\n\
+             printf 'usiok\\n'\n\
+             ;;\n\
+             quit) exit 0 ;;\n\
+             esac\n\
+             done\n",
         )
         .unwrap();
         #[cfg(unix)]
@@ -799,12 +809,8 @@ mod tests {
         ));
 
         // Cancelled probe reports cancellation.
-        let slow = fixture.parent().unwrap().join("probe_slow.py");
-        std::fs::write(
-            &slow,
-            "#!/usr/bin/env python3\nimport time\ntime.sleep(30)\n",
-        )
-        .unwrap();
+        let slow = fixture.parent().unwrap().join("probe_slow.sh");
+        std::fs::write(&slow, "#!/bin/sh\nsleep 30\n").unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

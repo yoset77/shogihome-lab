@@ -243,7 +243,20 @@ def test_standalone_editor_save_probe_lock_and_native_close(tmp_path, explicit_d
         assert duplicate.returncode != 0
         # Exercise the real picker and select an extensionless executable.
         engine = config / "engine"
-        shutil.copy2(Path(__file__).parent / "fixtures/probe_engine.py", engine)
+        engine.write_text(
+            "#!/bin/sh\n"
+            "while IFS= read -r line; do\n"
+            'case "$line" in\n'
+            "usi)\n"
+            "printf 'option name Threads type spin default 1 min 1 max 128\\n'\n"
+            "printf 'option name USI_Ponder type check default true\\n'\n"
+            "printf 'usiok\\n'\n"
+            ";;\n"
+            "quit) exit 0 ;;\n"
+            "esac\n"
+            "done\n",
+            encoding="utf-8",
+        )
         engine.chmod(0o755)
         client.execute("window.picked=null; window.__TAURI_INTERNALS__.invoke('editor_browse').then(p=>window.picked=p); return true;")
         picker = client.native_window("Choose engine executable")
