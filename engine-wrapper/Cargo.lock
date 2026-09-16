@@ -637,7 +637,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "shogihome-engine-wrapper"
-version = "1.20.0"
+version = "1.21.0-alpha.0"
 dependencies = [
  "encoding_rs",
  "hmac",
@@ -653,14 +653,14 @@ dependencies = [
 
 [[package]]
 name = "shogihome-env-file"
-version = "1.20.0"
+version = "1.21.0-alpha.0"
 dependencies = [
  "encoding_rs",
 ]
 
 [[package]]
 name = "shogihome-launcher"
-version = "1.20.0"
+version = "1.21.0-alpha.0"
 dependencies = [
  "encoding_rs",
  "libc",
@@ -675,7 +675,7 @@ dependencies = [
 
 [[package]]
 name = "shogihome-process"
-version = "1.20.0"
+version = "1.21.0-alpha.0"
 dependencies = [
  "libc",
  "process-wrap",
