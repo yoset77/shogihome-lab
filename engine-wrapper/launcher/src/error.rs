@@ -35,10 +35,17 @@ pub enum LauncherError {
     /// Engine registry validation failure (including duplicate ids).
     #[error("invalid engines.json: {0}")]
     Engines(String),
-    /// Settings validation failure; payload is the legacy
-    /// `"Invalid settings: a, b"` text.
-    #[error("{0}")]
-    InvalidSettings(String),
+    /// Field-level errors for IPC localization; Display preserves legacy text.
+    #[error("Invalid settings: {}", setting_error_ids(.0))]
+    InvalidSettings(std::collections::HashMap<String, crate::settings::ValidationError>),
+}
+
+fn setting_error_ids(
+    errors: &std::collections::HashMap<String, crate::settings::ValidationError>,
+) -> String {
+    let mut ids: Vec<_> = errors.keys().map(String::as_str).collect();
+    ids.sort_unstable();
+    ids.join(", ")
 }
 
 impl LauncherError {

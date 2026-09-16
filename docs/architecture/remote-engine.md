@@ -115,3 +115,4 @@ Wrapperはprocess起動、option注入、stream relay、cleanupを担当しま�
 - Client→engine 行は trim + UTF-8 再送出しとし、CR/LF 混入は拒否する。
 - Option 値は scalar-only schema とし、不正・複合値は警告して skip する。
 - エンコーディングは行単位で UTF-8 → CP932/Shift-JIS fallback → UTF-8 転送とし、engine stdin への CP932 再変換はしない。stderr は stdout 同様に転送する。
+- TCP client 入力は `MAX_LINE_BYTES` を読込途中から適用する有界行読込で処理する。改行なしで上限を超えた入力は接続終了とし、spawn 済み engine は通常 cleanup で回収する。relay 中の分割・連結行や pipelining は保持する。

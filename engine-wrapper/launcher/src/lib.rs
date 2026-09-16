@@ -19,6 +19,7 @@ pub mod network;
 pub mod paths;
 pub mod permissions;
 pub mod process;
+pub mod server_env;
 pub mod service;
 pub mod session_lock;
 pub mod settings;

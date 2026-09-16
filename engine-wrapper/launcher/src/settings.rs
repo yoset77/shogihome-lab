@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::env_codec::{load_env_value, upsert_env_values, EnvValue};
+use crate::env_codec::{upsert_env_values, EnvValue};
 use crate::error::LauncherError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,29 +131,64 @@ impl EnvPaths {
 
 /// Load current values (first mapping wins) plus linked-key mismatches that
 /// already exist on disk, e.g. `LISTEN_PORT=1` vs `REMOTE_ENGINE_PORT=2`.
+///
+/// The server file is interpreted with the shared python-dotenv-compatible
+/// parser here to keep unit tests hermetic. Production callers (Tauri
+/// shell) should use [`load_settings_with_program`] so quoted Windows
+/// paths and other Node `parseEnv` divergences resolve exactly as the
+/// supervised server sees them.
 pub fn load_settings(paths: &EnvPaths) -> (HashMap<String, SettingValue>, Vec<String>) {
-    let server_content = crate::env_codec::read_env_file(&paths.server).unwrap_or_default();
+    // `None` never spawns the Node helper, so this cannot fail.
+    load_settings_with_program(paths, None).expect("shared-parser settings load is infallible")
+}
+
+/// Node-aware settings load: when `server_program` is `Some`, the server
+/// `.env` is resolved through the bundled Node runtime
+/// (`server_env::load_server_env`); otherwise falls back to the shared
+/// parser. The wrapper file always uses the shared parser.
+///
+/// Helper failures are returned as `Err` so callers surface them instead of
+/// showing (and later persisting) default values over the user's files.
+pub fn load_settings_with_program(
+    paths: &EnvPaths,
+    server_program: Option<&Path>,
+) -> Result<(HashMap<String, SettingValue>, Vec<String>), LauncherError> {
+    let server_map: HashMap<String, String> = match server_program {
+        Some(program) => crate::server_env::load_server_env(&paths.server, program)?,
+        None => {
+            let server_content = crate::env_codec::read_env_file(&paths.server).unwrap_or_default();
+            crate::env_codec::parse_env(&server_content)
+        }
+    };
     let wrapper_content = crate::env_codec::read_env_file(&paths.wrapper).unwrap_or_default();
-    let contents = [
-        (EnvFile::Server, &server_content),
-        (EnvFile::Wrapper, &wrapper_content),
+    let wrapper_map = crate::env_codec::parse_env(&wrapper_content);
+    Ok(load_settings_from_maps(&server_map, &wrapper_map))
+}
+
+/// Core loader operating on already-resolved key/value maps.
+fn load_settings_from_maps(
+    server_map: &HashMap<String, String>,
+    wrapper_map: &HashMap<String, String>,
+) -> (HashMap<String, SettingValue>, Vec<String>) {
+    let contents: [(EnvFile, &HashMap<String, String>); 2] = [
+        (EnvFile::Server, server_map),
+        (EnvFile::Wrapper, wrapper_map),
     ];
     let mut values = HashMap::new();
     let mut mismatches = Vec::new();
     for setting in SETTINGS {
         let mut seen: Vec<String> = Vec::new();
         for (index, (key, kind)) in setting.keys.iter().enumerate() {
-            let content = contents
-                .iter()
-                .find(|(k, _)| *k == *kind)
-                .map(|(_, c)| c.as_str())
-                .unwrap_or("");
+            let map = contents.iter().find(|(k, _)| *k == *kind).map(|(_, m)| *m);
             let default = match setting.setting_type {
                 SettingType::Bool => EnvValue::Bool(setting.default_bool),
                 SettingType::Int => EnvValue::Int(setting.default_int),
                 _ => EnvValue::Str(setting.default_str.to_string()),
             };
-            let raw = load_env_value(content, key, default);
+            let raw = match map.and_then(|m| m.get(*key)) {
+                Some(v) => load_env_value_from_raw(v, &default),
+                None => default,
+            };
             seen.push(formatted_raw(&raw));
             // First mapping wins. Compare the mapping index, not the key
             // name: linked keys may share a name across files
@@ -168,6 +203,23 @@ pub fn load_settings(paths: &EnvPaths) -> (HashMap<String, SettingValue>, Vec<St
         }
     }
     (values, mismatches)
+}
+
+/// Interpret an already-resolved raw string as the setting's typed default
+/// dictates (bool before int, mirroring `env_codec::load_env_value`).
+fn load_env_value_from_raw(raw: &str, default: &EnvValue) -> EnvValue {
+    match default {
+        EnvValue::Bool(_) => match raw.trim().to_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => EnvValue::Bool(true),
+            "false" | "0" | "no" | "off" | "" => EnvValue::Bool(false),
+            _ => default.clone(),
+        },
+        EnvValue::Int(_) => match raw.trim().parse::<i64>() {
+            Ok(n) => EnvValue::Int(n),
+            Err(_) => default.clone(),
+        },
+        EnvValue::Str(_) => EnvValue::Str(raw.to_string()),
+    }
 }
 
 fn formatted_raw(raw: &EnvValue) -> String {
@@ -228,7 +280,20 @@ fn valid_domain(item: &str) -> bool {
 }
 
 /// Validate a values mapping. Missing ids fall back to defaults.
+///
+/// Custom `BIND_ADDRESS` values already on disk are preserved: keeping the
+/// current value is allowed even when it is not one of the schema choices.
+/// Any *new* custom value is still rejected.
 pub fn validate(values: &HashMap<String, SettingValue>) -> HashMap<String, ValidationError> {
+    validate_with_current(values, None)
+}
+
+/// Validate with knowledge of the current on-disk values so an existing
+/// custom bind address can be kept (but not newly introduced).
+pub fn validate_with_current(
+    values: &HashMap<String, SettingValue>,
+    current: Option<&HashMap<String, SettingValue>>,
+) -> HashMap<String, ValidationError> {
     let mut errors = HashMap::new();
     for setting in SETTINGS {
         let value = values.get(setting.id);
@@ -255,7 +320,16 @@ pub fn validate(values: &HashMap<String, SettingValue>) -> HashMap<String, Valid
             },
             SettingType::Choice => {
                 if !setting.choices.contains(&text.as_str()) {
-                    errors.insert(setting.id.to_string(), ValidationError::InvalidChoice);
+                    let keep_current = current
+                        .and_then(|m| m.get(setting.id))
+                        .map(|v| match v {
+                            SettingValue::Text(t) => t == &text,
+                            SettingValue::Bool(b) => b.to_string() == text,
+                        })
+                        .unwrap_or(false);
+                    if !keep_current {
+                        errors.insert(setting.id.to_string(), ValidationError::InvalidChoice);
+                    }
                 }
             }
             SettingType::List => {
@@ -303,14 +377,21 @@ fn format_value(setting: &Setting, value: &SettingValue) -> String {
 /// through atomic upserts per file; if the second file fails, the first is
 /// restored from a backup so linked keys cannot diverge.
 pub fn save(values: &HashMap<String, SettingValue>, paths: &EnvPaths) -> Result<(), LauncherError> {
-    let errors = validate(values);
+    save_with_program(values, paths, None)
+}
+
+/// Resolve current values, validate, and persist with one parser contract.
+/// Production callers supply the bundled Node runtime and hold the controller
+/// operation lock across this entire operation.
+pub fn save_with_program(
+    values: &HashMap<String, SettingValue>,
+    paths: &EnvPaths,
+    server_program: Option<&Path>,
+) -> Result<(), LauncherError> {
+    let (current, _) = load_settings_with_program(paths, server_program)?;
+    let errors = validate_with_current(values, Some(&current));
     if !errors.is_empty() {
-        let mut ids: Vec<_> = errors.keys().cloned().collect();
-        ids.sort();
-        return Err(LauncherError::InvalidSettings(format!(
-            "Invalid settings: {}",
-            ids.join(", ")
-        )));
+        return Err(LauncherError::InvalidSettings(errors));
     }
     let mut server_updates = HashMap::new();
     let mut wrapper_updates = HashMap::new();
@@ -653,10 +734,192 @@ mod tests {
     }
 
     #[test]
+    fn custom_bind_is_kept_but_not_newly_introduced() {
+        let (base, paths) = dirs("set-custom-bind");
+        std::fs::write(&paths.server, "BIND_ADDRESS=192.168.1.10\nPORT=8140\n").unwrap();
+        std::fs::write(&paths.wrapper, "").unwrap();
+        let (current, _) = load_settings(&paths);
+        assert_eq!(
+            current["BIND_ADDRESS"],
+            SettingValue::Text("192.168.1.10".to_string())
+        );
+        // Keeping the on-disk custom value validates.
+        let mut keep = current.clone();
+        keep.insert(
+            "KIFU_DIR".to_string(),
+            SettingValue::Text("C:/kifu".to_string()),
+        );
+        assert!(validate_with_current(&keep, Some(&current)).is_empty());
+        // A fresh custom value is still rejected.
+        let mut fresh = HashMap::new();
+        fresh.insert(
+            "BIND_ADDRESS".to_string(),
+            SettingValue::Text("10.0.0.5".to_string()),
+        );
+        let err = validate_with_current(&fresh, Some(&current));
+        assert_eq!(err["BIND_ADDRESS"], ValidationError::InvalidChoice);
+        // Explicitly switching back to a schema choice is allowed.
+        let mut standard = current.clone();
+        standard.insert(
+            "BIND_ADDRESS".to_string(),
+            SettingValue::Text("127.0.0.1".to_string()),
+        );
+        assert!(validate_with_current(&standard, Some(&current)).is_empty());
+        cleanup(&base);
+    }
+
+    #[test]
+    fn save_preserves_custom_bind_when_editing_other_fields() {
+        let (base, paths) = dirs("set-save-bind");
+        std::fs::write(&paths.server, "BIND_ADDRESS=192.168.1.10\nPORT=8140\n").unwrap();
+        std::fs::write(&paths.wrapper, "LISTEN_PORT=4082\n").unwrap();
+        let (mut values, _) = load_settings(&paths);
+        values.insert(
+            "KIFU_DIR".to_string(),
+            SettingValue::Text("C:/kifu".to_string()),
+        );
+        save(&values, &paths).unwrap();
+        let server = std::fs::read_to_string(&paths.server).unwrap();
+        assert!(server.contains("BIND_ADDRESS=192.168.1.10"));
+        assert!(server.contains("KIFU_DIR="));
+        cleanup(&base);
+    }
+
+    #[test]
+    fn controller_save_preserves_node_custom_bind_syntax() {
+        let (base, paths) = dirs("set-save-node-bind");
+        let controller = crate::controller::Controller::new(&["server", "wrapper"]);
+        for bind in ["`192.168.1.10`", "192.168.1.10#LAN"] {
+            std::fs::write(&paths.server, format!("BIND_ADDRESS={bind}\nPORT=8140\n")).unwrap();
+            std::fs::write(&paths.wrapper, "LISTEN_PORT=4082\n").unwrap();
+            let (mut values, _) =
+                load_settings_with_program(&paths, Some(Path::new("node"))).unwrap();
+            assert_eq!(
+                values["BIND_ADDRESS"],
+                SettingValue::Text("192.168.1.10".into())
+            );
+            values.insert("KIFU_DIR".into(), SettingValue::Text("C:/records".into()));
+            controller
+                .save_settings(&values, &paths, Path::new("node"))
+                .unwrap();
+            let saved =
+                crate::server_env::load_server_env(&paths.server, Path::new("node")).unwrap();
+            assert_eq!(saved["BIND_ADDRESS"], "192.168.1.10");
+            assert_eq!(saved["KIFU_DIR"], "C:/records");
+            // A new custom address must still fail without writing either file.
+            let before_server = std::fs::read(&paths.server).unwrap();
+            let before_wrapper = std::fs::read(&paths.wrapper).unwrap();
+            values.insert("BIND_ADDRESS".into(), SettingValue::Text("10.0.0.5".into()));
+            let error = controller
+                .save_settings(&values, &paths, Path::new("node"))
+                .unwrap_err();
+            assert_eq!(error.to_string(), "Invalid settings: BIND_ADDRESS");
+            let LauncherError::InvalidSettings(errors) = error else {
+                panic!("expected field-level validation errors");
+            };
+            assert_eq!(errors["BIND_ADDRESS"], ValidationError::InvalidChoice);
+            assert_eq!(std::fs::read(&paths.server).unwrap(), before_server);
+            assert_eq!(std::fs::read(&paths.wrapper).unwrap(), before_wrapper);
+        }
+        cleanup(&base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn controller_save_helper_failure_leaves_both_files_untouched() {
+        // Hermetic failing helper (see server_env tests): `/bin/false` is
+        // missing on macOS, where the missing-program fallback to `node`
+        // would mask the error and yield `Ok`.
+        use std::os::unix::fs::PermissionsExt as _;
+        let (base, paths) = dirs("set-save-node-failure");
+        let helper = base.join("fail.sh");
+        std::fs::write(&helper, "#!/bin/sh\nexit 1\n").unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let server = "PORT=9000\nKIFU_DIR=C:/records\n";
+        let wrapper = "LISTEN_PORT=4083\n";
+        std::fs::write(&paths.server, server).unwrap();
+        std::fs::write(&paths.wrapper, wrapper).unwrap();
+        let controller = crate::controller::Controller::new(&["server", "wrapper"]);
+        let error = controller
+            .save_settings(&full_values(), &paths, &helper)
+            .unwrap_err();
+        assert!(error.to_string().contains("failed to parse"));
+        assert_eq!(std::fs::read_to_string(&paths.server).unwrap(), server);
+        assert_eq!(std::fs::read_to_string(&paths.wrapper).unwrap(), wrapper);
+        cleanup(&base);
+    }
+
+    #[test]
     fn token_is_unique_and_safe() {
         let a = generate_token();
         let b = generate_token();
         assert_ne!(a, b);
         assert!(a.len() >= 20 && !a.contains(' '));
+    }
+
+    #[test]
+    fn node_aware_load_preserves_quoted_windows_path() {
+        use std::process::Command;
+        let node_ok = Command::new("node")
+            .args(["-e", "process.exit(0)"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !node_ok {
+            return;
+        }
+        let (base, paths) = dirs("set-node-path");
+        std::fs::write(&paths.server, "KIFU_DIR=\"C:\\temp\\records\"\n").unwrap();
+        std::fs::write(&paths.wrapper, "").unwrap();
+        let (values, _) =
+            load_settings_with_program(&paths, Some(std::path::Path::new("node"))).unwrap();
+        assert_eq!(
+            values["KIFU_DIR"],
+            SettingValue::Text("C:\\temp\\records".to_string())
+        );
+        cleanup(&base);
+    }
+
+    #[test]
+    fn save_round_trip_keeps_kifu_dir_readable_by_both_parsers() {
+        use std::collections::HashMap;
+        let (base, paths) = dirs("set-roundtrip");
+        let mut values = full_values();
+        values.insert(
+            "KIFU_DIR".to_string(),
+            SettingValue::Text("C:\\temp\\records".to_string()),
+        );
+        save(&values, &paths).unwrap();
+        // Both parsers must read back the identical value.
+        let server_content = std::fs::read_to_string(&paths.server).unwrap();
+        let rust_map = crate::env_codec::parse_env(&server_content);
+        assert_eq!(
+            rust_map.get("KIFU_DIR").map(String::as_str),
+            Some("C:\\temp\\records")
+        );
+        // Reload through the settings loader preserves the value.
+        let (reloaded, _) = load_settings(&paths);
+        assert_eq!(
+            reloaded["KIFU_DIR"],
+            SettingValue::Text("C:\\temp\\records".to_string())
+        );
+        // The saved file must resolve identically through Node `parseEnv`.
+        use std::process::Command;
+        let node_ok = Command::new("node")
+            .args(["-e", "process.exit(0)"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if node_ok {
+            let node_map =
+                crate::server_env::load_server_env(&paths.server, std::path::Path::new("node"))
+                    .unwrap();
+            assert_eq!(
+                node_map.get("KIFU_DIR").map(String::as_str),
+                Some("C:\\temp\\records")
+            );
+        }
+        let _ = HashMap::<String, String>::new();
+        cleanup(&base);
     }
 }

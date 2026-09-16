@@ -7,7 +7,7 @@ import { ask, message, open as openDialog } from "@tauri-apps/plugin-dialog";
 import { emit } from "@tauri-apps/api/event";
 import { api, type SettingsSchema, type SettingValues } from "./api";
 import { detectLang, normalizeLang, storeLang, text, type Lang } from "./i18n";
-import { joinListValue, splitListValue } from "./settings-list";
+import { choiceOptions, joinListValue, splitListValue } from "./settings-list";
 
 export function initSettingsWindow(): void {
   let lang: Lang = detectLang();
@@ -82,13 +82,20 @@ export function initSettingsWindow(): void {
         } else if (setting.type === "choice") {
           const select = document.createElement("select");
           select.dataset.settingId = setting.id;
-          for (const choice of setting.choices) {
+          // Preserve an existing custom value (e.g. BIND_ADDRESS=192.168.1.10)
+          // so editing an unrelated field does not silently rewrite it to
+          // the first schema choice.
+          const choices = choiceOptions(setting.choices, current);
+          for (const choice of choices) {
             const opt = document.createElement("option");
             opt.value = choice;
             opt.textContent = choice;
             if (choice === current) opt.selected = true;
             select.append(opt);
           }
+          // Explicitly pin the displayed value: without a matching option
+          // some browsers fall back to the first item.
+          if (typeof current === "string") select.value = current;
           group.append(select);
         } else if (setting.type === "list") {
           // One input row per item with a remove button, plus an add button

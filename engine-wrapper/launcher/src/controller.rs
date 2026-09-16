@@ -139,13 +139,15 @@ impl Controller {
     /// serializes start/stop/restart/migration. The server+wrapper snapshot
     /// used at startup is taken under this lock, so saving here prevents a
     /// mixed plan (new server values + old wrapper values) from forming.
+    /// Current settings are loaded and validated with Node under the lock.
     pub fn save_settings(
         &self,
         values: &std::collections::HashMap<String, crate::settings::SettingValue>,
         paths: &crate::settings::EnvPaths,
+        server_program: &std::path::Path,
     ) -> Result<(), LauncherError> {
         let _operation = self.operation.lock().unwrap();
-        crate::settings::save(values, paths)
+        crate::settings::save_with_program(values, paths, Some(server_program))
     }
 
     pub fn quit(&self) {
@@ -381,7 +383,8 @@ mod tests {
         let saver = {
             let controller = controller.clone();
             std::thread::spawn(move || {
-                let result = controller.save_settings(&values, &paths);
+                let result =
+                    controller.save_settings(&values, &paths, std::path::Path::new("node"));
                 done_tx.send(result).expect("test must be listening");
             })
         };

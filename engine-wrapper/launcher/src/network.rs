@@ -3,6 +3,8 @@
 //! Default mode trusts the server's automatic private-IP allowance; strict
 //! mode intersects the bind endpoints with the configured allowed origins.
 
+use std::collections::HashMap;
+
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccessUrls {
@@ -11,6 +13,48 @@ pub struct AccessUrls {
     pub qr_url: Option<String>,
     pub bind: String,
     pub auto_origins: bool,
+}
+
+/// Resolve connection display from raw server values, with parent env winning.
+/// Keep runtime boolean semantics separate from the settings form: the server
+/// enables strict origins only for the exact string `true` (config.ts).
+/// Parent names are case-insensitive on Windows, like Node's `process.env`
+/// on the main thread.
+pub fn access_urls_from_env(
+    file: &HashMap<String, String>,
+    parent: &HashMap<String, String>,
+    local_ip: &str,
+) -> AccessUrls {
+    access_urls_from_env_with(file, parent, local_ip, cfg!(windows))
+}
+
+/// Same as [`access_urls_from_env`] with an explicit case-sensitivity switch
+/// for parent names so Windows behavior is testable on every platform.
+pub fn access_urls_from_env_with(
+    file: &HashMap<String, String>,
+    parent: &HashMap<String, String>,
+    local_ip: &str,
+    parent_case_insensitive: bool,
+) -> AccessUrls {
+    use crate::env_codec::parent_lookup_with;
+    let value = |key: &str| {
+        parent_lookup_with(parent, key, parent_case_insensitive)
+            .or_else(|| file.get(key))
+            .map(String::as_str)
+    };
+    let bind = value("BIND_ADDRESS").unwrap_or("0.0.0.0");
+    let port = value("PORT")
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(8140);
+    let strict = value("DISABLE_AUTO_ALLOWED_ORIGINS") == Some("true");
+    let origins: Vec<String> = value("ALLOWED_ORIGINS")
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    access_urls(bind, port, strict, &origins, local_ip)
 }
 
 /// QR codes are for another device, never for the PC's loopback endpoint.
@@ -118,6 +162,107 @@ pub fn local_ip() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pc_url_strict_mode_matches_server_for_file_and_parent_values() {
+        for (raw, auto_origins) in [
+            ("true", false),
+            ("1", true),
+            ("TRUE", true),
+            ("yes", true),
+            ("on", true),
+            (" true ", true),
+            ("false", true),
+            ("", true),
+        ] {
+            for exported in [false, true] {
+                let file = HashMap::from([(
+                    "DISABLE_AUTO_ALLOWED_ORIGINS".into(),
+                    if exported { "true" } else { raw }.into(),
+                )]);
+                let parent = if exported {
+                    HashMap::from([("DISABLE_AUTO_ALLOWED_ORIGINS".into(), raw.into())])
+                } else {
+                    HashMap::new()
+                };
+                let urls = access_urls_from_env(&file, &parent, "192.168.1.10");
+                assert_eq!(
+                    urls.auto_origins, auto_origins,
+                    "raw={raw:?}, exported={exported}"
+                );
+                assert_eq!(urls.allowed, auto_origins);
+                assert_eq!(urls.qr_url.is_some(), auto_origins);
+            }
+        }
+    }
+
+    #[test]
+    fn windows_style_lowercase_parent_names_override_files() {
+        // Windows env names are case-insensitive (like Node's `process.env`
+        // on the main thread): a lowercase export must win over the file and
+        // drive the displayed URL, exactly as the supervised server sees it.
+        let file = HashMap::from([
+            ("PORT".into(), "8140".into()),
+            ("BIND_ADDRESS".into(), "127.0.0.1".into()),
+            ("DISABLE_AUTO_ALLOWED_ORIGINS".into(), "false".into()),
+        ]);
+        let parent = HashMap::from([
+            ("port".into(), "9000".into()),
+            ("bind_address".into(), "0.0.0.0".into()),
+            ("disable_auto_allowed_origins".into(), "true".into()),
+            ("allowed_origins".into(), "http://192.168.1.10:9000".into()),
+        ]);
+        let urls = access_urls_from_env_with(&file, &parent, "192.168.1.10", true);
+        assert_eq!(urls.url, "http://192.168.1.10:9000");
+        assert_eq!(urls.qr_url.as_deref(), Some(urls.url.as_str()));
+        assert!(urls.allowed);
+        assert!(!urls.auto_origins);
+        assert_eq!(urls.bind, "0.0.0.0");
+        // Case-sensitive (Unix) resolution ignores the lowercase entries.
+        let urls = access_urls_from_env_with(&file, &parent, "192.168.1.10", false);
+        assert_eq!(urls.url, "http://127.0.0.1:8140");
+        assert!(urls.qr_url.is_none());
+        assert!(urls.auto_origins);
+    }
+
+    #[test]
+    fn windows_style_lowercase_parent_port_without_file_key() {
+        // No PORT in the file: the inherited lowercase `port` is what the
+        // server listens on, so readiness and display must both use it.
+        let file = HashMap::new();
+        let parent = HashMap::from([("port".into(), "9000".into())]);
+        let urls = access_urls_from_env_with(&file, &parent, "192.168.1.10", true);
+        assert_eq!(urls.url, "http://127.0.0.1:9000");
+        assert_eq!(urls.qr_url.as_deref(), Some("http://192.168.1.10:9000"));
+        let urls = access_urls_from_env_with(&file, &parent, "192.168.1.10", false);
+        assert_eq!(urls.url, "http://127.0.0.1:8140");
+    }
+
+    #[test]
+    fn exported_network_values_override_file_values() {
+        let file = HashMap::from([
+            ("PORT".into(), "8140".into()),
+            ("BIND_ADDRESS".into(), "127.0.0.1".into()),
+            ("DISABLE_AUTO_ALLOWED_ORIGINS".into(), "false".into()),
+            ("ALLOWED_ORIGINS".into(), "http://localhost:8140".into()),
+        ]);
+        let mut parent = HashMap::from([
+            ("PORT".into(), "9000".into()),
+            ("BIND_ADDRESS".into(), "0.0.0.0".into()),
+            ("DISABLE_AUTO_ALLOWED_ORIGINS".into(), "true".into()),
+            ("ALLOWED_ORIGINS".into(), "http://192.168.1.10:9000/".into()),
+        ]);
+        let urls = access_urls_from_env(&file, &parent, "192.168.1.10");
+        assert_eq!(urls.url, "http://192.168.1.10:9000");
+        assert_eq!(urls.qr_url.as_deref(), Some(urls.url.as_str()));
+        assert!(urls.allowed);
+        assert!(!urls.auto_origins);
+        assert_eq!(urls.bind, "0.0.0.0");
+        parent.remove("BIND_ADDRESS");
+        let urls = access_urls_from_env(&file, &parent, "192.168.1.10");
+        assert_eq!(urls.bind, "127.0.0.1");
+        assert!(urls.qr_url.is_none());
+    }
 
     #[test]
     fn qr_uses_lan_address_and_is_hidden_in_local_or_strict_mode() {

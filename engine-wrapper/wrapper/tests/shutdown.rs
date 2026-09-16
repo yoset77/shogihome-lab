@@ -202,14 +202,17 @@ fn blocked_stdin_relay_exits_cleanly_on_shutdown() {
     stream
         .write_all(b"run sleeper\n")
         .expect("run must be accepted");
-    // Flood stdin far beyond the 64KB pipe buffer in the background; the
-    // writes block once the engine-side pipe is full. The client never
-    // reads: output writes (if any) would block too.
+    // Flood stdin with newline-terminated lines well under the 1MiB relay
+    // limit (8KiB each): the bounded reader accepts them, but the engine
+    // never reads, so the 64KB pipe fills and the relay blocks inside a
+    // cancellable stdin write. Newline-less floods would instead hit the
+    // oversize path and never exercise backpressure.
     let mut flood = stream.try_clone().unwrap();
     let flooder = std::thread::spawn(move || {
-        let chunk = vec![b'x'; 8192];
+        let mut line = vec![b'x'; 8191];
+        line.push(b'\n');
         for _ in 0..1024 {
-            if flood.write_all(&chunk).is_err() {
+            if flood.write_all(&line).is_err() {
                 break;
             }
         }

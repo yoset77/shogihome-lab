@@ -26,7 +26,7 @@ ShogiHome Lab は、PC 上の USI 将棋エンジンをブラウザーから利�
 - **Browser**: Vue renderer を実行し、HTTP API と WebSocket を通じて Middle Server を利用します。
 - **Middle Server**: Hono API、静的配信、WebSocket session、USI state machine、永続化、および外部プロセス管理を所有します。
 - **Engine Wrapper**: 設定された USI engine process を起動し、TCP と stdin/stdout を中継します。Rust 実装が配布の正本です。
-- **Launcher**: 配布版の常駐 UI です。Tauri shell が service 起動・停止、設定編集、移行、更新通知を提供します。`shogihome-launcher` の controller が起動・再起動・停止・移行を直列化し、状態 snapshot と稼働中の process 監視を所有します。時間のかかる IPC は UI event loop の外で実行します。
+- **Launcher**: 配布版の常駐 UI です。Tauri shell が service 起動・停止、設定編集、移行、更新通知を提供します。`shogihome-launcher` の controller が起動・再起動・停止・移行・設定保存（現在値の解決と検証を含む）を直列化し、状態 snapshot と稼働中の process 監視を所有します。接続表示は backend の `network` が server の生の設定値と親環境変数から解決します。時間のかかる IPC は UI event loop の外で実行します。
 - Launcher と設定エディタは単一 Tauri アプリとして Windows／Linux／macOS で native build します。shell は app・editor・launcher・tray・shutdown に分割し、portable path、close policy、編集セッションは headless backend が所有します。
 - **USI Engine**: YaneuraOu などの外部将棋エンジンです。
 - **Vision Worker**: Middle Server が子プロセスとして管理する画像認識 worker です。独立サービスでも Engine Wrapper の一部でもありません。
@@ -62,7 +62,7 @@ flowchart LR
 | `shogihome/src/common/`                    | Browser と Server が共有する純粋な型、codec、domain utility                 |
 | `shogihome/src/node/`                      | Node.js runtime に依存する共有 utility                                      |
 | `shogihome/src/server/`                    | HTTP、WebSocket、engine session、filesystem、database、worker orchestration |
-| `engine-wrapper/`                          | engine 設定の読み込み、process 起動、TCP/stdio relay、process cleanup。Rust 実装（`wrapper/`）が唯一の実装。process 所有は共有 `process` crate、`.env` codec は共有 `env-file` crate に集約する |
+| `engine-wrapper/`                          | engine 設定の読み込み、process 起動、TCP/stdio relay、process cleanup。Rust 実装（`wrapper/`）が唯一の実装。process 所有は共有 `process` crate、wrapper 用 `.env` codec は共有 `env-file` crate、server 用 `.env` 解決は同梱 Node `parseEnv`（`launcher/src/server_env.rs`）に集約する |
 | `engine-wrapper/launcher-app/` + `launcher/` | Tauri shell（window/tray/IPC）と `shogihome-launcher` library（supervision、設定、移行、更新、型付き `LauncherError`）。UI は process 起動や設定書き込みを直接行わない |
 | `shogihome/src/server/vision/node-worker/` | 画像推論、盤面幾何処理、候補生成、診断 warning                              |
 

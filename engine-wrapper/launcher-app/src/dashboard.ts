@@ -8,6 +8,8 @@ import { listen } from "@tauri-apps/api/event";
 import QRCode from "qrcode";
 import { api } from "./api";
 import { detectLang, normalizeLang, storeLang, text, type Lang } from "./i18n";
+import { PcUrlSession } from "./pc-url-session";
+import { clearedPcUrlDisplay, resolvePcUrlDisplay } from "./pc-url-view";
 import { startAfterMigration, type MigrationStatus } from "./startup";
 
 export function initDashboard(): void {
@@ -45,8 +47,7 @@ export function initDashboard(): void {
       // Persistence is best-effort; the in-memory language still applies.
     }
     applyTexts();
-    await refreshStatus();
-    await refreshPcUrl();
+    await refreshAll();
   }
 
   async function refreshStatus(): Promise<void> {
@@ -75,6 +76,10 @@ export function initDashboard(): void {
   // parity notice instead of leaving a blank space.
   let displayedUrl = "";
   let lastNetwork: { bind: string; autoOrigins: boolean; hasQr: boolean } | null = null;
+  // Generation guard: `getPcUrl` + QR rendering is async, so a slow older
+  // refresh must never overwrite a newer one (e.g. rapid restart clicks or
+  // a `launcher-status` event racing a manual refresh).
+  const pcUrlSession = new PcUrlSession();
   function renderCustomNetwork(bind: string, autoOrigins: boolean): void {
     const box = $("customNetwork");
     box.hidden = false;
@@ -82,30 +87,80 @@ export function initDashboard(): void {
     $("customNetworkBody").textContent = text("networkInfo", lang, bind, autoOrigins ? "on" : "off");
   }
   async function refreshPcUrl(): Promise<void> {
+    const generation = pcUrlSession.next();
+    let info: Awaited<ReturnType<typeof api.getPcUrl>>;
     try {
-      const info = await api.getPcUrl();
-      const { url, allowed, qrUrl } = info;
-      const bind = info.bind ?? "0.0.0.0";
-      const autoOrigins = info.autoOrigins ?? true;
-      lastNetwork = { bind, autoOrigins, hasQr: !!qrUrl };
-      displayedUrl = qrUrl ?? url;
-      const pcUrlEl = $("pcUrl");
-      pcUrlEl.textContent = displayedUrl;
-      pcUrlEl.onclick = () => void openUrl(displayedUrl);
-      pcUrlEl.style.cursor = "pointer";
-      $("openPcBtn").toggleAttribute("disabled", !allowed);
-      const image = $<HTMLImageElement>("qrImg");
-      image.hidden = !qrUrl;
-      if (qrUrl) {
-        $("customNetwork").hidden = true;
-        image.src = await QRCode.toDataURL(qrUrl, { width: 160, margin: 1 });
-      } else {
-        image.removeAttribute("src");
-        renderCustomNetwork(bind, autoOrigins);
-      }
+      info = await api.getPcUrl();
     } catch {
+      if (!pcUrlSession.isCurrent(generation)) return;
+      // Do not leave a stale URL actionable or a stale QR scannable when
+      // the backend is unreadable.
+      applyPcUrlDisplay(clearedPcUrlDisplay());
       $("pcUrl").textContent = text("statusError", lang);
+      return;
     }
+    if (!pcUrlSession.isCurrent(generation)) return;
+    const display = resolvePcUrlDisplay(info);
+    applyPcUrlDisplay(display);
+    if (display.qrUrl) {
+      $("customNetwork").hidden = true;
+      // Keep the previous bitmap hidden until the new one is ready so a
+      // slow encode never shows a mismatched QR next to the new URL.
+      $<HTMLImageElement>("qrImg").hidden = true;
+      let dataUrl: string;
+      try {
+        dataUrl = await QRCode.toDataURL(display.qrUrl, { width: 160, margin: 1 });
+      } catch {
+        // QR rendering failed: never leave the previous code visible next
+        // to the new URL; fall back to the custom-network notice.
+        if (!pcUrlSession.isCurrent(generation)) return;
+        const image = $<HTMLImageElement>("qrImg");
+        image.removeAttribute("src");
+        image.hidden = true;
+        renderCustomNetwork(display.bind, display.autoOrigins);
+        return;
+      }
+      if (!pcUrlSession.isCurrent(generation)) return;
+      const qrImg = $<HTMLImageElement>("qrImg");
+      qrImg.src = dataUrl;
+      qrImg.hidden = false;
+    } else {
+      $<HTMLImageElement>("qrImg").removeAttribute("src");
+      $<HTMLImageElement>("qrImg").hidden = true;
+      renderCustomNetwork(display.bind, display.autoOrigins);
+    }
+  }
+
+  // Apply one generation's display state to the DOM (text, opener, button,
+  // and QR visibility). The QR bitmap itself is set by the caller after
+  // rendering so a slow encode cannot overwrite a newer generation.
+  function applyPcUrlDisplay(display: {
+    displayedUrl: string;
+    bind: string;
+    autoOrigins: boolean;
+    hasQr: boolean;
+    openDisabled: boolean;
+  }): void {
+    lastNetwork = { bind: display.bind, autoOrigins: display.autoOrigins, hasQr: display.hasQr };
+    displayedUrl = display.displayedUrl;
+    const pcUrlEl = $("pcUrl");
+    pcUrlEl.textContent = displayedUrl;
+    pcUrlEl.onclick = () => void openUrl(displayedUrl);
+    pcUrlEl.style.cursor = "pointer";
+    $("openPcBtn").toggleAttribute("disabled", display.openDisabled);
+    const image = $<HTMLImageElement>("qrImg");
+    image.hidden = !display.hasQr;
+    if (!display.hasQr) {
+      image.removeAttribute("src");
+      $("customNetwork").hidden = false;
+    }
+  }
+
+  // Service operations (start/restart/settings-save) can change PORT or
+  // BIND_ADDRESS, so status and connection display refresh together.
+  async function refreshAll(): Promise<void> {
+    await refreshStatus();
+    await refreshPcUrl();
   }
 
   async function refreshUpdate(): Promise<void> {
@@ -196,23 +251,20 @@ export function initDashboard(): void {
         await openUrl(qrUrl ?? url);
       }
     });
-    $("restartBtn").addEventListener("click", () => void api.restartServices().then(refreshStatus).catch(showError));
+    $("restartBtn").addEventListener("click", () => void api.restartServices().then(refreshAll).catch(showError));
     $("logsBtn").addEventListener("click", () => void openLogsWindow());
     $("editorBtn").addEventListener("click", () => void api.openEditor());
     $("settingsBtn").addEventListener("click", () => void openSettingsWindow());
     $("exitBtn").addEventListener("click", () => void api.stopAndExit().catch(showError));
 
-    await listen("launcher-status", () => void refreshStatus());
+    await listen("launcher-status", () => void refreshAll());
     // The settings window emits this after saving (and an optional restart).
-    await listen("settings-saved", () => void (async () => {
-      await refreshStatus();
-      await refreshPcUrl();
-    })());
+    await listen("settings-saved", () => void refreshAll());
     await listen("tray-open-browser", () => void $("openPcBtn").click());
     await listen("tray-open-editor", () => void api.openEditor());
     await listen("tray-exit", () => void api.stopAndExit().catch(showError));
 
-    await refreshStatus();
+    await refreshAll();
     window.setInterval(refreshStatus, 2000);
     try {
       await startAfterMigration(api, maybeMigrate);
@@ -220,8 +272,7 @@ export function initDashboard(): void {
       await showError(error);
     } finally {
       preparing = false;
-      await refreshStatus();
-      await refreshPcUrl();
+      await refreshAll();
     }
     void refreshUpdate();
   }

@@ -17,9 +17,11 @@ Windows・Linux・macOS で同じ Tauri shell を native build します。設�
 | `launcher/src/editor_session.rs` | session lock の寿命、probe 登録・キャンセル・完了の直列化 |
 | `launcher/src/editor.rs` | registry 検証（engine `id` の一意性を含む）・atomic save・USI option probe |
 | `launcher/src/controller.rs` + `service.rs` | service lifecycle、設定 snapshot、readiness、移行との排他 |
+| `launcher/src/settings.rs` | 設定フォームの型変換・検証・保存。production の保存時は controller の操作ロック内で現在値を Node 準拠で解決する |
+| `launcher/src/network.rs` | server の生の設定値と親環境変数から PC URL／QR／接続可否を解決。フォーム用の型変換を経由しない |
 | `engine-wrapper/process/` | 子プロセスの tree 所有（POSIX process group／Windows Job）。sync (`SyncChild`) と tokio (`AsyncChild`) を一元化し、`launcher/src/process.rs` と `wrapper/src/process.rs` は互換 shims に留める。`.bat`/`.cmd` 判定もここに集約する |
 | `launcher/src/session_lock.rs` | OS 管理の編集セッションロック（`.engines.lock`） |
-| `launcher/src/error.rs` | backend の型付きエラー（`LauncherError`）。`Io`／`Json` は source chain を保持し、Tauri IPC 境界でのみ `String` 化する |
+| `launcher/src/error.rs` | backend の型付きエラー（`LauncherError`）。`Io`／`Json` は source chain を保持し、設定検証エラーは項目別の型付きエラーを保持する。Tauri IPC 境界で文字列／既存の項目別 JSON エラーコードへ変換する |
 | `engine-wrapper/env-file/` | `.env` decode／parse（`export ` と `export\t` の単一スキャナ）と atomic write（プロセス一意 tmp＋rename）の共有実装 |
 
 Tauri shell は GUI システム依存を通常の backend test から切り離すため、Cargo workspace とは独立した manifest／lockfile を持ちます。これは Windows 限定の境界ではありません。
@@ -28,7 +30,10 @@ Tauri shell は GUI システム依存を通常の backend test から切り離�
 
 - 現在の native 起動は書き込み可能な portable layout を対象とし、root は実行ファイルの親ディレクトリです。
 - server／wrapper の実行ファイル名は `paths` が OS ごとの suffix を付与します。server runtime builder は同じ命名契約で native Node をコピーし、実行権限を保持します。
-- launcher の設定フォーム、editor、service 起動、ログ、移行は同一 root を使います。service ごとの `.env` snapshot を起動環境と readiness の両方に使い、wrapper の再読込は `--no-env-file` で抑止します。
+- launcher の設定フォーム、editor、service 起動、ログ、移行は同一 root を使います。service ごとの `.env` snapshot を起動環境と readiness の両方に使い、wrapper の再読込は `--no-env-file` で抑止します。親環境変数はファイルより優先します（server の Node `loadEnvFile` 互換、wrapper の CLI > env > file 互換）。Windows では親環境変数名を大文字・小文字を区別せず解決します（Node の `process.env` 互換）。
+- server の `.env` は同梱 Node runtime の `parseEnv` で解決します（`launcher/src/server_env.rs`）。引用符付き Windows パスなど python-dotenv と解釈が異なる値を、直接起動と Launcher 起動で一致させます。wrapper の `.env` は共有 `env-file` パーサーを使います。Node helper の stdout は実行中から並行回収し、大容量 JSON でもパイプ詰まりを起こさないようにします。待機側が子プロセスを所有し、タイムアウト時は kill・回収と reader の終了を待ってエラーを返します。helper の失敗はエラーとして伝播し、デフォルト値で表示・保存することはありません。
+- PC URL／QR は起動 snapshot と同じ優先順位（親環境変数がファイルより優先、Windows では変数名の大文字・小文字を区別しない）で求めます。export された `PORT` とファイルの `PORT` が異なる場合も、実際に listen する側を表示します。`DISABLE_AUTO_ALLOWED_ORIGINS` は server と同じく生の値が `true` に完全一致する場合のみ有効とし、フォームの `1`／`yes` 等を受け付ける真偽値変換とは分離します。
+- 設定フォームの choice は既存のカスタム値（例：`BIND_ADDRESS=192.168.1.10`）を保持します。保存時は controller の操作ロック内で現在値の Node 準拠の読込・検証・書込を完結させ、別パーサーによる再検証をしません。別項目の保存で待受アドレスを暗黙に変更せず、新規のカスタム値は validation で拒否します。
 - editor の明示的 `--config-dir` は wrapper と同じ意味で、registry の所在と相対 engine path の基準です。probe の CWD は解決した engine の親ディレクトリです。明示した相対 directory だけが起動 CWD に依存します。
 - standalone editor は controller を構築せず、dashboard、service、health polling、tray を初期化しません。
 - インストール型の `.app`／AppImage／deb と OS 標準保存先は別の配布段階で扱います。bundle 内の assets を書き込み可能な設定の所在と混同してはいけません。
@@ -49,7 +54,7 @@ window allowlist と Tauri capability を維持します。UI は filesystem や
 
 ## Dashboard Windows
 
-- dashboard（`main`）は状態表示・起動制御・QR／URL・更新通知・初回移行に専念し、サーバー設定とログ表示は持たない。設定とログは独立した単一インスタンスの WebviewWindow（`settings`、`logs`）で表示する。
+- dashboard（`main`）は状態表示・起動制御・QR／URL・更新通知・初回移行に専念し、サーバー設定とログ表示は持たない。設定とログは独立した単一インスタンスの WebviewWindow（`settings`、`logs`）で表示する。起動・再起動・設定保存後は状態と接続表示（URL／QR／接続可否）を一緒に更新し、非同期の取得順が逆転しても古い表示に戻さない。
 - `settings`／`logs` は単一インスタンスで、存在すれば show＋focus する。閉鎖はバックエンドの `close_settings_window`／`close_logs_window`（`window.destroy()`、エディタの `close_window` と同パターン）で行い、フロントの window 権限に依存しない。保存後は `settings-saved` イベントで dashboard が QR／URL を再読込する。
 - window 別の command allowlist（`launcher/src/permissions.rs`）と capability（`src-tauri/capabilities/{settings,logs}.json`）を持つ。`settings` は設定系＋再起動のみ、`logs` はログ読込のみ許可する。
 - データ移行に常設ボタンは置かない。初回起動時（`shogihome/data` 不在）のみ `startAfterMigration` が案内し、既存データへの上書きは提供しない。

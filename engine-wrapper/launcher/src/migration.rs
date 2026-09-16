@@ -175,7 +175,32 @@ pub fn execute_migration(plan: &MigrationPlan, dest: &MigrationPaths) -> Result<
         let old_server = plan.old_root.join("shogihome").join(".env");
         let old_wrapper = plan.old_root.join("engine-wrapper").join(".env");
         if old_server.exists() {
-            smart_merge_env(&old_server, &dest.server_env, &dest.server_env)?;
+            // Resolve the old server file with Node `parseEnv` when the
+            // bundled runtime exists so quoted Windows paths survive
+            // migration with the same meaning the server gives them.
+            let server_program = dest
+                .data_dir
+                .parent()
+                .and_then(|shogihome| shogihome.parent())
+                .map(|root| {
+                    root.join(format!(
+                        "shogihome/shogihome-server{}",
+                        std::env::consts::EXE_SUFFIX
+                    ))
+                });
+            match server_program {
+                Some(program) if program.exists() => {
+                    crate::server_env::merge_server_env(
+                        &old_server,
+                        &dest.server_env,
+                        &dest.server_env,
+                        Some(&program),
+                    )?;
+                }
+                _ => {
+                    smart_merge_env(&old_server, &dest.server_env, &dest.server_env)?;
+                }
+            }
         }
         if old_wrapper.exists() {
             smart_merge_env(&old_wrapper, &dest.wrapper_env, &dest.wrapper_env)?;

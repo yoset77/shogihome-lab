@@ -14,7 +14,7 @@
 
 use std::path::Path;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
@@ -22,6 +22,7 @@ use tokio::sync::watch;
 use crate::auth;
 use crate::config::{find_engine, format_option, load_engines, log, resolve_engine_path};
 use crate::encoding::{decode_line, MAX_LINE_BYTES};
+use crate::line_reader::read_line_bounded;
 use crate::process::{is_not_found, spawn_engine, EngineChild};
 
 const QUIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -198,26 +199,15 @@ async fn handshake(
 /// `None` on EOF (no bytes), read error, oversized line, or listener
 /// shutdown. Buffered bytes stay in `reader`. Only used before an engine
 /// is spawned, where ending the whole connection is always safe.
+///
+/// Bounded while reading (see `line_reader`): a peer that never sends `\n`
+/// cannot grow memory without bound.
 async fn read_line_cancel(
     reader: &mut BufReader<OwnedReadHalf>,
     shutdown: &mut watch::Receiver<bool>,
 ) -> Option<String> {
     let mut buf = Vec::new();
-    tokio::select! {
-        biased;
-        _ = shutdown.changed() => None,
-        result = reader.read_until(b'\n', &mut buf) => match result {
-            Ok(0) => None,
-            Ok(_) => {
-                if buf.len() > MAX_LINE_BYTES {
-                    return None;
-                }
-                let text = String::from_utf8_lossy(&buf);
-                Some(text.trim_end_matches(['\r', '\n']).to_string())
-            }
-            Err(_) => None,
-        },
-    }
+    read_line_bounded(reader, &mut buf, shutdown).await
 }
 
 async fn write_error(writer: &mut OwnedWriteHalf, msg: &str, shutdown: &mut watch::Receiver<bool>) {
@@ -258,6 +248,10 @@ async fn relay_loop(
     let mut stderr_eof = stderr.is_none();
 
     loop {
+        // Inner line read gets its own shutdown handle: the outer branch
+        // already borrows `shutdown` mutably, and two mutable borrows of
+        // the same receiver are rejected.
+        let mut line_shutdown = shutdown.clone();
         tokio::select! {
             biased;
 
@@ -283,16 +277,10 @@ async fn relay_loop(
                 break;
             }
 
-            result = reader.read_until(b'\n', &mut cbuf), if stdin.is_some() => {
-                match result {
-                    Ok(0) => break, // Client FIN: ordinary stop path.
-                    Ok(_) => {
-                        if cbuf.len() > MAX_LINE_BYTES {
-                            break;
-                        }
-                        let text = String::from_utf8_lossy(&cbuf);
-                        let command = text.trim_end_matches(['\r', '\n']).to_string();
-                        cbuf.clear();
+            command = read_line_bounded(reader, &mut cbuf, &mut line_shutdown), if stdin.is_some() => {
+                match command {
+                    None => break, // Client FIN, oversize, error, or shutdown.
+                    Some(command) => {
                         let Some(stdin) = stdin.as_mut() else { break };
                         if command == "isready" && !options_applied {
                             let mut failed = false;
@@ -315,7 +303,6 @@ async fn relay_loop(
                             break;
                         }
                     }
-                    Err(_) => break,
                 }
             }
 

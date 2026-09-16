@@ -58,8 +58,40 @@ pub struct ServicePlan {
 }
 
 /// Build one configuration snapshot for both spawning and readiness checks.
+///
+/// The server `.env` is resolved with Node's `parseEnv` (via
+/// `server_env::load_server_env`) so the snapshot, readiness check, and the
+/// supervised server observe identical values. The wrapper keeps its
+/// python-dotenv-compatible parser. For both services an already-exported
+/// process environment variable wins over the file, matching Node's
+/// `loadEnvFile` (server) and the standalone wrapper precedence
+/// (CLI > env > file).
 pub fn portable_services(root: &Path) -> Result<ServicePlan, LauncherError> {
-    use crate::env_codec::{parse_env, read_env_file};
+    let parent: HashMap<String, String> = std::env::vars().collect();
+    portable_services_with_env(root, &parent)
+}
+
+/// Testable core: `parent` stands in for the process environment so tests
+/// need not mutate global state (Rust tests run in parallel threads).
+pub fn portable_services_with_env(
+    root: &Path,
+    parent: &HashMap<String, String>,
+) -> Result<ServicePlan, LauncherError> {
+    portable_services_with_env_with(root, parent, cfg!(windows))
+}
+
+/// Same as [`portable_services_with_env`] with an explicit case-sensitivity
+/// switch for parent names so Windows behavior is testable on every
+/// platform (Windows env names are case-insensitive, like Node's
+/// `process.env` on the main thread).
+pub fn portable_services_with_env_with(
+    root: &Path,
+    parent: &HashMap<String, String>,
+    parent_case_insensitive: bool,
+) -> Result<ServicePlan, LauncherError> {
+    use crate::env_codec::{
+        overlay_parent_vars_with, parent_lookup_with, parse_env, read_env_file,
+    };
     if crate::migration::MigrationPaths::new(root)
         .pending_source()
         .is_some()
@@ -103,14 +135,22 @@ pub fn portable_services(root: &Path) -> Result<ServicePlan, LauncherError> {
             "127.0.0.1",
         ),
     ] {
-        let env = parse_env(
-            &read_env_file(&cwd.join(".env"))
-                .map_err(|e| LauncherError::io(format!("reading {}", cwd.display()), e))?,
-        );
+        let file_map = if name == "server" {
+            crate::server_env::load_server_env(&cwd.join(".env"), &paths.server_program())?
+        } else {
+            parse_env(
+                &read_env_file(&cwd.join(".env"))
+                    .map_err(|e| LauncherError::io(format!("reading {}", cwd.display()), e))?,
+            )
+        };
+        // Parent environment wins over the file (Node parity for the
+        // server, documented CLI > env > file precedence for the wrapper).
+        // Parent names are case-insensitive on Windows, like Node's
+        // `process.env` on the main thread.
         let value = |key: &str, default: &str| {
-            env.get(key)
+            parent_lookup_with(parent, key, parent_case_insensitive)
                 .cloned()
-                .or_else(|| std::env::var(key).ok())
+                .or_else(|| file_map.get(key).cloned())
                 .unwrap_or_else(|| default.to_string())
         };
         let bind = value("BIND_ADDRESS", default_host);
@@ -123,15 +163,20 @@ pub fn portable_services(root: &Path) -> Result<ServicePlan, LauncherError> {
             .parse::<u16>()
             .map_err(|e| LauncherError::msg(format!("invalid {port_key}: {e}")))?;
         expectations.insert(name.to_string(), ReadyExpectation { host, port });
-        // The wrapper only forwards its three known keys so standalone and
-        // supervised launches observe the same engine environment. The
-        // server keeps its full snapshot (it consumes many keys itself).
+        // Resolve the snapshot with the same parent-wins rule so the child
+        // observes exactly what readiness checked. The wrapper only
+        // forwards its three known keys so standalone and supervised
+        // launches observe the same engine environment. The server keeps
+        // its full snapshot (it consumes many keys itself).
+        let mut resolved = file_map.clone();
+        overlay_parent_vars_with(&mut resolved, parent, parent_case_insensitive);
         let snapshot: Vec<(String, String)> = if name == "wrapper" {
-            env.into_iter()
+            resolved
+                .into_iter()
                 .filter(|(k, _)| WRAPPER_ENV_FORWARD.contains(&k.as_str()))
                 .collect()
         } else {
-            env.into_iter().collect()
+            resolved.into_iter().collect()
         };
         specs.push(ServiceSpec {
             name: name.into(),

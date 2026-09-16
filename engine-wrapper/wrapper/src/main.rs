@@ -30,6 +30,7 @@ use tokio::sync::watch;
 mod auth;
 mod config;
 mod encoding;
+mod line_reader;
 mod process;
 mod relay;
 

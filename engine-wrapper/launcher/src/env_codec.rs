@@ -58,6 +58,66 @@ pub fn load_env_value(content: &str, key: &str, default: EnvValue) -> EnvValue {
     }
 }
 
+/// Lookup an already-exported process variable with the platform's name
+/// semantics: case-insensitive on Windows (like Node's `process.env` on the
+/// main thread), case-sensitive elsewhere. An exact-case match always wins;
+/// on Windows a real process environment cannot hold two names that differ
+/// only by case, so any remaining tie is broken deterministically by key
+/// order and only matters for hand-built test maps.
+pub fn parent_lookup<'a>(parent: &'a HashMap<String, String>, key: &str) -> Option<&'a String> {
+    parent_lookup_with(parent, key, cfg!(windows))
+}
+
+/// Same as [`parent_lookup`] with an explicit case-sensitivity switch so
+/// Windows behavior is testable on every platform.
+pub fn parent_lookup_with<'a>(
+    parent: &'a HashMap<String, String>,
+    key: &str,
+    case_insensitive: bool,
+) -> Option<&'a String> {
+    if let Some(value) = parent.get(key) {
+        return Some(value);
+    }
+    if !case_insensitive {
+        return None;
+    }
+    let mut best: Option<&'a String> = None;
+    let mut best_key: Option<&str> = None;
+    for (name, value) in parent {
+        if name.eq_ignore_ascii_case(key) && best_key.is_none_or(|b| name.as_str() < b) {
+            best = Some(value);
+            best_key = Some(name.as_str());
+        }
+    }
+    best
+}
+
+/// Overlay parent values onto a resolved file map, preserving the file's key
+/// casing. Keys absent from the file are left alone: the supervised children
+/// inherit the parent process environment, so parent-only keys already reach
+/// them without an explicit snapshot entry.
+pub fn overlay_parent_vars(
+    resolved: &mut HashMap<String, String>,
+    parent: &HashMap<String, String>,
+) {
+    overlay_parent_vars_with(resolved, parent, cfg!(windows));
+}
+
+/// Same as [`overlay_parent_vars`] with an explicit case-sensitivity switch
+/// so Windows behavior is testable on every platform.
+pub fn overlay_parent_vars_with(
+    resolved: &mut HashMap<String, String>,
+    parent: &HashMap<String, String>,
+    case_insensitive: bool,
+) {
+    let keys: Vec<String> = resolved.keys().cloned().collect();
+    for key in keys {
+        if let Some(value) = parent_lookup_with(parent, &key, case_insensitive) {
+            resolved.insert(key, value.clone());
+        }
+    }
+}
+
 /// Render a value so python-dotenv and Node `parseEnv` read it back
 /// identically. Errors before writing when no representation round-trips.
 pub fn format_env_value(key: &str, value: &str) -> Result<String, LauncherError> {
@@ -433,5 +493,53 @@ mod tests {
         assert!(merged.contains("export PORT=9000"), "{merged}");
         assert!(merged.contains("export\tOTHER=1"), "{merged}");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parent_lookup_is_case_sensitive_by_default() {
+        let parent = HashMap::from([("port".to_string(), "9000".to_string())]);
+        assert_eq!(parent_lookup(&parent, "PORT"), {
+            #[cfg(windows)]
+            {
+                Some(&"9000".to_string())
+            }
+            #[cfg(not(windows))]
+            {
+                None
+            }
+        });
+        assert_eq!(
+            parent_lookup_with(&parent, "PORT", true),
+            Some(&"9000".to_string())
+        );
+        assert_eq!(parent_lookup_with(&parent, "PORT", false), None);
+        // Exact case always wins over a differently-cased duplicate.
+        let dup = HashMap::from([
+            ("PORT".to_string(), "8140".to_string()),
+            ("port".to_string(), "9000".to_string()),
+        ]);
+        assert_eq!(
+            parent_lookup_with(&dup, "PORT", true),
+            Some(&"8140".to_string())
+        );
+    }
+
+    #[test]
+    fn overlay_parent_vars_keeps_file_key_casing() {
+        let parent = HashMap::from([
+            ("port".to_string(), "9000".to_string()),
+            ("UNRELATED".to_string(), "x".to_string()),
+        ]);
+        let mut resolved = HashMap::from([("PORT".to_string(), "8140".to_string())]);
+        overlay_parent_vars_with(&mut resolved, &parent, true);
+        // Value comes from the lowercase parent entry, but the snapshot key
+        // stays uppercase so the child observes one unambiguous variable.
+        assert_eq!(resolved.get("PORT").map(String::as_str), Some("9000"));
+        assert!(!resolved.contains_key("port"));
+        assert!(!resolved.contains_key("UNRELATED"));
+        // Case-sensitive mode ignores the lowercase entry.
+        let mut resolved = HashMap::from([("PORT".to_string(), "8140".to_string())]);
+        overlay_parent_vars_with(&mut resolved, &parent, false);
+        assert_eq!(resolved.get("PORT").map(String::as_str), Some("8140"));
     }
 }

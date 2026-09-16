@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { joinListValue, splitListValue } from "./settings-list";
+import { choiceOptions, joinListValue, splitListValue } from "./settings-list";
 
 describe("settings list helpers", () => {
   it("splits comma-joined values and drops empties", () => {
@@ -16,5 +16,18 @@ describe("settings list helpers", () => {
   it("round-trips through split/join", () => {
     const raw = "sunfish-shogi.github.io,live4.computer-shogi.org";
     expect(joinListValue(splitListValue(raw))).toBe(raw);
+  });
+
+  it("preserves an existing custom choice value", () => {
+    expect(choiceOptions(["0.0.0.0", "127.0.0.1"], "192.168.1.10")).toEqual([
+      "192.168.1.10",
+      "0.0.0.0",
+      "127.0.0.1",
+    ]);
+    expect(choiceOptions(["0.0.0.0", "127.0.0.1"], "127.0.0.1")).toEqual([
+      "0.0.0.0",
+      "127.0.0.1",
+    ]);
+    expect(choiceOptions(["0.0.0.0", "127.0.0.1"], "")).toEqual(["0.0.0.0", "127.0.0.1"]);
   });
 });

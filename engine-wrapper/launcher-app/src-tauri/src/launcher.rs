@@ -1,7 +1,8 @@
 //! Dashboard IPC. The controller owns all service and persistence operations.
 use crate::state::{check, state};
 use shogihome_launcher::{
-    controller::Controller, logs, migration, network, service, settings, update,
+    controller::Controller, error::LauncherError, logs, migration, network, server_env, service,
+    settings, update,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -181,12 +182,23 @@ pub fn get_settings_schema(window: tauri::Window) -> Result<serde_json::Value, S
 }
 
 #[tauri::command]
-pub fn load_settings(
+pub async fn load_settings(
     window: tauri::Window,
     handle: tauri::AppHandle,
 ) -> Result<serde_json::Value, String> {
     check(&window, "load_settings")?;
-    let (values, mismatches) = settings::load_settings(&state(&handle).paths.env_paths());
+    let st = state(&handle);
+    let env_paths = st.paths.env_paths();
+    let server_program = st.paths.server_program();
+    // Node `parseEnv` runs in a short helper process; keep it off the UI loop.
+    // Helper failures are surfaced so the UI never shows defaults over the
+    // user's files (saving those would overwrite real settings).
+    let (values, mismatches) = tauri::async_runtime::spawn_blocking(move || {
+        settings::load_settings_with_program(&env_paths, Some(server_program.as_path()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
     let values: serde_json::Map<String, serde_json::Value> = values
         .into_iter()
         .map(|(key, value)| {
@@ -223,21 +235,25 @@ pub async fn save_settings(
             },
         );
     }
-    let errors = settings::validate(&typed);
-    if !errors.is_empty() {
-        let errors: HashMap<_, _> = errors
-            .into_iter()
-            .map(|(id, error)| (id, error.code().to_string()))
-            .collect();
-        return Err(serde_json::to_string(&errors).unwrap_or_default());
-    }
     let controller = controller(&handle)?;
     let paths = state(&handle).paths.env_paths();
-    // Serialize persistence with service startup and migration snapshots.
-    tauri::async_runtime::spawn_blocking(move || controller.save_settings(&typed, &paths))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())
+    let server_program = state(&handle).paths.server_program();
+    // Resolve, validate, and persist under the same operation lock as startup.
+    tauri::async_runtime::spawn_blocking(move || {
+        controller.save_settings(&typed, &paths, &server_program)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| match e {
+        LauncherError::InvalidSettings(errors) => {
+            let codes: HashMap<_, _> = errors
+                .into_iter()
+                .map(|(id, error)| (id, error.code()))
+                .collect();
+            serde_json::to_string(&codes).expect("validation codes are serializable")
+        }
+        error => error.to_string(),
+    })
 }
 
 #[tauri::command]
@@ -247,33 +263,27 @@ pub fn generate_token(window: tauri::Window) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn get_pc_url(
+pub async fn get_pc_url(
     window: tauri::Window,
     handle: tauri::AppHandle,
 ) -> Result<serde_json::Value, String> {
     check(&window, "get_pc_url")?;
-    let (values, _) = settings::load_settings(&state(&handle).paths.env_paths());
-    let text = |id: &str| match values.get(id) {
-        Some(settings::SettingValue::Text(t)) => t.clone(),
-        _ => String::new(),
-    };
-    let origins: Vec<String> = text("ALLOWED_ORIGINS")
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-    let strict = matches!(
-        values.get("DISABLE_AUTO_ALLOWED_ORIGINS"),
-        Some(settings::SettingValue::Bool(true))
-    );
-    Ok(serde_json::to_value(network::access_urls(
-        &text("BIND_ADDRESS"),
-        text("PORT").parse().unwrap_or(8140),
-        strict,
-        &origins,
-        &network::local_ip(),
-    ))
-    .expect("access URLs are serializable"))
+    let st = state(&handle);
+    let env_path = st.paths.env_paths().server;
+    let server_program = st.paths.server_program();
+    let parent = std::env::vars().collect();
+    let urls = tauri::async_runtime::spawn_blocking(move || {
+        let file = server_env::load_server_env(&env_path, &server_program)?;
+        Ok::<_, LauncherError>(network::access_urls_from_env(
+            &file,
+            &parent,
+            &network::local_ip(),
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    Ok(serde_json::to_value(urls).expect("access URLs are serializable"))
 }
 
 #[tauri::command]
