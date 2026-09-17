@@ -1,5 +1,5 @@
 import { RecordFileFormat } from "@/common/file/record";
-import { ImmutableRecord } from "tsshogi";
+import { ImmutableNode, ImmutableRecord } from "tsshogi";
 
 export type RecordProperties = {
   branch: boolean;
@@ -7,6 +7,25 @@ export type RecordProperties = {
   bookmark: boolean;
   time: boolean;
 };
+
+/**
+ * 指定ノードの兄弟分岐の一覧を返します。
+ * 分岐が存在しない(単一手)場合は null を返します。
+ */
+export function getSiblingBranches(
+  record: ImmutableRecord,
+  node: ImmutableNode,
+): ImmutableNode[] | null {
+  const start = node.prev ? node.prev.next : record.first;
+  if (!start || !start.branch) {
+    return null;
+  }
+  const branches: ImmutableNode[] = [];
+  for (let p: ImmutableNode | null = start; p; p = p.branch) {
+    branches.push(p);
+  }
+  return branches.length >= 2 ? branches : null;
+}
 
 export function detectUnsupportedRecordProperties(
   record: ImmutableRecord,
