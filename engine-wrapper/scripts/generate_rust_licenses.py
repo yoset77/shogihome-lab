@@ -20,6 +20,43 @@ import tempfile
 from pathlib import Path
 
 
+def _crate_name_version(node) -> str:
+    """Extract "name version" from a cargo-about crate node.
+
+    `data["crates"][i]["package"]` and `data["licenses"][i]["used_by"][j]["crate"]`
+    are the same `krates::cm::Package` type, but the former is wrapped in
+    `{"package": ...}` while the latter is serialized directly under `"crate"`.
+    """
+    pkg = node.get("package", node) if isinstance(node, dict) else node
+    if isinstance(pkg, dict) and "crate" in pkg and isinstance(pkg["crate"], dict):
+        pkg = pkg["crate"]
+    name = pkg.get("name", "?") if isinstance(pkg, dict) else "?"
+    version = pkg.get("version", "?") if isinstance(pkg, dict) else "?"
+    return f"{name} {version}"
+
+
+def render_section(section: str, data: dict) -> tuple[str, int]:
+    """Render one `## section` block from `cargo about generate --format json`.
+
+    Each entry of `data["licenses"]` is a distinct license *text* (texts may
+    differ by copyright holder even for the same SPDX id) with its own
+    `used_by[].crate` list. `data["overview"]` must not be used here: its
+    `indices` point into `licenses`, not `crates`, and its `text` is only the
+    first body of that SPDX id.
+    """
+    licenses = data["licenses"]
+    lines = [f"## {section}", ""]
+    for entry in licenses:
+        names = sorted(_crate_name_version(u) for u in entry.get("used_by", []))
+        count = len(entry.get("used_by", []))
+        lines.append(f"### {entry['id']} ({count} crates)")
+        lines.extend(f"- {name}" for name in names)
+        lines.append("")
+        lines.append(entry["text"].rstrip())
+        lines.append("")
+    return "\n".join(lines), len(data.get("crates", []))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="about.toml")
@@ -45,22 +82,14 @@ def main() -> int:
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
-    crates = data["crates"]
-    lines = [f"## {args.section}", ""]
-    for entry in data["overview"]:
-        names = sorted(f"{crates[i]['package']['name']} {crates[i]['package']['version']}" for i in entry["indices"])
-        lines.append(f"### {entry['id']} ({entry['count']} crates)")
-        lines.extend(f"- {name}" for name in names)
-        lines.append("")
-        lines.append(entry["text"].rstrip())
-        lines.append("")
+    text, crate_count = render_section(args.section, data)
 
     out = Path(args.append)
     out.parent.mkdir(parents=True, exist_ok=True)
     mode = "a" if out.exists() else "w"
     with out.open(mode, encoding="utf-8") as f:
-        f.write("\n".join(lines))
-    print(f"wrote {out} ({len(crates)} crates)")
+        f.write(text)
+    print(f"wrote {out} ({crate_count} crates)")
     return 0
 
 

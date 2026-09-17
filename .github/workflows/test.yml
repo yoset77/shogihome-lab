@@ -70,6 +70,8 @@ jobs:
         run: cargo test --workspace
       - name: Contract tests (Rust wrapper)
         run: python -m pytest tests/test_wrapper_contract.py -q
+      - name: License notice formatter regression
+        run: python -m pytest tests/test_generate_rust_licenses.py -q
 
   test-launcher-ui:
     runs-on: ubuntu-latest
