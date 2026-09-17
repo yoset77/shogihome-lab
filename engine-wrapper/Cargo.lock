@@ -99,7 +99,7 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
  "crypto-common",
- "subtle 2.6.1",
+ "subtle",
 ]
 
 [[package]]
@@ -538,7 +538,7 @@ dependencies = [
  "ring",
  "rustls-pki-types",
  "rustls-webpki",
- "subtle 2.6.1",
+ "subtle",
  "zeroize",
 ]
 
@@ -647,7 +647,7 @@ dependencies = [
  "sha2",
  "shogihome-env-file",
  "shogihome-process",
- "subtle 1.0.0",
+ "subtle",
  "tokio",
 ]
 
@@ -726,12 +726,6 @@ dependencies = [
  "libc",
  "windows-sys 0.61.2",
 ]
-
-[[package]]
-name = "subtle"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d67a5a62ba6e01cb2192ff309324cb4875d0c451d55fe2319433abe7a05a8ee"
 
 [[package]]
 name = "subtle"
