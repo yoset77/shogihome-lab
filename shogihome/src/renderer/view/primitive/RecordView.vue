@@ -24,6 +24,7 @@
           class="row move-element"
           :class="{ 'has-branch': move.hasBranch, selected: move.ply === record.current.ply }"
           @click="changePly(move.ply)"
+          @contextmenu.prevent="openBranchPopup(move, $event)"
         >
           <div class="move-number">
             {{ move.ply !== 0 ? move.ply : "" }}
@@ -115,6 +116,16 @@
         />
       </div>
     </div>
+    <BranchPopup
+      v-if="branchPopup"
+      :branches="branchPopup.branches"
+      :selected-branch-index="branchPopup.target.branchIndex"
+      :x="branchPopup.x"
+      :y="branchPopup.y"
+      :show-comment="showComment"
+      @select="selectBranchNode"
+      @close="closeBranchPopup"
+    />
   </div>
 </template>
 
@@ -125,8 +136,10 @@ import { computed, ref, PropType, onMounted, onUpdated, watch } from "vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { IconType } from "@/renderer/assets/icons";
 import ToggleButton from "./ToggleButton.vue";
+import BranchPopup from "./BranchPopup.vue";
 import { RecordShortcutKeys } from "./board/shortcut";
 import { BranchListMode } from "@/common/settings/app";
+import { getSiblingBranches } from "@/renderer/helpers/record";
 
 const props = defineProps({
   record: {
@@ -213,6 +226,7 @@ const emit = defineEmits<{
   swapWithNextBranch: [];
   swapNextWithPreviousBranch: [index: number];
   swapNextWithNextBranch: [index: number];
+  selectBranchNode: [node: ImmutableNode];
   showDuplicatePositions: [sfen: string];
   toggleShowElapsedTime: [enabled: boolean];
   toggleShowComment: [enabled: boolean];
@@ -222,11 +236,20 @@ const moveList = ref(null as HTMLDivElement | null);
 const branchList = ref(null as HTMLDivElement | null);
 const showSubArea = ref(false);
 const selectedNextBranchIndex = ref(-1);
+const branchPopup = ref(
+  null as {
+    branches: ImmutableNode[];
+    target: ImmutableNode;
+    x: number;
+    y: number;
+  } | null,
+);
 
 watch(
   () => props.record.current,
   () => {
     selectedNextBranchIndex.value = -1;
+    branchPopup.value = null;
   },
 );
 
@@ -258,6 +281,33 @@ const changePly = (number: number) => {
   if (props.operational) {
     emit("selectMove", Number(number));
   }
+};
+
+const openBranchPopup = (move: ImmutableNode, event: MouseEvent) => {
+  if (!props.operational) {
+    return;
+  }
+  const branches = getSiblingBranches(props.record, move);
+  if (!branches) {
+    return;
+  }
+  branchPopup.value = {
+    branches,
+    target: move,
+    x: event.clientX,
+    y: event.clientY,
+  };
+};
+
+const closeBranchPopup = () => {
+  branchPopup.value = null;
+};
+
+const selectBranchNode = (node: ImmutableNode) => {
+  if (props.operational) {
+    emit("selectBranchNode", node);
+  }
+  branchPopup.value = null;
 };
 
 const changeBranch = (index: number) => {
@@ -353,7 +403,14 @@ const scrollSelectedItems = () => {
 };
 
 onMounted(scrollSelectedItems);
-onUpdated(scrollSelectedItems);
+onUpdated(() => {
+  // ポップアップの開閉では自動スクロールしない。
+  // スクロールすると move-list の scroll イベントでポップアップが即閉じてしまうため。
+  if (branchPopup.value) {
+    return;
+  }
+  scrollSelectedItems();
+});
 </script>
 
 <style scoped>

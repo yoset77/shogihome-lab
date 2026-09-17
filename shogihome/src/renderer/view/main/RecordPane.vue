@@ -24,6 +24,7 @@
         @select-move="(ply) => store.changePly(ply)"
         @select-branch="(index) => store.changeBranch(index)"
         @select-next-branch="selectNextBranch"
+        @select-branch-node="selectBranchNode"
         @back-to-main-branch="store.backToMainBranch()"
         @swap-with-previous-branch="store.swapWithPreviousBranch()"
         @swap-with-next-branch="store.swapWithNextBranch()"
@@ -121,6 +122,10 @@ const showDuplicatePositions = (sfen: string) => {
 const selectNextBranch = (index: number) => {
   store.goForward();
   store.changeBranch(index);
+};
+
+const selectBranchNode = (node: ImmutableNode) => {
+  store.changeNode(node);
 };
 
 const swapNextWithPreviousBranch = (index: number) => {
