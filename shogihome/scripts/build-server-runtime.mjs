@@ -4,7 +4,7 @@
  * Builds the distributable server runtime.
  *
  * The release package ships a plain Node.js executable renamed to
- * shogihome-server.exe plus the bundled server and vision worker assets. This
+ * shogihome-server[.exe] plus the bundled server and vision worker assets. This
  * avoids carrying both a SEA executable and a second Node runtime for the
  * vision worker.
  */
@@ -16,7 +16,12 @@ const projectRoot = path.resolve(import.meta.dirname, "..");
 
 const CONFIG = {
   outputDir: path.join(projectRoot, "dist", "bin"),
-  outputExe: path.join(projectRoot, "dist", "bin", "shogihome-server.exe"),
+  outputExe: path.join(
+    projectRoot,
+    "dist",
+    "bin",
+    process.platform === "win32" ? "shogihome-server.exe" : "shogihome-server",
+  ),
   serverOutDir: path.join(projectRoot, "dist", "server"),
 };
 

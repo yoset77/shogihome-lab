@@ -1,6 +1,6 @@
 # Agent Guidelines for ShogiHome Lab
 
-ShogiHome Lab consists of a Vue frontend, a Node.js middle server, and Python/Node.js engine wrappers.
+ShogiHome Lab consists of a Vue frontend, a Node.js middle server, a Rust engine wrapper, and a Tauri launcher.
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the system map and module ownership. Detailed subsystem documents are under `docs/architecture/`.
 
 ## Development Commands
@@ -16,10 +16,12 @@ Run commands from the indicated directory.
 
 ### Engine Wrapper (`engine-wrapper/`)
 
-- Start: `uv run engine_wrapper.py`
-- Lint: `uv run ruff check .`
-- Format: `uv run ruff format .`
-- Test: `uv run pytest`
+- Start (Rust): `cargo run -p shogihome-engine-wrapper -- --config-dir .`
+- Lint: `cargo clippy --all-targets`
+- Format: `cargo fmt --check`
+- Test: `cargo test` (parser parity tests require `pip install python-dotenv`)
+- Contract tests (Rust wrapper): `python -m pytest tests/test_wrapper_contract.py` (requires `pip install pytest`)
+- GUI/CLI/runtime tests: `python -m pytest tests/test_launcher_gui.py tests/test_launcher_cli.py tests/test_server_runtime.py` (requires `pip install pytest playwright` and `SHOGIHOME_GUI_EXE`)
 
 ## Project Rules
 
@@ -37,4 +39,4 @@ Run commands from the indicated directory.
 ## Version Control
 
 - When creating a commit, use a prefix such as `feat:`, `fix:`, `docs:`, `style:`, `refactor:`, `test:`, or `chore:`.
-- Keep the versions in `shogihome/package.json` and `engine-wrapper/pyproject.toml` synchronized.
+- Keep the versions in `shogihome/package.json`, `engine-wrapper/Cargo.toml`, `engine-wrapper/launcher-app/package.json`, and `engine-wrapper/launcher-app/src-tauri/tauri.conf.json` synchronized (checked by `engine-wrapper/scripts/check_versions.py`).

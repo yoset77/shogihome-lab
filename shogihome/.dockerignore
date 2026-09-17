@@ -46,7 +46,3 @@ npm-debug.log*
 /README.md
 /README.en.md
 compose.yaml
-
-# 不要なエンジンラッパー
-engine-wrapper.py
-engine-wrapper.mjs

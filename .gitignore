@@ -48,10 +48,12 @@ engine-wrapper/*.exe
 engine-wrapper/*.dist/
 engine-wrapper/*.build/
 engine-wrapper/*.onefile-build/
+engine-wrapper/launcher-app/src-tauri/gen/schemas/
 engine-wrapper/python/
 engine-wrapper/VERSION
 engine-wrapper/.update_cache.json
 python-*.zip
+target/
 shogihome-lab-v*/
 shogihome-lab-local-dist/
 ShogiHomeLab.exe

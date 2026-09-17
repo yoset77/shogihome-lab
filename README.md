@@ -43,7 +43,7 @@ PC上のUSI将棋エンジンをスマートフォンやタブレットからWeb
 本リポジトリは、以下の2つの主要なモジュールで構成されています。
 
 - **`shogihome/`**: Webサーバーおよびフロントエンド（TypeScript/Vue.js）。
-- **`engine-wrapper/`**: 将棋エンジンを制御するエンジンラッパー（Python/Node.js）。`engines.json` で複数のエンジンを管理します。
+- **`engine-wrapper/`**: 将棋エンジンを制御するエンジンラッパー（Rust）。`engines.json` で複数のエンジンを管理します。設定編集・常駐 UI は Tauri 製ランチャー（`launcher-app/` + `launcher/`）です。
 
 ---
 
@@ -63,7 +63,7 @@ PC上のUSI将棋エンジンをスマートフォンやタブレットからWeb
 
 #### 前提条件
 - **Node.js:** v24以上
-- **Python:** 3.10以上
+- **Rust:** stable
 - **Git LFS:** 画像認識モデルの取得に必要
 
 #### 1. インストール
@@ -89,15 +89,7 @@ npm run build
 
 #### 3. エンジンラッパー (engine-wrapper) のセットアップ
 
-```shell
-cd engine-wrapper
-uv sync
-cp .env.example .env
-
-# 設定ツールの起動
-uv run config_editor.py
-# エンジンの登録と設定
-```
+Rust 版 wrapper と Tauri 版設定エディタは Windows／Linux／macOS でビルドできます。GUI の前提環境、単独起動、launcher の portable 配置は **[Launcher / Config editor](engine-wrapper/launcher-app/README.md)** を参照してください。
 
 #### 4. サーバーの起動
 
@@ -110,9 +102,7 @@ npm run server:start
 **エンジンラッパー:**
 ```shell
 cd engine-wrapper
-uv run engine_wrapper.py
-# または
-npm run start
+cargo run --locked -p shogihome-engine-wrapper -- --config-dir .
 ```
 
 ### C. Docker を利用する場合 (Webサーバーのみ)

@@ -10,9 +10,9 @@ updates:
       timezone: "Asia/Tokyo"
     open-pull-requests-limit: 10
 
-  # engine-wrapper (Engine Control) dependencies
+  # engine-wrapper launcher UI (Tauri frontend) dependencies
   - package-ecosystem: "npm"
-    directory: "/engine-wrapper"
+    directory: "/engine-wrapper/launcher-app"
     schedule:
       interval: "weekly"
       day: "saturday"
@@ -24,8 +24,19 @@ updates:
         patterns:
           - "*"
 
-  - package-ecosystem: "uv"
+  # engine-wrapper Rust workspace (wrapper + launcher crates)
+  - package-ecosystem: "cargo"
     directory: "/engine-wrapper"
+    schedule:
+      interval: "weekly"
+      day: "saturday"
+      time: "17:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 10
+
+  # Tauri shell (separate workspace/lockfile excluded from the above)
+  - package-ecosystem: "cargo"
+    directory: "/engine-wrapper/launcher-app/src-tauri"
     schedule:
       interval: "weekly"
       day: "saturday"
