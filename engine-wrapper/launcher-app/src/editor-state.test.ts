@@ -9,6 +9,8 @@ import {
   duplicateEngine,
   generateId,
   moveEngine,
+  isImeComposingKey,
+  normalizeGroupName,
   normalizeType,
   ProbeSession,
   renameGroup,
@@ -74,6 +76,47 @@ describe("groups", () => {
     const created = addGroup(engines, rest, "G3", () => "g3");
     expect(created).toEqual({ id: "g3", created: true });
     expect(addGroup(engines, rest, "G2", () => "nope")).toEqual({ id: "g2", created: false });
+  });
+
+  it("normalizes modal group-name input (window.prompt replacement)", () => {
+    expect(normalizeGroupName("  G1  ")).toBe("G1");
+    expect(normalizeGroupName("")).toBeNull();
+    expect(normalizeGroupName("   ")).toBeNull();
+    expect(normalizeGroupName(null)).toBeNull();
+    expect(normalizeGroupName(undefined)).toBeNull();
+  });
+
+  it("ignores Enter/Escape while IME composition is in progress", () => {
+    // Confirming a kana-kanji conversion fires keydown Enter; cancelling it
+    // fires Escape. Neither may submit or close the group-name modal.
+    expect(isImeComposingKey({ isComposing: true, keyCode: 13 })).toBe(true);
+    expect(isImeComposingKey({ isComposing: true, keyCode: 27 })).toBe(true);
+    // WebKit reports keyCode 229 during composition.
+    expect(isImeComposingKey({ keyCode: 229 })).toBe(true);
+    expect(isImeComposingKey({ isComposing: false, keyCode: 13 })).toBe(false);
+    expect(isImeComposingKey({ isComposing: false, keyCode: 27 })).toBe(false);
+    expect(isImeComposingKey({})).toBe(false);
+  });
+
+  it("covers the create/assign/rename flow the modal drives", () => {
+    const engines = [engine({ id: "e1" })];
+    const virtual: { id: string; name: string }[] = [];
+    const created = addGroup(engines, virtual, normalizeGroupName(" G1 ")!, () => "g1");
+    expect(created).toEqual({ id: "g1", created: true });
+    const edited = applyEngineEdit(engines[0], {
+      id: "e1",
+      name: "Engine",
+      type: ["game"],
+      path: "/bin/engine",
+      options: {},
+      saveAnalysisDB: true,
+      groupId: "g1",
+      groupName: "G1",
+    });
+    engines[0] = edited;
+    renameGroup(engines, virtual, "g1", normalizeGroupName("G1b")!);
+    expect(engines[0].analysisDBGroupName).toBe("G1b");
+    expect(uniqueGroups(engines, virtual)).toEqual([{ id: "g1", name: "G1b" }]);
   });
 });
 

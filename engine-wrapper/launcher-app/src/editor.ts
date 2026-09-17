@@ -12,6 +12,8 @@ import {
   duplicateEngine,
   generateId,
   moveEngine,
+  isImeComposingKey,
+  normalizeGroupName,
   normalizeType,
   ProbeSession,
   renameGroup,
@@ -418,13 +420,7 @@ export function initEditor(): void {
       renameBtn.className = "btn btn-sm btn-primary";
       renameBtn.textContent = text("editor.rename", lang);
       renameBtn.addEventListener("click", () => {
-        const next = window.prompt(text("editor.groupRenamePrompt", lang), group.name);
-        if (next === null) return;
-        if (!next.trim()) { toast(text("editor.groupNameRequired", lang), "error"); return; }
-        renameGroup(engines, virtualGroups, group.id, next.trim());
-        renderGroupTable();
-        renderTable();
-        toast(text("editor.groupRenamed", lang), "success");
+        openGroupNameModal({ kind: "rename", groupId: group.id }, group.name);
       });
       const delBtn = document.createElement("button");
       delBtn.className = "btn btn-sm btn-danger";
@@ -440,6 +436,49 @@ export function initEditor(): void {
       tr.append(nameTd, countTd, actionTd);
       tbody.append(tr);
     }
+  }
+
+  // Group-name input uses an in-app modal, never window.prompt(): Wry's macOS
+  // WKUIDelegate does not implement the JavaScript text-input panel, so
+  // prompt() always resolves to null there and create/rename silently no-ops.
+  let groupNameMode: { kind: "create" } | { kind: "rename"; groupId: string } | null = null;
+
+  function openGroupNameModal(mode: NonNullable<typeof groupNameMode>, initial = ""): void {
+    groupNameMode = mode;
+    $("groupNameModalTitle").textContent = text(
+      mode.kind === "create" ? "editor.groupNameTitle" : "editor.groupRenameTitle",
+      lang,
+    );
+    const input = $<HTMLInputElement>("groupNameInput");
+    input.value = initial;
+    $("groupNameModal").style.display = "block";
+    input.focus();
+    input.select();
+  }
+
+  function closeGroupNameModal(): void {
+    groupNameMode = null;
+    $("groupNameModal").style.display = "none";
+  }
+
+  function submitGroupNameModal(): void {
+    if (!groupNameMode) return;
+    const name = normalizeGroupName($<HTMLInputElement>("groupNameInput").value);
+    if (name === null) {
+      toast(text("editor.groupNameRequired", lang), "error");
+      return;
+    }
+    if (groupNameMode.kind === "create") {
+      const { id, created } = addGroup(engines, virtualGroups, name, generateId);
+      toast(text(created ? "editor.groupCreated" : "editor.groupExists", lang), created ? "success" : "info");
+      updateGroupSelect(id);
+    } else {
+      renameGroup(engines, virtualGroups, groupNameMode.groupId, name);
+      toast(text("editor.groupRenamed", lang), "success");
+    }
+    closeGroupNameModal();
+    renderGroupTable();
+    renderTable();
   }
 
   function applyStaticTexts(): void {
@@ -480,6 +519,15 @@ export function initEditor(): void {
     $("saveEngineBtn").textContent = text("editor.apply", lang);
     $("groupModalTitle").textContent = text("editor.groupTitle", lang);
     $("groupModalDesc").textContent = text("editor.groupDesc", lang);
+    $("groupNameLabel").textContent = text("editor.groupNameLabel", lang);
+    $("groupNameCancelBtn").textContent = text("editor.cancel", lang);
+    $("groupNameSaveBtn").textContent = text("editor.apply", lang);
+    if ($("groupNameModal").style.display === "block" && groupNameMode) {
+      $("groupNameModalTitle").textContent = text(
+        groupNameMode.kind === "create" ? "editor.groupNameTitle" : "editor.groupRenameTitle",
+        lang,
+      );
+    }
     $("groupColName").textContent = text("editor.groupColName", lang);
     $("groupColCount").textContent = text("editor.groupColCount", lang);
     $("groupColActions").textContent = text("editor.colActions", lang);
@@ -609,21 +657,27 @@ export function initEditor(): void {
       });
     });
     $("addGroupBtn").addEventListener("click", () => {
-      const name = window.prompt(text("editor.groupNamePrompt", lang));
-      if (name === null || !name.trim()) return;
-      const { id, created } = addGroup(engines, virtualGroups, name.trim(), generateId);
-      toast(text(created ? "editor.groupCreated" : "editor.groupExists", lang), created ? "success" : "info");
-      updateGroupSelect(id);
-      renderGroupTable();
+      openGroupNameModal({ kind: "create" });
     });
     $("manageGroupsBtn").addEventListener("click", () => {
       renderGroupTable();
       $("groupModal").style.display = "block";
     });
     $("closeGroupModalBtn").addEventListener("click", () => { $("groupModal").style.display = "none"; });
+    $("groupNameSaveBtn").addEventListener("click", submitGroupNameModal);
+    $("groupNameCancelBtn").addEventListener("click", closeGroupNameModal);
+    $("groupNameInput").addEventListener("keydown", (e) => {
+      // IME conversion confirm/cancel also fires keydown: never submit or
+      // close the modal while a composition is in progress.
+      if (isImeComposingKey(e as KeyboardEvent)) return;
+      const key = (e as KeyboardEvent).key;
+      if (key === "Enter") submitGroupNameModal();
+      else if (key === "Escape") closeGroupNameModal();
+    });
     window.addEventListener("click", (event) => {
       if (event.target === $("engineModal")) closeEngineModal();
       if (event.target === $("groupModal")) $("groupModal").style.display = "none";
+      if (event.target === $("groupNameModal")) closeGroupNameModal();
     });
     window.addEventListener("beforeunload", () => {
       // Best effort: cancel any running probe so no engine is orphaned.

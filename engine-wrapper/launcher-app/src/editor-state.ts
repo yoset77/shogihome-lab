@@ -45,6 +45,30 @@ export function renameGroup(engines: EngineEntry[], virtual: Group[], groupId: s
   for (const g of virtual) if (g.id === groupId) g.name = name;
 }
 
+/**
+ * Normalize a group name typed into the in-app modal. Returns the trimmed
+ * name, or null when the input is empty/cancelled. The editor must use an
+ * in-app form instead of `window.prompt`: Wry's macOS WKUIDelegate does not
+ * implement the text-input panel, so `prompt()` always resolves to null
+ * there and group create/rename silently no-ops.
+ */
+export function normalizeGroupName(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const name = raw.trim();
+  return name ? name : null;
+}
+
+/**
+ * True while a keydown belongs to an ongoing IME composition (e.g. Japanese
+ * kana-kanji conversion). `keyCode 229` is the composition marker WebKit
+ * reports; `isComposing` is the spec-compliant flag. Callers must ignore
+ * Enter/Escape while this holds, otherwise confirming a conversion would
+ * submit the dialog and cancelling one would close it.
+ */
+export function isImeComposingKey(e: { isComposing?: boolean; keyCode?: number }): boolean {
+  return e.isComposing === true || e.keyCode === 229;
+}
+
 export function deleteGroup(engines: EngineEntry[], virtual: Group[], groupId: string): Group[] {
   for (const eng of engines) {
     if (eng.analysisDBGroupId === groupId) {
