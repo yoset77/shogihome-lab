@@ -48,7 +48,7 @@
     "html-to-image": "^1.11.13",
     "jimp": "^1.6.1",
     "log4js": "^6.9.1",
-    "onnxruntime-web": "^1.27.0",
+    "onnxruntime-web": "^1.30.0",
     "proper-lockfile": "^4.1.2",
     "semver": "^7.8.5",
     "splitpanes": "^4.1.2",
