@@ -64,6 +64,20 @@ impl EditorSession {
         self.generation
     }
 
+    /// Whether a failed window build is allowed to tear this session down.
+    /// `owned_generation` is the generation the failing request opened.
+    /// Concurrent open requests can both pass the window-existence check and
+    /// race on the same window label; the loser must not close the winner's
+    /// session. Only the request that still owns the current generation,
+    /// with no live window, may close.
+    pub fn should_release_after_build_failure(
+        &self,
+        window_exists: bool,
+        owned_generation: u64,
+    ) -> bool {
+        !window_exists && self.lock.is_some() && self.generation == owned_generation
+    }
+
     pub fn is_idle(&self) -> bool {
         self.probes.is_empty()
     }
@@ -137,6 +151,42 @@ mod tests {
         assert!(session.lock().unwrap().ensure_open().is_err());
         assert!(crate::session_lock::acquire(&dir).is_err());
         drop(probe);
+        drop(crate::session_lock::acquire(&dir).unwrap());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn failed_build_cleanup_never_closes_a_live_session() {
+        // Interleaving from the concurrent-open race: two requests pass the
+        // window-existence check, both open() the shared session, one window
+        // build fails. The loser must leave the winner's session open.
+        let dir = std::env::temp_dir().join(format!("editor-race-{}", std::process::id()));
+        let session = Arc::new(Mutex::new(EditorSession::default()));
+        session.lock().unwrap().open(&dir).unwrap();
+        let generation_a = session.lock().unwrap().generation();
+        session.lock().unwrap().open(&dir).unwrap();
+        let generation_b = session.lock().unwrap().generation();
+        // Loser A: the winner's window exists, so no teardown even though A
+        // still sees its own generation as current-or-older.
+        assert!(!session
+            .lock()
+            .unwrap()
+            .should_release_after_build_failure(true, generation_a));
+        assert!(session.lock().unwrap().ensure_open().is_ok());
+        // Stale failure: superseded by B's open, so it must not close either.
+        assert!(!session
+            .lock()
+            .unwrap()
+            .should_release_after_build_failure(false, generation_a));
+        assert!(session.lock().unwrap().ensure_open().is_ok());
+        // Sole owner B with no window: teardown is allowed.
+        assert!(session
+            .lock()
+            .unwrap()
+            .should_release_after_build_failure(false, generation_b));
+        let generation = session.lock().unwrap().close();
+        assert!(session.lock().unwrap().ensure_open().is_err());
+        assert!(session.lock().unwrap().release_if_idle(generation));
         drop(crate::session_lock::acquire(&dir).unwrap());
         std::fs::remove_dir_all(dir).unwrap();
     }

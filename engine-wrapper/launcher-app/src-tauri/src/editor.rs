@@ -10,6 +10,10 @@ use tauri::Manager;
 pub struct EditorState {
     pub config_dir: PathBuf,
     pub session: Arc<Mutex<EditorSession>>,
+    /// Serializes the check-then-create sequence in `open_editor` so
+    /// concurrent invokes cannot both observe "no editor window" and race
+    /// `WebviewWindowBuilder` on the same label.
+    opening: Mutex<()>,
 }
 
 impl EditorState {
@@ -17,6 +21,7 @@ impl EditorState {
         Self {
             config_dir,
             session: Arc::new(Mutex::new(EditorSession::default())),
+            opening: Mutex::new(()),
         }
     }
 }
@@ -27,11 +32,11 @@ pub fn create_window(handle: &tauri::AppHandle) -> Result<(), String> {
     if lifecycle.phase != Phase::Running {
         return Err(text("launcherQuitting").into());
     }
-    st.editor
-        .session
-        .lock()
-        .unwrap()
-        .open(&st.editor.config_dir)?;
+    let owned_generation = {
+        let mut session = st.editor.session.lock().unwrap();
+        session.open(&st.editor.config_dir)?;
+        session.generation()
+    };
     // Window creation must not hold a mutex needed by native event callbacks.
     drop(lifecycle);
     let result = tauri::WebviewWindowBuilder::new(
@@ -44,8 +49,22 @@ pub fn create_window(handle: &tauri::AppHandle) -> Result<(), String> {
     .min_inner_size(600.0, 600.0)
     .build();
     if let Err(error) = result {
-        let generation = st.editor.session.lock().unwrap().close();
-        release_when_idle(handle.clone(), generation);
+        // A concurrent opener may have won the race and own the live window;
+        // only tear down the session when this request still owns it and no
+        // editor window exists. Never close the winner's session.
+        let owned = st
+            .editor
+            .session
+            .lock()
+            .unwrap()
+            .should_release_after_build_failure(
+                handle.get_webview_window("editor").is_some(),
+                owned_generation,
+            );
+        if owned {
+            let generation = st.editor.session.lock().unwrap().close();
+            release_when_idle(handle.clone(), generation);
+        }
         return Err(error.to_string());
     }
     Ok(())
@@ -58,6 +77,12 @@ pub async fn open_editor(window: tauri::Window, handle: tauri::AppHandle) -> Res
     if state(&handle).lifecycle.lock().unwrap().phase != Phase::Running {
         return Err(text("launcherQuitting").into());
     }
+    // Serialize check-then-create: without this, concurrent invokes
+    // (double-click, tray + dashboard) can both observe "no editor window",
+    // race the builder on the same label, and let the loser close() the
+    // winner's shared session. No await runs under this guard.
+    let st = state(&handle);
+    let _opening = st.editor.opening.lock().unwrap();
     if let Some(editor) = handle.get_webview_window("editor") {
         let _ = editor.show();
         let _ = editor.set_focus();
