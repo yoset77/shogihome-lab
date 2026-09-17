@@ -66,7 +66,7 @@
     "@types/license-checker": "^25.0.6",
     "@types/proper-lockfile": "^4.1.4",
     "@types/semver": "^7.8.0",
-    "@types/splitpanes": "^1.0.6",
+    "@types/splitpanes": "^2.2.6",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-vue": "^6.0.9",
     "@vitest/coverage-v8": "^4.1.11",
