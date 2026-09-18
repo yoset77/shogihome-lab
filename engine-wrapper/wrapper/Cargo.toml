@@ -15,7 +15,7 @@ encoding_rs = "0.8"
 hmac = "0.12"
 sha2 = "0.10"
 subtle = "1"
-rand = "0.8"
+rand = "0.10"
 serde_json = { version = "1", features = ["preserve_order"] }
 shogihome-env-file = { path = "../env-file" }
 shogihome-process = { path = "../process", features = ["async"] }
