@@ -76,6 +76,8 @@ const ja: Record<string, Entry> = {
   settingsDesc_ANALYSIS_DB_MIN_DEPTH: "検討結果をDBに保存する最小探索深さ",
   settingsDesc_ONTHEFLY_THRESHOLD_MB: "定跡をOn-the-fly読み込みに切り替える閾値（MB）",
   settingsDesc_SBK_ONTHEFLY_THRESHOLD_MB: "SBK定跡をOn-the-fly読み込みに切り替える閾値（MB）",
+  settingsDesc_KIFU_UPLOAD_MAX_MB: "ブラウザからアップロードする棋譜・SFENファイル1件あたりの最大サイズ（MB）",
+  settingsDesc_BOOK_UPLOAD_MAX_MB: "ブラウザからアップロードする定跡ファイル1件あたりの最大サイズ（MB）",
   networkInfo: (bind, auto) =>
     `Binding: ${bind}\nAuto-Origins: ${auto === "on" ? "有効" : "無効"}\n\n手動で設定したURLや\nプロキシを使用して\n他の端末からアクセスしてください。`,
   close: "閉じる",
@@ -229,6 +231,8 @@ const en: Record<string, Entry> = {
   settingsDesc_ANALYSIS_DB_MIN_DEPTH: "Minimum search depth to store analysis results in the DB",
   settingsDesc_ONTHEFLY_THRESHOLD_MB: "Size threshold (MB) to open book files on-the-fly",
   settingsDesc_SBK_ONTHEFLY_THRESHOLD_MB: "Size threshold (MB) to open .sbk book files on-the-fly",
+  settingsDesc_KIFU_UPLOAD_MAX_MB: "Max size per kifu/SFEN file uploaded from the browser (MB)",
+  settingsDesc_BOOK_UPLOAD_MAX_MB: "Max size per book file uploaded from the browser (MB)",
   networkInfo: (bind, auto) =>
     `Binding: ${bind}\nAuto-Origins: ${auto === "on" ? "Enabled" : "Disabled"}\n\nPlease use your manually\nconfigured URL or proxy\nto access from other devices.`,
   close: "Close",
