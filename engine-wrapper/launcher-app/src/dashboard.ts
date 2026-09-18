@@ -9,7 +9,7 @@ import QRCode from "qrcode";
 import { api } from "./api";
 import { detectLang, normalizeLang, storeLang, text, type Lang } from "./i18n";
 import { PcUrlSession } from "./pc-url-session";
-import { clearedPcUrlDisplay, resolvePcUrlDisplay } from "./pc-url-view";
+import { clearedPcUrlDisplay, isPcUrlClickable, resolvePcUrlDisplay, selectPcOpenTarget } from "./pc-url-view";
 import { startAfterMigration, type MigrationStatus } from "./startup";
 
 export function initDashboard(): void {
@@ -71,10 +71,12 @@ export function initDashboard(): void {
   }
 
   // Displayed URL follows the QR payload (LAN URL) when available so the
-  // QR code and the text always match. The PC opener uses the same value.
+  // QR code and the text always match. The PC opener uses the PC URL
+  // (loopback-first when available, so the browser prefers a secure
+  // context over the LAN URL).
   // Without a QR (127.0.0.1 bind, strict origins, ...), show the Python
   // parity notice instead of leaving a blank space.
-  let displayedUrl = "";
+  let openTargetUrl = "";
   let lastNetwork: { bind: string; autoOrigins: boolean; hasQr: boolean } | null = null;
   // Generation guard: `getPcUrl` + QR rendering is async, so a slow older
   // refresh must never overwrite a newer one (e.g. rapid restart clicks or
@@ -136,17 +138,23 @@ export function initDashboard(): void {
   // rendering so a slow encode cannot overwrite a newer generation.
   function applyPcUrlDisplay(display: {
     displayedUrl: string;
+    openUrl: string;
     bind: string;
     autoOrigins: boolean;
     hasQr: boolean;
     openDisabled: boolean;
   }): void {
     lastNetwork = { bind: display.bind, autoOrigins: display.autoOrigins, hasQr: display.hasQr };
-    displayedUrl = display.displayedUrl;
+    openTargetUrl = isPcUrlClickable(display) ? display.openUrl : "";
     const pcUrlEl = $("pcUrl");
-    pcUrlEl.textContent = displayedUrl;
-    pcUrlEl.onclick = () => void openUrl(displayedUrl);
-    pcUrlEl.style.cursor = "pointer";
+    pcUrlEl.textContent = display.displayedUrl;
+    if (isPcUrlClickable(display)) {
+      pcUrlEl.onclick = () => void openUrl(display.openUrl);
+      pcUrlEl.style.cursor = "pointer";
+    } else {
+      pcUrlEl.onclick = null;
+      pcUrlEl.style.cursor = "";
+    }
     $("openPcBtn").toggleAttribute("disabled", display.openDisabled);
     const image = $<HTMLImageElement>("qrImg");
     image.hidden = !display.hasQr;
@@ -244,13 +252,24 @@ export function initDashboard(): void {
       const next = normalizeLang((e.target as HTMLSelectElement).value) ?? "ja";
       void setLang(next);
     });
-    $("openPcBtn").addEventListener("click", async () => {
-      if (displayedUrl) await openUrl(displayedUrl);
-      else {
-        const { url, qrUrl } = await api.getPcUrl();
-        await openUrl(qrUrl ?? url);
+    // Open this PC's browser at the PC URL, refetching when no cached
+    // target exists (e.g. after a failed refresh). Kept separate from the
+    // button so the tray can call it directly: .click() on a disabled
+    // button never fires, which would leave the tray without recovery.
+    async function openPcBrowser(): Promise<void> {
+      if (openTargetUrl) {
+        await openUrl(openTargetUrl);
+        return;
       }
-    });
+      try {
+        const target = selectPcOpenTarget("", await api.getPcUrl());
+        if (target) await openUrl(target);
+      } catch {
+        // The backend is still unreadable: the display already shows an
+        // error, so there is nothing more to report here.
+      }
+    }
+    $("openPcBtn").addEventListener("click", () => void openPcBrowser());
     $("restartBtn").addEventListener("click", () => void api.restartServices().then(refreshAll).catch(showError));
     $("logsBtn").addEventListener("click", () => void openLogsWindow());
     $("editorBtn").addEventListener("click", () => void api.openEditor());
@@ -260,7 +279,7 @@ export function initDashboard(): void {
     await listen("launcher-status", () => void refreshAll());
     // The settings window emits this after saving (and an optional restart).
     await listen("settings-saved", () => void refreshAll());
-    await listen("tray-open-browser", () => void $("openPcBtn").click());
+    await listen("tray-open-browser", () => void openPcBrowser());
     await listen("tray-open-editor", () => void api.openEditor());
     await listen("tray-exit", () => void api.stopAndExit().catch(showError));
 
