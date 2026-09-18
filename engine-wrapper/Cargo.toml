@@ -6,6 +6,6 @@ exclude = ["launcher-app/src-tauri"]
 resolver = "2"
 
 [workspace.package]
-version = "1.21.0-alpha.0"
+version = "1.21.0"
 edition = "2021"
 license = "MIT"
