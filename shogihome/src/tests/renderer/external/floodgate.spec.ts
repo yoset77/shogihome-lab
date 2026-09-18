@@ -35,7 +35,7 @@ describe("Floodgate", () => {
     expect(games[0].id).toBe("wdoor+floodgate-300-10F+m4x+K0_3950X+20250524163008");
     expect(games[0].rule).toBe("300-10F");
     expect(games[0].url).toBe(
-      "http://wdoor.c.u-tokyo.ac.jp/shogi/LATEST/2025/05/24/wdoor+floodgate-300-10F+m4x+K0_3950X+20250524163008.csa",
+      "https://wdoor.c.u-tokyo.ac.jp/shogi/LATEST/2025/05/24/wdoor+floodgate-300-10F+m4x+K0_3950X+20250524163008.csa",
     );
     expect(games[0].blackName).toBe("m4x");
     expect(games[0].whiteName).toBe("K0_3950X");
@@ -46,7 +46,7 @@ describe("Floodgate", () => {
     );
     expect(games[4].rule).toBe("300-10F");
     expect(games[4].url).toBe(
-      "http://wdoor.c.u-tokyo.ac.jp/shogi/LATEST/2025/05/24/wdoor+floodgate-300-10F+tanuki_wcsc33_473stb_10m+suisho5-1M+20250524163009.csa",
+      "https://wdoor.c.u-tokyo.ac.jp/shogi/LATEST/2025/05/24/wdoor+floodgate-300-10F+tanuki_wcsc33_473stb_10m+suisho5-1M+20250524163009.csa",
     );
     expect(games[4].blackName).toBe("tanuki_wcsc33_473stb_10m");
     expect(games[4].whiteName).toBe("suisho5-1M");
