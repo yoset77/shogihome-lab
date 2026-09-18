@@ -1,6 +1,6 @@
 [package]
 name = "shogihome-lab-launcher"
-version = "1.21.0-alpha.0"
+version = "1.21.0"
 edition = "2021"
 
 [build-dependencies]
