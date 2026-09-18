@@ -70,6 +70,8 @@ pub const SETTINGS: &[Setting] = &[
     Setting { id: "ANALYSIS_DB_MIN_DEPTH", keys: &[("ANALYSIS_DB_MIN_DEPTH", EnvFile::Server)], setting_type: SettingType::Int, default_int: 10, default_str: "", default_bool: false, section: SECTION_KIFU, min_value: Some(0), max_value: Some(100), choices: &[], item_rule: None },
     Setting { id: "ONTHEFLY_THRESHOLD_MB", keys: &[("ONTHEFLY_THRESHOLD_MB", EnvFile::Server)], setting_type: SettingType::Int, default_int: 128, default_str: "", default_bool: false, section: SECTION_KIFU, min_value: Some(1), max_value: Some(100000), choices: &[], item_rule: None },
     Setting { id: "SBK_ONTHEFLY_THRESHOLD_MB", keys: &[("SBK_ONTHEFLY_THRESHOLD_MB", EnvFile::Server)], setting_type: SettingType::Int, default_int: 32, default_str: "", default_bool: false, section: SECTION_KIFU, min_value: Some(1), max_value: Some(100000), choices: &[], item_rule: None },
+    Setting { id: "KIFU_UPLOAD_MAX_MB", keys: &[("KIFU_UPLOAD_MAX_MB", EnvFile::Server)], setting_type: SettingType::Int, default_int: 10, default_str: "", default_bool: false, section: SECTION_KIFU, min_value: Some(1), max_value: Some(1024), choices: &[], item_rule: None },
+    Setting { id: "BOOK_UPLOAD_MAX_MB", keys: &[("BOOK_UPLOAD_MAX_MB", EnvFile::Server)], setting_type: SettingType::Int, default_int: 512, default_str: "", default_bool: false, section: SECTION_KIFU, min_value: Some(1), max_value: Some(10240), choices: &[], item_rule: None },
 ];
 
 pub const SECTION_ORDER: &[&str] = &[
@@ -593,6 +595,14 @@ mod tests {
                 "SBK_ONTHEFLY_THRESHOLD_MB".to_string(),
                 SettingValue::Text("32".to_string()),
             ),
+            (
+                "KIFU_UPLOAD_MAX_MB".to_string(),
+                SettingValue::Text("10".to_string()),
+            ),
+            (
+                "BOOK_UPLOAD_MAX_MB".to_string(),
+                SettingValue::Text("512".to_string()),
+            ),
         ])
     }
 
@@ -615,6 +625,14 @@ mod tests {
             SettingValue::Bool(false)
         );
         assert_eq!(values["KIFU_DIR"], SettingValue::Text(String::new()));
+        assert_eq!(
+            values["KIFU_UPLOAD_MAX_MB"],
+            SettingValue::Text("10".to_string())
+        );
+        assert_eq!(
+            values["BOOK_UPLOAD_MAX_MB"],
+            SettingValue::Text("512".to_string())
+        );
         assert!(validate(&values).is_empty());
         cleanup(&base);
     }
@@ -672,6 +690,8 @@ mod tests {
         assert!(server.contains("WRAPPER_ACCESS_TOKEN=secret-token"));
         assert!(wrapper.contains("LISTEN_PORT=5000"));
         assert!(wrapper.contains("WRAPPER_ACCESS_TOKEN=secret-token"));
+        assert!(server.contains("KIFU_UPLOAD_MAX_MB=10"));
+        assert!(server.contains("BOOK_UPLOAD_MAX_MB=512"));
         cleanup(&base);
     }
 
@@ -711,6 +731,32 @@ mod tests {
             ValidationError::OutOfRange
         );
         assert!(err("ENGINE_CONNECTION_PROTECTION_TIMEOUT", "300").is_empty());
+        assert_eq!(
+            err("KIFU_UPLOAD_MAX_MB", "abc")["KIFU_UPLOAD_MAX_MB"],
+            ValidationError::InvalidInt
+        );
+        assert_eq!(
+            err("KIFU_UPLOAD_MAX_MB", "0")["KIFU_UPLOAD_MAX_MB"],
+            ValidationError::OutOfRange
+        );
+        assert_eq!(
+            err("KIFU_UPLOAD_MAX_MB", "1025")["KIFU_UPLOAD_MAX_MB"],
+            ValidationError::OutOfRange
+        );
+        assert!(err("KIFU_UPLOAD_MAX_MB", "10").is_empty());
+        assert_eq!(
+            err("BOOK_UPLOAD_MAX_MB", "abc")["BOOK_UPLOAD_MAX_MB"],
+            ValidationError::InvalidInt
+        );
+        assert_eq!(
+            err("BOOK_UPLOAD_MAX_MB", "0")["BOOK_UPLOAD_MAX_MB"],
+            ValidationError::OutOfRange
+        );
+        assert_eq!(
+            err("BOOK_UPLOAD_MAX_MB", "10241")["BOOK_UPLOAD_MAX_MB"],
+            ValidationError::OutOfRange
+        );
+        assert!(err("BOOK_UPLOAD_MAX_MB", "512").is_empty());
         assert_eq!(
             err("BIND_ADDRESS", "1.2.3.4")["BIND_ADDRESS"],
             ValidationError::InvalidChoice
