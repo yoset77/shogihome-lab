@@ -18,7 +18,7 @@ jobs:
         working-directory: shogihome
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 26
           cache: "npm"
@@ -54,10 +54,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 26
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install test dependencies
@@ -81,7 +81,7 @@ jobs:
         working-directory: engine-wrapper/launcher-app
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 26
       - name: Install dependencies
@@ -101,11 +101,11 @@ jobs:
         working-directory: engine-wrapper
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 26
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install test dependencies
@@ -146,7 +146,7 @@ jobs:
           SHOGIHOME_GUI_EXE: launcher-app/src-tauri/target/release/ShogiHomeLab.exe
       - name: Upload Windows GUI failure diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: launcher-windows-gui-diagnostics
           path: |
@@ -168,13 +168,13 @@ jobs:
         working-directory: engine-wrapper
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 26
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install Linux WebView and GUI test dependencies
@@ -214,7 +214,7 @@ jobs:
           SHOGIHOME_GUI_EXE: launcher-app/src-tauri/target/release/ShogiHomeLab
       - name: Upload GUI failure diagnostics
         if: failure() && runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: launcher-linux-gui-diagnostics
           path: |
