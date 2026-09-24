@@ -45,7 +45,16 @@
           <Icon :icon="IconType.STOP" />
           <span :class="{ tooltip: compact }">{{ t.stopGame }}</span>
         </button>
-        <!-- 勝ち宣言 -->
+        <!-- 投了 -->
+        <button
+          v-show="store.appState === AppState.GAME && store.isMovableByUser"
+          class="control-item close"
+          @click="onResign"
+        >
+          <Icon :icon="IconType.RESIGN" />
+          <span :class="{ tooltip: compact }">{{ t.resign }}</span>
+        </button>
+        <!-- 待った -->
         <button
           v-if="store.supportsTakeback"
           class="control-item"
@@ -59,44 +68,14 @@
             store.isTakingBack ? t.takingBack : t.takeback
           }}</span>
         </button>
-        <button
-          v-show="
-            store.isMovableByUser &&
-            store.appState === AppState.GAME &&
-            DeclarableJishogiRules.includes(store.gameSettings.jishogiRule)
-          "
-          class="control-item close"
-          @click="onWin"
-        >
-          <Icon :icon="IconType.CALL" />
-          <span :class="{ tooltip: compact }">{{ t.declareWin }}</span>
-        </button>
-        <!-- 投了 -->
-        <button
-          v-show="store.appState === AppState.GAME && store.isMovableByUser"
-          class="control-item close"
-          @click="onResign"
-        >
-          <Icon :icon="IconType.RESIGN" />
-          <span :class="{ tooltip: compact }">{{ t.resign }}</span>
-        </button>
-        <!-- 持将棋の点数 -->
+        <!-- 対局中のその他の操作 -->
         <button
           v-show="store.appState === AppState.GAME"
           class="control-item"
-          @click="onJishogiPoints"
+          @click="isGameActionMenuVisible = true"
         >
-          <Icon :icon="IconType.QUESTION" />
-          <span :class="{ tooltip: compact }">{{ t.jishogiPoints }}</span>
-        </button>
-        <!-- 戦績確認 -->
-        <button
-          v-show="store.appState === AppState.GAME && store.gameSettings.repeat >= 2"
-          class="control-item"
-          @click="onShowGameResults"
-        >
-          <Icon :icon="IconType.SCORE" />
-          <span :class="{ tooltip: compact }">{{ t.displayGameResults }}</span>
+          <Icon :icon="IconType.NOTE" />
+          <span :class="{ tooltip: compact }">{{ t.others }}</span>
         </button>
         <!-- 解析 -->
         <button
@@ -197,6 +176,10 @@
         </button>
       </div>
       <FileMenu v-if="isFileMenuVisible" @close="isFileMenuVisible = false" />
+      <GameActionMenu
+        v-if="isGameActionMenuVisible && store.appState === AppState.GAME"
+        @close="isGameActionMenuVisible = false"
+      />
     </div>
   </div>
 </template>
@@ -212,12 +195,12 @@ export enum ControlGroup {
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import { useStore } from "@/renderer/store";
-import { computed, onBeforeUnmount, onMounted, PropType, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, PropType, ref, watch } from "vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { AppState, ResearchState } from "@/common/control/state.js";
 import { IconType } from "@/renderer/assets/icons";
 import FileMenu from "@/renderer/view/menu/FileMenu.vue";
-import { DeclarableJishogiRules } from "@/common/settings/game";
+import GameActionMenu from "@/renderer/view/menu/GameActionMenu.vue";
 import { useAppSettings } from "@/renderer/store/settings";
 import {
   installHotKeyForMainWindow,
@@ -249,7 +232,15 @@ const appSettings = useAppSettings();
 const quickAction = computed(() => getFileQuickAction(appSettings.fileQuickAction));
 const root = ref();
 const isFileMenuVisible = ref(false);
+const isGameActionMenuVisible = ref(false);
 const lanStore = useLanStore();
+
+watch(
+  () => store.appState,
+  (state) => {
+    if (state !== AppState.GAME) isGameActionMenuVisible.value = false;
+  },
+);
 
 onMounted(() => {
   installHotKeyForMainWindow(root.value);
@@ -263,24 +254,12 @@ const onGame = () => {
   store.showGameDialog();
 };
 
-const onShowGameResults = () => {
-  store.showGameResults();
-};
-
 const onStop = () => {
   store.stopGame();
 };
 
-const onWin = () => {
-  store.declareWin();
-};
-
 const onResign = () => {
   store.resign();
-};
-
-const onJishogiPoints = () => {
-  store.showJishogiPoints();
 };
 
 const onResearch = async () => {
