@@ -18,13 +18,40 @@ export type LanEngineInfo = {
 
 export type RelayNotice = "pong" | "engineReady" | "engineStopped";
 
+export type SearchRequest = {
+  type: "search";
+  instanceId: string;
+  searchId: number;
+  position: string;
+  go: string;
+};
+
+export type CancelSearchRequest = { type: "cancelSearch"; instanceId: string; through: number };
+export type StopSearchRequest = { type: "stopSearch"; instanceId: string; searchId: number };
+
+export type SearchSnapshot = {
+  type: "searchSnapshot";
+  instanceId: string;
+  revision: number;
+  engineId: string | null;
+  accepted: number;
+  cancelled: number;
+  settled: number;
+  active: number | null;
+  protectionMs: number;
+  terminal: { searchId: number; position: string; output: string; delay: number } | null;
+};
+
+type SearchIdentity = { instanceId?: string; searchId?: number };
+
 type SessionRelayStatePayload =
   | { type: "state"; state: ActiveRelayState; engineId: string }
   | { type: "state"; state: InactiveRelayState; engineId: null };
 
 export type SessionRelayPayload =
   | SessionRelayStatePayload
-  | { type: "engineOutput"; positionCommand: string | null; output: string }
+  | SearchSnapshot
+  | ({ type: "engineOutput"; positionCommand: string | null; output: string } & SearchIdentity)
   | { type: "notice"; notice: RelayNotice }
   | { type: "error"; message: string };
 
@@ -34,12 +61,17 @@ type ServerRelayStateMessage = SessionRelayStatePayload & RelayDelay;
 
 export type ServerRelayMessage =
   | ServerRelayStateMessage
-  | ({ type: "engineOutput"; positionCommand: string | null; output: string } & RelayDelay)
+  | SearchSnapshot
+  | ({ type: "engineOutput"; positionCommand: string | null; output: string } & RelayDelay &
+      SearchIdentity)
   | ({ type: "notice"; notice: RelayNotice } & RelayDelay)
   | ({ type: "error"; message: string } & RelayDelay)
   | { type: "engineList"; engines: LanEngineInfo[] };
 
 export type ClientRelayMessage =
+  | SearchRequest
+  | CancelSearchRequest
+  | StopSearchRequest
   | { type: "ping" }
   | { type: "getEngineList" }
   | { type: "startEngine"; engineId: string }
@@ -54,6 +86,39 @@ export const MAX_MULTIPV = 10;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isCounter = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+const isInstanceId = (value: unknown): value is string =>
+  typeof value === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
+
+const isSearchSnapshot = (value: Record<string, unknown>): value is SearchSnapshot => {
+  const terminal = value.terminal;
+  return (
+    value.type === "searchSnapshot" &&
+    isInstanceId(value.instanceId) &&
+    isCounter(value.revision) &&
+    (value.engineId === null || isRelayEngineId(value.engineId)) &&
+    isCounter(value.accepted) &&
+    isCounter(value.cancelled) &&
+    isCounter(value.settled) &&
+    value.settled <= value.cancelled &&
+    (value.active === null || (isCounter(value.active) && value.active > 0)) &&
+    isCounter(value.protectionMs) &&
+    value.protectionMs > 0 &&
+    (terminal === null ||
+      (isRecord(terminal) &&
+        isCounter(terminal.searchId) &&
+        terminal.searchId > 0 &&
+        isValidDelay(terminal.delay) &&
+        typeof terminal.position === "string" &&
+        isValidUsiCommand(terminal.position) &&
+        terminal.position.startsWith("position ") &&
+        typeof terminal.output === "string" &&
+        /^(bestmove|checkmate) /.test(terminal.output) &&
+        !/[\r\n]/.test(terminal.output)))
+  );
+};
 
 const isRelayState = (value: unknown): value is RelayState =>
   typeof value === "string" && (RELAY_STATES as readonly string[]).includes(value);
@@ -122,6 +187,12 @@ export const decodeServerRelayMessage = (data: unknown): DecodeResult<ServerRela
     return { ok: false, error: "relay frame must be an object" };
   }
 
+  if (parsed.type === "searchSnapshot") {
+    return isSearchSnapshot(parsed)
+      ? { ok: true, value: parsed }
+      : { ok: false, error: "invalid search snapshot" };
+  }
+
   const primaryKeys = ["state", "error", "info", "engineList"].filter((key) =>
     Object.hasOwn(parsed, key),
   );
@@ -185,10 +256,22 @@ export const decodeServerRelayMessage = (data: unknown): DecodeResult<ServerRela
     if (parsed.sfen !== null && typeof parsed.sfen !== "string") {
       return { ok: false, error: "invalid engine output position" };
     }
+    const identity: SearchIdentity = {};
+    if (parsed.instanceId !== undefined || parsed.searchId !== undefined) {
+      if (
+        !isInstanceId(parsed.instanceId) ||
+        !isCounter(parsed.searchId) ||
+        parsed.searchId === 0
+      ) {
+        return { ok: false, error: "invalid search identity" };
+      }
+      identity.instanceId = parsed.instanceId;
+      identity.searchId = parsed.searchId;
+    }
     return {
       ok: true,
       value: withDelay(
-        { type: "engineOutput", positionCommand: parsed.sfen, output: parsed.info },
+        { type: "engineOutput", positionCommand: parsed.sfen, output: parsed.info, ...identity },
         delay,
       ),
     };
@@ -207,10 +290,19 @@ const assertValidDelay = (delay: number): void => {
 export const encodeSessionRelayMessage = (payload: SessionRelayPayload, delay: number): string => {
   assertValidDelay(delay);
   switch (payload.type) {
+    case "searchSnapshot":
+      if (!isSearchSnapshot(payload)) throw new Error("invalid search snapshot");
+      return JSON.stringify(payload);
     case "state":
       return JSON.stringify({ state: payload.state, engineId: payload.engineId, delay });
     case "engineOutput":
-      return JSON.stringify({ sfen: payload.positionCommand, info: payload.output, delay });
+      return JSON.stringify({
+        sfen: payload.positionCommand,
+        info: payload.output,
+        delay,
+        instanceId: payload.instanceId,
+        searchId: payload.searchId,
+      });
     case "notice":
       return JSON.stringify({ info: INFO_BY_NOTICE[payload.notice], delay });
     case "error":
@@ -294,6 +386,49 @@ export const decodeClientRelayMessage = (data: unknown): DecodeResult<ClientRela
     return { ok: false, error: "relay command must be one line of text" };
   }
   const command = data.trim();
+  if (command.startsWith("{")) {
+    let value: unknown;
+    try {
+      value = JSON.parse(command);
+    } catch {
+      return { ok: false, error: "invalid search request" };
+    }
+    if (!isRecord(value) || !isInstanceId(value.instanceId))
+      return { ok: false, error: "invalid search request" };
+    if (value.type === "cancelSearch" && isCounter(value.through)) {
+      return {
+        ok: true,
+        value: { type: "cancelSearch", instanceId: value.instanceId, through: value.through },
+      };
+    }
+    if (value.type === "stopSearch" && isCounter(value.searchId) && value.searchId > 0) {
+      return {
+        ok: true,
+        value: { type: "stopSearch", instanceId: value.instanceId, searchId: value.searchId },
+      };
+    }
+    if (
+      value.type === "search" &&
+      isCounter(value.searchId) &&
+      value.searchId > 0 &&
+      isValidUsiCommand(value.position) &&
+      value.position.startsWith("position ") &&
+      isValidUsiCommand(value.go) &&
+      (value.go === "go" || value.go.startsWith("go "))
+    ) {
+      return {
+        ok: true,
+        value: {
+          type: "search",
+          instanceId: value.instanceId,
+          searchId: value.searchId,
+          position: value.position,
+          go: value.go,
+        },
+      };
+    }
+    return { ok: false, error: "invalid search request" };
+  }
   if (command === "ping") return { ok: true, value: { type: "ping" } };
   if (command === "get_engine_list") return { ok: true, value: { type: "getEngineList" } };
   if (command === "stop_engine") return { ok: true, value: { type: "stopEngine" } };
@@ -314,6 +449,17 @@ export const encodeClientRelayMessage = (message: ClientRelayMessage): string =>
     throw new Error("invalid client relay message");
   }
   switch (message.type) {
+    case "search":
+    case "cancelSearch": {
+      const encoded = JSON.stringify(message);
+      if (!decodeClientRelayMessage(encoded).ok) throw new Error("invalid search request");
+      return encoded;
+    }
+    case "stopSearch": {
+      const encoded = JSON.stringify(message);
+      if (!decodeClientRelayMessage(encoded).ok) throw new Error("invalid search request");
+      return encoded;
+    }
     case "ping":
       return "ping";
     case "getEngineList":

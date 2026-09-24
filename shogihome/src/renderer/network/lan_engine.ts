@@ -5,6 +5,10 @@ import {
   type ClientRelayMessage,
   type LanEngineInfo,
   type ServerRelayMessage,
+  type SearchRequest,
+  type CancelSearchRequest,
+  type SearchSnapshot,
+  type StopSearchRequest,
 } from "@/common/engine/relay_protocol";
 
 type MessageHandler = (data: ServerRelayMessage) => void;
@@ -48,6 +52,70 @@ export class LanEngine {
   private pendingEngineListPromise: Promise<LanEngineInfo[]> | null = null;
   private listenersRegistered = false;
   private activeRequestCount = 0;
+  private synchronized = false;
+  private pendingSearch?: SearchRequest;
+  private pendingCancellation?: CancelSearchRequest;
+  private pendingStop?: StopSearchRequest;
+
+  stopSearch(request: StopSearchRequest) {
+    this.pendingStop = request;
+    this.sendIdentified(request);
+  }
+
+  sendSearch(request: SearchRequest) {
+    this.pendingSearch = request;
+    this.sendIdentified(request);
+  }
+
+  cancelSearch(request: CancelSearchRequest) {
+    if (this.pendingStop && this.pendingStop.searchId <= request.through)
+      this.pendingStop = undefined;
+    if (this.pendingSearch && this.pendingSearch.searchId <= request.through)
+      this.pendingSearch = undefined;
+    this.pendingCancellation = request;
+    this.sendIdentified(request);
+  }
+
+  private sendIdentified(request: SearchRequest | CancelSearchRequest | StopSearchRequest) {
+    if (!this.synchronized || !this.isConnected()) return;
+    try {
+      this.ws!.send(encodeClientRelayMessage(request));
+    } catch {
+      this.synchronized = false;
+      this.ws?.close();
+    }
+  }
+
+  private reconcileSearches(snapshot: SearchSnapshot) {
+    const reconnecting = !this.synchronized;
+    this.synchronized = true;
+    if (
+      this.pendingSearch &&
+      (this.pendingSearch.instanceId !== snapshot.instanceId ||
+        this.pendingSearch.searchId <= snapshot.cancelled ||
+        this.pendingSearch.searchId === snapshot.terminal?.searchId)
+    )
+      this.pendingSearch = undefined;
+    if (
+      this.pendingCancellation &&
+      (this.pendingCancellation.instanceId !== snapshot.instanceId ||
+        this.pendingCancellation.through <= snapshot.settled)
+    )
+      this.pendingCancellation = undefined;
+    if (
+      this.pendingStop &&
+      (this.pendingStop.instanceId !== snapshot.instanceId ||
+        this.pendingStop.searchId <= snapshot.cancelled ||
+        this.pendingStop.searchId < snapshot.accepted ||
+        this.pendingStop.searchId === snapshot.terminal?.searchId)
+    )
+      this.pendingStop = undefined;
+    if (!reconnecting) return;
+    if (this.pendingCancellation) this.sendIdentified(this.pendingCancellation);
+    if (this.pendingSearch && this.pendingSearch.searchId > snapshot.accepted)
+      this.sendIdentified(this.pendingSearch);
+    if (this.pendingStop) this.sendIdentified(this.pendingStop);
+  }
 
   constructor(private sessionId: string) {}
 
@@ -103,6 +171,7 @@ export class LanEngine {
   }
 
   private setStatus(status: LanEngineStatus) {
+    if (status !== "connected") this.synchronized = false;
     if (this._status !== status) {
       this._status = status;
       this.statusListeners.forEach((listener) => listener(status));
@@ -198,6 +267,7 @@ export class LanEngine {
           return;
         }
         const message = result.value;
+        if (message.type === "searchSnapshot") this.reconcileSearches(message);
         if (message.type === "notice" && message.notice === "pong") {
           this.handlePong(ws);
           return;
@@ -325,6 +395,10 @@ export class LanEngine {
   }
 
   disconnect() {
+    this.pendingSearch = undefined;
+    this.pendingCancellation = undefined;
+    this.pendingStop = undefined;
+    this.synchronized = false;
     this.isExplicitlyClosed = true;
     this.removeListeners();
     this.clearReconnect();

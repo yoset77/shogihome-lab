@@ -1,4 +1,5 @@
 import net from "net";
+import { randomUUID } from "node:crypto";
 import readline from "readline";
 import { WebSocket } from "ws";
 import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
@@ -12,6 +13,8 @@ import {
   type ClientRelayMessage,
   type RelayState,
   type SessionRelayPayload,
+  type SearchRequest,
+  type SearchSnapshot,
 } from "@/common/engine/relay_protocol";
 import {
   ANALYSIS_DB_MIN_DEPTH,
@@ -58,6 +61,102 @@ export class EngineSession {
   private cleanupTimeout: NodeJS.Timeout | null = null;
   private messageBuffer: { data: SessionRelayPayload; createdAt: number }[] = [];
   private lastInfos = new Map<number, USIInfoCommand>();
+  private instanceId = randomUUID();
+  private searchRevision = 0;
+  private acceptedSearch: SearchRequest | null = null;
+  private activeSearch: SearchRequest | null = null;
+  private queuedSearch: SearchRequest | null = null;
+  private cancelledThrough = 0;
+  private settledThrough = 0;
+  private terminalSearch: SearchSnapshot["terminal"] = null;
+  private terminalCreatedAt = 0;
+
+  private sendSearchSnapshot() {
+    // Snapshots are authoritative and regenerated on attach, never buffered as events.
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.sendToClient({
+      type: "searchSnapshot",
+      instanceId: this.instanceId,
+      revision: ++this.searchRevision,
+      engineId: this.currentEngineId,
+      accepted: this.acceptedSearch?.searchId ?? 0,
+      cancelled: this.cancelledThrough,
+      settled: this.settledThrough,
+      active: this.activeSearch?.searchId ?? null,
+      protectionMs: CONNECTION_PROTECTION_TIMEOUT,
+      terminal: this.terminalSearch && {
+        ...this.terminalSearch,
+        delay: Math.max(0, Date.now() - this.terminalCreatedAt),
+      },
+    });
+  }
+
+  private startQueuedSearch() {
+    if (this.engineState !== EngineState.READY || !this.queuedSearch) return;
+    const search = this.queuedSearch;
+    this.queuedSearch = null;
+    if (search.searchId <= this.cancelledThrough) return;
+    this.activeSearch = search;
+    this.lastInfos.clear();
+    this.sendToEngine(search.position);
+    this.sendToEngine(search.go);
+    this.sendSearchSnapshot();
+  }
+
+  private stopIdentifiedSearch() {
+    if (this.engineState !== EngineState.THINKING) return;
+    this.engineState = EngineState.STOPPING_SEARCH;
+    this.postStopCommandQueue.length = 0;
+    this.sendToEngine("stop");
+    this.startStopTimeout();
+  }
+
+  private handleSearch(search: SearchRequest) {
+    if (search.instanceId !== this.instanceId) {
+      this.sendSearchSnapshot();
+      return;
+    }
+    if (search.searchId <= this.cancelledThrough) {
+      this.sendSearchSnapshot();
+      return;
+    }
+    if (this.acceptedSearch && search.searchId <= this.acceptedSearch.searchId) {
+      if (
+        search.searchId === this.acceptedSearch.searchId &&
+        (search.position !== this.acceptedSearch.position || search.go !== this.acceptedSearch.go)
+      ) {
+        this.sendError("Search ID reused with different parameters.");
+      }
+      this.sendSearchSnapshot();
+      return;
+    }
+    if (!this.engineHandle || this.engineState === EngineState.STOPPED) {
+      this.sendError("Engine not ready for search.");
+      return;
+    }
+    this.acceptedSearch = search;
+    this.queuedSearch = search;
+    this.terminalSearch = null;
+    this.stopIdentifiedSearch();
+    this.startQueuedSearch();
+    this.sendSearchSnapshot();
+  }
+
+  private cancelSearch(instanceId: string, through: number) {
+    if (instanceId !== this.instanceId) {
+      this.sendSearchSnapshot();
+      return;
+    }
+    this.cancelledThrough = Math.max(this.cancelledThrough, through);
+    if (this.queuedSearch && this.queuedSearch.searchId <= this.cancelledThrough)
+      this.queuedSearch = null;
+    if (this.activeSearch && this.activeSearch.searchId <= this.cancelledThrough) {
+      this.stopIdentifiedSearch();
+    } else {
+      this.settledThrough = this.cancelledThrough;
+    }
+    this.sendSearchSnapshot();
+  }
 
   private readonly MAX_QUEUE_SIZE = 100;
   private readonly MAX_BUFFERED_MESSAGES = 50;
@@ -92,7 +191,7 @@ export class EngineSession {
 
     this.ws = ws;
     this.isExplicitlyTerminated = false;
-    if (this.engineState === EngineState.STOPPING_SEARCH) {
+    if (this.engineState === EngineState.STOPPING_SEARCH && !this.activeSearch) {
       this.startStopTimeout();
     }
 
@@ -118,6 +217,7 @@ export class EngineSession {
 
     // Send initial state to client
     this.sendState();
+    this.sendSearchSnapshot();
 
     // Replay buffered messages
     console.log(
@@ -169,7 +269,7 @@ export class EngineSession {
 
     console.log(`WebSocket disconnected for session ${this.sessionId}`);
     this.ws = null;
-    this.clearStopTimeout();
+    if (!this.activeSearch) this.clearStopTimeout();
 
     if (
       this.isExplicitlyTerminated ||
@@ -206,7 +306,7 @@ export class EngineSession {
     this.clearStopTimeout();
     this.stopTimeout = setTimeout(() => {
       this.stopTimeout = null;
-      if (this.engineState !== EngineState.STOPPING_SEARCH || !this.ws) {
+      if (this.engineState !== EngineState.STOPPING_SEARCH || (!this.ws && !this.activeSearch)) {
         return;
       }
       console.error(
@@ -376,7 +476,15 @@ export class EngineSession {
     this.currentEngineSfen = null;
     this.pendingGoSfen = null;
     this.lastInfos.clear();
+    this.instanceId = randomUUID();
+    this.acceptedSearch = null;
+    this.activeSearch = null;
+    this.queuedSearch = null;
+    this.terminalSearch = null;
+    this.cancelledThrough = 0;
+    this.settledThrough = 0;
     this.sendState();
+    this.sendSearchSnapshot();
     this.sendToClient({ type: "notice", notice: "engineStopped" });
   }
 
@@ -424,9 +532,23 @@ export class EngineSession {
         type: "engineOutput",
         positionCommand: this.pendingGoSfen,
         output: line,
+        ...(this.activeSearch
+          ? { instanceId: this.instanceId, searchId: this.activeSearch.searchId }
+          : {}),
       });
 
       if (line.startsWith("bestmove") || line.startsWith("checkmate")) {
+        if (this.activeSearch) {
+          this.terminalCreatedAt = Date.now();
+          this.terminalSearch = {
+            searchId: this.activeSearch.searchId,
+            position: this.activeSearch.position,
+            output: line,
+            delay: 0,
+          };
+          this.activeSearch = null;
+          this.settledThrough = this.cancelledThrough;
+        }
         if (
           line.startsWith("bestmove") &&
           this.currentEngineConfig &&
@@ -482,6 +604,8 @@ export class EngineSession {
           this.engineState = EngineState.READY;
           this.sendState();
         }
+        this.startQueuedSearch();
+        this.sendSearchSnapshot();
       }
 
       if (this.engineState === EngineState.WAITING_USIOK && line.trim() === "usiok") {
@@ -491,6 +615,8 @@ export class EngineSession {
         this.engineState = EngineState.READY;
         this.sendState();
         this.sendToClient({ type: "notice", notice: "engineReady" });
+        this.startQueuedSearch();
+        this.sendSearchSnapshot();
         while (this.commandQueue.length > 0) {
           const command = this.commandQueue.shift();
           if (command) this.sendToEngine(command);
@@ -605,6 +731,20 @@ export class EngineSession {
 
     let command: string;
     switch (message.type) {
+      case "search":
+        this.handleSearch(message);
+        return;
+      case "cancelSearch":
+        this.cancelSearch(message.instanceId, message.through);
+        return;
+      case "stopSearch":
+        if (
+          message.instanceId === this.instanceId &&
+          message.searchId === this.activeSearch?.searchId
+        )
+          this.stopIdentifiedSearch();
+        this.sendSearchSnapshot();
+        return;
       case "getEngineList":
         if (this.ws) {
           getEngineList(this.ws);

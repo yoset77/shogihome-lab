@@ -39,6 +39,10 @@ const pieceValues: { [key in PieceType]: number } = {
 };
 
 export class BasicPlayer implements Player {
+  readonly supportsTakeback = true;
+  async cancelSearch(): Promise<void> {
+    clearTimeout(this.timer);
+  }
   private timer?: NodeJS.Timeout;
 
   constructor(private uri: string) {}

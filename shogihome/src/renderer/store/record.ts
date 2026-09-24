@@ -229,6 +229,12 @@ export type UpdateBookmarkHandler = () => void;
 export type UpdateCustomDataHandler = () => void;
 export type BackupHandler = () => BackupOptions | null | void;
 
+export type GameRecordCheckpoint = {
+  node: ImmutableNode;
+  children: { node: ImmutableNode; comment: string; customData: unknown; elapsedMs: number }[];
+  customData: unknown;
+};
+
 export class RecordManager {
   private _recordFilePath?: string;
   private _serverKifuPath?: string;
@@ -486,6 +492,58 @@ export class RecordManager {
 
   changePly(ply: number): void {
     this._record.goto(ply);
+  }
+
+  createGameCheckpoint(): GameRecordCheckpoint {
+    const children: GameRecordCheckpoint["children"] = [];
+    for (let node = this._record.current.next; node; node = node.branch) {
+      children.push({
+        node,
+        comment: node.comment,
+        customData: node.customData && { ...(node.customData as object) },
+        elapsedMs: node.elapsedMs,
+      });
+    }
+    return {
+      node: this._record.current,
+      children,
+      customData: this._record.current.customData && {
+        ...(this._record.current.customData as object),
+      },
+    };
+  }
+
+  rollbackGameMoves(checkpoints: GameRecordCheckpoint[], restoreClocks: () => void): void {
+    let node: ImmutableNode = this._record.current;
+    for (const checkpoint of [...checkpoints].reverse()) {
+      if (node.prev !== checkpoint.node) throw new Error("Invalid game rollback path");
+      node = checkpoint.node;
+    }
+    this.unbindRecordHandlers();
+    try {
+      for (const checkpoint of [...checkpoints].reverse()) {
+        const current = this._record.current;
+        const existing = checkpoint.children.find((child) => child.node === current);
+        if (existing) {
+          current.comment = existing.comment;
+          current.customData = existing.customData;
+          current.setElapsedMs(existing.elapsedMs);
+          this._record.gotoNode(checkpoint.node);
+        } else {
+          this._record.removeCurrentMove();
+          this._record.gotoNode(checkpoint.node);
+        }
+        this._record.current.customData = checkpoint.customData;
+      }
+      restoreClocks();
+      this._unsaved = true;
+    } finally {
+      this.resetPositionCounts();
+      this.bindRecordHandlers();
+    }
+    this.onChangePosition();
+    this.onUpdateTree();
+    this.onUpdateCustomData();
   }
 
   changePlyBySFEN(ply: number, sfen: string): boolean {

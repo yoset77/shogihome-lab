@@ -37,9 +37,11 @@ export async function searchBookMovesForPlayer(
   options: BookSearchOptions,
   currentUSI: string | undefined,
   onMove: (move: Move) => void,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   try {
     let bookMoves = await api.searchBookMoves(position.sfen, bookSessionID);
+    if (signal?.aborted) return false;
     if (bookMoves.length === 0) {
       bookMoves = (await api.searchBookMoves(flippedSFEN(position.sfen), bookSessionID)).map(
         (move) => ({
@@ -49,6 +51,7 @@ export async function searchBookMovesForPlayer(
         }),
       );
     }
+    if (signal?.aborted) return false;
     if (bookMoves.length === 0) {
       return false;
     }

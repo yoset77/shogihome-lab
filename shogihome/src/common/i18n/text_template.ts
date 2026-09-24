@@ -154,6 +154,10 @@ export type Texts = {
   displayGameResults: string;
   interrupt: string;
   stopGame: string;
+  takeback: string;
+  takingBack: string;
+  takebackUnavailable: string;
+  takebackFailed: string;
   resign: string;
   draw: string;
   impass: string;

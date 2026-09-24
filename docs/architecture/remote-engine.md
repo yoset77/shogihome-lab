@@ -72,6 +72,7 @@ Browserから送られたhandshake commandはstate machineを迂回しません�
 - 待機commandを再生するときは、置き換えられた古い局面や探索を再開しないよう整理します。
 - Engine outputは対応する `position` を伴い、rendererは現在の探索と一致しない結果を採用しません。
 - Stopが回復不能な状態になった場合、未知のengine状態を継続利用せずsessionをresetします。
+- 識別付き探索のstop期限はBrowser切断中も進行し、再送や再接続で延長しません。
 - 終了処理中の遅延outputでsessionを利用可能状態へ戻しません。
 
 内部状態は [`types.ts`](../../shogihome/src/server/engine/types.ts)、外部へ公開する状態は [`relay_protocol.ts`](../../shogihome/src/common/engine/relay_protocol.ts) が定義します。両者は同一のenumではありません。
@@ -89,6 +90,22 @@ Browserから送られたhandshake commandはstate machineを迂回しません�
 - 明示的closeでは、可能な範囲でengine終了要求を送ってからBrowser transportを閉じます。
 
 ## Protocol Ownership
+
+### Identified Search and Cancellation
+
+`searchSnapshot` を受信したBrowserは識別付き探索を利用します。既存のraw USI relayは旧client/serverとの互換経路として維持しますが、snapshotを提供しないserverとの対局では「待った」を有効にしません。
+
+- `search` はsession実体ID、単調増加する探索ID、局面、`go` 条件を一つの要求で渡します。Serverが既存USI state machineを通じて `position` と `go` に展開します。
+- 同一探索IDの再送では再探索しません。直近IDで異なる条件を指定した要求は拒否します。より古いIDの要求も実行しません。
+- `stopSearch` は指定探索だけを停止し、結果を利用できる通常の停止です。
+- `cancelSearch` は指定ID以下を無効にする単調増加の取消境界です。待機探索を除去し、実行中ならterminal outputを待ちます。停止済みの境界はsnapshotの `settled` で確認します。
+- Engine outputには局面とsession実体ID・探索IDを付けます。Browserは同一局面でも探索IDが異なる結果や、一度消費したterminal resultを採用しません。定跡HTTP応答と表示更新にもローカルな取消世代を適用します。
+- `searchSnapshot` は接続時・探索状態変更時・再送要求時に最新状態から生成します。実体ID、revision、受付済み探索、取消受付・完了境界、実行中探索、直近terminal result、再接続保護期間を公開します。terminal resultは接続中に送信した後も次の探索受付まで保持し、受信未確認の通知を再同期できます。
+- Snapshotは通常の出力bufferへ入れません。保持量は直近要求・実行中／待機中探索・直近結果と境界値に限定します。engine終了では実体IDを更新し、保護期間後のsession再作成でも新しい実体IDになります。
+- `LanEngine` は識別付き要求をraw command queueとは分けて保持します。再接続時はsnapshotと照合した後に必要な要求だけを再送します。取消済みの未送信探索は除去し、古い取消／停止で新しい探索を停止しません。
+- `LanPlayer` は接続済みsocketのsnapshotだけを状態の正本として扱います。置換済みsocketから受け取るengine outputにも探索照合を適用し、raw stateの遅延再生で現在の状態を上書きしません。
+
+棋譜・時計の巻き戻しはBrowserの責務です。ServerとWrapperへ「何手戻すか」や対局時計を移しません。機能側の失敗・中断方針は [Takeback](../features/takeback.md) を参照してください。
 
 ### Browser to Middle Server
 

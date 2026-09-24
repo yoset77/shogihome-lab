@@ -117,6 +117,7 @@ Middle Server の `shogihome/src/server/engine/session.ts` が、engine 接続�
 - Middle Server が `usi` / `isready` handshake、search、stop sequencing、termination を管理します。
 - 思考中に新しい局面や探索要求を受けた場合、現在の探索停止が解決するまで競合する探索を開始しません。
 - Engine output は対応する `position` と関連付け、古い局面の結果で現在の探索を更新しません。
+- 識別付き探索では、session実体IDと探索IDを局面とは別に照合します。Middle Serverは取消境界と停止完了を保持し、Browserは完了確認後に対局棋譜と時計を一括で巻き戻します。同じ局面への指し直しでも旧探索を採用しません。
 - 一時的な WebSocket 切断では論理 session を保護し、同じ session ID の再接続へ状態と必要な出力を再同期できます。
 - 置換済み socket の command や state frame で現在の接続を汚染しません。
 - Engine Wrapper は browser session、再接続、USI state machine を所有しません。
@@ -145,6 +146,8 @@ Vision scan は Middle Server が管理する worker process で実行します�
 | record history / backup | History service                   | Server共有の履歴と復元データ                 |
 | Book session            | Book session manager              | 保存前の変更を含む有期限の作業状態           |
 | Browser storage         | Renderer                          | 端末・origin固有の設定、復元情報、接続識別子 |
+
+対局進行と時計、および「待った」のcheckpointはRendererの `GameManager` が所有します。checkpointは現在の対局に限るメモリー上の状態です。EngineSessionの再接続保護は対局状態の永続化を意味しません。詳細は [Takeback](docs/features/takeback.md) を参照してください。
 
 Database、filesystem、browser storage は互いに代替可能な正本ではありません。特に kifu index は派生データであり、ユーザーファイルの正本として扱いません。
 

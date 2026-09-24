@@ -47,6 +47,19 @@
         </button>
         <!-- 勝ち宣言 -->
         <button
+          v-if="store.supportsTakeback"
+          class="control-item"
+          :disabled="!store.canTakeback"
+          :aria-busy="store.isTakingBack"
+          :title="store.isTakingBack ? t.takingBack : t.takeback"
+          @click="store.takeback()"
+        >
+          <Icon :icon="store.isTakingBack ? IconType.BUSY : IconType.BACK" />
+          <span :class="{ tooltip: compact }">{{
+            store.isTakingBack ? t.takingBack : t.takeback
+          }}</span>
+        </button>
+        <button
           v-show="
             store.isMovableByUser &&
             store.appState === AppState.GAME &&
@@ -205,13 +218,11 @@ import { AppState, ResearchState } from "@/common/control/state.js";
 import { IconType } from "@/renderer/assets/icons";
 import FileMenu from "@/renderer/view/menu/FileMenu.vue";
 import { DeclarableJishogiRules } from "@/common/settings/game";
-import { humanPlayer } from "@/renderer/players/human";
 import { useAppSettings } from "@/renderer/store/settings";
 import {
   installHotKeyForMainWindow,
   uninstallHotKeyForMainWindow,
 } from "@/renderer/devices/hotkey";
-import { useConfirmationStore } from "@/renderer/store/confirm";
 import api from "@/renderer/ipc/api";
 import { defaultResearchSettings } from "@/common/settings/research";
 import { USIEngine } from "@/common/settings/usi";
@@ -261,21 +272,11 @@ const onStop = () => {
 };
 
 const onWin = () => {
-  useConfirmationStore().show({
-    message: t.areYouSureWantToDoDeclaration,
-    onOk: () => {
-      humanPlayer.win();
-    },
-  });
+  store.declareWin();
 };
 
 const onResign = () => {
-  useConfirmationStore().show({
-    message: t.areYouSureWantToResign,
-    onOk: () => {
-      humanPlayer.resign();
-    },
-  });
+  store.resign();
 };
 
 const onJishogiPoints = () => {

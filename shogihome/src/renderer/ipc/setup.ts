@@ -9,7 +9,6 @@ import {
   onUSIInfo,
   onUSINoMate,
 } from "@/renderer/players/usi";
-import { humanPlayer } from "@/renderer/players/human";
 import { bridge } from "@/renderer/ipc/api";
 import { MenuEvent } from "@/common/control/menu";
 import { USIInfoCommand } from "@/common/game/usi";
@@ -182,26 +181,10 @@ export function setup(): void {
         store.stopGame();
         break;
       case MenuEvent.RESIGN:
-        if (!store.isMovableByUser) {
-          break;
-        }
-        useConfirmationStore().show({
-          message: t.areYouSureWantToResign,
-          onOk: () => {
-            humanPlayer.resign();
-          },
-        });
+        store.resign();
         break;
       case MenuEvent.WIN:
-        if (!store.isMovableByUser) {
-          break;
-        }
-        useConfirmationStore().show({
-          message: t.areYouSureWantToDoDeclaration,
-          onOk: () => {
-            humanPlayer.win();
-          },
-        });
+        store.declareWin();
         break;
       case MenuEvent.CALCULATE_POINTS:
         store.showJishogiPoints();
