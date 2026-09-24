@@ -4,6 +4,8 @@ import {
   defaultAppSettings,
   PieceImageType,
   AnalysisDBSearchMode,
+  FileQuickAction,
+  buildUpdatedAppSettings,
 } from "@/common/settings/app";
 import { BookFormat } from "@/common/book";
 
@@ -39,6 +41,29 @@ describe("settings/app", () => {
       defaultBookFormat: "invalid" as unknown as BookFormat,
     });
     expect(result.defaultBookFormat).toBe("yane2016");
+  });
+
+  it("defaults the quick action for old and invalid settings", () => {
+    const settings = defaultAppSettings();
+    expect(settings.fileQuickAction).toBe(FileQuickAction.PUZZLE);
+    expect(
+      normalizeAppSettings({
+        ...settings,
+        fileQuickAction: undefined as unknown as FileQuickAction,
+      }).fileQuickAction,
+    ).toBe(FileQuickAction.PUZZLE);
+    expect(
+      normalizeAppSettings({ ...settings, fileQuickAction: "unknown" as FileQuickAction })
+        .fileQuickAction,
+    ).toBe(FileQuickAction.PUZZLE);
+    expect(
+      buildUpdatedAppSettings(settings, { fileQuickAction: "unknown" as FileQuickAction })
+        .fileQuickAction,
+    ).toBe(FileQuickAction.PUZZLE);
+    expect(
+      buildUpdatedAppSettings(settings, { fileQuickAction: FileQuickAction.LOAD_FROM_SERVER })
+        .fileQuickAction,
+    ).toBe(FileQuickAction.LOAD_FROM_SERVER);
   });
 
   it("pieceImageBaseURL", () => {

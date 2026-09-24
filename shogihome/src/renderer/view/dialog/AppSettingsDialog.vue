@@ -444,6 +444,14 @@
             ]"
           />
         </div>
+        <div v-if="!isMobileWebApp()" class="form-item">
+          <div class="form-item-label-wide">{{ t.fileQuickAction }}</div>
+          <HorizontalSelector
+            v-model:value="update.fileQuickAction"
+            class="selector"
+            :items="fileQuickActionOptions"
+          />
+        </div>
       </div>
       <hr />
       <!-- ファイル -->
@@ -939,6 +947,7 @@ import {
   AppSettingsUpdate,
   NodeCountFormat,
   RecordShortcutKeys,
+  FileQuickAction,
   BranchListMode,
   UIMode,
   AnalysisDBSearchMode,
@@ -970,11 +979,16 @@ import { SearchCommentFormat } from "@/common/settings/comment";
 import DialogFrame from "./DialogFrame.vue";
 import { USIEngines, getPredefinedUSIEngineTag } from "@/common/settings/usi";
 import PlayerSelector from "./PlayerSelector.vue";
+import { getFileQuickAction } from "@/renderer/helpers/fileQuickAction";
 
 const EvaluationChartType = EvaluationChartTypeImport;
 const store = useStore();
 const busyState = useBusyState();
 const org = useAppSettings();
+const fileQuickActionOptions = Object.values(FileQuickAction).map((value) => ({
+  value,
+  label: getFileQuickAction(value).label(),
+}));
 const engines = ref(new USIEngines());
 const update = ref({
   // この画面で扱う要素だけをコピー
@@ -1011,6 +1025,7 @@ const update = ref({
   clockPitch: org.clockPitch,
   clockSoundTarget: org.clockSoundTarget,
   recordShortcutKeys: org.recordShortcutKeys,
+  fileQuickAction: org.fileQuickAction,
   defaultRecordFileFormat: org.defaultRecordFileFormat,
   textDecodingRule: org.textDecodingRule,
   returnCode: org.returnCode,

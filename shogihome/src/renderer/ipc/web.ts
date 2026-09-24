@@ -1,5 +1,5 @@
 import { defaultAnalysisSettings } from "@/common/settings/analysis";
-import { defaultAppSettings } from "@/common/settings/app";
+import { defaultAppSettings, normalizeFileQuickAction } from "@/common/settings/app";
 import { defaultGameSettings } from "@/common/settings/game";
 import { defaultResearchSettings } from "@/common/settings/research";
 import { USIEngines } from "@/common/settings/usi";
@@ -124,9 +124,10 @@ export const webAPI: Bridge = {
     if (!json) {
       return JSON.stringify(defaultAppSettings());
     }
+    const settings = { ...defaultAppSettings(), ...JSON.parse(json) };
     return JSON.stringify({
-      ...defaultAppSettings(),
-      ...JSON.parse(json),
+      ...settings,
+      fileQuickAction: normalizeFileQuickAction(settings.fileQuickAction),
     });
   },
   async saveAppSettings(json: string): Promise<void> {

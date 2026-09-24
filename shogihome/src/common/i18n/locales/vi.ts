@@ -294,6 +294,7 @@ export const vi: Texts = {
   manageEngines: "Quản lý phần mềm",
   flipBoard: "Xoay bàn cờ",
   shortcutKeys: "ショートカットキー", // TODO: Translate
+  fileQuickAction: "Nút thao tác nhanh",
   useUpDownToMove1Ply: "↑/↓キーで1手移動", // TODO: Translate
   useLeftRightToMove1Ply: "←/→キーで1手移動", // TODO: Translate
   file: "Tệp",

@@ -294,6 +294,7 @@ export const zh_tw: Texts = {
   manageEngines: "引擎設定",
   flipBoard: "盤面反轉",
   shortcutKeys: "ショートカットキー", // TODO: Translate
+  fileQuickAction: "快捷操作按鈕",
   useUpDownToMove1Ply: "↑/↓キーで1手移動", // TODO: Translate
   useLeftRightToMove1Ply: "←/→キーで1手移動", // TODO: Translate
   file: "檔案",

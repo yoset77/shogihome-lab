@@ -7,6 +7,7 @@ import {
   BranchListMode,
   ClockSoundTarget,
   EvaluationViewFrom,
+  FileQuickAction,
   KingPieceType,
   LeftSideControlType,
   NodeCountFormat,
@@ -135,6 +136,9 @@ class AppSettingsStore {
   }
   get recordShortcutKeys(): RecordShortcutKeys {
     return this.merged.recordShortcutKeys;
+  }
+  get fileQuickAction(): FileQuickAction {
+    return this.merged.fileQuickAction;
   }
   get boardFlipping(): boolean {
     return this.merged.boardFlipping;

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { webAPI } from "@/renderer/ipc/web";
 import { toPng, toJpeg } from "html-to-image";
+import { FileQuickAction } from "@/common/settings/app";
 
 vi.mock("html-to-image", () => ({
   toPng: vi.fn(),
@@ -11,6 +12,23 @@ describe("renderer/ipc/web", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     document.body.innerHTML = "";
+    localStorage.removeItem("appSetting");
+  });
+
+  it("loads old and unsupported quick action settings safely", async () => {
+    localStorage.setItem("appSetting", JSON.stringify({ language: "en" }));
+    expect(JSON.parse(await webAPI.loadAppSettings()).fileQuickAction).toBe(FileQuickAction.PUZZLE);
+
+    localStorage.setItem("appSetting", JSON.stringify({ fileQuickAction: "unknown" }));
+    expect(JSON.parse(await webAPI.loadAppSettings()).fileQuickAction).toBe(FileQuickAction.PUZZLE);
+
+    localStorage.setItem(
+      "appSetting",
+      JSON.stringify({ fileQuickAction: FileQuickAction.LOAD_FROM_SERVER }),
+    );
+    expect(JSON.parse(await webAPI.loadAppSettings()).fileQuickAction).toBe(
+      FileQuickAction.LOAD_FROM_SERVER,
+    );
   });
 
   it("exportCaptureAsPNG", async () => {

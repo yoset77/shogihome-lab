@@ -296,6 +296,7 @@ export const en: Texts = {
   manageEngines: "Manage Engines",
   flipBoard: "Flip Board",
   shortcutKeys: "Shortcut Keys",
+  fileQuickAction: "Quick Action Button",
   useUpDownToMove1Ply: "Use ↑/↓ to Move 1 Ply",
   useLeftRightToMove1Ply: "Use ←/→ to Move 1 Ply",
   file: "File",

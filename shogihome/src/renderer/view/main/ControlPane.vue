@@ -147,15 +147,6 @@
           <Icon :icon="IconType.DELETE" />
           <span :class="{ tooltip: compact }">{{ t.deleteMove }}</span>
         </button>
-        <!-- 問題 -->
-        <button
-          class="control-item"
-          :disabled="store.appState !== AppState.NORMAL"
-          @click="onPuzzle"
-        >
-          <Icon :icon="IconType.QUESTION" />
-          <span :class="{ tooltip: compact }">{{ t.puzzles }}</span>
-        </button>
         <!-- ファイル -->
         <button class="control-item" @click="onFileAction">
           <Icon :icon="IconType.FILE" />
@@ -176,6 +167,15 @@
         >
           <Icon :icon="IconType.ENGINE_SETTINGS" />
           <span :class="{ tooltip: compact }">{{ t.manageEngines }}</span>
+        </button>
+        <!-- ファイルメニューのクイック操作 -->
+        <button
+          class="control-item"
+          :disabled="!isFileQuickActionEnabled(appSettings.fileQuickAction, store)"
+          @click="onQuickAction"
+        >
+          <Icon :icon="quickAction.icon" />
+          <span :class="{ tooltip: compact }">{{ quickAction.label() }}</span>
         </button>
         <!-- アプリ設定 -->
         <button class="control-item" data-hotkey="Mod+," @click="onOpenAppSettings">
@@ -199,7 +199,7 @@ export enum ControlGroup {
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import { useStore } from "@/renderer/store";
-import { onBeforeUnmount, onMounted, PropType, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, PropType, ref } from "vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { AppState, ResearchState } from "@/common/control/state.js";
 import { IconType } from "@/renderer/assets/icons";
@@ -216,6 +216,11 @@ import api from "@/renderer/ipc/api";
 import { defaultResearchSettings } from "@/common/settings/research";
 import { USIEngine } from "@/common/settings/usi";
 import { useLanStore } from "@/renderer/store/lan";
+import {
+  getFileQuickAction,
+  isFileQuickActionEnabled,
+  runFileQuickAction,
+} from "@/renderer/helpers/fileQuickAction";
 
 defineProps({
   group: {
@@ -230,6 +235,7 @@ defineProps({
 
 const store = useStore();
 const appSettings = useAppSettings();
+const quickAction = computed(() => getFileQuickAction(appSettings.fileQuickAction));
 const root = ref();
 const isFileMenuVisible = ref(false);
 const lanStore = useLanStore();
@@ -371,8 +377,8 @@ const onRemoveCurrentMove = () => {
   store.removeCurrentMove();
 };
 
-const onPuzzle = () => {
-  store.startPuzzle();
+const onQuickAction = () => {
+  runFileQuickAction(appSettings.fileQuickAction, store);
 };
 </script>
 
