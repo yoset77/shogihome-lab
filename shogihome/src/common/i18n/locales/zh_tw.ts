@@ -293,10 +293,11 @@ export const zh_tw: Texts = {
   logLevel: "紀錄等級",
   manageEngines: "引擎設定",
   flipBoard: "盤面反轉",
-  shortcutKeys: "ショートカットキー", // TODO: Translate
+  controls: "操作",
   fileQuickAction: "快捷操作按鈕",
   useUpDownToMove1Ply: "↑/↓キーで1手移動", // TODO: Translate
   useLeftRightToMove1Ply: "←/→キーで1手移動", // TODO: Translate
+  menu: "選單",
   file: "檔案",
   recordFile: "棋譜檔案",
   executableFile: "可執行檔案",
