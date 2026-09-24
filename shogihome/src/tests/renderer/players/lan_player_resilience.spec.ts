@@ -4,6 +4,7 @@ import api from "@/renderer/ipc/api";
 import { Record } from "tsshogi";
 import { Mock } from "vitest";
 import { BookMoveSelectionRule } from "@/common/settings/usi";
+import type { BookMove } from "@/common/book";
 import { decodeServerRelayMessage, type ServerRelayMessage } from "@/common/engine/relay_protocol";
 
 vi.mock("@/renderer/network/lan_engine");
@@ -77,6 +78,56 @@ describe("LanPlayer resilience", () => {
   function updateStatus(status: LanEngineStatus) {
     statusListeners.forEach((listener) => listener(status));
   }
+
+  it("cancels a hanging book lookup without blocking the next search or publishing its late result", async () => {
+    const player = new LanPlayer("game_white", "test-engine", "Test", 10, undefined, undefined, {
+      enabled: true,
+      filePath: "test.db",
+      moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_COUNT,
+      scoreTemperature: 50,
+    });
+    await launchPlayer(player);
+    const snapshot = {
+      type: "searchSnapshot",
+      instanceId: "test-instance",
+      revision: 1,
+      engineId: "test-engine",
+      accepted: 0,
+      cancelled: 0,
+      settled: 0,
+      active: null,
+      protectionMs: 60000,
+      terminal: null,
+    };
+    sendMsg(snapshot);
+    let finishBook!: (value: BookMove[]) => void;
+    vi.mocked(api.searchBookMoves).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishBook = resolve;
+        }),
+    );
+    const record = Record.newByUSI("position startpos") as Record;
+    const handler = { onMove: vi.fn(), onResign: vi.fn(), onWin: vi.fn(), onError: vi.fn() };
+    const time = {
+      black: { timeMs: 10000, byoyomi: 0, increment: 0 },
+      white: { timeMs: 10000, byoyomi: 0, increment: 0 },
+    };
+    const search = player.startSearch(record.position, record.usi, time, handler);
+    await vi.advanceTimersByTimeAsync(0);
+    const cancel = player.cancelSearch();
+    sendMsg({ ...snapshot, revision: 2 });
+    await cancel;
+    await search;
+    vi.mocked(api.searchBookMoves).mockResolvedValue([]);
+    await player.startSearch(record.position, record.usi, time, handler);
+    expect(LanEngine.prototype.sendSearch).toHaveBeenCalledOnce();
+    finishBook([{ usi: "7g7f", count: 1, comment: "" }]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(handler.onMove).not.toHaveBeenCalled();
+    expect(LanEngine.prototype.sendSearch).toHaveBeenCalledOnce();
+    await player.close();
+  });
 
   async function launchPlayer(
     player: LanPlayer,

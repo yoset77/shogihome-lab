@@ -26,6 +26,15 @@
           <Icon :icon="IconType.RESIGN" />
           <div class="label">{{ t.resign }}</div>
         </button>
+        <button
+          v-if="store.supportsTakeback"
+          :disabled="!store.canTakeback"
+          :aria-busy="store.isTakingBack"
+          @click="onTakeback"
+        >
+          <Icon :icon="store.isTakingBack ? IconType.BUSY : IconType.BACK" />
+          <div class="label">{{ store.isTakingBack ? t.takingBack : t.takeback }}</div>
+        </button>
         <button v-if="states.puzzle" @click="onPuzzle">
           <Icon :icon="IconType.QUESTION" />
           <div class="label">{{ t.puzzles }}</div>
@@ -268,6 +277,10 @@ const onStopGame = () => {
 };
 const onResign = () => {
   store.resign();
+  emit("close");
+};
+const onTakeback = () => {
+  void store.takeback();
   emit("close");
 };
 const onPuzzle = () => {

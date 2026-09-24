@@ -31,6 +31,8 @@ export interface MateHandler {
 
 export interface Player {
   isEngine(): boolean;
+  readonly supportsTakeback?: boolean;
+  cancelSearch?(): Promise<void>;
   readyNewGame(): Promise<void>;
   startSearch(
     position: ImmutablePosition,

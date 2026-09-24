@@ -158,6 +158,11 @@ export const en: Texts = {
   displayGameResults: "Display Game Results",
   interrupt: "Interrupt",
   stopGame: "Stop Game",
+  takeback: "Take Back",
+  takingBack: "Taking back (stopping search / waiting for connection)",
+  takebackUnavailable: "Takeback is not available in this game.",
+  takebackFailed:
+    "Search cancellation could not be confirmed. The game will be interrupted without taking back moves.",
   resign: "Resign",
   draw: "Draw",
   impass: "Impass",

@@ -904,6 +904,19 @@ class Store {
     return this.gameManager.results;
   }
 
+  get supportsTakeback(): boolean {
+    return this.appState === AppState.GAME && this.gameManager.supportsTakeback;
+  }
+  get canTakeback(): boolean {
+    return this.appState === AppState.GAME && this.gameManager.canTakeback;
+  }
+  get isTakingBack(): boolean {
+    return this.gameManager.isTakingBack;
+  }
+  async takeback(): Promise<void> {
+    if (this.canTakeback) await this.gameManager.takeback();
+  }
+
   stopGame(options?: { force: boolean }): void {
     if (options?.force) {
       this.isForceStopping = true;
@@ -959,14 +972,28 @@ class Store {
   }
 
   resign(): void {
-    if (this.appState === AppState.GAME) {
+    if (this.appState === AppState.GAME && this.isMovableByUser) {
+      const interaction = this.gameManager.interactionId;
       this.showConfirmation({
         message: t.areYouSureWantToResign,
         onOk: () => {
-          humanPlayer.resign();
+          if (this.isMovableByUser && interaction === this.gameManager.interactionId)
+            humanPlayer.resign();
         },
       });
     }
+  }
+
+  declareWin(): void {
+    if (this.appState !== AppState.GAME || !this.isMovableByUser) return;
+    const interaction = this.gameManager.interactionId;
+    this.showConfirmation({
+      message: t.areYouSureWantToDoDeclaration,
+      onOk: () => {
+        if (this.isMovableByUser && interaction === this.gameManager.interactionId)
+          humanPlayer.win();
+      },
+    });
   }
 
   private onFlipBoard(flip: boolean): void {
@@ -1949,6 +1976,7 @@ class Store {
         return true;
       case AppState.GAME:
         return (
+          this.gameManager.isActive &&
           (this.recordManager.record.position.color === Color.BLACK
             ? this.gameManager.settings.black.uri
             : this.gameManager.settings.white.uri) === uri.ES_HUMAN

@@ -2,7 +2,7 @@ import { Player, SearchHandler, SearchInfo, MateHandler } from "./player";
 import { ImmutablePosition, Color, Move } from "tsshogi";
 import { TimeStates } from "@/common/game/time";
 import { LanEngine } from "@/renderer/network/lan_engine";
-import type { ServerRelayMessage } from "@/common/engine/relay_protocol";
+import type { ServerRelayMessage, SearchSnapshot } from "@/common/engine/relay_protocol";
 import { GameResult } from "@/common/game/result";
 import { parseUSIPV, USIInfoCommand, parseInfoCommand } from "@/common/game/usi";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "./usi_events";
@@ -77,6 +77,75 @@ export class LanPlayer implements Player {
   private transportInterrupted = false;
   private releaseResourcesPromise: Promise<void> | null = null;
   private closePromise: Promise<void> | null = null;
+  private snapshot?: SearchSnapshot;
+  private nextSearchId = 0;
+  private currentSearchId = 0;
+  private completedSearchId = 0;
+  private ignoredThrough = 0;
+  private searchOutputEnabled = false;
+  private searchGeneration = 0;
+  private bookAbort?: AbortController;
+  private cancellation?: {
+    through: number;
+    resolve: () => void;
+    reject: (e: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  };
+
+  get supportsTakeback(): boolean {
+    return !!this.snapshot && !this.sessionLost;
+  }
+
+  async cancelSearch(): Promise<void> {
+    this.throwIfUnavailable();
+    if (!this.snapshot) throw new Error(t.takebackUnavailable);
+    ++this.searchGeneration;
+    this.bookAbort?.abort();
+    this.clearHandlers();
+    this.clearPendingInfo();
+    this.clearReadyReplayTimeout();
+    const through = this.nextSearchId;
+    this.ignoredThrough = through;
+    this.isThinking = false;
+    this.resolveStopPromise();
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.finishCancellation(new Error(t.takebackFailed));
+      }, this.snapshot!.protectionMs + STOP_WAIT_TIMEOUT_MS);
+      this.cancellation = { through, resolve, reject, timer };
+      this.lanEngine.cancelSearch({
+        type: "cancelSearch",
+        instanceId: this.snapshot!.instanceId,
+        through,
+      });
+    });
+  }
+
+  private finishCancellation(error?: Error) {
+    const cancellation = this.cancellation;
+    this.cancellation = undefined;
+    if (!cancellation) return;
+    clearTimeout(cancellation.timer);
+    if (error) cancellation.reject(error);
+    else cancellation.resolve();
+  }
+
+  private sendSearch(usi: string, go: string) {
+    if (this.snapshot) {
+      this.currentSearchId = ++this.nextSearchId;
+      this.searchOutputEnabled = true;
+      this.lanEngine.sendSearch({
+        type: "search",
+        instanceId: this.snapshot.instanceId,
+        searchId: this.currentSearchId,
+        position: usi,
+        go,
+      });
+    } else {
+      this.lanEngine.sendUsiCommand(usi);
+      this.lanEngine.sendUsiCommand(go);
+    }
+  }
 
   private get connectionToastKey(): string {
     return `lan-connection-${this._sessionID}`;
@@ -217,26 +286,26 @@ export class LanPlayer implements Player {
     timeStates: TimeStates,
     handler: SearchHandler,
   ): Promise<void> {
+    const generation = ++this.searchGeneration;
     return this.lock.acquire("search", async () => {
+      if (generation !== this.searchGeneration) return;
       this.throwIfUnavailable();
       const previousSfen = this.currentSfen;
-      const isNewSfen = previousSfen !== usi;
       this.clearHandlers();
       this.handler = handler;
-      this.position = position;
+      this.position = position.clone();
       this.currentSfen = usi;
-      if (isNewSfen) {
-        this.clearPendingInfo();
-      }
+      this.clearPendingInfo();
       if (await this.searchBook(previousSfen)) {
         return;
       }
+      if (generation !== this.searchGeneration) return;
       this.throwIfUnavailable();
       if (this.isThinking) {
         await this.stopAndWait(previousSfen);
         this.throwIfUnavailable();
+        if (generation !== this.searchGeneration) return;
       }
-      this.lanEngine.sendUsiCommand(usi); // "position ..."
 
       // ShogiHome keeps the time after adding the increment.
       // However, USI requires the time before adding the increment (btime + binc).
@@ -256,14 +325,16 @@ export class LanPlayer implements Player {
       } else if (binc > 0 || winc > 0) {
         goCommand += ` binc ${binc} winc ${winc}`;
       }
-      this.lanEngine.sendUsiCommand(goCommand);
+      this.sendSearch(usi, goCommand);
       this.isThinking = true;
       triggerOnStartSearch(this._sessionID, this.position);
     });
   }
 
   async startResearch(position: ImmutablePosition, usi: string): Promise<void> {
+    const generation = ++this.searchGeneration;
     return this.lock.acquire("search", async () => {
+      if (generation !== this.searchGeneration) return;
       this.throwIfUnavailable();
       const previousSfen = this.currentSfen;
       this.clearHandlers();
@@ -273,13 +344,14 @@ export class LanPlayer implements Player {
       if (await this.searchBook(previousSfen)) {
         return;
       }
+      if (generation !== this.searchGeneration) return;
       this.throwIfUnavailable();
       if (this.isThinking) {
         await this.stopAndWait(previousSfen);
         this.throwIfUnavailable();
+        if (generation !== this.searchGeneration) return;
       }
-      this.lanEngine.sendUsiCommand(usi);
-      this.lanEngine.sendUsiCommand("go infinite");
+      this.sendSearch(usi, "go infinite");
       this.isThinking = true;
       triggerOnStartSearch(this._sessionID, this.position);
     });
@@ -300,7 +372,9 @@ export class LanPlayer implements Player {
     maxSeconds: number | undefined,
     handler: MateHandler,
   ): Promise<void> {
+    const generation = ++this.searchGeneration;
     return this.lock.acquire("search", async () => {
+      if (generation !== this.searchGeneration) return;
       this.throwIfUnavailable();
       const previousSfen = this.currentSfen;
       this.clearHandlers();
@@ -311,11 +385,9 @@ export class LanPlayer implements Player {
       if (this.isThinking) {
         await this.stopAndWait(previousSfen);
         this.throwIfUnavailable();
+        if (generation !== this.searchGeneration) return;
       }
-      this.lanEngine.sendUsiCommand(usi);
-      this.lanEngine.sendUsiCommand(
-        "go mate" + (maxSeconds ? ` ${maxSeconds * 1000}` : " infinite"),
-      );
+      this.sendSearch(usi, "go mate" + (maxSeconds ? ` ${maxSeconds * 1000}` : " infinite"));
       this.isThinking = true;
       triggerOnStartSearch(this._sessionID, this.position);
     });
@@ -347,6 +419,9 @@ export class LanPlayer implements Player {
       return this.closePromise;
     }
     this.isClosing = true;
+    ++this.searchGeneration;
+    this.bookAbort?.abort();
+    this.finishCancellation(new Error(t.takebackFailed));
     this.isThinking = false;
     this.clearReadyReplayTimeout();
     this.resolveStopPromise();
@@ -380,6 +455,7 @@ export class LanPlayer implements Player {
   }
 
   private async searchBook(stopSfen?: string): Promise<boolean> {
+    const generation = this.searchGeneration;
     if (!this.bookSessionID || !this.position) {
       return false;
     }
@@ -401,8 +477,12 @@ export class LanPlayer implements Player {
     if (this.isThinking) {
       await this.stopAndWait(stopSfen);
       this.throwIfUnavailable();
+      if (generation !== this.searchGeneration) return false;
     }
-    return searchBookMovesForPlayer(
+    const handler = this.handler;
+    const controller = new AbortController();
+    this.bookAbort = controller;
+    const result = searchBookMovesForPlayer(
       this._sessionID,
       this.position,
       this.bookSessionID,
@@ -419,16 +499,31 @@ export class LanPlayer implements Player {
       },
       this.currentSfen,
       (move) => {
-        const handler = this.handler;
+        if (generation !== this.searchGeneration) return;
         this.clearHandlers();
         if (handler) {
           handler.onMove(move);
         }
       },
+      controller.signal,
     );
+    let onAbort: () => void = () => {};
+    try {
+      return await Promise.race([
+        result,
+        new Promise<boolean>((resolve) => {
+          onAbort = () => resolve(false);
+          controller.signal.addEventListener("abort", onAbort, { once: true });
+        }),
+      ]);
+    } finally {
+      controller.signal.removeEventListener("abort", onAbort);
+      if (this.bookAbort === controller) this.bookAbort = undefined;
+    }
   }
 
   private clearHandlers(): void {
+    this.searchOutputEnabled = false;
     this.handler = undefined;
     this.mateHandler = undefined;
   }
@@ -437,12 +532,24 @@ export class LanPlayer implements Player {
     if (this.stopPromise) {
       return this.stopPromise;
     }
+    // A legacy search inherited from another client has no identity to stop safely.
+    if (this.snapshot && !this.currentSearchId) {
+      throw new Error(t.engineProcessWasClosedUnexpectedly);
+    }
 
     this.stopExpectedSfen = expectedSfen || null;
     this.stopPromise = new Promise((resolve, reject) => {
       this.stopPromiseResolver = resolve;
       this.stopPromiseRejector = reject;
-      this.lanEngine.sendUsiCommand("stop");
+      if (this.snapshot) {
+        this.lanEngine.stopSearch({
+          type: "stopSearch",
+          instanceId: this.snapshot.instanceId,
+          searchId: this.currentSearchId,
+        });
+      } else {
+        this.lanEngine.sendUsiCommand("stop");
+      }
       this.startStopPromiseTimeoutIfConnected();
     });
 
@@ -451,6 +558,41 @@ export class LanPlayer implements Player {
 
   private onMessage(message: ServerRelayMessage): void {
     switch (message.type) {
+      case "searchSnapshot": {
+        if (this.isClosing || this.sessionLost) return;
+        if (this.snapshot && this.snapshot.instanceId !== message.instanceId && this.hasLaunched) {
+          this.markSessionLost();
+          return;
+        }
+        if (
+          this.snapshot?.instanceId === message.instanceId &&
+          this.snapshot.revision >= message.revision
+        )
+          return;
+        this.snapshot = message;
+        this.nextSearchId = Math.max(this.nextSearchId, message.accepted, message.cancelled);
+        if (!this.hasLaunched && message.active !== null) {
+          this.currentSearchId = message.active;
+          this.isThinking = true;
+        }
+        if (this.hasLaunched && message.engineId !== this.engineId) {
+          this.markSessionLost();
+          return;
+        }
+        if (this.cancellation && message.settled >= this.cancellation.through)
+          this.finishCancellation();
+        if (message.terminal) {
+          this.onMessage({
+            type: "engineOutput",
+            instanceId: message.instanceId,
+            searchId: message.terminal.searchId,
+            positionCommand: message.terminal.position,
+            output: message.terminal.output,
+            delay: message.terminal.delay,
+          });
+        }
+        return;
+      }
       case "error": {
         if (this.sessionLost || this.isClosing) {
           return;
@@ -463,6 +605,7 @@ export class LanPlayer implements Player {
         this.clearReadyReplayTimeout();
         this.isThinking = false;
         const error = new Error(message.message);
+        this.finishCancellation(error);
         const handler = this.handler;
         const onErrorCallback = this.onErrorCallback;
         this.clearHandlers();
@@ -479,6 +622,24 @@ export class LanPlayer implements Player {
       }
 
       case "engineOutput": {
+        if (this.snapshot) {
+          if (
+            message.instanceId !== this.snapshot.instanceId ||
+            message.searchId !== this.currentSearchId ||
+            message.searchId <= this.ignoredThrough ||
+            message.searchId <= this.completedSearchId
+          )
+            return;
+          if (/^(bestmove|checkmate)(?:\s|$)/.test(message.output)) {
+            this.completedSearchId = message.searchId;
+            if (!this.searchOutputEnabled) {
+              this.isThinking = false;
+              if (this.isStopAcknowledgement(message.positionCommand)) this.resolveStopPromise();
+              return;
+            }
+          }
+          if (!this.searchOutputEnabled) return;
+        }
         const infoStr = message.output;
         const positionCommand = message.positionCommand;
         if (infoStr.startsWith("bestmove")) {
@@ -498,9 +659,15 @@ export class LanPlayer implements Player {
           }
 
           if (this.handler && this.position && positionCommand === this.currentSfen) {
+            const handler = this.handler;
+            this.handler = undefined;
             const parts = infoStr.split(" ");
             if (parts[1] === "resign") {
-              this.handler.onResign();
+              handler.onResign();
+              return;
+            }
+            if (parts[1] === "win") {
+              handler.onWin();
               return;
             }
             const move = this.position.createMoveByUSI(parts[1]);
@@ -514,9 +681,9 @@ export class LanPlayer implements Player {
                   ...infoWithDelay,
                   pv: this.info.pv.slice(1),
                 };
-                this.handler.onMove(move, info);
+                handler.onMove(move, info);
               } else {
-                this.handler.onMove(move, delay ? infoWithDelay : undefined);
+                handler.onMove(move, delay ? infoWithDelay : undefined);
               }
             }
           }
@@ -583,6 +750,10 @@ export class LanPlayer implements Player {
       case "state": {
         const state = message.state;
         const stateEngineId = message.engineId;
+        // Identified searches recover from authoritative snapshots, not replay timing guesses.
+        if (this.snapshot && this.hasLaunched) {
+          return;
+        }
         const errorAlreadyReported = this.reportedErrorAwaitingState;
         this.reportedErrorAwaitingState = false;
         if (state === "thinking" && stateEngineId === this.engineId) {
@@ -716,6 +887,7 @@ export class LanPlayer implements Player {
   }
 
   private handleTransportReconnect() {
+    if (this.snapshot) return;
     if (!this.stopPromiseResolver) {
       return;
     }
@@ -742,6 +914,7 @@ export class LanPlayer implements Player {
     this.clearReadyReplayTimeout();
     this.clearPendingInfo();
     const error = new Error(t.engineProcessWasClosedUnexpectedly);
+    this.finishCancellation(error);
     const handler = this.handler;
     this.clearHandlers();
     this.rejectStopPromise(error);

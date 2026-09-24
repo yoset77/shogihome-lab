@@ -18,8 +18,9 @@ import {
   Square,
 } from "tsshogi";
 import { CommentBehavior } from "@/common/settings/comment";
-import { RecordManager, SearchInfoSenderType } from "./record.js";
-import { Clock } from "./clock.js";
+import { RecordManager, SearchInfoSenderType, type GameRecordCheckpoint } from "./record.js";
+import { Clock, type ClockSnapshot } from "./clock.js";
+import { ES_HUMAN } from "@/common/uri";
 import { defaultPlayerBuilder, PlayerBuilder } from "@/renderer/players/builder";
 import { GameResult } from "@/common/game/result";
 import { t } from "@/common/i18n/index";
@@ -39,6 +40,7 @@ enum GameState {
   ACTIVE = "active",
   PENDING = "pending",
   BUSY = "busy",
+  TAKING_BACK = "takingBack",
 }
 
 export type PlayerGameResults = {
@@ -188,6 +190,13 @@ export class StartPositionList {
 }
 
 export class GameManager {
+  private turnCheckpoint?: {
+    record: GameRecordCheckpoint;
+    black: ClockSnapshot;
+    white: ClockSnapshot;
+    human: boolean;
+  };
+  private moveHistory: NonNullable<GameManager["turnCheckpoint"]>[] = [];
   private state: GameState;
   private _settings: GameSettings;
   private startPly = 0;
@@ -286,6 +295,59 @@ export class GameManager {
     return this._results;
   }
 
+  get supportsTakeback(): boolean {
+    return (
+      (this.settings.black.uri === ES_HUMAN) !== (this.settings.white.uri === ES_HUMAN) &&
+      !!this.blackPlayer?.supportsTakeback &&
+      !!this.whitePlayer?.supportsTakeback
+    );
+  }
+
+  get isTakingBack(): boolean {
+    return this.state === GameState.TAKING_BACK;
+  }
+  get isActive(): boolean {
+    return this.state === GameState.ACTIVE;
+  }
+  get interactionId(): number {
+    return this.lastEventID;
+  }
+
+  get canTakeback(): boolean {
+    return this.isActive && this.supportsTakeback && this.moveHistory.some((entry) => entry.human);
+  }
+
+  async takeback(): Promise<void> {
+    if (!this.canTakeback) return;
+    this.getActiveClock().settle();
+    if (!this.canTakeback) return;
+    const index = this.moveHistory.findLastIndex((entry) => entry.human);
+    const target = this.moveHistory[index];
+    this.state = GameState.TAKING_BACK;
+    const operation = this.issueEventID();
+    this.blackClock.pause();
+    this.whiteClock.pause();
+    try {
+      await Promise.all([this.blackPlayer!.cancelSearch!(), this.whitePlayer!.cancelSearch!()]);
+      if (!this.isTakingBack || operation !== this.lastEventID) return;
+      this.recordManager.rollbackGameMoves(
+        this.moveHistory.slice(index).map((entry) => entry.record),
+        () => {
+          this.blackClock.restore(target.black);
+          this.whiteClock.restore(target.white);
+        },
+      );
+      this.moveHistory.length = index;
+      this.turnCheckpoint = undefined;
+      this.state = GameState.ACTIVE;
+      this.nextMove();
+    } catch (cause) {
+      if (!this.isTakingBack || operation !== this.lastEventID) return;
+      this.end(SpecialMoveType.INTERRUPT);
+      this.onError(new Error(t.takebackFailed, { cause }));
+    }
+  }
+
   async start(settings: GameSettings, playerBuilder: PlayerBuilder): Promise<void> {
     if (this.state !== GameState.IDLE) {
       throw Error(
@@ -373,6 +435,8 @@ export class GameManager {
     // 対局時計を設定する。
     this.blackClock.setup(this.getBlackClockSettings());
     this.whiteClock.setup(this.getWhiteClockSettings());
+    this.moveHistory = [];
+    this.turnCheckpoint = undefined;
     // プレイヤーに対局開始を通知する。
     await Promise.all([this.blackPlayer.readyNewGame(), this.whitePlayer.readyNewGame()]);
     // State を更新する。
@@ -450,6 +514,14 @@ export class GameManager {
     }
     // 手番側の時計をスタートする。
     this.getActiveClock().start();
+    if (this.supportsTakeback) {
+      this.turnCheckpoint = {
+        record: this.recordManager.createGameCheckpoint(),
+        black: this.blackClock.snapshot(),
+        white: this.whiteClock.snapshot(),
+        human: this.settings[this.recordManager.record.position.color].uri === ES_HUMAN,
+      };
+    }
     // プレイヤーを取得する。
     const color = this.recordManager.record.position.color;
     const player = this.getPlayer(color);
@@ -479,15 +551,19 @@ export class GameManager {
         onMove: (move, info) => this.onMove(eventID, move, info),
         onResign: () => this.onResign(eventID),
         onWin: () => this.onWin(eventID),
-        onError: (e) => this.onError(e),
+        onError: (e) => {
+          if (eventID === this.lastEventID && this.isActive) this.onError(e);
+        },
       })
       .catch((e) => {
+        if (eventID !== this.lastEventID || !this.isActive) return;
         this.onError(new Error(`GameManager#nextMove: ${t.failedToSendGoCommand}: ${e}`));
       });
     // Ponder を開始する。
     ponderPlayer
       .startPonder(this.recordManager.record.position, this.recordManager.record.usi, timeStates)
       .catch((e) => {
+        if (eventID !== this.lastEventID || !this.isActive) return;
         this.onError(new Error(`GameManager#nextMove: ${t.failedToSendPonderCommand}: ${e}`));
       });
   }
@@ -519,6 +595,10 @@ export class GameManager {
       moveOption: { ignoreValidation: true },
       elapsedMs: this.getActiveClock().elapsedMs,
     });
+    if (this.turnCheckpoint) {
+      this.moveHistory.push(this.turnCheckpoint);
+      this.turnCheckpoint = undefined;
+    }
     // 評価値を記録する。
     if (info) {
       this.updateSearchInfo(SearchInfoSenderType.PLAYER, info);
@@ -614,6 +694,7 @@ export class GameManager {
   }
 
   private timeout(color: Color): void {
+    if (!this.isActive || color !== this.recordManager.record.position.color) return;
     // 時計音を止める。
     this.onStopBeep();
     // エンジンの時間切れが無効の場合は通知を送って対局を継続する。
@@ -633,9 +714,15 @@ export class GameManager {
   }
 
   private end(specialMoveType: SpecialMoveType): void {
-    if (this.state !== GameState.ACTIVE && this.state !== GameState.PENDING) {
+    if (
+      this.state !== GameState.ACTIVE &&
+      this.state !== GameState.PENDING &&
+      this.state !== GameState.TAKING_BACK
+    ) {
       return;
     }
+    this.issueEventID();
+    this.getActiveClock().pause();
     this.state = GameState.BUSY;
     const color = this.recordManager.record.position.color;
     Promise.resolve()
@@ -644,8 +731,6 @@ export class GameManager {
         return this.sendGameResult(color, specialMoveType);
       })
       .then(() => {
-        // インクリメントせずに時計を停止する。
-        this.getActiveClock().pause();
         // 終局理由を棋譜に記録する。
         this.recordManager.appendMove({
           move: specialMoveType,
