@@ -294,6 +294,7 @@ export const ja: Texts = {
   manageEngines: "エンジン設定",
   flipBoard: "盤面反転",
   shortcutKeys: "ショートカットキー",
+  fileQuickAction: "クイック操作ボタン",
   useUpDownToMove1Ply: "↑/↓キーで1手移動",
   useLeftRightToMove1Ply: "←/→キーで1手移動",
   file: "ファイル",

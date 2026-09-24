@@ -141,6 +141,22 @@ export enum RecordShortcutKeys {
   HORIZONTAL = "horizontal",
 }
 
+export enum FileQuickAction {
+  PUZZLE = "puzzle",
+  OPEN = "open",
+  LOAD_FROM_SERVER = "loadFromServer",
+  HISTORY = "history",
+  ELAPSED_TIME_CHART = "elapsedTimeChart",
+}
+
+export function isFileQuickAction(value: unknown): value is FileQuickAction {
+  return Object.values(FileQuickAction).includes(value as FileQuickAction);
+}
+
+export function normalizeFileQuickAction(value: unknown): FileQuickAction {
+  return isFileQuickAction(value) ? value : FileQuickAction.PUZZLE;
+}
+
 export enum PositionImageStyle {
   BOOK = "book",
   GAME = "game",
@@ -213,6 +229,7 @@ export type AppSettings = {
 
   // Shortcut
   recordShortcutKeys: RecordShortcutKeys;
+  fileQuickAction: FileQuickAction;
 
   // Board View
   boardFlipping: boolean;
@@ -325,6 +342,7 @@ export function buildUpdatedAppSettings(org: AppSettings, update: AppSettingsUpd
     ...org,
     ...update,
   };
+  updated.fileQuickAction = normalizeFileQuickAction(updated.fileQuickAction);
 
   // カラム構成に合わせて選択可能なタブを制限する。
   switch (updated.tabPaneType) {
@@ -387,6 +405,7 @@ export function defaultAppSettings(opt?: {
     clockPitch: 500,
     clockSoundTarget: ClockSoundTarget.ONLY_USER,
     recordShortcutKeys: RecordShortcutKeys.VERTICAL,
+    fileQuickAction: FileQuickAction.PUZZLE,
     boardFlipping: false,
     enableDragAndDrop: true,
     enableVisionCameraAutoOpen: false,
@@ -467,6 +486,7 @@ export function normalizeAppSettings(
     ...defaultAppSettings(opt),
     ...settings,
   };
+  result.fileQuickAction = normalizeFileQuickAction(result.fileQuickAction);
   if (result.autoSaveDirectory.endsWith("\\") || result.autoSaveDirectory.endsWith("/")) {
     result.autoSaveDirectory = result.autoSaveDirectory.slice(0, -1);
   }

@@ -294,6 +294,7 @@ export type Texts = {
   manageEngines: string;
   flipBoard: string;
   shortcutKeys: string;
+  fileQuickAction: string;
   useUpDownToMove1Ply: string;
   useLeftRightToMove1Ply: string;
   file: string;

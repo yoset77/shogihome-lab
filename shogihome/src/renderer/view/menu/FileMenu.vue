@@ -61,8 +61,8 @@
           <div class="label">{{ t.open }}</div>
         </button>
         <button
-          v-if="!isNative() && store.isServerSideKifuEnabled"
-          :disabled="!states.open"
+          v-if="!isNative() && (!isMobileWebApp() || store.isServerSideKifuEnabled)"
+          :disabled="!isFileQuickActionEnabled(FileQuickAction.LOAD_FROM_SERVER, store)"
           @click="onLoadFromServer"
         >
           <Icon :icon="IconType.BATCH" />
@@ -104,6 +104,10 @@
         <button :disabled="!states.history" @click="onHistory">
           <Icon :icon="IconType.HISTORY" />
           <div class="label">{{ t.history }}</div>
+        </button>
+        <button v-if="!isMobileWebApp()" :disabled="!states.puzzle" @click="onPuzzle">
+          <Icon :icon="IconType.QUESTION" />
+          <div class="label">{{ t.puzzles }}</div>
         </button>
         <button :disabled="!states.loadRemoteFile" @click="onLoadRemoteFile">
           <Icon :icon="IconType.INTERNET" />
@@ -228,6 +232,8 @@ import { defaultResearchSettings } from "@/common/settings/research";
 import { USIEngine } from "@/common/settings/usi";
 import { useLanStore } from "@/renderer/store/lan";
 import { generateRecordFileName } from "@/renderer/helpers/path";
+import { FileQuickAction } from "@/common/settings/app";
+import { isFileQuickActionEnabled, runFileQuickAction } from "@/renderer/helpers/fileQuickAction";
 
 const emit = defineEmits<{
   close: [];
@@ -265,7 +271,7 @@ const onResign = () => {
   emit("close");
 };
 const onPuzzle = () => {
-  store.startPuzzle();
+  runFileQuickAction(FileQuickAction.PUZZLE, store);
   emit("close");
 };
 const onMateSearch = () => {
@@ -340,11 +346,11 @@ const onNewFile = () => {
   emit("close");
 };
 const onOpen = () => {
-  store.openRecord();
+  runFileQuickAction(FileQuickAction.OPEN, store);
   emit("close");
 };
 const onLoadFromServer = () => {
-  store.showServerKifuDialog();
+  runFileQuickAction(FileQuickAction.LOAD_FROM_SERVER, store);
   emit("close");
 };
 const onUpload = () => {
@@ -385,7 +391,7 @@ const onSaveLocal = () => {
   emit("close");
 };
 const onHistory = () => {
-  store.showRecordFileHistoryDialog();
+  runFileQuickAction(FileQuickAction.HISTORY, store);
   emit("close");
 };
 const onLoadRemoteFile = () => {
@@ -401,7 +407,7 @@ const onSearchDuplicatePositions = () => {
   emit("close");
 };
 const onElapsedTimeChart = () => {
-  store.showElapsedTimeChartDialog();
+  runFileQuickAction(FileQuickAction.ELAPSED_TIME_CHART, store);
   emit("close");
 };
 const onBatchConversion = () => {
@@ -480,7 +486,7 @@ const states = computed(() => {
     game: store.appState === AppState.NORMAL,
     stopGame: store.appState === AppState.GAME,
     resign: store.appState === AppState.GAME && store.isMovableByUser,
-    puzzle: store.appState === AppState.NORMAL,
+    puzzle: isFileQuickActionEnabled(FileQuickAction.PUZZLE, store),
     research: store.appState === AppState.NORMAL && store.researchState === ResearchState.IDLE,
     mateSearch: store.appState === AppState.NORMAL && store.researchState === ResearchState.IDLE,
     stopResearch:
@@ -489,14 +495,14 @@ const states = computed(() => {
       store.researchState === ResearchState.STOPPING,
     positionEditing: store.appState === AppState.NORMAL,
     newFile: store.appState === AppState.NORMAL,
-    open: store.appState === AppState.NORMAL,
+    open: isFileQuickActionEnabled(FileQuickAction.OPEN, store),
     save: store.appState === AppState.NORMAL,
     saveAs: store.appState === AppState.NORMAL,
-    history: store.appState === AppState.NORMAL,
+    history: isFileQuickActionEnabled(FileQuickAction.HISTORY, store),
     loadRemoteFile: store.appState === AppState.NORMAL,
     share: store.appState === AppState.NORMAL,
     searchDuplicatePositions: store.appState === AppState.NORMAL,
-    elapsedTimeChart: store.appState === AppState.NORMAL,
+    elapsedTimeChart: isFileQuickActionEnabled(FileQuickAction.ELAPSED_TIME_CHART, store),
     batchConversion: store.appState === AppState.NORMAL,
     analysisDBManager: store.appState === AppState.NORMAL,
     exportImage: store.appState === AppState.NORMAL,
