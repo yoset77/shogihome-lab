@@ -12,6 +12,7 @@
     <!-- Dialogs -->
     <BusyMessage v-if="busyState.isBusy" />
     <InfoMessage v-if="messageStore.hasMessage" />
+    <PuzzleResultDialog v-if="store.puzzleResult" />
     <ErrorMessage v-if="errorStore.hasError" />
     <ConfirmDialog v-if="confirmation.message" />
     <GameDialog v-if="store.appState === AppState.GAME_DIALOG" />
@@ -116,6 +117,7 @@ import PasteDialog from "@/renderer/view/dialog/PasteDialog.vue";
 import BusyMessage from "@/renderer/view/dialog/BusyMessage.vue";
 import ConfirmDialog from "@/renderer/view/dialog/ConfirmDialog.vue";
 import InfoMessage from "@/renderer/view/dialog/InfoMessage.vue";
+import PuzzleResultDialog from "@/renderer/view/dialog/PuzzleResultDialog.vue";
 import ErrorMessage from "@/renderer/view/dialog/ErrorMessage.vue";
 import { useStore } from "@/renderer/store";
 import { AppState, ResearchState } from "@/common/control/state.js";

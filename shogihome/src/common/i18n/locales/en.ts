@@ -778,7 +778,10 @@ export const en: Texts = {
   almostCorrect: "Almost Correct!",
   incorrect: "Incorrect...",
   referenceBestMove: "Reference Best Move",
+  correctAnswer: "Correct Answer",
   incorrectMovePleaseTryAgain: "Incorrect. Let's try again.",
+  nextPuzzle: "Next Puzzle",
+  showAnswer: "Show Answer",
   evaluationThemes: ["Winning", "Favored", "Even", "Unfavored", "Lost"],
   winRate: (rate: number) => ` (Win rate: ${rate}%)`,
   puzzlesAvailable: (available: number, total: number) =>
