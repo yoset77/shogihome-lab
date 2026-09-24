@@ -182,6 +182,131 @@ describe("store/index", () => {
     await useAppSettings().updateAppSettings(defaultAppSettings());
   });
 
+  it("puzzle results, revealing the answer, and moving to another puzzle", async () => {
+    const nextMoveSFEN = InitialPositionSFEN.STANDARD;
+    const evaluationSFEN = nextMoveSFEN.replace(" b ", " w ");
+    const puzzles = [
+      { type: "next_move", sfen: nextMoveSFEN, correct_move: "7g7f", win_rate_best: 75 },
+      { type: "evaluation", sfen: evaluationSFEN, correct_move: "8c8d", engine_eval: 0.7 },
+    ];
+    const fetchMock = vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () =>
+        url === "/puzzles-manifest.json" ? [{ file: "test.json", count: 2 }] : puzzles,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+
+    try {
+      const store = createStore();
+      await store.startPuzzle();
+      expect(store.puzzle?.sfen).toBe(nextMoveSFEN);
+      useMessageStore().dequeue();
+
+      store.doMove(store.record.position.createMoveByUSI("2g2f")!);
+      expect(store.puzzleResult).toMatchObject({ status: "incorrect", sfen: nextMoveSFEN });
+      expect(store.appState).toBe(AppState.PUZZLE);
+      expect(store.record.current.ply).toBe(0);
+      store.nextPuzzle();
+      expect(store.puzzle?.sfen).toBe(nextMoveSFEN);
+
+      store.closePuzzleResult();
+      expect(store.puzzleResult).toBeNull();
+      expect(store.appState).toBe(AppState.PUZZLE);
+      store.doMove(store.record.position.createMoveByUSI("2g2f")!);
+      store.revealPuzzleAnswer();
+      expect(store.puzzleResult).toMatchObject({
+        status: "revealed",
+        sfen: nextMoveSFEN,
+      });
+      expect(store.puzzleResult?.text).toContain(`${t.correctAnswer}: ▲`);
+      expect(store.puzzleResult?.text).toContain("７六歩");
+      expect(store.appState).toBe(AppState.NORMAL);
+      expect(store.record.current.ply).toBe(0);
+      expect(JSON.parse(localStorage.getItem("shogihome-puzzle-history") || "{}")).toEqual({});
+
+      store.nextPuzzle();
+      expect(store.puzzle?.sfen).toBe(evaluationSFEN);
+      expect(store.puzzleResult).toBeNull();
+      useMessageStore().dequeue();
+      store.answerEvaluation(4);
+      expect(store.puzzleResult?.status).toBe("evaluation");
+      expect(store.appState).toBe(AppState.NORMAL);
+      expect(JSON.parse(localStorage.getItem("shogihome-puzzle-history") || "{}")).toEqual({});
+
+      store.nextPuzzle();
+      expect(store.puzzle?.sfen).toBe(nextMoveSFEN);
+      useMessageStore().dequeue();
+      store.doMove(store.record.position.createMoveByUSI("7g7f")!);
+      expect(store.puzzleResult?.status).toBe("correct");
+      expect(store.appState).toBe(AppState.NORMAL);
+      expect(store.record.current.ply).toBe(1);
+      expect(JSON.parse(localStorage.getItem("shogihome-puzzle-history") || "{}")).toHaveProperty(
+        nextMoveSFEN,
+      );
+
+      store.nextPuzzle();
+      expect(store.puzzle?.sfen).toBe(evaluationSFEN);
+      useMessageStore().dequeue();
+      store.answerEvaluation(0);
+      expect(store.puzzleResult?.status).toBe("evaluation");
+      expect(JSON.parse(localStorage.getItem("shogihome-puzzle-history") || "{}")).toHaveProperty(
+        evaluationSFEN,
+      );
+
+      store.nextPuzzle();
+      expect(store.puzzle?.sfen).toBe(nextMoveSFEN);
+      useMessageStore().dequeue();
+      store.closePuzzleResult();
+      expect(store.puzzleResult).toBeNull();
+    } finally {
+      random.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps the puzzle result when starting the next puzzle fails", async () => {
+    const sfen = InitialPositionSFEN.STANDARD;
+    const puzzles = [
+      { type: "next_move", sfen, correct_move: "7g7f" },
+      { type: "evaluation", sfen: sfen.replace(" b ", " w "), correct_move: "8c8d" },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => ({
+        ok: true,
+        json: async () =>
+          url === "/puzzles-manifest.json" ? [{ file: "test.json", count: 2 }] : puzzles,
+      })),
+    );
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+
+    try {
+      const store = createStore();
+      await store.startPuzzle();
+      useMessageStore().dequeue();
+      store.doMove(store.record.position.createMoveByUSI("7g7f")!);
+      const result = store.puzzleResult;
+      expect(result?.status).toBe("correct");
+
+      localStorage.setItem("shogihome-puzzle-history", "invalid JSON");
+      store.nextPuzzle();
+      expect(useErrorStore().hasError).toBe(true);
+      expect(store.puzzleResult).toEqual(result);
+      expect(store.puzzle).toBeNull();
+      expect(store.appState).toBe(AppState.NORMAL);
+
+      localStorage.removeItem("shogihome-puzzle-history");
+      store.nextPuzzle();
+      expect(store.puzzleResult).toBeNull();
+      expect(store.puzzle?.sfen).toBe(puzzles[1].sfen);
+      expect(store.appState).toBe(AppState.PUZZLE);
+    } finally {
+      random.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("updateUSIInfo", () => {
     vi.useFakeTimers();
     const usi = "position startpos moves 7g7f";

@@ -107,6 +107,12 @@ export type Puzzle = {
   eval_diff?: number;
 };
 
+export type PuzzleResult = {
+  status: "correct" | "incorrect" | "evaluation" | "revealed";
+  text: string;
+  sfen: string;
+};
+
 let cachedPuzzles: Puzzle[] | undefined;
 let cachedManifest: { file: string; count: number }[] | undefined;
 let isUpdatingPuzzles = false;
@@ -228,6 +234,7 @@ class Store {
   private _visionEditSession: VisionEditSession | null = null;
   private isForceStopping = false;
   private _puzzle: Puzzle | null = null;
+  private _puzzleResult: PuzzleResult | null = null;
   private _reactive: UnwrapNestedRefs<Store>;
   private garbledNotified = false;
   private onChangePositionHandlers: ChangePositionHandler[] = [];
@@ -426,6 +433,10 @@ class Store {
 
   get puzzle(): Puzzle | null {
     return this._puzzle;
+  }
+
+  get puzzleResult(): PuzzleResult | null {
+    return this._puzzleResult;
   }
 
   get researchState(): ResearchState {
@@ -1003,7 +1014,7 @@ class Store {
     });
   }
 
-  async startPuzzle(): Promise<void> {
+  async startPuzzle(excludedSFEN?: string): Promise<void> {
     if (useBusyState().isBusy) {
       return;
     }
@@ -1033,9 +1044,18 @@ class Store {
       console.log(t.puzzlesAvailable(availablePuzzles.length, cachedPuzzles.length));
 
       const puzzleSource = availablePuzzles.length > 0 ? availablePuzzles : cachedPuzzles;
-      const puzzle = puzzleSource[Math.floor(Math.random() * puzzleSource.length)];
+      const otherPuzzles = puzzleSource.filter((p) => p.sfen !== excludedSFEN);
+      const otherCachedPuzzles = cachedPuzzles.filter((p) => p.sfen !== excludedSFEN);
+      const candidates =
+        otherPuzzles.length > 0
+          ? otherPuzzles
+          : otherCachedPuzzles.length > 0
+            ? otherCachedPuzzles
+            : puzzleSource;
+      const puzzle = candidates[Math.floor(Math.random() * candidates.length)];
 
       this._puzzle = puzzle;
+      this._puzzleResult = null;
       this.recordManager.resetBySFEN(puzzle.sfen);
       this._appState = AppState.PUZZLE;
 
@@ -1101,7 +1121,7 @@ class Store {
       if (this._puzzle.info) {
         message += `\n${this._puzzle.info}`;
       }
-      useMessageStore().enqueue({ text: message });
+      this._puzzleResult = { status: "correct", text: message, sfen: this._puzzle.sfen };
       this.recordManager.appendMove({ move });
 
       // Save to history
@@ -1113,7 +1133,11 @@ class Store {
       this._puzzle = null;
     } else {
       // Incorrect
-      useMessageStore().enqueue({ text: t.incorrectMovePleaseTryAgain });
+      this._puzzleResult = {
+        status: "incorrect",
+        text: t.incorrectMovePleaseTryAgain,
+        sfen: this._puzzle.sfen,
+      };
       // The user's move is not appended, so the board remains in the puzzle state.
     }
   }
@@ -1153,7 +1177,11 @@ class Store {
     if (this._puzzle.info) {
       messages.push(this._puzzle.info);
     }
-    useMessageStore().enqueue({ text: messages.join("\n") });
+    this._puzzleResult = {
+      status: "evaluation",
+      text: messages.join("\n"),
+      sfen: this._puzzle.sfen,
+    };
 
     // Save to history if correct
     if (diff === 0) {
@@ -1164,6 +1192,40 @@ class Store {
 
     this._appState = AppState.NORMAL;
     this._puzzle = null;
+  }
+
+  revealPuzzleAnswer(): void {
+    if (
+      this._puzzleResult?.status !== "incorrect" ||
+      this.appState !== AppState.PUZZLE ||
+      !this._puzzle ||
+      this._puzzle.sfen !== this._puzzleResult.sfen
+    ) {
+      return;
+    }
+    const correctMove = this.record.position.createMoveByUSI(this._puzzle.correct_move);
+    const moveText = correctMove
+      ? (this.record.position.color === Color.BLACK ? "▲" : "△") + formatKIFMove(correctMove)
+      : this._puzzle.correct_move;
+    this._puzzleResult = {
+      ...this._puzzleResult,
+      status: "revealed",
+      text: `${t.correctAnswer}: ${moveText}`,
+    };
+    this._appState = AppState.NORMAL;
+    this._puzzle = null;
+  }
+
+  closePuzzleResult(): void {
+    this._puzzleResult = null;
+  }
+
+  nextPuzzle(): void {
+    if (!this._puzzleResult || this._puzzleResult.status === "incorrect" || useBusyState().isBusy) {
+      return;
+    }
+    const previousSFEN = this._puzzleResult.sfen;
+    void this.startPuzzle(previousSFEN);
   }
 
   doMove(move: Move): void {

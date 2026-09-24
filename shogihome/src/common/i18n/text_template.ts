@@ -744,7 +744,10 @@ export type Texts = {
   almostCorrect: string;
   incorrect: string;
   referenceBestMove: string;
+  correctAnswer: string;
   incorrectMovePleaseTryAgain: string;
+  nextPuzzle: string;
+  showAnswer: string;
   evaluationThemes: [string, string, string, string, string];
   winRate: (rate: number) => string;
   puzzlesAvailable: (available: number, total: number) => string;
