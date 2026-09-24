@@ -275,40 +275,6 @@
           />
           <div class="form-item-small-label">%</div>
         </div>
-        <!-- 成・不成の表示 -->
-        <div class="form-item">
-          <div class="form-item-label-wide">
-            {{ t.promotionSelector }}
-          </div>
-          <HorizontalSelector
-            v-model:value="update.promotionSelectorStyle"
-            class="selector"
-            :items="[
-              {
-                label: t.centeredHorizontal,
-                value: PromotionSelectorStyle.HORIZONTAL,
-              },
-              {
-                label: t.promoteFirstVertical,
-                value: PromotionSelectorStyle.VERTICAL_PREFER_BOTTOM,
-              },
-              {
-                label: t.promoteFirstHorizontal,
-                value: PromotionSelectorStyle.HORIZONTAL_PREFER_RIGHT,
-              },
-            ]"
-          />
-        </div>
-        <!-- ドラッグ＆ドロップ -->
-        <div class="form-item">
-          <div class="form-item-label-wide">{{ t.enableDragAndDrop }}</div>
-          <ToggleButton v-model:value="update.enableDragAndDrop" />
-        </div>
-        <!-- スキャン時にカメラを自動起動 -->
-        <div class="form-item">
-          <div class="form-item-label-wide">{{ t.enableVisionCameraAutoOpen }}</div>
-          <ToggleButton v-model:value="update.enableVisionCameraAutoOpen" />
-        </div>
         <!-- 段・筋の表示 -->
         <div class="form-item">
           <div class="form-item-label-wide">
@@ -429,9 +395,43 @@
         </div>
       </div>
       <hr />
-      <!-- ショートカット -->
+      <!-- 操作 -->
       <div class="section">
-        <div class="section-title">{{ t.shortcutKeys }}</div>
+        <div class="section-title">{{ t.controls }}</div>
+        <!-- ドラッグ＆ドロップ -->
+        <div class="form-item">
+          <div class="form-item-label-wide">{{ t.enableDragAndDrop }}</div>
+          <ToggleButton v-model:value="update.enableDragAndDrop" />
+        </div>
+        <!-- 成・不成の表示 -->
+        <div class="form-item">
+          <div class="form-item-label-wide">
+            {{ t.promotionSelector }}
+          </div>
+          <HorizontalSelector
+            v-model:value="update.promotionSelectorStyle"
+            class="selector"
+            :items="[
+              {
+                label: t.centeredHorizontal,
+                value: PromotionSelectorStyle.HORIZONTAL,
+              },
+              {
+                label: t.promoteFirstVertical,
+                value: PromotionSelectorStyle.VERTICAL_PREFER_BOTTOM,
+              },
+              {
+                label: t.promoteFirstHorizontal,
+                value: PromotionSelectorStyle.HORIZONTAL_PREFER_RIGHT,
+              },
+            ]"
+          />
+        </div>
+        <!-- スキャン時にカメラを自動起動 -->
+        <div class="form-item">
+          <div class="form-item-label-wide">{{ t.enableVisionCameraAutoOpen }}</div>
+          <ToggleButton v-model:value="update.enableVisionCameraAutoOpen" />
+        </div>
         <!-- 棋譜 -->
         <div class="form-item">
           <div class="form-item-label-wide">{{ t.record }}</div>
@@ -454,9 +454,9 @@
         </div>
       </div>
       <hr />
-      <!-- ファイル -->
+      <!-- 棋譜 -->
       <div class="section">
-        <div class="section-title">{{ t.file }}</div>
+        <div class="section-title">{{ t.record }}</div>
         <!-- デフォルトの保存形式 -->
         <div v-if="isNative()" class="form-item">
           <div class="form-item-label-wide">

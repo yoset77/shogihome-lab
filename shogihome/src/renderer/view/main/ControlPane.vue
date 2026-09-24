@@ -150,7 +150,7 @@
         <!-- ファイル -->
         <button class="control-item" @click="onFileAction">
           <Icon :icon="IconType.FILE" />
-          <span :class="{ tooltip: compact }">{{ t.file }}</span>
+          <span :class="{ tooltip: compact }">{{ t.menu }}</span>
         </button>
         <!-- 盤面反転 -->
         <button class="control-item" data-hotkey="Mod+t" @click="onFlip">

@@ -293,10 +293,11 @@ export type Texts = {
   logLevel: string;
   manageEngines: string;
   flipBoard: string;
-  shortcutKeys: string;
+  controls: string;
   fileQuickAction: string;
   useUpDownToMove1Ply: string;
   useLeftRightToMove1Ply: string;
+  menu: string;
   file: string;
   recordFile: string;
   executableFile: string;
