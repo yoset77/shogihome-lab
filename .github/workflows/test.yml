@@ -116,6 +116,8 @@ jobs:
         run: |
           cargo test --locked -p shogihome-launcher
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p shogihome-process --features async
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p shogihome-engine-wrapper --test config_dir
       - name: Windows wrapper contract
         run: python -m pytest tests/test_wrapper_contract.py -q

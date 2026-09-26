@@ -144,12 +144,13 @@ fn windows_style_lowercase_parent_names_win_over_files() {
     .unwrap();
     std::fs::write(
         root.join("engine-wrapper/.env"),
-        "LISTEN_PORT=14086\nBIND_ADDRESS=127.0.0.1\n",
+        "LISTEN_PORT=14086\nBIND_ADDRESS=127.0.0.1\nENGINE_HIGH_QOS=true\n",
     )
     .unwrap();
     let parent = std::collections::HashMap::from([
         ("port".to_string(), "18145".to_string()),
         ("listen_port".to_string(), "14087".to_string()),
+        ("engine_high_qos".to_string(), "false".to_string()),
     ]);
     let plan = portable_services_with_env_with(&root, &parent, true).unwrap();
     std::fs::remove_dir_all(&root).ok();
@@ -166,4 +167,31 @@ fn windows_style_lowercase_parent_names_win_over_files() {
         Some("14087")
     );
     assert!(!wrapper_env.contains_key("listen_port"));
+    assert_eq!(
+        wrapper_env.get("ENGINE_HIGH_QOS").map(String::as_str),
+        Some("false")
+    );
+    assert!(!wrapper_env.contains_key("engine_high_qos"));
+}
+
+#[test]
+fn high_qos_file_value_is_forwarded_and_exported_value_wins() {
+    let root = std::env::temp_dir().join(format!("portable-qos-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("shogihome")).unwrap();
+    std::fs::create_dir_all(root.join("engine-wrapper")).unwrap();
+    std::fs::write(root.join("shogihome/.env"), "PORT=18146\n").unwrap();
+    std::fs::write(root.join("engine-wrapper/.env"), "ENGINE_HIGH_QOS=true\n").unwrap();
+
+    let plan = portable_services_with_env(&root, &std::collections::HashMap::new()).unwrap();
+    assert!(plan.specs[1]
+        .env
+        .contains(&("ENGINE_HIGH_QOS".into(), "true".into())));
+
+    let parent = std::collections::HashMap::from([("ENGINE_HIGH_QOS".into(), "false".into())]);
+    let plan = portable_services_with_env(&root, &parent).unwrap();
+    assert!(plan.specs[1]
+        .env
+        .contains(&("ENGINE_HIGH_QOS".into(), "false".into())));
+    std::fs::remove_dir_all(root).unwrap();
 }

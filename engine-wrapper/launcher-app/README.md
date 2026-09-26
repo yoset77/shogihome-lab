@@ -48,6 +48,8 @@ Windows では `ShogiHomeLab.exe --config-editor --config-dir "D:\engine-config"
 
 wrapper の単独実行は `engine-wrapper/` で `cargo run --locked -p shogihome-engine-wrapper -- --config-dir /absolute/path/to/engine-config` とします。`--config-dir` 省略時は `engines.json` のある実行ファイル横の `engine-wrapper/`、なければ実行ファイルの directory を使うため、portable 配置では `wrapper[.exe]` のダブルクリックで同梱設定が読まれます。GUI は TCP relay を起動しません。
 
+Windows でエンジン起動時の HighQoS を試すには `engine-wrapper/.env` に `ENGINE_HIGH_QOS=true` を設定して wrapper を再起動します。環境変数 `ENGINE_HIGH_QOS` が設定されている場合（空文字列を含む）は `.env` より優先します。既定は `false`、空文字列は無効です。`true/false`、`1/0`、`yes/no`、`on/off` を大文字小文字を問わず指定できます（不正値は起動エラー）。ランチャー起動時もこの値を wrapper に渡します。Windows 以外では適用されず、明示的に有効化するとログに警告を出します。`cmd`／`bat` 経由では起動用プロセスへの適用となり、エンジン本体への適用は保証されません。
+
 ## Launcher として使う
 
 現段階の layout は書き込み可能な portable ディレクトリです。各 OS でビルドした次のファイルを配置します（`[.exe]` は Windows のみ）。

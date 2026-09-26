@@ -251,6 +251,41 @@ impl AsyncChild {
         self.pid
     }
 
+    /// Explicitly disable execution-speed throttling for this engine process.
+    /// Uses the owned child handle rather than reopening by PID, which could
+    /// target a different process if the child exited immediately.
+    #[cfg(windows)]
+    pub fn set_high_qos(&self) -> io::Result<()> {
+        use std::os::windows::io::AsRawHandle;
+        use windows::Win32::Foundation::HANDLE;
+        use windows::Win32::System::Threading::{
+            ProcessPowerThrottling, SetProcessInformation,
+            PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+            PROCESS_POWER_THROTTLING_STATE,
+        };
+
+        let handle = self
+            .inner
+            .process_handle()
+            .ok_or_else(|| io::Error::other("engine process handle unavailable for HighQoS"))?;
+        let state = PROCESS_POWER_THROTTLING_STATE {
+            Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+            StateMask: 0,
+        };
+        // SAFETY: `handle` is borrowed from the live child, and `state` has
+        // the type and size required by ProcessPowerThrottling.
+        unsafe {
+            SetProcessInformation(
+                HANDLE(handle.as_raw_handle()),
+                ProcessPowerThrottling,
+                &state as *const _ as *const std::ffi::c_void,
+                std::mem::size_of_val(&state) as u32,
+            )
+        }
+        .map_err(io::Error::other)
+    }
+
     pub fn stdin(&mut self) -> &mut Option<tokio::process::ChildStdin> {
         #[cfg(windows)]
         {
@@ -365,5 +400,56 @@ mod tests {
         child.kill().expect("kill must succeed");
         let status = child.wait().expect("wait must succeed");
         assert!(!status.success());
+    }
+
+    #[cfg(all(windows, feature = "async"))]
+    #[tokio::test]
+    async fn high_qos_sets_execution_speed_policy_on_the_spawned_process() {
+        use std::os::windows::io::AsRawHandle;
+        use windows::Win32::Foundation::HANDLE;
+        use windows::Win32::System::Threading::{
+            GetProcessInformation, ProcessPowerThrottling,
+            PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+            PROCESS_POWER_THROTTLING_STATE,
+        };
+
+        // CI installs Python. With piped stdin and no arguments it waits for
+        // input, letting us inspect a directly spawned executable (not cmd).
+        let output = std::process::Command::new("python")
+            .args(["-c", "import sys; print(sys.executable)"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let path = std::path::PathBuf::from(String::from_utf8(output.stdout).unwrap().trim());
+        let mut child = spawn_async_engine(&path, path.parent().unwrap()).unwrap();
+        child.set_high_qos().unwrap();
+
+        let handle = child.inner.process_handle().unwrap();
+        let mut state = PROCESS_POWER_THROTTLING_STATE {
+            Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            ..Default::default()
+        };
+        // SAFETY: the child owns this process handle, and `state` is a writable
+        // buffer of the type and size required by ProcessPowerThrottling.
+        unsafe {
+            GetProcessInformation(
+                HANDLE(handle.as_raw_handle()),
+                ProcessPowerThrottling,
+                &mut state as *mut _ as *mut std::ffi::c_void,
+                std::mem::size_of_val(&state) as u32,
+            )
+        }
+        .unwrap();
+        assert_ne!(
+            state.ControlMask & PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+            0
+        );
+        assert_eq!(
+            state.StateMask & PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+            0
+        );
+
+        child.terminate_tree(false);
+        let _ = child.wait().await;
     }
 }

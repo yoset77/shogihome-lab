@@ -99,12 +99,13 @@ pub fn format_option(name: &str, value: &Value) -> Option<String> {
     Some(format!("setoption name {name} value {value_str}"))
 }
 
-/// Resolved TCP/auth settings.
+/// Resolved TCP/auth and engine process settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeConfig {
     pub bind: String,
     pub port: u16,
     pub token: Option<String>,
+    pub engine_high_qos: bool,
 }
 
 /// Resolve runtime settings with the documented precedence:
@@ -113,7 +114,8 @@ pub struct RuntimeConfig {
 ///
 /// An environment variable that is already set — even to the empty
 /// string — always wins over the `.env` file (`load_dotenv` without override). An empty
-/// `WRAPPER_ACCESS_TOKEN` disables authentication from any source.
+/// `WRAPPER_ACCESS_TOKEN` disables authentication and an empty
+/// `ENGINE_HIGH_QOS` disables HighQoS from any source.
 /// `${VAR}` interpolation is NOT expanded; file values are literal.
 pub fn resolve_runtime(
     cli_bind: Option<String>,
@@ -148,7 +150,26 @@ pub fn resolve_runtime(
             .filter(|t| !t.is_empty())
             .cloned()
     };
-    Ok(RuntimeConfig { bind, port, token })
+    let high_qos_raw = env
+        .get("ENGINE_HIGH_QOS")
+        .or_else(|| file.get("ENGINE_HIGH_QOS"))
+        .map(String::as_str)
+        .unwrap_or("");
+    let engine_high_qos = match high_qos_raw.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" => true,
+        "false" | "0" | "no" | "off" | "" => false,
+        _ => {
+            return Err(format!(
+                "invalid ENGINE_HIGH_QOS value {high_qos_raw:?}: expected true/false, 1/0, yes/no, on/off, or empty"
+            ))
+        }
+    };
+    Ok(RuntimeConfig {
+        bind,
+        port,
+        token,
+        engine_high_qos,
+    })
 }
 
 /// Minimal logger shim: the wrapper logs to stderr without a logging
@@ -263,6 +284,7 @@ mod tests {
                 bind: "127.0.0.1".to_string(),
                 port: 4082,
                 token: None,
+                engine_high_qos: false,
             }
         );
     }
@@ -324,5 +346,53 @@ mod tests {
             &str_map(&[("LISTEN_PORT", "99999")]),
         )
         .is_err());
+    }
+
+    #[test]
+    fn high_qos_is_opt_in_and_environment_presence_overrides_file() {
+        let file = str_map(&[("ENGINE_HIGH_QOS", "true")]);
+        assert!(
+            !resolve_runtime(None, None, &HashMap::new(), &HashMap::new())
+                .unwrap()
+                .engine_high_qos
+        );
+        assert!(
+            resolve_runtime(None, None, &HashMap::new(), &file)
+                .unwrap()
+                .engine_high_qos
+        );
+        for value in ["false", "0", "no", "off", ""] {
+            assert!(
+                !resolve_runtime(None, None, &str_map(&[("ENGINE_HIGH_QOS", value)]), &file)
+                    .unwrap()
+                    .engine_high_qos
+            );
+        }
+        for value in ["TRUE", " 1 ", "yes", "On"] {
+            assert!(
+                resolve_runtime(
+                    None,
+                    None,
+                    &str_map(&[("ENGINE_HIGH_QOS", value)]),
+                    &HashMap::new()
+                )
+                .unwrap()
+                .engine_high_qos
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_high_qos_value_fails_configuration() {
+        let file = str_map(&[("ENGINE_HIGH_QOS", "maybe")]);
+        assert!(resolve_runtime(None, None, &HashMap::new(), &file)
+            .unwrap_err()
+            .contains("ENGINE_HIGH_QOS"));
+        // A present environment value replaces even an invalid file value.
+        assert!(
+            !resolve_runtime(None, None, &str_map(&[("ENGINE_HIGH_QOS", "")]), &file)
+                .unwrap()
+                .engine_high_qos
+        );
     }
 }
