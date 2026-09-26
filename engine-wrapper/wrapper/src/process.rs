@@ -5,6 +5,8 @@
 //! original `EngineChild` / `spawn_engine` / `is_not_found` names so the
 //! relay is untouched.
 
+#[cfg(windows)]
+pub use shogihome_process::is_batch_script;
 pub use shogihome_process::{
     is_not_found, spawn_async_engine as spawn_engine, AsyncChild as EngineChild,
 };

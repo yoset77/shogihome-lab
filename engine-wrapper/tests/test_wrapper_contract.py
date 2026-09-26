@@ -98,6 +98,7 @@ def _start_wrapper(tmp: Path, port: int, token: str | None):
         env.pop("WRAPPER_ACCESS_TOKEN", None)
     else:
         env["WRAPPER_ACCESS_TOKEN"] = token
+    env.pop("ENGINE_HIGH_QOS", None)
 
     cmd = [str(_rust_binary()), "--config-dir", str(tmp)]
     proc = subprocess.Popen(
@@ -175,6 +176,37 @@ def test_run_with_pipelined_usi(wrapper):
     line = _readline(f, "no readyok")
     assert line.strip() == "readyok"
     sock.close()
+
+
+def test_high_qos_env_file_keeps_engine_relay_working(tmp_path):
+    port = _free_port()
+    _write_engines_json(tmp_path, _fake_engine_path())
+    (tmp_path / ".env").write_text("ENGINE_HIGH_QOS=true\n", encoding="utf-8")
+    proc = _start_wrapper(tmp_path, port, None)
+    try:
+        _wait_port(port)
+        sock, f = _run_and_wait_usiok(port)
+        sock.sendall(b"isready\n")
+        assert _readline(f).strip() == "readyok"
+        sock.close()
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+
+
+def test_invalid_high_qos_setting_rejects_wrapper_start(tmp_path):
+    (tmp_path / ".env").write_text("ENGINE_HIGH_QOS=maybe\n", encoding="utf-8")
+    env = {**os.environ}
+    env.pop("ENGINE_HIGH_QOS", None)
+    result = subprocess.run(
+        [str(_rust_binary()), "--config-dir", str(tmp_path)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 2
+    assert "invalid ENGINE_HIGH_QOS" in result.stderr
 
 
 def test_options_injected_once_before_first_isready(wrapper):

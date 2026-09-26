@@ -38,6 +38,8 @@ const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 pub struct RelayContext {
     pub config_dir: Arc<Path>,
     pub access_token: Option<Arc<str>>,
+    #[cfg(windows)]
+    pub engine_high_qos: bool,
     pub shutdown: watch::Receiver<bool>,
 }
 
@@ -151,6 +153,19 @@ pub async fn handle_connection(stream: TcpStream, ctx: RelayContext) {
             return;
         }
     };
+    #[cfg(windows)]
+    if ctx.engine_high_qos {
+        if crate::process::is_batch_script(&engine_path) {
+            log::warn_compat(&format!(
+                "HighQoS for engine '{engine_id}' applies to cmd.exe, not necessarily the engine launched by the script"
+            ));
+        }
+        if let Err(e) = child.set_high_qos() {
+            log::warn_compat(&format!(
+                "failed to set HighQoS for engine '{engine_id}': {e}"
+            ));
+        }
+    }
     log::info(&format!(
         "started engine '{engine_id}' path {} pid {:?}",
         engine_path.display(),

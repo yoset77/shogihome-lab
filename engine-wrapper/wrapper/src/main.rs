@@ -9,18 +9,19 @@
 //! - `BIND_ADDRESS` / `--bind-address` (default `127.0.0.1`)
 //! - `LISTEN_PORT` / `--port` (default `4082`)
 //! - `WRAPPER_ACCESS_TOKEN` (unset/empty disables authentication)
+//! - `ENGINE_HIGH_QOS` (default false; Windows engine processes only)
 //! - `--no-env-file` — skip `<config-dir>/.env` (the launcher passes this
 //!   and hands over an already-resolved environment snapshot instead).
 //!
 //! File values are literal (`${VAR}` is not expanded). An explicitly
 //! exported (even empty) environment variable always wins over the file.
 //!
-//! Only `BIND_ADDRESS`, `LISTEN_PORT`, and `WRAPPER_ACCESS_TOKEN` are read
-//! from `<config-dir>/.env`. Other entries are ignored and never reach
-//! engines: engines inherit the OS/launcher process environment (PATH and
-//! system-wide GPU/library setup belong there). The launcher forwards the
-//! same three keys to supervised wrappers, so standalone and supervised
-//! launches observe the same engine environment.
+//! Only `BIND_ADDRESS`, `LISTEN_PORT`, `WRAPPER_ACCESS_TOKEN`, and
+//! `ENGINE_HIGH_QOS` are read from `<config-dir>/.env`. Other entries are
+//! ignored and never reach engines: engines inherit the OS/launcher process
+//! environment (PATH and system-wide GPU/library setup belong there). The
+//! launcher forwards the same four keys to supervised wrappers, so standalone
+//! and supervised launches observe the same engine environment.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -123,7 +124,12 @@ fn main() {
         shogihome_env_file::parse_env(&content)
     };
     let mut env_values = std::collections::HashMap::new();
-    for key in ["BIND_ADDRESS", "LISTEN_PORT", "WRAPPER_ACCESS_TOKEN"] {
+    for key in [
+        "BIND_ADDRESS",
+        "LISTEN_PORT",
+        "WRAPPER_ACCESS_TOKEN",
+        "ENGINE_HIGH_QOS",
+    ] {
         // Presence (even empty) beats the file, like load_dotenv.
         if let Ok(value) = std::env::var(key) {
             env_values.insert(key.to_string(), value);
@@ -147,10 +153,21 @@ fn main() {
         runtime.bind,
         runtime.port,
         runtime.token,
+        runtime.engine_high_qos,
     ));
 }
 
-async fn async_main(config_dir: PathBuf, bind: String, port: u16, token: Option<String>) {
+async fn async_main(
+    config_dir: PathBuf,
+    bind: String,
+    port: u16,
+    token: Option<String>,
+    engine_high_qos: bool,
+) {
+    #[cfg(not(windows))]
+    if engine_high_qos {
+        log::warn_compat("ENGINE_HIGH_QOS is supported only on Windows; ignoring it");
+    }
     let listener = match TcpListener::bind((bind.as_str(), port)).await {
         Ok(l) => l,
         Err(e) => {
@@ -175,6 +192,8 @@ async fn async_main(config_dir: PathBuf, bind: String, port: u16, token: Option<
     let ctx = RelayContext {
         config_dir: Arc::from(config_dir),
         access_token: token.map(|t| Arc::from(t.as_str())),
+        #[cfg(windows)]
+        engine_high_qos,
         shutdown: shutdown_rx,
     };
 

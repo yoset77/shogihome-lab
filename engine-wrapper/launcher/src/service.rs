@@ -26,10 +26,15 @@ pub const READY_TIMEOUT: Duration = Duration::from_secs(10);
 /// Wrapper `.env` keys forwarded to the supervised wrapper process. The
 /// wrapper's `.env` file is wrapper configuration only: anything outside
 /// this list is ignored and never reaches engines (matching standalone
-/// `shogihome-wrapper`, which resolves the same three keys). Engines inherit
+/// `shogihome-wrapper`, which resolves the same four keys). Engines inherit
 /// the OS/launcher environment (PATH, system GPU/library setup), not
 /// wrapper config extras.
-pub const WRAPPER_ENV_FORWARD: &[&str] = &["BIND_ADDRESS", "LISTEN_PORT", "WRAPPER_ACCESS_TOKEN"];
+pub const WRAPPER_ENV_FORWARD: &[&str] = &[
+    "BIND_ADDRESS",
+    "LISTEN_PORT",
+    "WRAPPER_ACCESS_TOKEN",
+    "ENGINE_HIGH_QOS",
+];
 /// UI-level delay after stop before ports are reused (matches restart's 1s).
 pub const RESTART_SETTLE: Duration = Duration::from_secs(1);
 
@@ -165,7 +170,7 @@ pub fn portable_services_with_env_with(
         expectations.insert(name.to_string(), ReadyExpectation { host, port });
         // Resolve the snapshot with the same parent-wins rule so the child
         // observes exactly what readiness checked. The wrapper only
-        // forwards its three known keys so standalone and supervised
+        // forwards its four known keys so standalone and supervised
         // launches observe the same engine environment. The server keeps
         // its full snapshot (it consumes many keys itself).
         let mut resolved = file_map.clone();
