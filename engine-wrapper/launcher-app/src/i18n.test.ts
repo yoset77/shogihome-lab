@@ -46,6 +46,7 @@ describe("i18n", () => {
     for (const lang of ["ja", "en"] as const) {
       for (const key of [
         "close",
+        "settingsDesc_ENGINE_HIGH_QOS",
         "editor.listTitle",
         "editor.manageGroups",
         "editor.addEngine",
@@ -72,5 +73,9 @@ describe("i18n", () => {
     }
     expect(text("editor.listTitle", "en")).toBe("Engine List");
     expect(text("close", "en")).toBe("Close");
+    expect(text("settingsRestartPrompt", "ja")).toBe("設定を保存しました。サーバーを再起動しますか？");
+    expect(text("settingsRestartPrompt", "en")).toBe("Settings saved. Restart the server now?");
+    expect(text("settingsDesc_ENGINE_HIGH_QOS", "ja")).toContain("パフォーマンスを優先");
+    expect(text("settingsDesc_ENGINE_HIGH_QOS", "en")).toContain("engine performance");
   });
 });

@@ -60,6 +60,7 @@ pub const SETTINGS: &[Setting] = &[
     Setting { id: "BIND_ADDRESS", keys: &[("BIND_ADDRESS", EnvFile::Server)], setting_type: SettingType::Choice, default_int: 0, default_str: "0.0.0.0", default_bool: false, section: SECTION_BASIC, min_value: None, max_value: None, choices: &["0.0.0.0", "127.0.0.1"], item_rule: None },
     Setting { id: "ENGINE_CONNECTION_PROTECTION_TIMEOUT", keys: &[("ENGINE_CONNECTION_PROTECTION_TIMEOUT", EnvFile::Server)], setting_type: SettingType::Int, default_int: 60, default_str: "", default_bool: false, section: SECTION_BASIC, min_value: Some(1), max_value: Some(3600), choices: &[], item_rule: None },
     Setting { id: "LISTEN_PORT", keys: &[("LISTEN_PORT", EnvFile::Wrapper), ("REMOTE_ENGINE_PORT", EnvFile::Server)], setting_type: SettingType::Int, default_int: 4082, default_str: "", default_bool: false, section: SECTION_ENGINE, min_value: Some(1), max_value: Some(65535), choices: &[], item_rule: None },
+    Setting { id: "ENGINE_HIGH_QOS", keys: &[("ENGINE_HIGH_QOS", EnvFile::Wrapper)], setting_type: SettingType::Bool, default_int: 0, default_str: "", default_bool: false, section: SECTION_ENGINE, min_value: None, max_value: None, choices: &[], item_rule: None },
     Setting { id: "ALLOWED_ORIGINS", keys: &[("ALLOWED_ORIGINS", EnvFile::Server)], setting_type: SettingType::List, default_int: 0, default_str: "", default_bool: false, section: SECTION_SECURITY, min_value: None, max_value: None, choices: &[], item_rule: Some(ListRule::Origin) },
     Setting { id: "DISABLE_AUTO_ALLOWED_ORIGINS", keys: &[("DISABLE_AUTO_ALLOWED_ORIGINS", EnvFile::Server)], setting_type: SettingType::Bool, default_int: 0, default_str: "", default_bool: false, section: SECTION_SECURITY, min_value: None, max_value: None, choices: &[], item_rule: None },
     Setting { id: "TRUST_PROXY", keys: &[("TRUST_PROXY", EnvFile::Server)], setting_type: SettingType::Bool, default_int: 0, default_str: "", default_bool: false, section: SECTION_SECURITY, min_value: None, max_value: None, choices: &[], item_rule: None },
@@ -620,6 +621,7 @@ mod tests {
             values["LISTEN_PORT"],
             SettingValue::Text("4082".to_string())
         );
+        assert_eq!(values["ENGINE_HIGH_QOS"], SettingValue::Bool(false));
         assert_eq!(
             values["DISABLE_AUTO_ALLOWED_ORIGINS"],
             SettingValue::Bool(false)
@@ -643,6 +645,41 @@ mod tests {
         std::fs::write(&paths.server, "TRUST_PROXY=true\n").unwrap();
         let (values, _) = load_settings(&paths);
         assert_eq!(values["TRUST_PROXY"], SettingValue::Bool(true));
+        cleanup(&base);
+    }
+
+    #[test]
+    fn high_qos_is_a_wrapper_only_bool_setting_that_round_trips() {
+        let (base, paths) = dirs("set-high-qos");
+        let schema = settings_schema();
+        let field = schema["settings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|field| field["id"] == "ENGINE_HIGH_QOS")
+            .unwrap();
+        assert_eq!(field["type"], "bool");
+        assert_eq!(field["section"], SECTION_ENGINE);
+        assert_eq!(field["default"], false);
+
+        std::fs::write(&paths.wrapper, "ENGINE_HIGH_QOS=On\n").unwrap();
+        let (mut values, _) = load_settings(&paths);
+        assert_eq!(values["ENGINE_HIGH_QOS"], SettingValue::Bool(true));
+        save(&values, &paths).unwrap();
+        assert!(std::fs::read_to_string(&paths.wrapper)
+            .unwrap()
+            .contains("ENGINE_HIGH_QOS=true"));
+        assert!(!std::fs::read_to_string(&paths.server)
+            .unwrap()
+            .contains("ENGINE_HIGH_QOS"));
+
+        values.insert("ENGINE_HIGH_QOS".into(), SettingValue::Bool(false));
+        save(&values, &paths).unwrap();
+        let (reloaded, _) = load_settings(&paths);
+        assert_eq!(reloaded["ENGINE_HIGH_QOS"], SettingValue::Bool(false));
+        assert!(std::fs::read_to_string(&paths.wrapper)
+            .unwrap()
+            .contains("ENGINE_HIGH_QOS=false"));
         cleanup(&base);
     }
 
