@@ -1,6 +1,6 @@
 """Opt-in native WebKitGTK regressions. Run under Xvfb + a private D-Bus session.
 
-Requires tauri-driver 2.0.5, WebKitWebDriver, openbox, xdotool, wmctrl and a built shell.
+Requires tauri-driver 2.0.5, WebKitWebDriver, openbox, xdotool, xclip, wmctrl and a built shell.
 Only the Python standard library and pytest are used by the WebDriver client.
 
 The standalone-editor matrix intentionally mirrors
@@ -97,18 +97,17 @@ class Gui:
         self.request("POST", f"/session/{self.session}/window", {"handle": handle})
 
     def native_window(self, title):
+        return wait_until(lambda: self.native_window_id(title), title)
+
+    def native_window_id(self, title):
         pid = (self.root / "app.pid").read_text()
-
-        def lookup():
-            result = subprocess.run(
-                ["xdotool", "search", "--all", "--onlyvisible", "--pid", pid, "--name", f"^{title}$"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            return result.stdout.splitlines()[0] if result.returncode == 0 else None
-
-        return wait_until(lookup, title)
+        result = subprocess.run(
+            ["xdotool", "search", "--all", "--onlyvisible", "--pid", pid, "--name", f"^{title}$"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.stdout.splitlines()[0] if result.returncode == 0 else None
 
     def native_close(self, title):
         window = self.native_window(title)
@@ -159,10 +158,17 @@ def gui(root, args):
         )
         client = Gui(f"http://127.0.0.1:{port}", root)
         try:
+            def window_manager_ready():
+                if wm.poll() is not None:
+                    raise AssertionError(f"openbox exited with {wm.returncode}")
+                result = subprocess.run(["wmctrl", "-m"], capture_output=True, text=True, timeout=5)
+                return result.returncode == 0 and "Openbox" in result.stdout
+
+            wait_until(window_manager_ready, "Openbox startup")
 
             def ready():
                 try:
-                    return client.request("GET", "/status")
+                    return client.request("GET", "/status").get("ready") is True
                 except (OSError, AssertionError):
                     return False
 
@@ -180,11 +186,37 @@ def gui(root, args):
                 },
             )
             client.session = session["sessionId"]
-            wait_until(lambda: client.execute("return !!window.__TAURI_INTERNALS__"), "IPC ready")
+
+            def ipc_ready():
+                try:
+                    return client.execute("return !!window.__TAURI_INTERNALS__")
+                except (OSError, AssertionError):
+                    return False
+
+            wait_until(ipc_ready, "IPC ready")
             yield client
         except Exception:
             if shutil.which("scrot"):
-                subprocess.run(["scrot", str(root / "failure.png")], timeout=5)
+                try:
+                    subprocess.run(["scrot", str(root / "failure.png")], timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+            pid_file = root / "app.pid"
+            exit_file = root / "app.exit"
+            print(
+                f"GUI processes: driver={driver.poll()}, openbox={wm.poll()}, "
+                f"app_pid={pid_file.read_text() if pid_file.exists() else 'missing'}, "
+                f"app_exit={exit_file.read_text() if exit_file.exists() else 'pending'}",
+                flush=True,
+            )
+            try:
+                processes = subprocess.run(["ps", "-eo", "pid,ppid,stat,args"], capture_output=True, text=True, timeout=5)
+                print(
+                    "\n".join(line for line in processes.stdout.splitlines() if any(name in line for name in ("WebKitWebDriver", "tauri-driver", "ShogiHomeLab"))),
+                    flush=True,
+                )
+            except (OSError, subprocess.TimeoutExpired) as error:
+                print(f"GUI process listing unavailable: {error}", flush=True)
             print((root / "gui.log").read_text(), flush=True)
             raise
         finally:
@@ -193,7 +225,10 @@ def gui(root, args):
                 if process_alive(pid):
                     os.kill(pid, signal.SIGKILL)
             if driver.poll() is None:
-                os.killpg(driver.pid, signal.SIGTERM)
+                try:
+                    os.killpg(driver.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
             driver.wait(timeout=10)
             wm.terminate()
             wm.wait(timeout=10)
@@ -230,6 +265,48 @@ def assert_probe_drained(config):
         wait_until(lambda pid=pid: not process_alive(pid), f"reap {file}")
 
 
+def select_engine_file(client, engine):
+    client.execute(
+        "window.browseResult={state:'pending'}; "
+        "window.__TAURI_INTERNALS__.invoke('editor_browse')"
+        ".then(value=>window.browseResult={state:'resolved',value},"
+        "error=>window.browseResult={state:'rejected',error:String(error)}); return true;"
+    )
+    picker = client.native_window("Choose engine executable")
+    subprocess.run(["xdotool", "windowactivate", "--sync", picker], check=True, timeout=5)
+
+    def focused():
+        result = subprocess.run(["xdotool", "getactivewindow"], capture_output=True, text=True, check=True, timeout=5)
+        return int(result.stdout.strip()) == int(picker)
+
+    wait_until(focused, "file picker focus", timeout=5)
+    subprocess.run(["xclip", "-selection", "clipboard", "-i"], input=str(engine), text=True, check=True, timeout=5)
+    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+l"], check=True, timeout=5)
+    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+a"], check=True, timeout=5)
+    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+v"], check=True, timeout=5)
+    subprocess.run(["xdotool", "key", "Return"], check=True, timeout=5)
+
+    def completed():
+        result = client.execute("return window.browseResult")
+        if result["state"] == "rejected":
+            raise AssertionError(f"file picker failed: {result['error']}")
+        return result if result["state"] == "resolved" else None
+
+    deadline = time.monotonic() + 2
+    result = None
+    while time.monotonic() < deadline:
+        result = completed()
+        if result:
+            break
+        time.sleep(0.05)
+    if not result and client.native_window_id("Choose engine executable"):
+        # GTK can use the first Return for path completion rather than selection.
+        subprocess.run(["xdotool", "key", "Return"], check=True, timeout=5)
+    result = result or wait_until(completed, "file selection", timeout=20)
+    assert result["value"], f"file picker returned no file: {result}"
+    return Path(result["value"])
+
+
 @pytest.mark.parametrize("explicit_dir", [True, False])
 def test_standalone_editor_save_probe_lock_and_native_close(tmp_path, explicit_dir):
     config = tmp_path / ("設定 directory" if explicit_dir else "engine-wrapper")
@@ -262,19 +339,7 @@ def test_standalone_editor_save_probe_lock_and_native_close(tmp_path, explicit_d
             encoding="utf-8",
         )
         engine.chmod(0o755)
-        client.execute("window.picked=null; window.__TAURI_INTERNALS__.invoke('editor_browse').then(p=>window.picked=p); return true;")
-        picker = client.native_window("Choose engine executable")
-        subprocess.run(["xdotool", "windowactivate", "--sync", picker], check=True, timeout=5)
-        time.sleep(0.5)
-        subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+l"], check=True, timeout=5)
-        subprocess.run(["xdotool", "type", "--clearmodifiers", "--", str(engine)], check=True, timeout=5)
-        subprocess.run(["xdotool", "key", "Return"], check=True, timeout=5)
-        # GTK may consume the first Return to accept path completion.
-        time.sleep(0.3)
-        if not client.execute("return window.picked"):
-            subprocess.run(["xdotool", "key", "Return"], check=True, timeout=5)
-        wait_until(lambda: client.execute("return window.picked"), "extensionless file selection")
-        assert Path(client.execute("return window.picked")) == engine
+        assert select_engine_file(client, engine) == engine
         assert client.invoke("editor_probe", {"path": engine.name})[1]["Threads"]["max"] == 128
         engine.chmod(0o644)
         with pytest.raises(AssertionError, match="Permission denied"):

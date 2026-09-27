@@ -83,21 +83,27 @@ def _win32_api(with_class_name=False):
     return user32, callback_type, ctypes, wintypes
 
 
-def _wait_cdp_ready(port):
+def _wait_cdp_ready(port, timeout=30):
     """Wait for the WebView2 debugging endpoint; return its CDP URL."""
     import urllib.error
     import urllib.request
 
     endpoint = f"http://127.0.0.1:{port}"
+    last_error = None
 
     def cdp_ready():
+        nonlocal last_error
         try:
             with urllib.request.urlopen(f"{endpoint}/json/version", timeout=1) as response:
                 return response.status == 200
-        except (OSError, urllib.error.URLError):
+        except (OSError, urllib.error.URLError) as error:
+            last_error = error
             return False
 
-    _wait_until(cdp_ready, "WebView2 debugging endpoint", timeout=30)
+    try:
+        _wait_until(cdp_ready, "WebView2 debugging endpoint", timeout=timeout)
+    except AssertionError as error:
+        raise AssertionError(f"WebView2 debugging endpoint {endpoint} unavailable (last error: {last_error})") from error
     return endpoint
 
 
@@ -255,13 +261,11 @@ def test_editor_open_browse_close_reopen_and_exit(tmp_path):
         _clear_cdp_policy()
 
 
-def _drive_editor_standalone(port, pid, expected_id, probe_path):
+def _drive_editor_standalone(port, pid, expected_id, probe_path, probe_started):
     # Standalone `--config-editor` regression: editor only, no dashboard,
     # no services, custom --config-dir honored, process exits with window.
     # When probe_path is given, a probe is left in flight while the window
     # closes, proving cancellation + child cleanup drain before exit.
-    import time
-
     from playwright.sync_api import expect, sync_playwright
 
     user32, callback_type, ctypes, wintypes = _win32_api()
@@ -332,15 +336,15 @@ def _drive_editor_standalone(port, pid, expected_id, probe_path):
                 probe_path,
             )
             assert started == "started"
-            # Well inside the 5s probe deadline: closing now must cancel the
-            # probe (not time it out) and reap the child before process exit.
-            time.sleep(1.5)
+            # Close only after the child has actually started, before the
+            # probe's 5s deadline expires.
+            _wait_until(lambda: Path(probe_started).is_file(), "probe child startup", timeout=3)
         with editor.expect_event("close", timeout=15000):
             close_native(hwnd)
         print("Standalone editor closed", flush=True)
 
 
-def _run_editor_driver(env, tmp_path, tag, port, pid, expected_id, probe_path, process):
+def _run_editor_driver(env, tmp_path, tag, port, pid, expected_id, probe_path, probe_started, process):
     """Run the out-of-process CDP driver for one standalone editor launch."""
     driver_log = tmp_path / f"editor-standalone-driver-{tag}.log"
     with driver_log.open("w", encoding="utf-8") as output:
@@ -353,6 +357,7 @@ def _run_editor_driver(env, tmp_path, tag, port, pid, expected_id, probe_path, p
                 "standalone",
                 expected_id,
                 probe_path,
+                probe_started,
             ],
             env=env,
             stdout=output,
@@ -380,7 +385,7 @@ def _run_editor_driver(env, tmp_path, tag, port, pid, expected_id, probe_path, p
                 driver.wait(timeout=15)
 
 
-def _launch_and_drive_standalone(env, tmp_path, tag, argv, cwd, expected_id, probe_path=""):
+def _launch_and_drive_standalone(env, tmp_path, tag, argv, cwd, expected_id, probe_path="", probe_started=""):
     executable = argv[0]
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
@@ -397,7 +402,7 @@ def _launch_and_drive_standalone(env, tmp_path, tag, argv, cwd, expected_id, pro
         with (tmp_path / f"editor-standalone-{tag}.log").open("w", encoding="utf-8") as log:
             process = subprocess.Popen(argv, cwd=cwd, env=case_env, stdout=log, stderr=log)
             try:
-                _run_editor_driver(case_env, tmp_path, tag, cdp_port, process.pid, expected_id, probe_path, process)
+                _run_editor_driver(case_env, tmp_path, tag, cdp_port, process.pid, expected_id, probe_path, probe_started, process)
                 # No tray resident in editor mode: closing the window exits the app.
                 assert process.wait(timeout=15) == 0, f"{executable} did not exit cleanly"
             finally:
@@ -492,6 +497,7 @@ def test_config_editor_standalone_mode(tmp_path):
     )
     (config_a / "slow.bat").write_text(
         "@echo off\r\n"
+        "echo started> probe-started.txt\r\n"
         ":waitloop\r\n"
         'set "LINE="\r\n'
         "set /p LINE=\r\n"
@@ -510,6 +516,7 @@ def test_config_editor_standalone_mode(tmp_path):
         str(workdir),
         "standalone-marker",
         "slow.bat",
+        str(config_a / "probe-started.txt"),
     )
     # The cancelled probe delivered `quit` (graceful cleanup, not a tree kill
     # after a timeout) and the editor save path matches the wrapper read path.
@@ -536,6 +543,6 @@ def test_config_editor_standalone_mode(tmp_path):
 
 if __name__ == "__main__":
     if len(sys.argv) > 3 and sys.argv[3] == "standalone":
-        _drive_editor_standalone(int(sys.argv[1]), int(sys.argv[2]), sys.argv[4], sys.argv[5])
+        _drive_editor_standalone(int(sys.argv[1]), int(sys.argv[2]), sys.argv[4], sys.argv[5], sys.argv[6])
     else:
         _drive_gui(int(sys.argv[1]), int(sys.argv[2]))
