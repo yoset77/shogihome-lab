@@ -19,6 +19,7 @@ import { KIFU_DIR } from "@/server/config";
 import { sendError } from "@/server/errors";
 import { createBodyLimit, DEFAULT_JSON_BODY_LIMIT, type AppEnv } from "@/server/hono";
 import { getString } from "@/server/routes/query";
+import { parseJsonObject, readJsonBody } from "@/server/routes/body";
 import { t } from "@/common/i18n";
 
 type AnalysisDeleteRequest = {
@@ -56,7 +57,7 @@ export const analysisRoutes = new Hono<AppEnv>()
   })
 
   .post("/delete_by_engine", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
-    const body = await c.req.json<{ engineId?: unknown }>();
+    const body = await readJsonBody(c);
     const engineId = body.engineId;
     if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
       return sendError(c, 400, "engineId must be a positive integer");
@@ -66,7 +67,7 @@ export const analysisRoutes = new Hono<AppEnv>()
   })
 
   .post("/cleanup", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
-    const body = await c.req.json<{ minDepth?: unknown }>();
+    const body = await readJsonBody(c);
     const minDepth = body.minDepth;
     if (typeof minDepth !== "number" || !Number.isInteger(minDepth) || minDepth <= 0) {
       return sendError(c, 400, "minDepth must be a positive integer");
@@ -78,7 +79,7 @@ export const analysisRoutes = new Hono<AppEnv>()
   .post(
     "/delete",
     createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
-    validator("json", (value) => value as AnalysisDeleteRequest),
+    validator("json", (value) => parseJsonObject(value) as AnalysisDeleteRequest),
     async (c) => {
       const body = c.req.valid("json");
       const sfen = body.sfen;
@@ -103,11 +104,7 @@ export const analysisRoutes = new Hono<AppEnv>()
   )
 
   .post("/export", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
-    const body = await c.req.json<{
-      engineId?: unknown;
-      filename?: unknown;
-      overwrite?: unknown;
-    }>();
+    const body = await readJsonBody(c);
     const engineId = body.engineId;
     const relPath = body.filename;
     if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {

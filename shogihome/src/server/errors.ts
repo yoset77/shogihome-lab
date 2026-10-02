@@ -1,5 +1,6 @@
 import escapeHTML from "escape-html";
 import type { Context } from "hono";
+import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { t } from "@/common/i18n";
 
@@ -18,7 +19,7 @@ export const sendError = (c: Context, status: ContentfulStatusCode, message: str
   c.text(escapeHTML(message), status);
 
 export const handleError = (err: unknown, c: Context) => {
-  if (err instanceof HttpError) {
+  if (err instanceof HttpError || err instanceof HTTPException) {
     return sendError(c, err.status as ContentfulStatusCode, err.message);
   }
   console.error("Unhandled error:", err);

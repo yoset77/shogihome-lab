@@ -847,6 +847,7 @@ export const ja: Texts = {
   overwriteUploadConflicts: (names: string) =>
     `同名のファイルが存在します。上書きしますか？\n${names}`,
   serverInternalError: "サーバー内部でエラーが発生しました。",
+  serverInvalidJsonBody: "リクエストには有効なJSONオブジェクトを指定してください。",
   serverFileNotFound: "ファイルが見つかりません。",
   serverInvalidDestination: "保存先が無効です。",
   serverFileExists: "ファイルが既に存在します。",

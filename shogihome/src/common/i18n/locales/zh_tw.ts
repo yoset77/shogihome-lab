@@ -838,6 +838,7 @@ export const zh_tw: Texts = {
   nFilesUploaded: (n: number) => `已上傳 ${n} 個檔案。`,
   overwriteUploadConflicts: (names: string) => `已有同名檔案。是否覆寫？\n${names}`,
   serverInternalError: "伺服器內部錯誤。",
+  serverInvalidJsonBody: "請求內容必須是有效的 JSON 物件。",
   serverFileNotFound: "找不到檔案。",
   serverInvalidDestination: "儲存位置無效。",
   serverFileExists: "檔案已存在。",

@@ -62,6 +62,8 @@ Rendererの `server://` URIは `KIFU_DIR` 相対pathを表す論理識別子で�
 - 定跡: [`routes/book.ts`](../../shogihome/src/server/routes/book.ts)
 - 解析結果export: [`routes/analysis.ts`](../../shogihome/src/server/routes/analysis.ts)
 
+JSON objectを受け取るrouteは [`routes/body.ts`](../../shogihome/src/server/routes/body.ts) の共通parserを使い、不正JSON・空body・null・array・primitiveをdomain処理前に400として拒否します。HonoのJSON validatorを使うrouteも共通のobject検証を通します。共通の [`errors.ts`](../../shogihome/src/server/errors.ts) はvalidatorが投げる `HTTPException` のstatusを維持するため、JSON解析失敗を500へ変換しません。Body size超過は引き続き413として扱い、domain処理などの想定外エラーは詳細をlogに留めた固定の500応答とします。
+
 HostとOriginの検証は [`security.ts`](../../shogihome/src/server/security.ts) が担当します。Session IDや `server://` URIを認証credentialとして扱いません。
 
 ## Atomic File Publication
