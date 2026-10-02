@@ -25,6 +25,7 @@ import { createTestAperyBookFile } from "@/tests/mock/book";
 import { BookFormat, SbkMoveEvaluation, bookFormats } from "@/common/book";
 import { t } from "@/common/i18n";
 import * as yaneuraou from "@/server/book/yaneuraou";
+import { BOOK_IMPORT_LIMITS } from "@/server/book/import_limits";
 
 const defaultBookSession = 1;
 
@@ -804,7 +805,9 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
       });
       const start = Date.now();
       let expired = false;
-      const clock = vi.spyOn(Date, "now").mockImplementation(() => start + (expired ? 60_001 : 0));
+      const clock = vi
+        .spyOn(Date, "now")
+        .mockImplementation(() => start + (expired ? BOOK_IMPORT_LIMITS.timeoutMs + 1 : 0));
       const search = vi
         .spyOn(yaneuraou, "searchYaneuraOuBookMovesOnTheFly")
         .mockImplementation(async () => {
