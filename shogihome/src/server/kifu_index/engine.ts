@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import path from "node:path";
+import { resolveIndexableKifuPath } from "@/server/helpers/kifu";
 import { RecordMetadataKey, ImmutableNode, getBlackPlayerName, getWhitePlayerName } from "tsshogi";
 import { importRecordFromBuffer, detectRecordFileFormatByPath } from "@/common/file/record";
 import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
@@ -38,17 +38,26 @@ export async function parseAndIndexFile(
   metadata: Omit<KifuFileMetadata, "indexed_at">;
   positions: KifuPositionData[];
 } | null> {
-  const fullPath = path.join(baseDir, relativePath);
-  if (!fs.existsSync(fullPath)) {
-    return null;
-  }
-
-  const stats = fs.statSync(fullPath);
-  const buffer = await fs.promises.readFile(fullPath);
   const format = detectRecordFileFormatByPath(relativePath);
-
-  if (!format) {
-    return null;
+  if (!format) return null;
+  const fullPath = resolveIndexableKifuPath(baseDir, relativePath);
+  if (!fullPath) return null;
+  let file: fs.promises.FileHandle;
+  try {
+    file = await fs.promises.open(fullPath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+  } catch (error) {
+    if (["ENOENT", "ELOOP"].includes((error as NodeJS.ErrnoException).code ?? "")) return null;
+    throw error;
+  }
+  let stats: fs.Stats;
+  let buffer: Buffer;
+  try {
+    stats = await file.stat();
+    if (!stats.isFile() || resolveIndexableKifuPath(baseDir, relativePath) !== fullPath)
+      return null;
+    buffer = await file.readFile();
+  } finally {
+    await file.close();
   }
 
   const record = importRecordFromBuffer(new Uint8Array(buffer), format, {

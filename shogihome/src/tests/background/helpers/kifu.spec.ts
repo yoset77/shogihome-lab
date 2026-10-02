@@ -126,6 +126,9 @@ describe("background/helpers/kifu", () => {
           timeout: 3000,
         });
         fs.rmdirSync(directory);
+        await vi.waitFor(() => expect(events).toContainEqual(["unlinkDir", "games"]), {
+          timeout: 3000,
+        });
         expect(
           allEvents.some(([, relPath]) => relPath.split(path.sep).some(isReservedServerEntryName)),
         ).toBe(false);
@@ -167,11 +170,80 @@ describe("background/helpers/kifu", () => {
         });
         expect(await getKifuList(linkedRoot)).toEqual([]);
         fs.rmdirSync(path.join(tempDir, "games"));
+        await vi.waitFor(() => expect(events).toContainEqual(["unlinkDir", "games"]), {
+          timeout: 3000,
+        });
       } finally {
         await watcher?.close();
       }
     },
     10000,
+  );
+
+  it.each([false, true])(
+    "watches a root whose real path contains hidden segments (polling: %s)",
+    async (usePolling) => {
+      const hiddenRealRoot = path.join(outsideDir, ".hidden-real", "kifu");
+      fs.mkdirSync(hiddenRealRoot, { recursive: true });
+      const linkedRoot = path.join(outsideDir, "kifu-link");
+      fs.symlinkSync(hiddenRealRoot, linkedRoot, "dir");
+      const events: [string, string][] = [];
+      const watcher = setupKifuWatcher(linkedRoot, usePolling, (event, relPath) =>
+        events.push([event, relPath]),
+      );
+      expect(watcher).not.toBeNull();
+      try {
+        await new Promise<void>((resolve) => watcher!.once("ready", resolve));
+        expect(watcher!.getWatched()).not.toEqual({});
+
+        // Hidden directories under the root remain excluded.
+        fs.mkdirSync(path.join(hiddenRealRoot, ".secrets"), { recursive: true });
+        fs.writeFileSync(path.join(hiddenRealRoot, ".secrets", "inner.kif"), "inner");
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        expect(events).toEqual([]);
+
+        const target = path.join(hiddenRealRoot, "game.kif");
+        fs.writeFileSync(target, "old");
+        await vi.waitFor(() => expect(events).toContainEqual(["add", "game.kif"]), {
+          timeout: 3000,
+        });
+        fs.writeFileSync(target, "updated");
+        await vi.waitFor(() => expect(events).toContainEqual(["change", "game.kif"]), {
+          timeout: 3000,
+        });
+        fs.rmSync(target);
+        await vi.waitFor(() => expect(events).toContainEqual(["unlink", "game.kif"]), {
+          timeout: 3000,
+        });
+      } finally {
+        await watcher?.close();
+      }
+    },
+    20000,
+  );
+
+  it.each([false, true])(
+    "does not watch hidden directories starting with two dots (polling: %s)",
+    async (usePolling) => {
+      const hiddenDirectory = path.join(tempDir, "..hidden");
+      const ordinaryDirectory = path.join(tempDir, "games");
+      fs.mkdirSync(hiddenDirectory);
+      fs.mkdirSync(ordinaryDirectory);
+      fs.writeFileSync(path.join(hiddenDirectory, "inner.kif"), "hidden");
+      fs.writeFileSync(path.join(ordinaryDirectory, "game.kif"), "ordinary");
+      const watcher = setupKifuWatcher(tempDir, usePolling);
+      expect(watcher).not.toBeNull();
+      try {
+        await new Promise<void>((resolve) => watcher!.once("ready", resolve));
+        const watchedDirectories = Object.keys(watcher!.getWatched()).map((dir) =>
+          path.resolve(dir),
+        );
+        expect(watchedDirectories).not.toContain(fs.realpathSync(hiddenDirectory));
+        expect(watchedDirectories).toContain(fs.realpathSync(ordinaryDirectory));
+      } finally {
+        await watcher?.close();
+      }
+    },
   );
 
   it("getKifuList respects depth limit", async () => {

@@ -64,7 +64,14 @@ export const createEngineWebSocketServer = (
       ws.isAlive = true;
     });
 
-    const url = new URL(req.url!, `http://${req.headers.host}`);
+    let url: URL;
+    try {
+      url = new URL(req.url ?? "", `http://${req.headers.host}`);
+    } catch {
+      console.warn("Blocked connection with invalid WebSocket URL");
+      ws.close(1008, "Invalid URL");
+      return;
+    }
     const sessionId = url.searchParams.get("sessionId");
     const SESSION_ID_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
 

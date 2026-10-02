@@ -133,7 +133,7 @@ export interface KifuDirectoryEntry {
   path: string;
 }
 
-export type KifuFileEvent = "add" | "change" | "unlink";
+export type KifuFileEvent = "add" | "change" | "unlink" | "unlinkDir";
 
 export const resolveKifuDirectory = (baseDir: string, relPath: string): string | null => {
   const segments = relPath ? normalizePath(relPath).split("/") : [];
@@ -228,7 +228,22 @@ export const setupKifuWatcher = (
     // Follow only the configured root, never symlinks below it.
     const watchRoot = fs.realpathSync(baseDir);
     const watcher = watch(watchRoot, {
-      ignored: (p) => /(^|[/\\])\../.test(p) || isReservedServerEntryName(path.basename(p)),
+      // The dotfile and reserved name checks apply to paths under the watch
+      // root only, so a root whose real path contains hidden segments
+      // (e.g., a symlink target under ~/.local) is still watched.
+      ignored: (p) => {
+        const normalized = normalizePath(p);
+        if (normalized === normalizePath(watchRoot)) return false;
+        const rel = normalizePath(path.relative(watchRoot, p));
+        // Only the segments under the watch root are checked, so a root whose
+        // real path contains hidden segments (e.g., a symlink target under
+        // ~/.local) is still watched.
+        if (!rel || rel === ".." || rel.startsWith("../")) return false;
+        const segments = rel.split("/");
+        return segments.some(
+          (segment) => segment.startsWith(".") || isReservedServerEntryName(segment),
+        );
+      },
       followSymlinks: false,
       persistent: true,
       ignoreInitial: true,
@@ -253,6 +268,8 @@ export const setupKifuWatcher = (
         clearKifuListCache();
       }
       if (onEvent && isKifu && (event === "add" || event === "change" || event === "unlink")) {
+        onEvent(event, normalizePath(path.relative(watchRoot, filePath)));
+      } else if (onEvent && event === "unlinkDir") {
         onEvent(event, normalizePath(path.relative(watchRoot, filePath)));
       }
     });

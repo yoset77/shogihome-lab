@@ -109,6 +109,10 @@ Host、Origin、body size、rate limit などのHTTP共通ポリシーは `shogi
 
 `KIFU_DIR` 内の atomic writer が使用する `*.lock` directory は内部専用の名前空間です。共有name validatorとpath resolverは、この名前空間へのBrowserからの作成・アクセスを拒否し、directoryとfileの一覧にも公開しません。
 
+棋譜indexも既存のpath boundaryを使用し、設定したroot自体を除くsymlinkを追跡せず、通常の棋譜fileだけを読み込みます。Watcherはconfigured rootのreal pathを監視し、配下のsymlinkは追跡しません。Atomic writerの予約名前空間は監視からも除外し、内部lockの作成・削除で一覧やindexを再走査しません。監視対象から外れたfileの派生indexは同期時に削除します。Directory削除はfile削除と区別し、同じevent batchの再追加・変更を優先します。
+
+想定外のHTTPエラー詳細はserver logに留め、APIには固定の500応答を返します。利用者が指定したファイルの欠落は読み込み境界で404として扱います。
+
 ## Engine Session Invariants
 
 Middle Server の `shogihome/src/server/engine/session.ts` が、engine 接続から終了までの USI state machine を一元管理します。
