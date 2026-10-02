@@ -54,6 +54,9 @@ import {
   searchYbbBookMovesOnTheFly,
   storeYbbBook,
 } from "./ybb.js";
+import { BOOK_IMPORT_LIMITS } from "./import_limits.js";
+
+const BOOK_IMPORT_YIELD_INTERVAL = 100;
 
 type BookHandle = InMemoryBook | OnTheFlyBook;
 
@@ -105,11 +108,16 @@ async function listFilesInsideRoot(
   let scanned = 0;
 
   async function visit(currentDir: string, depth = 0): Promise<void> {
-    if (depth > 10 || Date.now() > deadline) throw new HttpError(413, t.serverBookImportLimit);
+    if (depth > BOOK_IMPORT_LIMITS.maxDepth || Date.now() > deadline) {
+      throw new HttpError(413, t.serverBookImportLimit);
+    }
     // codeql[js/path-injection]
     const directory = await fs.promises.opendir(currentDir);
     for await (const entry of directory) {
-      if (++scanned > 2000 || files.length >= 2000 || Date.now() > deadline) {
+      if (++scanned % BOOK_IMPORT_YIELD_INTERVAL === 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      if (scanned > BOOK_IMPORT_LIMITS.maxScannedEntries || Date.now() > deadline) {
         throw new HttpError(413, t.serverBookImportLimit);
       }
       if (isReservedServerEntryName(entry.name) || entry.name.startsWith(".")) continue;
@@ -123,8 +131,11 @@ async function listFilesInsideRoot(
       if (!isPathInsideDirectory(rootPath, resolvedEntryPath)) {
         continue;
       }
-      if (stat.isFile()) {
+      if (stat.isFile() && detectRecordFileFormatByPath(resolvedEntryPath)) {
         files.push(resolvedEntryPath);
+        if (files.length > BOOK_IMPORT_LIMITS.maxFiles) {
+          throw new HttpError(413, t.serverBookImportLimit);
+        }
       } else if (stat.isDirectory()) {
         await visit(resolvedEntryPath, depth + 1);
       }
@@ -808,26 +819,36 @@ export async function updateBookMoveOrder(
 }
 
 function getRecordWinner(node: ImmutableNode): Color | undefined {
-  let lastNode = node;
-  while (lastNode.next) {
-    lastNode = lastNode.next;
-  }
-  const lastMove = lastNode.move;
+  const lastMove = node.move;
   if (lastMove instanceof Move) {
     return undefined;
   }
   switch (lastMove.type) {
     case SpecialMoveType.FOUL_WIN:
     case SpecialMoveType.ENTERING_OF_KING:
-      return lastNode.nextColor;
+      return node.nextColor;
     case SpecialMoveType.RESIGN:
     case SpecialMoveType.MATE:
     case SpecialMoveType.TIMEOUT:
     case SpecialMoveType.FOUL_LOSE:
     case SpecialMoveType.TRY:
-      return reverseColor(lastNode.nextColor);
+      return reverseColor(node.nextColor);
     default:
       return undefined;
+  }
+}
+
+// Match Record.forEach's depth-first order without an async callback or a node array.
+function* iterateRecordNodes(record: Record): Generator<ImmutableNode> {
+  let node: ImmutableNode | null = record.first;
+  while (node) {
+    yield node;
+    if (node.next) {
+      node = node.next;
+      continue;
+    }
+    while (node && !node.branch) node = node.prev;
+    node = node?.branch ?? null;
   }
 }
 
@@ -855,14 +876,38 @@ export async function importBookMoves(
   type PendingMove = { count: number; minPly: number; score?: number; depth?: number };
   const pendingMoves = new Map<string, Map<string, PendingMove>>();
   const pendingStats = new Map<string, { games: number; wonBlack: number; wonWhite: number }>();
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + BOOK_IMPORT_LIMITS.timeoutMs;
   let importedMoves = 0;
   let bytesRead = 0;
   const checkLimits = () => {
-    if (Date.now() > deadline || importedMoves > 100_000) {
+    if (Date.now() > deadline || importedMoves > BOOK_IMPORT_LIMITS.maxMoves) {
       throw new HttpError(413, t.serverBookImportLimit);
     }
   };
+  const yieldToEventLoop = async () => {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    checkLimits();
+  };
+  let visitedNodes = 0;
+  async function collectRecord(record: Record, targetColors: { [color in Color]: boolean }) {
+    let winner: Color | undefined;
+    let lastPly = Infinity;
+    for (const node of iterateRecordNodes(record)) {
+      if (book.format === "sbk" && node.ply <= lastPly) {
+        let lastNode = node;
+        while (lastNode.next) {
+          lastNode = lastNode.next;
+          if (++visitedNodes % BOOK_IMPORT_YIELD_INTERVAL === 0) await yieldToEventLoop();
+        }
+        winner = getRecordWinner(lastNode);
+      }
+      lastPly = node.ply;
+      const prev = node.prev;
+      if (prev && targetColors[prev.nextColor]) importMove(node, prev.sfen, winner);
+      // Count filtered and special nodes too, not just imported moves.
+      if (++visitedNodes % BOOK_IMPORT_YIELD_INTERVAL === 0) await yieldToEventLoop();
+    }
+  }
   function importMove(node: ImmutableNode, sfen: string, winner?: Color) {
     if (!(node.move instanceof Move)) {
       return;
@@ -983,7 +1028,6 @@ export async function importBookMoves(
           throw new HttpError(404, t.directoryNotFound(path.basename(settings.sourceDirectory)));
         }
         paths = await listFilesInsideRoot(rootDirectory, sourceDirectory, deadline);
-        paths = paths.filter(detectRecordFileFormatByPath);
         break;
       }
       default:
@@ -1023,7 +1067,10 @@ export async function importBookMoves(
       const format = detectRecordFileFormatByPath(safeRecordFilePath) as RecordFileFormat;
       // codeql[js/path-injection]
       const stat = await fs.promises.stat(safeRecordFilePath);
-      if (stat.size > 16 * 1024 * 1024 || (bytesRead += stat.size) > 128 * 1024 * 1024) {
+      if (
+        stat.size > BOOK_IMPORT_LIMITS.maxFileBytes ||
+        (bytesRead += stat.size) > BOOK_IMPORT_LIMITS.maxTotalBytes
+      ) {
         throw new HttpError(413, t.serverBookImportLimit);
       }
       const sourceData = await fs.promises.readFile(safeRecordFilePath);
@@ -1038,7 +1085,7 @@ export async function importBookMoves(
         let hasValidLines = false;
         let invalidLine = "";
         for (let index = 0; index < lines.length; index++) {
-          if (index % 100 === 0) checkLimits();
+          if (index % BOOK_IMPORT_YIELD_INTERVAL === 0) await yieldToEventLoop();
           const line = lines[index];
           const record = Record.newByUSI(line.trim());
           if (record instanceof Error) {
@@ -1046,18 +1093,7 @@ export async function importBookMoves(
             continue;
           }
           hasValidLines = true;
-          let winner: Color | undefined;
-          let lastPly = Infinity;
-          record.forEach((node) => {
-            if (node.ply <= lastPly) {
-              winner = getRecordWinner(node);
-            }
-            lastPly = node.ply;
-            const prev = node.prev;
-            if (prev && targetColorSet[prev.nextColor]) {
-              importMove(node, prev.sfen, winner);
-            }
-          });
+          await collectRecord(record, targetColorSet);
         }
         if (hasValidLines) {
           successFileCount++;
@@ -1108,114 +1144,100 @@ export async function importBookMoves(
         }
       }
 
-      let winner: Color | undefined;
-      let lastPly = Infinity;
-      record.forEach((node) => {
-        if (node.ply <= lastPly) {
-          winner = getRecordWinner(node);
-        }
-        lastPly = node.ply;
-        const prev = node.prev;
-        if (prev && targetColorSet[prev.nextColor]) {
-          importMove(node, prev.sfen, winner);
-        }
-      });
+      await collectRecord(record, targetColorSet);
       successFileCount++;
+      await yieldToEventLoop();
     }
-
-    const sfens = Array.from(pendingMoves.keys());
-    const results = new Map<string, BookEntry>();
-    let nextIndex = 0;
-    const maxConcurrency = book.type === "on-the-fly" ? 16 : 1;
-    const concurrency = Math.min(sfens.length, maxConcurrency);
-    const worker = async () => {
-      while (nextIndex < sfens.length) {
-        checkLimits();
-        const i = nextIndex++;
-        const sfen = sfens[i];
-        const entry = await retrieveMergedEntry(book, sfen);
-        checkLimits();
-        if (entry) {
-          results.set(sfen, entry);
-        }
-      }
-    };
-    const workers = [];
-    for (let i = 0; i < concurrency; i++) {
-      workers.push(worker());
-    }
-    const workerResults = await Promise.allSettled(workers);
-    const failedWorker = workerResults.find((result) => result.status === "rejected");
-    if (failedWorker?.status === "rejected") throw failedWorker.reason;
-    const entriesMap = results;
 
     let entryCount = 0;
     let duplicateCount = 0;
     const stagedEntries = new Map<string, BookEntry>();
-    for (const [sfen, movesMap] of pendingMoves.entries()) {
-      checkLimits();
-      const original = entriesMap.get(sfen);
-      const entry: BookEntry = original
-        ? { ...original, moves: original.moves.map((move) => ({ ...move })) }
-        : {
-            type: book.type === "in-memory" ? "normal" : "patch",
-            comment: "",
-            moves: [],
-            minPly: 0,
-          };
+    const stagedAperyEntries = new Map<bigint, BookEntry>();
+    const pending = pendingMoves.entries();
+    const maxConcurrency = book.type === "on-the-fly" ? 16 : 1;
+    const concurrency = Math.min(pendingMoves.size, maxConcurrency);
+    let completed = 0;
+    const worker = async () => {
+      for (let next = pending.next(); !next.done; next = pending.next()) {
+        checkLimits();
+        const [sfen, movesMap] = next.value;
+        const original = await retrieveMergedEntry(book, sfen);
+        checkLimits();
+        const entry: BookEntry = original
+          ? { ...original, moves: original.moves.map((move) => ({ ...move })) }
+          : {
+              type: book.type === "in-memory" ? "normal" : "patch",
+              comment: "",
+              moves: [],
+              minPly: 0,
+            };
 
-      const currentMovesMap = new Map<string, BookMove>();
-      for (const move of entry.moves) {
-        currentMovesMap.set(move.usi, move);
-      }
-
-      for (const [usi, pending] of movesMap.entries()) {
-        entry.minPly = entry.minPly > 0 ? Math.min(entry.minPly, pending.minPly) : pending.minPly;
-        const existing = currentMovesMap.get(usi);
-        if (existing) {
-          duplicateCount += pending.count;
-          existing.count = (existing.count || 0) + pending.count;
-          if (
-            pending.score !== undefined &&
-            (existing.score === undefined || (pending.depth ?? -1) > (existing.depth ?? -1))
-          ) {
-            existing.score = pending.score;
-            existing.depth = pending.depth;
-          }
-        } else {
-          entryCount++;
-          duplicateCount += pending.count - 1;
-          const newMove: BookMove = { usi, comment: "", count: pending.count };
-          if (pending.score !== undefined) {
-            newMove.score = pending.score;
-            newMove.depth = pending.depth;
-          } else if (book.format === "apery") {
-            newMove.score = 0;
-          }
-          currentMovesMap.set(usi, newMove);
+        const currentMovesMap = new Map<string, BookMove>();
+        for (const move of entry.moves) {
+          currentMovesMap.set(move.usi, move);
         }
-      }
 
-      const stats = pendingStats.get(sfen);
-      if (stats) {
-        entry.games = (entry.games || 0) + stats.games;
-        entry.wonBlack = (entry.wonBlack || 0) + stats.wonBlack;
-        entry.wonWhite = (entry.wonWhite || 0) + stats.wonWhite;
-      }
+        for (const [usi, pending] of movesMap.entries()) {
+          entry.minPly = entry.minPly > 0 ? Math.min(entry.minPly, pending.minPly) : pending.minPly;
+          const existing = currentMovesMap.get(usi);
+          if (existing) {
+            duplicateCount += pending.count;
+            existing.count = (existing.count || 0) + pending.count;
+            if (
+              pending.score !== undefined &&
+              (existing.score === undefined || (pending.depth ?? -1) > (existing.depth ?? -1))
+            ) {
+              existing.score = pending.score;
+              existing.depth = pending.depth;
+            }
+          } else {
+            entryCount++;
+            duplicateCount += pending.count - 1;
+            const newMove: BookMove = { usi, comment: "", count: pending.count };
+            if (pending.score !== undefined) {
+              newMove.score = pending.score;
+              newMove.depth = pending.depth;
+            } else if (book.format === "apery") {
+              newMove.score = 0;
+            }
+            currentMovesMap.set(usi, newMove);
+          }
+        }
 
-      entry.moves = Array.from(currentMovesMap.values());
-      entry.moves.sort((a, b) => (b.count || 0) - (a.count || 0));
-      stagedEntries.set(sfen, entry);
+        const stats = pendingStats.get(sfen);
+        if (stats) {
+          entry.games = (entry.games || 0) + stats.games;
+          entry.wonBlack = (entry.wonBlack || 0) + stats.wonBlack;
+          entry.wonWhite = (entry.wonWhite || 0) + stats.wonWhite;
+        }
+
+        entry.moves = Array.from(currentMovesMap.values());
+        entry.moves.sort((a, b) => (b.count || 0) - (a.count || 0));
+        if (book.format === "apery") {
+          stagedAperyEntries.set(aperyHash(sfen), entry);
+        } else {
+          stagedEntries.set(sfen, entry);
+        }
+        // Release collected data as it is replaced by staged entries.
+        pendingMoves.delete(sfen);
+        pendingStats.delete(sfen);
+        if (++completed % BOOK_IMPORT_YIELD_INTERVAL === 0) await yieldToEventLoop();
+      }
+    };
+    const workers = [];
+    for (let i = 0; i < concurrency; i++) workers.push(worker());
+    const workerResults = await Promise.allSettled(workers);
+    const failedWorker = workerResults.find((result) => result.status === "rejected");
+    if (failedWorker?.status === "rejected") throw failedWorker.reason;
+
+    // No yielding, hashing, or limit checks after the first mutation.
+    checkLimits();
+    if (book.format === "apery") {
+      for (const [hash, entry] of stagedAperyEntries) book.entries.set(hash, entry);
+    } else {
+      for (const [sfen, entry] of stagedEntries) book.entries.set(sfen, entry);
     }
-
-    for (const [sfen, entry] of stagedEntries) {
-      if (book.format === "apery") {
-        book.entries.set(aperyHash(sfen), entry);
-      } else {
-        book.entries.set(sfen, entry);
-      }
-    }
-    if (stagedEntries.size) book.saved = false;
+    if (stagedEntries.size || stagedAperyEntries.size) book.saved = false;
 
     if (book.type === "in-memory") {
       return {

@@ -157,7 +157,7 @@ Database、filesystem、browser storage は互いに代替可能な正本では�
 
 Book sessionの作成は明示的なopen／clear操作に限定します。保存・編集・検索は既存sessionを必要とし、期限切れやserver再起動で失われた作業状態を空の定跡として再生成しません。個人利用を前提に、読み込み方式は形式別のファイルサイズ閾値で選択し、全sessionの推定メモリ会計は行いません。SBK固有の容量・index構築制限とimportの処理制限は各境界で適用します。
 
-SFEN boundaryは既存decoderによる検証・正規化を共有し、Apery hashは必要なconsumerだけが計算します。定跡のbatch検索は事前検証と検索の両段階でevent loopへ定期的にyieldし、HTTP／WebSocket中継の実行機会を確保します。
+SFEN boundaryは既存decoderによる検証・正規化を共有し、Apery hashは必要なconsumerだけが計算します。定跡のbatch検索は事前検証と検索の両段階でevent loopへ定期的にyieldし、HTTP／WebSocket中継の実行機会を確保します。定跡importも収集と反映前の差分構築でyieldし、hash計算と制限確認を終えてから、既存作業状態を一括更新します。
 
 詳細は [Storage Architecture](docs/architecture/storage.md) を参照してください。
 
