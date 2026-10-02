@@ -43,6 +43,7 @@ export function validateSbkIndexConstructionMemory(
   moveCount: number,
   evalCount: number,
   reservedBytes: number = 0,
+  budgetBytes = SBK_INDEX_CONSTRUCTION_BUDGET_BYTES,
 ): number {
   const estimatedBytes = estimateSbkIndexConstructionBytes(
     rawBytes,
@@ -51,7 +52,7 @@ export function validateSbkIndexConstructionMemory(
     evalCount,
   );
   const totalBytes = estimatedBytes + reservedBytes;
-  if (totalBytes > SBK_INDEX_CONSTRUCTION_BUDGET_BYTES) {
+  if (totalBytes > budgetBytes) {
     throw new Error(`SBK index construction exceeds memory budget: ${totalBytes} bytes`);
   }
   return estimatedBytes;
@@ -534,6 +535,7 @@ function buildSbkOnTheFlyIndex(
   rawData: Uint8Array,
   { stateCount, moveCount, evalCount }: SBookScanResult,
   reservedBytes: number,
+  budgetBytes: number,
 ): SbkOnTheFlyLUT {
   validateSbkIndexConstructionMemory(
     rawData.byteLength,
@@ -541,6 +543,7 @@ function buildSbkOnTheFlyIndex(
     moveCount,
     evalCount,
     reservedBytes,
+    budgetBytes,
   );
   const table = new Uint32Array(stateCount * SBK_ON_THE_FLY_ROW_SIZE);
 
@@ -602,6 +605,7 @@ export async function loadSbkBookOnTheFly(
   path: string,
   maxSizeBytes: number = MAX_SBK_BOOK_SIZE_BYTES,
   reservedBytes: number = 0,
+  budgetBytes = SBK_INDEX_CONSTRUCTION_BUDGET_BYTES,
 ): Promise<SbkBook> {
   const file = await fs.promises.open(path, "r");
   try {
@@ -611,7 +615,7 @@ export async function loadSbkBookOnTheFly(
     }
     // reservedBytes accounts for data that stays alive while this book is
     // constructed (e.g. the previous on-the-fly book being replaced).
-    validateSbkIndexConstructionMemory(stat.size, 0, 0, 0, reservedBytes);
+    validateSbkIndexConstructionMemory(stat.size, 0, 0, 0, reservedBytes, budgetBytes);
     const rawData = await readFileWithValidatedSize(file, stat.size);
     const scanResult = scanSBookTopLevel(rawData);
     const { sbkAuthor, sbkDescription } = scanResult;
@@ -620,7 +624,7 @@ export async function loadSbkBookOnTheFly(
       entries: new Map<string, BookEntry>(),
       sbkAuthor,
       sbkDescription,
-      sbkIndex: buildSbkOnTheFlyIndex(rawData, scanResult, reservedBytes),
+      sbkIndex: buildSbkOnTheFlyIndex(rawData, scanResult, reservedBytes, budgetBytes),
       rawData,
     };
   } finally {

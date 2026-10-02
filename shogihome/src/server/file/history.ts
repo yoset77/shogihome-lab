@@ -45,6 +45,7 @@ export async function getHistoryWithoutLock(): Promise<RecordFileHistory> {
 }
 
 async function saveHistories(history: RecordFileHistory): Promise<void> {
+  await fs.mkdir(getUserDataPath(), { recursive: true });
   await writeFileAtomic(getHistoryPath(), JSON.stringify(history, undefined, 2), "utf8");
 }
 

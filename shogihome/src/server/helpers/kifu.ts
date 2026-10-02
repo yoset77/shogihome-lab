@@ -133,6 +133,8 @@ export interface KifuDirectoryEntry {
   path: string;
 }
 
+export type KifuFileEvent = "add" | "change" | "unlink";
+
 export const resolveKifuDirectory = (baseDir: string, relPath: string): string | null => {
   const segments = relPath ? normalizePath(relPath).split("/") : [];
   if (
@@ -217,14 +219,17 @@ export const resolveNewKifuDirectory = (
 export const setupKifuWatcher = (
   baseDir: string,
   usePolling = false,
-  onEvent?: (event: "add" | "change" | "unlink", relPath: string) => void,
+  onEvent?: (event: KifuFileEvent, relPath: string) => void,
 ): FSWatcher | null => {
   if (!fs.existsSync(baseDir)) {
     return null;
   }
   try {
-    const watcher = watch(baseDir, {
-      ignored: /(^|[/\\])\../, // ignore dotfiles
+    // Follow only the configured root, never symlinks below it.
+    const watchRoot = fs.realpathSync(baseDir);
+    const watcher = watch(watchRoot, {
+      ignored: (p) => /(^|[/\\])\../.test(p) || isReservedServerEntryName(path.basename(p)),
+      followSymlinks: false,
       persistent: true,
       ignoreInitial: true,
       usePolling,
@@ -248,7 +253,7 @@ export const setupKifuWatcher = (
         clearKifuListCache();
       }
       if (onEvent && isKifu && (event === "add" || event === "change" || event === "unlink")) {
-        onEvent(event, normalizePath(path.relative(baseDir, filePath)));
+        onEvent(event, normalizePath(path.relative(watchRoot, filePath)));
       }
     });
 
@@ -331,4 +336,47 @@ export const resolveKifuPath = (baseDir: string, relPath: string): string | null
   }
 
   return fullPath;
+};
+
+export const resolveIndexableKifuPath = (baseDir: string, relPath: string): string | null => {
+  if (typeof relPath !== "string" || getServerFileKind(relPath) !== "kifu") return null;
+  const parentRel = normalizePath(path.dirname(relPath));
+  const parent = resolveKifuDirectory(baseDir, parentRel === "." ? "" : parentRel);
+  if (!parent) return null;
+  const fullPath = resolveKifuPath(baseDir, relPath);
+  if (!fullPath || path.dirname(fullPath) !== parent) return null;
+  try {
+    const stat = fs.lstatSync(fullPath);
+    return stat.isFile() && !stat.isSymbolicLink() ? fullPath : null;
+  } catch {
+    return null;
+  }
+};
+
+export const resolveWritableKifuPath = (
+  baseDir: string,
+  kind: ServerFileKind,
+  relPath: string,
+  extension?: string,
+): string | null => {
+  if (
+    typeof relPath !== "string" ||
+    getServerFileKind(relPath) !== kind ||
+    (extension && path.extname(relPath).toLowerCase() !== extension)
+  )
+    return null;
+  const segments = normalizePath(relPath).split("/");
+  if (segments.some((segment) => !isValidServerEntryName(segment))) return null;
+  const parentRel = segments.slice(0, -1).join("/");
+  const parent = resolveKifuDirectory(baseDir, parentRel);
+  if (!parent) return null;
+  const target = resolveKifuPath(baseDir, relPath);
+  if (!target || path.dirname(target) !== parent) return null;
+  try {
+    const stat = fs.lstatSync(target);
+    if (!stat.isFile() || stat.isSymbolicLink()) return null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") return null;
+  }
+  return target;
 };

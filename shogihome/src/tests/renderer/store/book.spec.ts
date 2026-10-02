@@ -8,6 +8,7 @@ import { t } from "@/common/i18n";
 import { Record } from "tsshogi";
 import { effect } from "vue";
 import { Mocked } from "vitest";
+import { useToastStore } from "@/renderer/store/toast";
 
 vi.mock("@/renderer/ipc/api.js");
 
@@ -38,11 +39,19 @@ describe("store/book", () => {
   });
 
   it("searches the default session without a session ID", async () => {
+    mockAPI.clearBook.mockResolvedValue(undefined);
     mockAPI.searchBookMoves.mockResolvedValue([]);
     const defaultSession = new BookSessionStore();
 
     await expect(defaultSession.searchMoves(sfen)).resolves.toEqual([]);
     expect(mockAPI.searchBookMoves).toHaveBeenCalledWith(sfen, undefined);
+    expect(mockAPI.clearBook).toHaveBeenCalledOnce();
+    expect(mockAPI.clearBook.mock.invocationCallOrder[0]).toBeLessThan(
+      mockAPI.searchBookMoves.mock.invocationCallOrder[0],
+    );
+    mockAPI.searchBookMoves.mockRejectedValueOnce(new Error("session expired"));
+    await expect(defaultSession.searchMoves(sfen)).rejects.toThrow("session expired");
+    expect(mockAPI.clearBook).toHaveBeenCalledOnce();
   });
 
   it("searches the flipped position in the same session", async () => {
@@ -238,6 +247,24 @@ describe("store/book", () => {
     await vi.waitFor(() => expect(store.books).toHaveLength(0));
   });
 
+  it.each([
+    ["server://book.sbk", "sbk"],
+    ["server://book.bin", "apery"],
+    ["server://book.ybb", "ybb"],
+  ])("sends the format of the opened book when resetting it (%s)", async (path, format) => {
+    mockAPI.openBookAsNewSession.mockResolvedValueOnce("first");
+    mockAPI.searchBookMoves.mockResolvedValue([]);
+    mockAPI.clearBook.mockResolvedValue(undefined);
+    const store = new BookStore(new Record());
+    await store.openBook(path);
+
+    store.reset();
+    useConfirmationStore().ok();
+
+    await vi.waitFor(() => expect(mockAPI.clearBook).toHaveBeenCalledWith("first", format));
+    expect(store.books).toHaveLength(1);
+  });
+
   it("rejects saving over another open book", async () => {
     mockAPI.openBookAsNewSession.mockResolvedValueOnce("first").mockResolvedValueOnce("second");
     mockAPI.searchBookMoves.mockResolvedValue([]);
@@ -257,6 +284,7 @@ describe("store/book", () => {
   });
 
   it("promotes the default session after saving it", async () => {
+    mockAPI.saveBook.mockResolvedValue(true);
     mockAPI.showSaveBookDialog.mockResolvedValue("server://new.db");
     mockAPI.openBookAsNewSession.mockResolvedValueOnce("promoted");
     mockAPI.searchBookMoves.mockResolvedValue([]);
@@ -265,7 +293,7 @@ describe("store/book", () => {
     await store.activateNewBook();
     await store.saveBookFileAs();
 
-    expect(mockAPI.saveBook).toHaveBeenCalledWith("server://new.db", undefined);
+    expect(mockAPI.saveBook).toHaveBeenCalledWith("server://new.db", undefined, false);
     expect(mockAPI.clearBook).toHaveBeenLastCalledWith(undefined, "yane2016");
     expect(store.activeBookId).toBe("promoted");
     expect(store.path).toBe("server://new.db");
@@ -307,15 +335,40 @@ describe("store/book", () => {
   it("uses the configured format extension for a new book", async () => {
     await useAppSettings().updateAppSettings({ defaultBookFormat: "apery" });
     mockAPI.showSaveBookDialog.mockResolvedValue("server://new_book.bin");
-    mockAPI.saveBook.mockResolvedValue(undefined);
+    mockAPI.saveBook.mockResolvedValue(true);
     const session = new BookSessionStore();
 
     const path = await session.saveBookFileAs(() => undefined);
 
     expect(mockAPI.clearBook).toHaveBeenCalledWith(undefined, "apery");
     expect(mockAPI.showSaveBookDialog).toHaveBeenCalledWith("new_book.bin");
-    expect(mockAPI.saveBook).toHaveBeenCalledWith("server://new_book.bin", undefined);
+    expect(mockAPI.saveBook).toHaveBeenCalledWith("server://new_book.bin", undefined, false);
     expect(path).toBe("server://new_book.bin");
+  });
+
+  it("keeps unsaved edits and the original path when overwrite is cancelled", async () => {
+    const session = new BookSessionStore("book", "server://current.db");
+    session.markUnsaved();
+    useToastStore().clear();
+    mockAPI.showSaveBookDialog.mockResolvedValue("server://other.db");
+    mockAPI.saveBook.mockResolvedValue(false);
+    await expect(session.saveBookFileAs(() => undefined)).resolves.toBeUndefined();
+    expect(session.path).toBe("server://current.db");
+    expect(session.isUnsaved).toBe(true);
+    expect(useToastStore().toasts).toHaveLength(0);
+  });
+
+  it("only silently overwrites the book already bound to the session", async () => {
+    const session = new BookSessionStore("book", "server://books/current.db");
+    mockAPI.showSaveBookDialog
+      .mockResolvedValueOnce("server://books/./current.db")
+      .mockResolvedValueOnce("server://books/other.db");
+    mockAPI.saveBook.mockResolvedValue(true);
+
+    await session.saveBookFileAs(() => undefined);
+    expect(mockAPI.saveBook).toHaveBeenNthCalledWith(1, "server://books/current.db", "book", true);
+    await session.saveBookFileAs(() => undefined);
+    expect(mockAPI.saveBook).toHaveBeenNthCalledWith(2, "server://books/other.db", "book", false);
   });
 
   it("keeps the initialized format when the default setting changes", async () => {
@@ -437,9 +490,7 @@ describe("store/book", () => {
     record.append(record.position.createMoveByUSI("7g7f")!);
     store.onChangePosition(record);
     expect(store.newBook.moves).toEqual([]);
-    vi.advanceTimersByTime(200);
-    await vi.runAllTicks();
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(200);
 
     expect(mockAPI.searchBookMoves).toHaveBeenCalledWith(record.position.sfen, undefined);
   });
@@ -457,20 +508,28 @@ describe("store/book", () => {
     expect(mockAPI.openBookAsNewSession).toHaveBeenCalledTimes(1);
   });
 
-  it("does not mark an import with no new entries as unsaved", async () => {
-    mockAPI.importBookMoves.mockResolvedValue({
-      successFileCount: 1,
-      errorFileCount: 0,
-      skippedFileCount: 0,
-      entryCount: 0,
-      duplicateCount: 1,
-    });
-    const book = new BookSessionStore("first", "server://first.db");
+  it.each([
+    { entryCount: 1, duplicateCount: 0, unsaved: true },
+    { entryCount: 0, duplicateCount: 1, unsaved: true },
+    { entryCount: 0, duplicateCount: 0, unsaved: false },
+    { entryCount: undefined, duplicateCount: undefined, unsaved: true },
+  ])(
+    "tracks unsaved imports with $entryCount new and $duplicateCount duplicate moves",
+    async ({ entryCount, duplicateCount, unsaved }) => {
+      mockAPI.importBookMoves.mockResolvedValue({
+        successFileCount: 1,
+        errorFileCount: 0,
+        skippedFileCount: 0,
+        entryCount,
+        duplicateCount,
+      });
+      const book = new BookSessionStore("first", "server://first.db");
 
-    await book.importBookMoves(defaultBookImportSettings());
+      await book.importBookMoves(defaultBookImportSettings());
 
-    expect(book.isUnsaved).toBe(false);
-  });
+      expect(book.isUnsaved).toBe(unsaved);
+    },
+  );
 
   it("updates the session captured by an edit dialog", async () => {
     mockAPI.openBookAsNewSession.mockResolvedValueOnce("first").mockResolvedValueOnce("second");

@@ -4,10 +4,10 @@ import { validator } from "hono/validator";
 import fs from "fs";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
-import { pipeline } from "node:stream/promises";
+import { finished, pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { normalizePath } from "@/common/helpers/path";
-import { isValidServerEntryName } from "@/common/file/upload";
+import { isReservedServerEntryName, isValidServerEntryName } from "@/common/file/upload";
 import {
   clearKifuListCache,
   getKifuDirectoryList,
@@ -17,18 +17,18 @@ import {
   resolveKifuDirectory,
   resolveNewKifuDirectory,
   resolveKifuPath,
+  resolveWritableKifuPath,
 } from "@/server/helpers/kifu";
 import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
 import * as kifuIndexDB from "@/server/database/kifu_index";
 import * as kifuIndexSync from "@/server/kifu_index/sync";
-import { writeFileAtomic } from "@/server/file/atomic";
 import {
   BOOK_UPLOAD_MAX_MB,
   FILE_UPLOAD_MAX_CONCURRENCY,
   KIFU_DIR,
   KIFU_UPLOAD_MAX_MB,
 } from "@/server/config";
-import { HttpError, sendError } from "@/server/errors";
+import { HttpError, isMissingFile, sendError } from "@/server/errors";
 import { writeStreamAtomic } from "@/server/file/atomic_stream";
 import {
   createBodyLimit,
@@ -38,6 +38,7 @@ import {
 } from "@/server/hono";
 import { getOptionalInt, getString } from "@/server/routes/query";
 import type { KifuSearchQuery, SfenExportRequest } from "@/common/file/sfen_export";
+import { t } from "@/common/i18n";
 import {
   searchableStrategies,
   UNCLASSIFIED_STRATEGY,
@@ -207,13 +208,16 @@ export const kifuRoutes = new Hono<AppEnv>()
       }
       const overwrite = query.overwrite === "true";
       const kind = getServerFileKind(query.path);
-      const fullPath = resolveKifuPath(kifuDir, query.path);
-      if (!kind || !fullPath) {
+      const relDirectory = normalizePath(path.dirname(query.path));
+      if (normalizePath(query.path).split("/").some(isReservedServerEntryName)) {
         return fail(403, "invalid path or unsupported file type");
       }
-      const relDirectory = normalizePath(path.dirname(query.path));
-      if (!resolveKifuDirectory(kifuDir, relDirectory === "." ? "" : relDirectory)) {
+      if (kind && !resolveKifuDirectory(kifuDir, relDirectory === "." ? "" : relDirectory)) {
         return fail(404, "destination directory not found");
+      }
+      const fullPath = kind && resolveWritableKifuPath(kifuDir, kind, query.path);
+      if (!kind || !fullPath) {
+        return fail(403, "invalid path or unsupported file type");
       }
       const existed = fs.existsSync(fullPath);
       if (!overwrite && existed) {
@@ -411,9 +415,9 @@ export const kifuRoutes = new Hono<AppEnv>()
     if (body.maxMoves !== undefined && (!Number.isInteger(body.maxMoves) || body.maxMoves <= 0)) {
       return sendError(c, 400, "maxMoves must be a positive integer");
     }
-    const destination = resolveKifuPath(KIFU_DIR, body.filename);
+    const destination = resolveWritableKifuPath(KIFU_DIR, "sfen", body.filename);
     if (!destination) {
-      return sendError(c, 400, "invalid filename");
+      return sendError(c, 400, t.serverInvalidDestination);
     }
     if (fs.existsSync(destination) && body.overwrite !== true) {
       return sendError(c, 409, "file already exists");
@@ -475,28 +479,62 @@ export const kifuRoutes = new Hono<AppEnv>()
       if (!fullPath) {
         return sendError(c, 403, "forbidden");
       }
-      const data = await fs.promises.readFile(fullPath);
-      return c.body(data, 200, { "Content-Type": "application/octet-stream" });
+      let data: Buffer;
+      try {
+        data = await fs.promises.readFile(fullPath);
+      } catch (error) {
+        if (isMissingFile(error)) return sendError(c, 404, t.serverFileNotFound);
+        throw error;
+      }
+      return c.body(new Uint8Array(data), 200, { "Content-Type": "application/octet-stream" });
     },
   )
 
   .post(
     "/save",
     createBodyLimit(LARGE_BODY_LIMIT),
-    validator("query", (value) => ({ path: getString(value.path) })),
+    validator("query", (value) => ({
+      path: getString(value.path),
+      overwrite: getString(value.overwrite),
+    })),
     async (c) => {
       if (!KIFU_DIR) {
         return sendError(c, 404, "KIFU_DIR is not configured");
       }
-      const { path: relPath } = c.req.valid("query");
+      const { path: relPath, overwrite } = c.req.valid("query");
       if (typeof relPath !== "string") {
         return sendError(c, 400, "path is required");
       }
-      const fullPath = resolveKifuPath(KIFU_DIR, relPath);
-      if (!fullPath) {
-        return sendError(c, 403, "forbidden");
+      if (overwrite !== undefined && overwrite !== "true" && overwrite !== "false") {
+        return sendError(c, 400, "overwrite must be true or false");
       }
-      await writeFileAtomic(fullPath, Buffer.from(await c.req.arrayBuffer()));
+      const fullPath = resolveWritableKifuPath(KIFU_DIR, "kifu", relPath);
+      if (!fullPath) {
+        return sendError(c, 400, t.serverInvalidDestination);
+      }
+      const kifuDir = KIFU_DIR;
+      const data = Buffer.from(await c.req.arrayBuffer());
+      try {
+        await writeStreamAtomic(
+          fullPath,
+          async (stream) => {
+            stream.end(data);
+            await finished(stream);
+          },
+          {
+            overwrite: overwrite === "true",
+            beforePublish: async () => {
+              if (resolveWritableKifuPath(kifuDir, "kifu", relPath) !== fullPath) {
+                throw new HttpError(403, t.serverInvalidDestination);
+              }
+            },
+          },
+        );
+      } catch (error) {
+        if (isNodeError(error) && error.code === "EEXIST")
+          return sendError(c, 409, t.serverFileExists);
+        throw error;
+      }
       clearKifuListCache();
       return c.text("ok");
     },
@@ -518,7 +556,13 @@ export const sfenRoutes = new Hono<AppEnv>()
       if (!fullPath || !fullPath.endsWith(".sfen")) {
         return sendError(c, 403, "Invalid path or unsupported file type");
       }
-      const content = await fs.promises.readFile(fullPath, "utf-8");
+      let content: string;
+      try {
+        content = await fs.promises.readFile(fullPath, "utf-8");
+      } catch (error) {
+        if (isMissingFile(error)) return sendError(c, 404, t.serverFileNotFound);
+        throw error;
+      }
       const lines = content
         .split("\n")
         .map((line) => line.trim())

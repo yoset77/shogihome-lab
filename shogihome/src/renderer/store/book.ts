@@ -14,13 +14,14 @@ import { ImmutableRecord } from "tsshogi";
 import { reactive, UnwrapNestedRefs } from "vue";
 
 function getBookFormatByPath(path: string): BookFormat {
-  if (path.endsWith(".bin")) {
+  const lowerPath = path.toLowerCase();
+  if (lowerPath.endsWith(".bin")) {
     return "apery";
   }
-  if (path.endsWith(".sbk")) {
+  if (lowerPath.endsWith(".sbk")) {
     return "sbk";
   }
-  if (path.endsWith(".ybb")) {
+  if (lowerPath.endsWith(".ybb")) {
     return "ybb";
   }
   return "yane2016";
@@ -151,6 +152,7 @@ export class BookSessionStore {
 
   async searchMoves(sfen: string): Promise<BookMove[]> {
     this.ensureUsable();
+    if (!this.sessionId && !this.path) await this.ensureBookFormat();
     const moves = await api.searchBookMoves(sfen, this.sessionId);
     if (moves.length !== 0 || !useAppSettings().flippedBook) {
       return moves;
@@ -161,6 +163,7 @@ export class BookSessionStore {
 
   async searchMovesBatch(sfens: string[]): Promise<Map<string, BookMove[]>> {
     this.ensureUsable();
+    if (!this.sessionId && !this.path) await this.ensureBookFormat();
     const querySfens = [...sfens];
     if (useAppSettings().flippedBook) {
       sfens.forEach((sfen) => querySfens.push(flippedSFEN(sfen)));
@@ -212,7 +215,12 @@ export class BookSessionStore {
     this.ensureUsable();
     validatePath(path);
     await this.ensureBookFormat();
-    await api.saveBook(path, this.sessionId);
+    const saved = await api.saveBook(
+      path,
+      this.sessionId,
+      this.path === path && path.startsWith("server://"),
+    );
+    if (!saved) return;
     this.path = path;
     this.dirty = false;
     useToastStore().success(t.bookDataWasSaved);
@@ -225,7 +233,11 @@ export class BookSessionStore {
     await api.saveBookImportSettings(settings);
     this.ensureUsable();
     const summary = await api.importBookMoves(settings, this.sessionId);
-    if (summary.entryCount === undefined || summary.entryCount > 0) {
+    if (
+      summary.entryCount === undefined ||
+      summary.entryCount > 0 ||
+      (summary.duplicateCount ?? 0) > 0
+    ) {
       this.dirty = true;
     }
     const items = [
@@ -640,7 +652,10 @@ export class BookStore {
           return;
         }
         useBusyState().retain();
-        const format = book === this.defaultSession ? book.format : undefined;
+        // Always send the format explicitly so that a reset of an expired
+        // session keeps the original format instead of falling back to the
+        // server-side default.
+        const format = book.format;
         api
           .clearBook(book.sessionId, format)
           .then(async () => {

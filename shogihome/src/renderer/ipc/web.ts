@@ -27,6 +27,7 @@ import {
   type ServerFileUploadResult,
 } from "@/common/file/upload";
 import { decodeText } from "@/common/helpers/encode";
+import { saveWithOverwriteConfirmation } from "@/renderer/helpers/server_save";
 import { toJpeg, toPng } from "html-to-image";
 import dayjs from "dayjs";
 import { Rect } from "@/common/assets/geometry";
@@ -428,7 +429,7 @@ export const webAPI: Bridge = {
     const json = await response.json();
     return json.mode;
   },
-  async saveBook(path: string, sessionId?: string): Promise<void> {
+  async saveBook(path: string, sessionId?: string, overwriteCurrent = false): Promise<boolean> {
     if (!path.startsWith("server://")) {
       throw new Error("Only server-side books are supported");
     }
@@ -436,13 +437,12 @@ export const webAPI: Bridge = {
     // Large on-the-fly book saves rewrite the whole file plus a re-index,
     // which can take as long as a large file upload. Share the upload timeout
     // so the client does not abort before the server finishes.
-    const response = await apiClient.api.book.save.$post(
-      { query: { path: relPath } },
-      apiOptions({ timeoutMs: SERVER_UPLOAD_TIMEOUT_MS, sessionId }),
-    );
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
+    const send = (overwrite: boolean) =>
+      apiClient.api.book.save.$post(
+        { query: { path: relPath, overwrite: String(overwrite) } },
+        apiOptions({ timeoutMs: SERVER_UPLOAD_TIMEOUT_MS, sessionId }),
+      );
+    return saveWithOverwriteConfirmation(send, relPath, overwriteCurrent);
   },
   async closeBookSession(sessionId: string): Promise<void> {
     const response = await apiClient.api.book.close.$post(undefined, apiOptions({ sessionId }));
@@ -792,16 +792,15 @@ export const webAPI: Bridge = {
     fileCache.set(fileURI, data);
     return fileURI;
   },
-  async saveServerKifu(path: string, data: Uint8Array): Promise<void> {
-    const response = await apiClient.api.kifu.save.$post(
-      { query: { path } },
-      apiOptions({
-        headers: { "Content-Type": "application/octet-stream" },
-        body: data as unknown as BodyInit,
-      }),
-    );
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
+  async saveServerKifu(path: string, data: Uint8Array, overwriteCurrent = false): Promise<boolean> {
+    const send = (overwrite: boolean) =>
+      apiClient.api.kifu.save.$post(
+        { query: { path, overwrite: String(overwrite) } },
+        apiOptions({
+          headers: { "Content-Type": "application/octet-stream" },
+          body: data as unknown as BodyInit,
+        }),
+      );
+    return saveWithOverwriteConfirmation(send, path, overwriteCurrent);
   },
 };

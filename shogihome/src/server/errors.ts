@@ -1,6 +1,7 @@
 import escapeHTML from "escape-html";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { t } from "@/common/i18n";
 
 export class HttpError extends Error {
   constructor(
@@ -20,7 +21,9 @@ export const handleError = (err: unknown, c: Context) => {
   if (err instanceof HttpError) {
     return sendError(c, err.status as ContentfulStatusCode, err.message);
   }
-  const message = err instanceof Error ? err.message : String(err);
   console.error("Unhandled error:", err);
-  return sendError(c, 500, message);
+  return sendError(c, 500, t.serverInternalError);
 };
+
+export const isMissingFile = (err: unknown): boolean =>
+  err instanceof Error && (err as NodeJS.ErrnoException).code === "ENOENT";

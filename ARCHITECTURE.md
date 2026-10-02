@@ -102,7 +102,7 @@ flowchart LR
 | Server ↔ Engine Wrapper       | engine session、list、auth module と Rust wrapper（`wrapper/`）が line protocol を共有します。共通 contract suite が wrapper を同一条件で検証します。 |
 | Wrapper ↔ USI Engine          | Wrapper は byte/line relay と process lifecycle を担当し、USI state は解釈しません。                           |
 | Server ↔ Vision Worker        | Server が JSON Lines envelope、response shape、SFEN を検証します。                                             |
-| Server ↔ `KIFU_DIR`           | 集中化された path resolver が traversal、real path、symlink、extension を検証します。Browser uploadは保存名と容量を検証してatomicに公開し、directory作成は検証済みparent直下の1階層に限定します。 |
+| Server ↔ `KIFU_DIR`           | 集中化された path resolver が traversal、real path、symlink、用途別extensionを検証します。Browserからの保存は既存parentと全path segmentを検証してatomicに公開し、directory作成は検証済みparent直下の1階層に限定します。 |
 | Server ↔ external kifu source | Server が allowlist と resource limit を適用し、Browser が任意URLを直接指定できないようにします。              |
 
 Host、Origin、body size、rate limit などのHTTP共通ポリシーは `shogihome/src/server/security.ts` と `shogihome/src/server/hono.ts` が所有します。
@@ -150,6 +150,10 @@ Vision scan は Middle Server が管理する worker process で実行します�
 対局進行と時計、および「待った」のcheckpointはRendererの `GameManager` が所有します。checkpointは現在の対局に限るメモリー上の状態です。EngineSessionの再接続保護は対局状態の永続化を意味しません。詳細は [Takeback](docs/features/takeback.md) を参照してください。
 
 Database、filesystem、browser storage は互いに代替可能な正本ではありません。特に kifu index は派生データであり、ユーザーファイルの正本として扱いません。
+
+Book sessionの作成は明示的なopen／clear操作に限定します。保存・編集・検索は既存sessionを必要とし、期限切れやserver再起動で失われた作業状態を空の定跡として再生成しません。個人利用を前提に、読み込み方式は形式別のファイルサイズ閾値で選択し、全sessionの推定メモリ会計は行いません。SBK固有の容量・index構築制限とimportの処理制限は各境界で適用します。
+
+SFEN boundaryは既存decoderによる検証・正規化を共有し、Apery hashは必要なconsumerだけが計算します。定跡のbatch検索は事前検証と検索の両段階でevent loopへ定期的にyieldし、HTTP／WebSocket中継の実行機会を確保します。
 
 詳細は [Storage Architecture](docs/architecture/storage.md) を参照してください。
 

@@ -123,6 +123,7 @@ import { useConfirmationStore } from "@/renderer/store/confirm";
 import { useErrorStore } from "@/renderer/store/error";
 import { useLanStore } from "@/renderer/store/lan";
 import { createHonoApiClient, parseJsonResponse, assertOkResponse } from "@/renderer/api/client";
+import { saveWithOverwriteConfirmation } from "@/renderer/helpers/server_save";
 
 const apiClient = createHonoApiClient();
 
@@ -168,15 +169,14 @@ const exportEngine = async (stat: DBEngineStats) => {
 
   useBusyState().retain();
   try {
-    const response = await fetch("/api/analysis/export", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ engineId: stat.id, filename: name }),
-    });
-    if (response.ok) {
+    const send = (overwrite: boolean) =>
+      fetch("/api/analysis/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ engineId: stat.id, filename: name, overwrite }),
+      });
+    if (await saveWithOverwriteConfirmation(send, name)) {
       useMessageStore().enqueue({ text: t.success });
-    } else {
-      useErrorStore().add(new Error(`Failed to export engine data: ${await response.text()}`));
     }
   } catch (e) {
     useErrorStore().add(e);

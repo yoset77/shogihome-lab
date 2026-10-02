@@ -39,7 +39,6 @@ export async function writeFileAtomic(
   encoding?: BufferEncoding,
 ): Promise<void> {
   const resolvedPath = path.resolve(filePath);
-  await fs.promises.mkdir(path.dirname(resolvedPath), { recursive: true });
   const tempFilePath = getTempFilePath(resolvedPath);
   const unlock = await lockfile.lock(resolvedPath, {
     ...lockOptions,
@@ -65,7 +64,6 @@ export function writeFileAtomicSync(
   encoding?: BufferEncoding,
 ) {
   const resolvedPath = path.resolve(filePath);
-  fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
   const tempFilePath = getTempFilePath(resolvedPath);
   const unlock = lockfile.lockSync(resolvedPath, lockOptions);
   try {

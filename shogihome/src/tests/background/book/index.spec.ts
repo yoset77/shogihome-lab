@@ -14,12 +14,17 @@ import {
   updateBookMove,
   updateBookMoveOrder,
   initBookSession,
+  isBookUnsaved,
 } from "@/server/book/index";
 import { loadSbkBook } from "@/server/book/sbk";
+import { loadYbbBook } from "@/server/book/ybb";
+import { Position } from "tsshogi";
 import { getTempPathForTesting } from "@/tests/helpers/temp";
 import { defaultBookImportSettings, PlayerCriteria, SourceType } from "@/common/settings/book";
 import { createTestAperyBookFile } from "@/tests/mock/book";
 import { BookFormat, SbkMoveEvaluation, bookFormats } from "@/common/book";
+import { t } from "@/common/i18n";
+import * as yaneuraou from "@/server/book/yaneuraou";
 
 const defaultBookSession = 1;
 
@@ -51,6 +56,17 @@ describe("background/book", () => {
     expect(getBookFormat(defaultBookSession)).toBe("yane2016");
   });
 
+  it("saves a book using the case-insensitive extension policy", async () => {
+    const target = path.join(tmpdir, "uppercase.DB");
+    await saveBook(defaultBookSession, target);
+    try {
+      expect(await openBook(defaultBookSession, target)).toBe("in-memory");
+      expect(getBookFormat(defaultBookSession)).toBe("yane2016");
+    } finally {
+      fs.rmSync(target, { force: true });
+    }
+  });
+
   it("initializes an empty session with each format", async () => {
     const extensions: Record<BookFormat, string> = {
       yane2016: ".db",
@@ -74,6 +90,90 @@ describe("background/book", () => {
   });
 
   describe("openBook", () => {
+    it.each([
+      { source: "yaneuraou.db", threshold: 64 },
+      { source: "yaneuraou.db", threshold: 128 },
+      { source: "yaneuraou.ybb", threshold: 64 },
+      { source: "yaneuraou.ybb", threshold: 128 },
+      { source: "shogihome01.sbk", threshold: 32 },
+      { source: "shogihome01.sbk", threshold: 64 },
+    ])(
+      "switches modes above the $threshold MB boundary for $source",
+      async ({ source, threshold }) => {
+        const filePath = path.join("src/tests/testdata/book", source);
+        const originalLstat = fs.promises.lstat.bind(fs.promises);
+        let size = threshold * 1024 * 1024;
+        // Simulate size boundaries while using real parsers and search fixtures.
+        const lstat = vi.spyOn(fs.promises, "lstat").mockImplementation(async (...args) => {
+          const stat = await originalLstat(...args);
+          if (args[0] === filePath) stat.size = size;
+          return stat;
+        });
+        try {
+          const options = { onTheFlyThresholdMB: threshold, sbkOnTheFlyThresholdMB: threshold };
+          const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+          for (const mode of ["in-memory", "on-the-fly"]) {
+            clearBook(defaultBookSession);
+            expect(await openBook(defaultBookSession, filePath, options)).toBe(mode);
+            const moves = await searchBookMoves(defaultBookSession, sfen);
+            if (source.endsWith(".sbk")) {
+              expect(moves.length).toBeGreaterThan(0);
+            } else {
+              expect(moves).toHaveLength(5);
+            }
+            size++;
+          }
+        } finally {
+          clearBook(defaultBookSession);
+          lstat.mockRestore();
+        }
+      },
+    );
+
+    it.each([
+      { file: "yaneuraou.db", sizeMB: 600 },
+      { file: "yaneuraou.ybb", sizeMB: 600 },
+      { file: "apery.bin", sizeMB: 600 },
+      { file: "shogihome01.sbk", sizeMB: 300 },
+    ])("opens $file without an aggregate memory estimate", async ({ file, sizeMB }) => {
+      const source = path.join("src/tests/testdata/book", file);
+      const originalLstat = fs.promises.lstat.bind(fs.promises);
+      // Exceed the former 4 GiB estimate using metadata, while parsing a small fixture.
+      const lstat = vi.spyOn(fs.promises, "lstat").mockImplementation(async (...args) => {
+        const stat = await originalLstat(...args);
+        if (args[0] === source) stat.size = sizeMB * 1024 * 1024;
+        return stat;
+      });
+      try {
+        await expect(openBook(defaultBookSession, source)).resolves.toBe("in-memory");
+      } finally {
+        lstat.mockRestore();
+      }
+    });
+
+    it.each(["in-memory", "on-the-fly"])(
+      "keeps the existing %s book and unsaved edits when parsing a replacement fails",
+      async (mode) => {
+        const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+        await openBook(defaultBookSession, "src/tests/testdata/book/yaneuraou.db", {
+          onTheFlyThresholdMB: mode === "on-the-fly" ? 0 : 64,
+        });
+        await updateBookMove(defaultBookSession, sfen, { usi: "7g7f", comment: "unsaved" });
+        const original = await searchBookMoves(defaultBookSession, sfen);
+        for (const extension of ["db", "bin", "ybb", "sbk"]) {
+          const source = path.join(tmpdir, `invalid.${extension}`);
+          fs.writeFileSync(source, Buffer.from([0xff]));
+          try {
+            await expect(openBook(defaultBookSession, source)).rejects.toThrow();
+            expect(getBookFormat(defaultBookSession)).toBe("yane2016");
+            expect(isBookUnsaved(defaultBookSession)).toBe(true);
+            expect(await searchBookMoves(defaultBookSession, sfen)).toEqual(original);
+          } finally {
+            fs.rmSync(source, { force: true });
+          }
+        }
+      },
+    );
     describe("yaneuraou.db", () => {
       const sources = [
         "src/tests/testdata/book/yaneuraou.db",
@@ -251,6 +351,23 @@ describe("background/book", () => {
         ).resolves.toBe("on-the-fly");
       });
 
+      it("opens a 20MB SBK below the default threshold in-memory", async () => {
+        const source = "src/tests/testdata/book/shogihome01.sbk";
+        const originalLstat = fs.promises.lstat.bind(fs.promises);
+        const lstat = vi.spyOn(fs.promises, "lstat").mockImplementation(async (...args) => {
+          const stat = await originalLstat(...args);
+          if (args[0] === source) stat.size = 20 * 1024 * 1024;
+          return stat;
+        });
+        try {
+          await expect(
+            openBook(defaultBookSession, source, { sbkOnTheFlyThresholdMB: 32 }),
+          ).resolves.toBe("in-memory");
+        } finally {
+          lstat.mockRestore();
+        }
+      });
+
       it("rejects SBK files above the absolute raw-data guard", async () => {
         const tempFilePath = path.join(tmpdir, "oversized.sbk");
         fs.copyFileSync("src/tests/testdata/book/shogihome01.sbk", tempFilePath);
@@ -264,7 +381,7 @@ describe("background/book", () => {
           openBook(defaultBookSession, tempFilePath, {
             sbkOnTheFlyThresholdMB: 0.000001,
           }),
-        ).rejects.toThrow("SBK file too large");
+        ).rejects.toThrow(t.serverBookTooLarge);
       });
     });
 
@@ -528,6 +645,210 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
   });
 
   describe("importBookMoves", async () => {
+    it.each(["in-memory", "on-the-fly"] as const)(
+      "counts winners separately for each KIF branch in an %s book",
+      async (mode) => {
+        clearBook(defaultBookSession, "sbk");
+        const position = new Position();
+        const initialSfen = position.sfen;
+        const sourcePath = path.resolve("src/tests/testdata/book/import-branches.kifu");
+        const savedPath = path.join(tmpdir, `branch-winners-${mode}.sbk`);
+        try {
+          if (mode === "on-the-fly") {
+            await updateBookMove(defaultBookSession, initialSfen, { usi: "9g9f", comment: "" });
+            await saveBook(defaultBookSession, savedPath);
+            expect(
+              await openBook(defaultBookSession, savedPath, { sbkOnTheFlyThresholdMB: 0 }),
+            ).toBe(mode);
+          }
+          await importBookMoves(
+            defaultBookSession,
+            { ...defaultBookImportSettings(), sourceRecordFile: sourcePath },
+            undefined,
+            process.cwd(),
+          );
+          await saveBook(defaultBookSession, savedPath);
+          const book = loadSbkBook(await fs.promises.readFile(savedPath));
+          const stats = (sfen: string) => {
+            const entry = book.entries.get(sfen);
+            return {
+              games: entry?.games ?? 0,
+              wonBlack: entry?.wonBlack ?? 0,
+              wonWhite: entry?.wonWhite ?? 0,
+            };
+          };
+          expect(stats(initialSfen)).toEqual({ games: 1, wonBlack: 0, wonWhite: 1 });
+          position.doMove(position.createMoveByUSI("7g7f")!);
+          expect(stats(position.sfen)).toEqual({ games: 2, wonBlack: 1, wonWhite: 1 });
+          position.doMove(position.createMoveByUSI("8c8d")!);
+          expect(stats(position.sfen)).toEqual({ games: 1, wonBlack: 1, wonWhite: 0 });
+        } finally {
+          clearBook(defaultBookSession);
+          fs.rmSync(savedPath, { force: true });
+        }
+      },
+    );
+
+    it.each(["in-memory", "on-the-fly"] as const)(
+      "preserves imported plies when saving an %s YBB book",
+      async (mode) => {
+        clearBook(defaultBookSession, "ybb");
+        const sourcePath = path.resolve("src/tests/testdata/book/import-branches.kifu");
+        const savedPath = path.join(tmpdir, `import-plies-${mode}.ybb`);
+        try {
+          if (mode === "on-the-fly") {
+            await saveBook(defaultBookSession, savedPath);
+            expect(await openBook(defaultBookSession, savedPath, { onTheFlyThresholdMB: 0 })).toBe(
+              mode,
+            );
+          }
+          await importBookMoves(
+            defaultBookSession,
+            { ...defaultBookImportSettings(), sourceRecordFile: sourcePath },
+            undefined,
+            process.cwd(),
+          );
+          await saveBook(defaultBookSession, savedPath);
+          const book = await loadYbbBook(savedPath);
+          const position = new Position();
+          expect(book.entries.get(position.sfen)?.minPly).toBe(1);
+          position.doMove(position.createMoveByUSI("7g7f")!);
+          expect(book.entries.get(position.sfen)?.minPly).toBe(2);
+          position.doMove(position.createMoveByUSI("8c8d")!);
+          expect(book.entries.get(position.sfen)?.minPly).toBe(3);
+        } finally {
+          clearBook(defaultBookSession);
+          fs.rmSync(savedPath, { force: true });
+        }
+      },
+    );
+
+    it.each(["in-memory", "on-the-fly"] as const)(
+      "keeps the earliest ply across repeated SFEN imports in an %s YBB book",
+      async (mode) => {
+        clearBook(defaultBookSession, "ybb");
+        const position = new Position();
+        const initialSfen = position.sfen;
+        position.doMove(position.createMoveByUSI("7g7f")!);
+        const nextSfen = position.sfen;
+        const sourcePath = path.join(tmpdir, `repeated-plies-${mode}.sfen`);
+        const savedPath = path.join(tmpdir, `repeated-plies-${mode}.ybb`);
+        try {
+          await saveBook(defaultBookSession, savedPath);
+          await openBook(defaultBookSession, savedPath, {
+            onTheFlyThresholdMB: mode === "on-the-fly" ? 0 : 1000,
+          });
+          for (const [minPly, expectedPly] of [
+            [5, 5],
+            [0, 1],
+            [5, 1],
+          ]) {
+            const moves = minPly === 5 ? "5i6h 5a6b 6h5i 6b5a 7g7f 3c3d" : "7g7f 3c3d";
+            fs.writeFileSync(sourcePath, `position startpos moves ${moves}\n`);
+            await importBookMoves(
+              defaultBookSession,
+              { ...defaultBookImportSettings(), sourceRecordFile: sourcePath, minPly },
+              undefined,
+              tmpdir,
+            );
+            await saveBook(defaultBookSession, savedPath);
+            const book = await loadYbbBook(savedPath);
+            expect(book.entries.get(initialSfen)?.minPly).toBe(expectedPly);
+            expect(book.entries.get(nextSfen)?.minPly).toBe(expectedPly + 1);
+            expect(
+              await openBook(defaultBookSession, savedPath, {
+                onTheFlyThresholdMB: mode === "on-the-fly" ? 0 : 1000,
+              }),
+            ).toBe(mode);
+          }
+        } finally {
+          clearBook(defaultBookSession);
+          fs.rmSync(sourcePath, { force: true });
+          fs.rmSync(savedPath, { force: true });
+        }
+      },
+    );
+
+    it("accumulates counts when importing repeatedly into an on-the-fly book", async () => {
+      await openBook(defaultBookSession, "src/tests/testdata/book/yaneuraou.db", {
+        onTheFlyThresholdMB: 0,
+      });
+      const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+      const totalCount = async () =>
+        (await searchBookMoves(defaultBookSession, sfen)).reduce(
+          (sum, move) => sum + (move.count ?? 0),
+          0,
+        );
+      let previousCount = await totalCount();
+      for (let i = 0; i < 4; i++) {
+        await expect(
+          importBookMoves(
+            defaultBookSession,
+            {
+              ...defaultBookImportSettings(),
+              sourceType: SourceType.DIRECTORY,
+              sourceDirectory: "src/tests/testdata/book/source",
+            },
+            undefined,
+            process.cwd(),
+          ),
+        ).resolves.toMatchObject({ successFileCount: 5 });
+        const count = await totalCount();
+        expect(count).toBeGreaterThan(previousCount);
+        previousCount = count;
+      }
+    });
+    it("enforces the deadline while retrieving existing on-the-fly entries", async () => {
+      await openBook(defaultBookSession, "src/tests/testdata/book/yaneuraou.db", {
+        onTheFlyThresholdMB: 0,
+      });
+      const start = Date.now();
+      let expired = false;
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => start + (expired ? 60_001 : 0));
+      const search = vi
+        .spyOn(yaneuraou, "searchYaneuraOuBookMovesOnTheFly")
+        .mockImplementation(async () => {
+          expired = true;
+          return undefined;
+        });
+      try {
+        await expect(
+          importBookMoves(
+            defaultBookSession,
+            {
+              ...defaultBookImportSettings(),
+              sourceType: SourceType.FILE,
+              sourceRecordFile: "src/tests/testdata/book/source/src01.ki2",
+            },
+            undefined,
+            process.cwd(),
+          ),
+        ).rejects.toMatchObject({ status: 413 });
+        expect(search).toHaveBeenCalled();
+      } finally {
+        search.mockRestore();
+        clock.mockRestore();
+      }
+    });
+    it("reports missing and invalid source files as actionable client errors", async () => {
+      for (const [sourceRecordFile, status] of [
+        ["missing.kif", 404],
+        ["unknown.xyz", 400],
+      ] as const) {
+        await expect(
+          importBookMoves(
+            defaultBookSession,
+            {
+              ...defaultBookImportSettings(),
+              sourceType: SourceType.FILE,
+              sourceRecordFile: path.join(tmpdir, sourceRecordFile),
+            },
+            undefined,
+            tmpdir,
+          ),
+        ).rejects.toMatchObject({ status });
+      }
+    });
     const patterns = [
       {
         title: "directory",
@@ -680,6 +1001,38 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
           root,
         ),
       ).rejects.toThrow("Forbidden path");
+    });
+
+    it("rejects oversized imports without changing the current book", async () => {
+      const filePath = path.join(tmpdir, "oversized-import.kif");
+      const descriptor = fs.openSync(filePath, "w");
+      try {
+        fs.ftruncateSync(descriptor, 16 * 1024 * 1024 + 1);
+      } finally {
+        fs.closeSync(descriptor);
+      }
+      try {
+        await expect(
+          importBookMoves(
+            defaultBookSession,
+            {
+              ...defaultBookImportSettings(),
+              sourceType: SourceType.FILE,
+              sourceRecordFile: filePath,
+            },
+            undefined,
+            tmpdir,
+          ),
+        ).rejects.toMatchObject({ status: 413 });
+        expect(
+          await searchBookMoves(
+            defaultBookSession,
+            "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+          ),
+        ).toEqual([]);
+      } finally {
+        fs.rmSync(filePath, { force: true });
+      }
     });
 
     it("rejects a symlinked file outside the import root", async () => {
@@ -1094,6 +1447,51 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
         expect(await sha256File(filePath)).toBe(hash);
       });
 
+      it("keeps the SBK file and unsaved edits when rebuilding exceeds the fixed index budget", async () => {
+        const filePath = path.join(tmpdir, "overwrite-index-budget.sbk");
+        await openOnTheFly("src/tests/testdata/book/shogihome01.sbk", filePath);
+        const target = (await searchBookMoves(defaultBookSession, startSfen))[0];
+        await updateBookMove(defaultBookSession, startSfen, {
+          ...target,
+          evaluation: SbkMoveEvaluation.Good,
+        });
+        const originalHash = await sha256File(filePath);
+        const edits = await searchBookMoves(defaultBookSession, startSfen);
+        const originalOpen = fs.promises.open.bind(fs.promises);
+        const openSpy = vi.spyOn(fs.promises, "open").mockImplementation((async (
+          path: fs.PathLike,
+          flags: string,
+          mode?: number,
+        ) => {
+          const file = await originalOpen(path, flags, mode);
+          if (flags === "r" && typeof path === "string" && path.includes(".atomic-")) {
+            // New raw data alone fits the 512 MiB construction budget;
+            // retaining the old raw data and index must put it over the limit.
+            const stat = await file.stat();
+            stat.size = 128 * 1024 * 1024;
+            vi.spyOn(file, "stat").mockResolvedValue(stat);
+          }
+          return file;
+        }) as typeof fs.promises.open);
+        try {
+          await expect(saveBook(defaultBookSession, filePath)).rejects.toThrow(
+            "SBK index construction exceeds memory budget",
+          );
+        } finally {
+          openSpy.mockRestore();
+        }
+        expect(await sha256File(filePath)).toBe(originalHash);
+        expect(isBookUnsaved(defaultBookSession)).toBe(true);
+        expect(await searchBookMoves(defaultBookSession, startSfen)).toEqual(edits);
+        expect(fs.readdirSync(tmpdir).filter((name) => name.startsWith(".atomic-"))).toEqual([]);
+
+        await saveBook(defaultBookSession, filePath);
+        expect(isBookUnsaved(defaultBookSession)).toBe(false);
+        expect(await searchBookMoves(defaultBookSession, startSfen)).toEqual(
+          await searchInFreshSession(filePath, startSfen),
+        );
+      });
+
       it("keeps the original file and the unsaved edits when the rename fails", async () => {
         const filePath = path.join(tmpdir, "overwrite-rename-failure.db");
         await openOnTheFly("src/tests/testdata/book/yaneuraou.db", filePath);
@@ -1151,7 +1549,7 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
         await updateBookMove(defaultBookSession, sfen, move);
 
         await expect(saveBook(defaultBookSession, filePath)).rejects.toThrow(
-          "Book is not ordered by position",
+          t.serverBookNotOrdered,
         );
         expect(fs.readFileSync(filePath, "utf-8")).toBe(original);
         expect(await searchBookMoves(defaultBookSession, sfen)).toEqual([move]);

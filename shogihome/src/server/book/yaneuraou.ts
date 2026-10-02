@@ -167,9 +167,18 @@ function buildEntryText(sfen: string, entry: BookEntry): string {
   if (entry.moves.length === 0) {
     return "";
   }
+  if (
+    /[\r\n]/.test(sfen) ||
+    entry.moves.some(
+      (move) => /[\r\n]/.test(move.usi) || (move.usi2 !== undefined && /[\r\n]/.test(move.usi2)),
+    )
+  ) {
+    throw new Error("Invalid book position or move");
+  }
+  const commentLines = (comment: string) => comment.replace(/\r\n?|\n/g, "\n").split("\n");
   let buffer = SFENMarker + sfen + "\n";
   if (entry.comment) {
-    for (const commentLine of entry.comment.split("\n")) {
+    for (const commentLine of commentLines(entry.comment)) {
       buffer += CommentMarker1 + commentLine + "\n";
     }
   }
@@ -186,7 +195,7 @@ function buildEntryText(sfen: string, entry: BookEntry): string {
       (move.count != undefined ? move.count.toFixed(0) : "") +
       "\n";
     if (move.comment) {
-      for (const commentLine of move.comment.split("\n")) {
+      for (const commentLine of commentLines(move.comment)) {
         buffer += CommentMarker1 + commentLine + "\n";
       }
     }

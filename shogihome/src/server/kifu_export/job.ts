@@ -5,7 +5,11 @@ import { detectRecordFileFormatByPath, importRecordFromBuffer } from "@/common/f
 import type { SfenExportJobStatus } from "@/common/file/sfen_export";
 import type { KifuSearchParams } from "@/server/database/kifu_index";
 import { getKifuSearchFilePaths } from "@/server/database/kifu_index";
-import { clearKifuListCache, resolveKifuPath } from "@/server/helpers/kifu";
+import {
+  clearKifuListCache,
+  resolveKifuPath,
+  resolveWritableKifuPath,
+} from "@/server/helpers/kifu";
 import { writeStreamAtomic } from "@/server/file/atomic_stream";
 import { generateSfenLines, isStandardInitialRecord } from "@/server/kifu_export/sfen";
 
@@ -80,7 +84,7 @@ async function runJob(
   filePaths: string[],
 ): Promise<void> {
   job.status.state = "running";
-  const destination = resolveKifuPath(params.kifuDir, params.outputPath);
+  const destination = resolveWritableKifuPath(params.kifuDir, "sfen", params.outputPath);
   if (!destination) {
     finishJob(job, "failed", "Invalid output path");
     return;
@@ -166,7 +170,14 @@ async function runJob(
         stream.end();
         await finished(stream, { cleanup: true });
       },
-      { overwrite: params.overwrite },
+      {
+        overwrite: params.overwrite,
+        beforePublish: async () => {
+          if (resolveWritableKifuPath(params.kifuDir, "sfen", params.outputPath) !== destination) {
+            throw new Error("Invalid SFEN output path");
+          }
+        },
+      },
     );
     clearKifuListCache();
     finishJob(job, "completed");

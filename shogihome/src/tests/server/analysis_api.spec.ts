@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requestApp } from "./honoRequest";
+import fs from "node:fs";
+import path from "node:path";
+import { KIFU_DIR } from "@/server/config";
 
 const SERVER_PORT = vi.hoisted(() => {
   return 8200 + Math.floor(Math.random() * 100);
@@ -48,7 +51,7 @@ describe("Analysis DB API error handling", () => {
     const response = await requestApp(app, "GET", "/api/analysis/stats", { host });
 
     expect(response.status).toBe(500);
-    expect(response.textBody).toContain("stats failure");
+    expect(response.textBody).not.toContain("stats failure");
   });
 
   it("should return 500 when delete_by_engine fails", async () => {
@@ -62,7 +65,7 @@ describe("Analysis DB API error handling", () => {
     });
 
     expect(response.status).toBe(500);
-    expect(response.textBody).toContain("delete failure");
+    expect(response.textBody).not.toContain("delete failure");
   });
 
   it("should return 500 when cleanup fails", async () => {
@@ -76,7 +79,7 @@ describe("Analysis DB API error handling", () => {
     });
 
     expect(response.status).toBe(500);
-    expect(response.textBody).toContain("cleanup failure");
+    expect(response.textBody).not.toContain("cleanup failure");
   });
 
   it("should return 200 and data when stats retrieval succeeds", async () => {
@@ -174,18 +177,66 @@ describe("Analysis DB API error handling", () => {
     });
 
     expect(response.status).toBe(500);
-    expect(response.textBody).toContain("delete database failure");
+    expect(response.textBody).not.toContain("delete database failure");
   });
 
   it("should export analysis results to a file", async () => {
     const response = await requestApp(app, "POST", "/api/analysis/export", {
       host,
-      json: { engineId: 1, filename: "test-export.db" },
+      json: { engineId: 1, filename: "test-export.db", overwrite: true },
     });
 
     expect(response.status).toBe(200);
     expect(response.textBody).toBe("ok");
     expect(sqliteMock.exportAnalysisResultsByEngine).toHaveBeenCalledWith(1);
+  });
+
+  it("keeps the old analysis export if generation fails", async () => {
+    const filename = "atomic-export-regression.db";
+    const target = path.join(KIFU_DIR!, filename);
+    fs.writeFileSync(target, "original");
+    sqliteMock.exportAnalysisResultsByEngine.mockImplementationOnce(function* () {
+      yield "partial";
+      throw new Error("internal export failure");
+    });
+    try {
+      const response = await requestApp(app, "POST", "/api/analysis/export", {
+        host,
+        json: { engineId: 1, filename, overwrite: true },
+      });
+      expect(response.status).toBe(500);
+      expect(response.textBody).not.toContain("internal export failure");
+      expect(fs.readFileSync(target, "utf8")).toBe("original");
+      expect(fs.readdirSync(KIFU_DIR!).filter((name) => name.startsWith(".atomic-"))).toEqual([]);
+    } finally {
+      fs.rmSync(target, { force: true });
+    }
+  });
+
+  it("reports an existing export before querying or generating book data", async () => {
+    const filename = "existing-export.db";
+    const target = path.join(KIFU_DIR!, filename);
+    fs.writeFileSync(target, "original");
+    try {
+      const response = await requestApp(app, "POST", "/api/analysis/export", {
+        host,
+        json: { engineId: 1, filename },
+      });
+      expect(response.status).toBe(409);
+      expect(sqliteMock.exportAnalysisResultsByEngine).not.toHaveBeenCalled();
+      expect(fs.readFileSync(target, "utf8")).toBe("original");
+    } finally {
+      fs.rmSync(target, { force: true });
+    }
+  });
+
+  it("does not export book content into record files", async () => {
+    const response = await requestApp(app, "POST", "/api/analysis/export", {
+      host,
+      json: { engineId: 1, filename: "wrong-kind.kif" },
+    });
+    expect(response.status).toBe(400);
+    expect(fs.existsSync(path.join(KIFU_DIR!, "wrong-kind.kif"))).toBe(false);
   });
 
   it("should return migration dry-run summary", async () => {
@@ -222,7 +273,7 @@ describe("Analysis DB API error handling", () => {
     const response = await requestApp(app, "GET", "/api/analysis/migrate/dry-run", { host });
 
     expect(response.status).toBe(500);
-    expect(response.textBody).toContain("dry-run failure");
+    expect(response.textBody).not.toContain("dry-run failure");
   });
 
   it("should execute migration", async () => {

@@ -26,9 +26,9 @@ describe("renderer/ipc/api", () => {
     const mockFn = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     const callArgs = mockFn.mock.calls[0];
     const url = new URL(callArgs[0] as string);
-    expect(url.pathname + url.search).toBe(
-      "/api/book/save?path=" + encodeURIComponent("books/test.db"),
-    );
+    expect(url.pathname).toBe("/api/book/save");
+    expect(url.searchParams.get("path")).toBe("books/test.db");
+    expect(url.searchParams.get("overwrite")).toBe("false");
     expect(callArgs[1]).toHaveProperty("method", "POST");
     expect(callArgs[1]).toHaveProperty("signal");
     expect((callArgs[1]?.headers as Headers).get("X-Book-Session-Id")).toBe("session-1");

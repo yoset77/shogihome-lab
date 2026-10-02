@@ -133,6 +133,13 @@ const parseOnTheFlyThresholdMB = (name: string, defaultValue: number): number =>
 export const ONTHEFLY_THRESHOLD_MB = parseOnTheFlyThresholdMB("ONTHEFLY_THRESHOLD_MB", 128);
 export const SBK_ONTHEFLY_THRESHOLD_MB = parseOnTheFlyThresholdMB("SBK_ONTHEFLY_THRESHOLD_MB", 32);
 
+export const BOOK_SESSION_IDLE_TIMEOUT_MINUTES = parseIntegerEnv(
+  "BOOK_SESSION_IDLE_TIMEOUT_MINUTES",
+  1440,
+  5,
+  1440,
+);
+
 export const ANALYSIS_DB_MIN_DEPTH = (() => {
   const raw = process.env.ANALYSIS_DB_MIN_DEPTH;
   if (!raw) return 10;

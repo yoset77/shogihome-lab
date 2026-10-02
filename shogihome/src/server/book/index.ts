@@ -38,6 +38,8 @@ import {
   storeAperyBook,
 } from "./apery.js";
 import { writeStreamAtomic } from "@/server/file/atomic_stream";
+import { HttpError } from "@/server/errors";
+import { isReservedServerEntryName } from "@/common/file/upload";
 import {
   loadSbkBook,
   loadSbkBookOnTheFly,
@@ -92,15 +94,25 @@ async function resolveExistingPathInsideRoot(
   return resolvedTarget;
 }
 
-async function listFilesInsideRoot(rootDirectory: string, dir: string): Promise<string[]> {
+async function listFilesInsideRoot(
+  rootDirectory: string,
+  dir: string,
+  deadline: number,
+): Promise<string[]> {
   const rootPath = path.resolve(rootDirectory);
   const dirPath = await resolveExistingPathInsideRoot(rootPath, dir);
   const files: string[] = [];
+  let scanned = 0;
 
-  async function visit(currentDir: string): Promise<void> {
+  async function visit(currentDir: string, depth = 0): Promise<void> {
+    if (depth > 10 || Date.now() > deadline) throw new HttpError(413, t.serverBookImportLimit);
     // codeql[js/path-injection]
-    const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
-    for (const entry of entries) {
+    const directory = await fs.promises.opendir(currentDir);
+    for await (const entry of directory) {
+      if (++scanned > 2000 || files.length >= 2000 || Date.now() > deadline) {
+        throw new HttpError(413, t.serverBookImportLimit);
+      }
+      if (isReservedServerEntryName(entry.name) || entry.name.startsWith(".")) continue;
       const entryPath = path.join(currentDir, entry.name);
       // codeql[js/path-injection]
       const stat = await fs.promises.lstat(entryPath);
@@ -114,7 +126,7 @@ async function listFilesInsideRoot(rootDirectory: string, dir: string): Promise<
       if (stat.isFile()) {
         files.push(resolvedEntryPath);
       } else if (stat.isDirectory()) {
-        await visit(resolvedEntryPath);
+        await visit(resolvedEntryPath, depth + 1);
       }
     }
   }
@@ -248,13 +260,14 @@ export function getBookFormat(session: number): BookFormat {
 }
 
 function getFormatByPath(path: string): BookFormat {
-  if (path.endsWith(".db")) {
+  const lowerPath = path.toLowerCase();
+  if (lowerPath.endsWith(".db")) {
     return "yane2016";
   }
-  if (path.endsWith(".sbk")) {
+  if (lowerPath.endsWith(".sbk")) {
     return "sbk";
   }
-  if (path.endsWith(".ybb")) {
+  if (lowerPath.endsWith(".ybb")) {
     return "ybb";
   }
   return "apery";
@@ -308,7 +321,7 @@ async function buildOnTheFlyBook(
       format === "yane2016" &&
       !(await validateBookPositionOrdering(file.createReadStream({ autoClose: false })))
     ) {
-      throw new Error("Book is not ordered by position"); // FIXME: i18n
+      throw new HttpError(422, t.serverBookNotOrdered);
     }
     const common = {
       type: "on-the-fly" as const,
@@ -349,13 +362,13 @@ function switchBook(session: number, oldBook: BookHandle, newBook: BookHandle): 
   }
 }
 
-async function openBookOnTheFly(session: number, path: string, size: number): Promise<void> {
+async function openBookOnTheFly(path: string, size: number): Promise<BookHandle> {
   getAppLogger().info("Loading book on-the-fly: path=%s size=%d", path, size);
   const format = getFormatByPath(path);
-  replaceBook(session, await buildOnTheFlyBook(format, path, path));
+  return buildOnTheFlyBook(format, path, path);
 }
 
-async function openBookInMemory(session: number, path: string, size: number): Promise<void> {
+async function openBookInMemory(path: string, size: number): Promise<BookHandle> {
   getAppLogger().info("Loading book in-memory: path=%s size=%d", path, size);
   let file: ReadStream | undefined;
   try {
@@ -367,7 +380,7 @@ async function openBookInMemory(session: number, path: string, size: number): Pr
         break;
       case "sbk": {
         if (size > MAX_SBK_BOOK_SIZE_BYTES) {
-          throw new Error(`SBK file too large: ${size} bytes`);
+          throw new HttpError(413, t.serverBookTooLarge);
         }
         const data = await fs.promises.readFile(path);
         book = loadSbkBook(data);
@@ -381,12 +394,12 @@ async function openBookInMemory(session: number, path: string, size: number): Pr
         book = await loadAperyBook(file);
         break;
     }
-    replaceBook(session, {
+    return {
       type: "in-memory",
       saved: true,
       busy: false,
       ...book,
-    });
+    };
   } finally {
     file?.close();
   }
@@ -399,7 +412,7 @@ export async function openBook(
 ): Promise<"in-memory" | "on-the-fly"> {
   const stat = await fs.promises.lstat(path);
   if (!stat.isFile()) {
-    throw new Error("Not a file: " + path);
+    throw new HttpError(404, t.serverFileNotFound);
   }
 
   const size = stat.size;
@@ -407,15 +420,14 @@ export async function openBook(
   const thresholdMB =
     format === "sbk" ? options?.sbkOnTheFlyThresholdMB : options?.onTheFlyThresholdMB;
   if (format === "sbk" && size > MAX_SBK_BOOK_SIZE_BYTES) {
-    throw new Error(`SBK file too large: ${size} bytes`);
+    throw new HttpError(413, t.serverBookTooLarge);
   }
-  if (thresholdMB !== undefined && size > thresholdMB * 1024 * 1024) {
-    await openBookOnTheFly(session, path, size);
-    return "on-the-fly";
-  } else {
-    await openBookInMemory(session, path, size);
-    return "in-memory";
-  }
+  const onTheFly = thresholdMB !== undefined && size > thresholdMB * 1024 * 1024;
+  const candidate = onTheFly
+    ? await openBookOnTheFly(path, size)
+    : await openBookInMemory(path, size);
+  replaceBook(session, candidate);
+  return onTheFly ? "on-the-fly" : "in-memory";
 }
 
 export async function openBookAsNewSession(
@@ -446,9 +458,10 @@ function replaceBook(session: number, newBook: BookHandle) {
 // Write the book content to the given output stream. Used by both the regular
 // save and the atomic overwrite save of an on-the-fly book.
 async function writeBook(book: BookHandle, filePath: string, file: fs.WriteStream): Promise<void> {
+  const lowerPath = filePath.toLowerCase();
   switch (book.format) {
     case "yane2016":
-      if (!filePath.endsWith(".db")) {
+      if (!lowerPath.endsWith(".db")) {
         throw new Error("Invalid file extension: " + filePath);
       }
       if (book.type === "in-memory") {
@@ -464,7 +477,7 @@ async function writeBook(book: BookHandle, filePath: string, file: fs.WriteStrea
       }
       break;
     case "apery":
-      if (!filePath.endsWith(".bin")) {
+      if (!lowerPath.endsWith(".bin")) {
         throw new Error("Invalid file extension: " + filePath);
       }
       if (book.type === "in-memory") {
@@ -479,13 +492,13 @@ async function writeBook(book: BookHandle, filePath: string, file: fs.WriteStrea
       }
       break;
     case "sbk":
-      if (!filePath.endsWith(".sbk")) {
+      if (!lowerPath.endsWith(".sbk")) {
         throw new Error("Invalid file extension: " + filePath);
       }
       await storeSbkBook(book, file);
       break;
     case "ybb":
-      if (!filePath.endsWith(".ybb")) {
+      if (!lowerPath.endsWith(".ybb")) {
         throw new Error("Invalid file extension: " + filePath);
       }
       await closeWriteStream(file);
@@ -525,6 +538,7 @@ async function saveBookOverwriteOnTheFly(
   session: number,
   book: OnTheFlyBook,
   filePath: string,
+  validateDestination?: () => boolean,
 ): Promise<void> {
   getAppLogger().info("Overwriting on-the-fly book atomically: path=%s", filePath);
   const saveStartedAt = Date.now();
@@ -534,14 +548,16 @@ async function saveBookOverwriteOnTheFly(
       encoding: "utf-8",
       highWaterMark: 1024 * 1024,
       beforePublish: async (tempFilePath) => {
+        if (validateDestination && !validateDestination())
+          throw new HttpError(403, t.serverInvalidDestination);
         getAppLogger().info(
           "On-the-fly book merge completed: path=%s elapsedMs=%d",
           filePath,
           Date.now() - saveStartedAt,
         );
         // The old book stays alive (including its raw data) until the new
-        // book is published, so reserve its footprint in the SBK memory
-        // budget to avoid exceeding the process memory limit.
+        // book is published, so include its footprint in the SBK index
+        // construction budget.
         const reservedMemoryBytes =
           book.format === "sbk" && book.sbkIndex && book.rawData
             ? book.rawData.byteLength + book.sbkIndex.table.byteLength
@@ -582,25 +598,40 @@ async function saveBookOverwriteOnTheFly(
   }
 }
 
-export async function saveBook(session: number, filePath: string) {
+export async function saveBook(
+  session: number,
+  filePath: string,
+  options?: {
+    overwrite?: boolean;
+    validateDestination?: () => boolean;
+  },
+) {
   const book = getBook(session);
   if (book.busy) {
-    throw new Error(t.processingPleaseWait);
+    throw new HttpError(409, t.processingPleaseWait);
   }
   // on-the-fly ブックが読み込み元のファイルへ上書き保存する場合は、
   // 一時ファイルへの書き出しと atomic な rename でセッションを
   // 新しい内容へ切り替える。
   const overwriteOnTheFly =
     book.type === "on-the-fly" && path.resolve(book.path) === path.resolve(filePath);
+  if (overwriteOnTheFly && options?.overwrite === false)
+    throw new HttpError(409, t.serverFileExists);
 
   book.busy = true;
   try {
     if (overwriteOnTheFly) {
-      await saveBookOverwriteOnTheFly(session, book, filePath);
+      await saveBookOverwriteOnTheFly(session, book, filePath, options?.validateDestination);
     } else {
       await writeStreamAtomic(filePath, (file) => writeBook(book, filePath, file), {
         encoding: "utf-8",
         highWaterMark: 1024 * 1024,
+        overwrite: options?.overwrite !== false,
+        beforePublish: async () => {
+          if (options?.validateDestination && !options.validateDestination()) {
+            throw new HttpError(403, t.serverInvalidDestination);
+          }
+        },
       });
       book.saved = true;
     }
@@ -706,15 +737,16 @@ function sanitizedAperyBookMove(move: CommonBookMove): BookMove {
 export async function updateBookMove(session: number, sfen: string, move: CommonBookMove) {
   const book = getBook(session);
   if (book.busy) {
-    throw new Error(t.processingPleaseWait);
+    throw new HttpError(409, t.processingPleaseWait);
   }
-  const entry = await retrieveMergedEntry(book, sfen);
+  const original = await retrieveMergedEntry(book, sfen);
+  const entry = original ? { ...original, moves: [...original.moves] } : undefined;
   if (book.format === "yane2016" || book.format === "sbk" || book.format === "ybb") {
     if (entry) {
       updateBookEntry(entry, move);
-      book.entries.set(sfen, entry);
+      storeEntry(book, sfen, entry);
     } else {
-      book.entries.set(sfen, {
+      storeEntry(book, sfen, {
         type: "normal",
         comment: "",
         moves: [commonBookMoveToInternal(move)],
@@ -723,12 +755,11 @@ export async function updateBookMove(session: number, sfen: string, move: Common
     }
   } else {
     const sanitizedMove = sanitizedAperyBookMove({ ...move, comment: "" });
-    const hash = aperyHash(sfen);
     if (entry) {
       updateBookEntry(entry, sanitizedMove);
-      book.entries.set(hash, entry);
+      storeEntry(book, sfen, entry);
     } else {
-      book.entries.set(hash, {
+      storeEntry(book, sfen, {
         type: "normal",
         comment: "",
         moves: [sanitizedMove],
@@ -736,20 +767,21 @@ export async function updateBookMove(session: number, sfen: string, move: Common
       });
     }
   }
-  book.saved = false;
 }
 
 export async function removeBookMove(session: number, sfen: string, usi: string) {
   const book = getBook(session);
   if (book.busy) {
-    throw new Error(t.processingPleaseWait);
+    throw new HttpError(409, t.processingPleaseWait);
   }
   const entry = await retrieveMergedEntry(book, sfen);
   if (!entry) {
     return;
   }
-  entry.moves = entry.moves.filter((move) => move.usi !== usi);
-  storeEntry(book, sfen, entry);
+  storeEntry(book, sfen, {
+    ...entry,
+    moves: entry.moves.filter((move) => move.usi !== usi),
+  });
 }
 
 export async function updateBookMoveOrder(
@@ -760,7 +792,7 @@ export async function updateBookMoveOrder(
 ) {
   const book = getBook(session);
   if (book.busy) {
-    throw new Error(t.processingPleaseWait);
+    throw new HttpError(409, t.processingPleaseWait);
   }
   const entry = await retrieveMergedEntry(book, sfen);
   if (!entry) {
@@ -770,9 +802,9 @@ export async function updateBookMoveOrder(
   if (!move) {
     return;
   }
-  entry.moves = entry.moves.filter((move) => move.usi !== usi);
-  entry.moves.splice(order, 0, move);
-  storeEntry(book, sfen, entry);
+  const moves = entry.moves.filter((move) => move.usi !== usi);
+  moves.splice(order, 0, move);
+  storeEntry(book, sfen, { ...entry, moves });
 }
 
 function getRecordWinner(node: ImmutableNode): Color | undefined {
@@ -813,16 +845,24 @@ export async function importBookMoves(
 
   const book = getBook(session);
   if (book.busy) {
-    throw new Error(t.processingPleaseWait);
+    throw new HttpError(409, t.processingPleaseWait);
   }
 
   let successFileCount = 0;
   let errorFileCount = 0;
   let skippedFileCount = 0;
 
-  type PendingMove = { count: number; score?: number; depth?: number };
+  type PendingMove = { count: number; minPly: number; score?: number; depth?: number };
   const pendingMoves = new Map<string, Map<string, PendingMove>>();
   const pendingStats = new Map<string, { games: number; wonBlack: number; wonWhite: number }>();
+  const deadline = Date.now() + 60_000;
+  let importedMoves = 0;
+  let bytesRead = 0;
+  const checkLimits = () => {
+    if (Date.now() > deadline || importedMoves > 100_000) {
+      throw new HttpError(413, t.serverBookImportLimit);
+    }
+  };
   function importMove(node: ImmutableNode, sfen: string, winner?: Color) {
     if (!(node.move instanceof Move)) {
       return;
@@ -832,6 +872,8 @@ export async function importBookMoves(
     if (node.ply < settings.minPly || node.ply > settings.maxPly) {
       return;
     }
+    importedMoves++;
+    checkLimits();
 
     const usi = node.move.usi;
     let moves = pendingMoves.get(sfen);
@@ -842,8 +884,9 @@ export async function importBookMoves(
     const existing = moves.get(usi);
     if (existing) {
       existing.count++;
+      existing.minPly = Math.min(existing.minPly, node.ply);
     } else {
-      moves.set(usi, { count: 1 });
+      moves.set(usi, { count: 1, minPly: node.ply });
     }
 
     if (settings.importScore && node.comment) {
@@ -891,10 +934,10 @@ export async function importBookMoves(
     switch (settings.sourceType) {
       case SourceType.FILE: {
         if (!settings.sourceRecordFile) {
-          throw new Error("source record file is not set");
+          throw new HttpError(400, t.sourceRecordFileNotSet);
         }
         if (!detectRecordFileFormatByPath(settings.sourceRecordFile)) {
-          throw new Error("unknown file format: " + settings.sourceRecordFile);
+          throw new HttpError(400, t.unknownFileExtension);
         }
 
         let sourcePath: string;
@@ -905,21 +948,21 @@ export async function importBookMoves(
           );
         } catch (e) {
           if ((e as NodeJS.ErrnoException).code === "ENOENT") {
-            throw new Error(t.fileNotFound(settings.sourceRecordFile), { cause: e });
+            throw new HttpError(404, t.fileNotFound(path.basename(settings.sourceRecordFile)));
           }
           throw e;
         }
         // codeql[js/path-injection]
         const sourceStat = await fs.promises.lstat(sourcePath);
         if (!sourceStat.isFile()) {
-          throw new Error(t.fileNotFound(settings.sourceRecordFile));
+          throw new HttpError(404, t.fileNotFound(path.basename(settings.sourceRecordFile)));
         }
         paths = [sourcePath];
         break;
       }
       case SourceType.DIRECTORY: {
         if (!settings.sourceDirectory) {
-          throw new Error("source directory is not set");
+          throw new HttpError(400, t.sourceDirectoryNotSet);
         }
 
         let sourceDirectory: string;
@@ -930,24 +973,25 @@ export async function importBookMoves(
           );
         } catch (e) {
           if ((e as NodeJS.ErrnoException).code === "ENOENT") {
-            throw new Error(t.directoryNotFound(settings.sourceDirectory), { cause: e });
+            throw new HttpError(404, t.directoryNotFound(path.basename(settings.sourceDirectory)));
           }
           throw e;
         }
         // codeql[js/path-injection]
         const sourceStat = await fs.promises.lstat(sourceDirectory);
         if (!sourceStat.isDirectory()) {
-          throw new Error(t.directoryNotFound(settings.sourceDirectory));
+          throw new HttpError(404, t.directoryNotFound(path.basename(settings.sourceDirectory)));
         }
-        paths = await listFilesInsideRoot(rootDirectory, sourceDirectory);
+        paths = await listFilesInsideRoot(rootDirectory, sourceDirectory, deadline);
         paths = paths.filter(detectRecordFileFormatByPath);
         break;
       }
       default:
-        throw new Error("invalid source type");
+        throw new HttpError(400, t.serverInvalidBookImportSource);
     }
 
     for (const recordFilePath of paths) {
+      checkLimits();
       if (onProgress) {
         const progress = (successFileCount + errorFileCount + skippedFileCount) / paths.length;
         onProgress(progress);
@@ -978,6 +1022,10 @@ export async function importBookMoves(
       getAppLogger().debug("Importing book moves from: %s", safeRecordFilePath);
       const format = detectRecordFileFormatByPath(safeRecordFilePath) as RecordFileFormat;
       // codeql[js/path-injection]
+      const stat = await fs.promises.stat(safeRecordFilePath);
+      if (stat.size > 16 * 1024 * 1024 || (bytesRead += stat.size) > 128 * 1024 * 1024) {
+        throw new HttpError(413, t.serverBookImportLimit);
+      }
       const sourceData = await fs.promises.readFile(safeRecordFilePath);
 
       if (format === RecordFileFormat.SFEN) {
@@ -990,6 +1038,7 @@ export async function importBookMoves(
         let hasValidLines = false;
         let invalidLine = "";
         for (let index = 0; index < lines.length; index++) {
+          if (index % 100 === 0) checkLimits();
           const line = lines[index];
           const record = Record.newByUSI(line.trim());
           if (record instanceof Error) {
@@ -1043,7 +1092,7 @@ export async function importBookMoves(
         const blackPlayerName = getBlackPlayerName(record.metadata)?.toLowerCase();
         const whitePlayerName = getWhitePlayerName(record.metadata)?.toLowerCase();
         if (!settings.playerName) {
-          throw new Error("player name is not set");
+          throw new HttpError(400, t.playerNameNotSet);
         }
         if (
           !blackPlayerName ||
@@ -1059,8 +1108,13 @@ export async function importBookMoves(
         }
       }
 
-      const winner = getRecordWinner(record.current);
+      let winner: Color | undefined;
+      let lastPly = Infinity;
       record.forEach((node) => {
+        if (node.ply <= lastPly) {
+          winner = getRecordWinner(node);
+        }
+        lastPly = node.ply;
         const prev = node.prev;
         if (prev && targetColorSet[prev.nextColor]) {
           importMove(node, prev.sfen, winner);
@@ -1076,9 +1130,11 @@ export async function importBookMoves(
     const concurrency = Math.min(sfens.length, maxConcurrency);
     const worker = async () => {
       while (nextIndex < sfens.length) {
+        checkLimits();
         const i = nextIndex++;
         const sfen = sfens[i];
         const entry = await retrieveMergedEntry(book, sfen);
+        checkLimits();
         if (entry) {
           results.set(sfen, entry);
         }
@@ -1088,18 +1144,25 @@ export async function importBookMoves(
     for (let i = 0; i < concurrency; i++) {
       workers.push(worker());
     }
-    await Promise.all(workers);
+    const workerResults = await Promise.allSettled(workers);
+    const failedWorker = workerResults.find((result) => result.status === "rejected");
+    if (failedWorker?.status === "rejected") throw failedWorker.reason;
     const entriesMap = results;
 
     let entryCount = 0;
     let duplicateCount = 0;
+    const stagedEntries = new Map<string, BookEntry>();
     for (const [sfen, movesMap] of pendingMoves.entries()) {
-      const entry = entriesMap.get(sfen) || {
-        type: book.type === "in-memory" ? "normal" : "patch",
-        comment: "",
-        moves: [],
-        minPly: 0,
-      };
+      checkLimits();
+      const original = entriesMap.get(sfen);
+      const entry: BookEntry = original
+        ? { ...original, moves: original.moves.map((move) => ({ ...move })) }
+        : {
+            type: book.type === "in-memory" ? "normal" : "patch",
+            comment: "",
+            moves: [],
+            minPly: 0,
+          };
 
       const currentMovesMap = new Map<string, BookMove>();
       for (const move of entry.moves) {
@@ -1107,6 +1170,7 @@ export async function importBookMoves(
       }
 
       for (const [usi, pending] of movesMap.entries()) {
+        entry.minPly = entry.minPly > 0 ? Math.min(entry.minPly, pending.minPly) : pending.minPly;
         const existing = currentMovesMap.get(usi);
         if (existing) {
           duplicateCount += pending.count;
@@ -1141,8 +1205,17 @@ export async function importBookMoves(
 
       entry.moves = Array.from(currentMovesMap.values());
       entry.moves.sort((a, b) => (b.count || 0) - (a.count || 0));
-      storeEntry(book, sfen, entry);
+      stagedEntries.set(sfen, entry);
     }
+
+    for (const [sfen, entry] of stagedEntries) {
+      if (book.format === "apery") {
+        book.entries.set(aperyHash(sfen), entry);
+      } else {
+        book.entries.set(sfen, entry);
+      }
+    }
+    if (stagedEntries.size) book.saved = false;
 
     if (book.type === "in-memory") {
       return {
