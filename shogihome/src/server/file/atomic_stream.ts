@@ -52,7 +52,6 @@ export async function writeStreamAtomic(
   options?: WriteStreamAtomicOptions,
 ): Promise<void> {
   const resolvedPath = path.resolve(filePath);
-  await fs.promises.mkdir(path.dirname(resolvedPath), { recursive: true });
   const tempFilePath = getTempFilePath(resolvedPath);
   const { overwrite, beforePublish, onPublished, ...streamOptions } = options ?? {};
 
@@ -78,6 +77,14 @@ export async function writeStreamAtomic(
   let failed = false;
   let published = false;
   try {
+    if (overwrite === false) {
+      try {
+        await fs.promises.lstat(resolvedPath);
+        throw Object.assign(new Error("File already exists"), { code: "EEXIST" });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
     stream = fs.createWriteStream(tempFilePath, { ...streamOptions, flags: "wx" });
     stream.on("error", onStreamError);
     handlerPromise = handler(stream);
@@ -94,6 +101,7 @@ export async function writeStreamAtomic(
     }
     await beforePublish?.(tempFilePath);
     if (overwrite === false) {
+      // The early check avoids wasted work; link still protects against racing writers.
       await fs.promises.link(tempFilePath, resolvedPath);
       await fs.promises.unlink(tempFilePath);
     } else {

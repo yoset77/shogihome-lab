@@ -31,4 +31,12 @@ describe("server/usi/sfen", () => {
   it("rejects invalid commands", () => {
     expect(getNormalizedSfenAndHash("position invalid")).toBeNull();
   });
+
+  it.each([
+    ["position startpos", 0xeebe8ee7e1ad7e15n],
+    ["lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 42", 0xeebe8ee7e1ad7e15n],
+    ["position startpos moves 7g7f", 0x3e7b1f82567220d5n],
+  ])("preserves the signed Apery hash after normalizing %s", (input, unsignedHash) => {
+    expect(getNormalizedSfenAndHash(input)?.hash).toBe(BigInt.asIntN(64, unsignedHash));
+  });
 });

@@ -76,6 +76,92 @@ describe("API: /api/kifu", () => {
     expect(httpServer.requestTimeout).toBe(SERVER_UPLOAD_TIMEOUT_MS);
   });
 
+  it("does not disclose missing file paths", async () => {
+    for (const url of ["/api/kifu/get?path=missing.kif", "/api/sfen/load?path=missing.sfen"]) {
+      const response = await requestApp(app, "GET", url, { host });
+      expect(response.status).toBe(404);
+      expect(response.textBody).not.toContain(tempKifuDir);
+    }
+  });
+
+  it("restricts record saves to existing parents and record extensions", async () => {
+    for (const file of ["book.db", "missing/nested/game.kif", "bad:name.kif"]) {
+      const response = await requestApp(
+        app,
+        "POST",
+        `/api/kifu/save?path=${encodeURIComponent(file)}`,
+        {
+          host,
+          body: "record",
+        },
+      );
+      expect(response.status).toBeGreaterThanOrEqual(400);
+    }
+    expect(fs.existsSync(path.join(tempKifuDir, "missing"))).toBe(false);
+    expect(fs.existsSync(path.join(tempKifuDir, "book.db"))).toBe(false);
+  });
+
+  it("does not replace records without an explicit overwrite", async () => {
+    fs.writeFileSync(path.join(tempKifuDir, "existing.kif"), "old");
+    const response = await requestApp(app, "POST", "/api/kifu/save?path=existing.kif", {
+      host,
+      body: "new",
+    });
+    expect(response.status).toBe(409);
+    expect(fs.readFileSync(path.join(tempKifuDir, "existing.kif"), "utf8")).toBe("old");
+    const overwrite = await requestApp(
+      app,
+      "POST",
+      "/api/kifu/save?path=existing.kif&overwrite=true",
+      {
+        host,
+        body: "new",
+      },
+    );
+    expect(overwrite.status).toBe(200);
+    expect(fs.readFileSync(path.join(tempKifuDir, "existing.kif"), "utf8")).toBe("new");
+  });
+
+  it("does not lock the destination while waiting for the save request body", async () => {
+    let input!: ReadableStreamDefaultController<Uint8Array>;
+    let bodyRead!: () => void;
+    const reading = new Promise<void>((resolve) => {
+      bodyRead = resolve;
+    });
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        input = controller;
+        controller.enqueue(new TextEncoder().encode("slow"));
+      },
+      pull() {
+        bodyRead();
+      },
+    });
+    const slow = requestApp(app, "POST", "/api/kifu/save?path=waiting.kif", { host, body });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let fast: ReturnType<typeof requestApp> | undefined;
+    try {
+      await reading;
+      fast = requestApp(app, "POST", "/api/kifu/save?path=waiting.kif", {
+        host,
+        body: "fast",
+      });
+      const result = await Promise.race([
+        fast,
+        new Promise<undefined>((resolve) => {
+          timer = setTimeout(() => resolve(undefined), 500);
+        }),
+      ]);
+      expect(result?.status).toBe(200);
+    } finally {
+      clearTimeout(timer);
+      input.close();
+      await slow;
+      await fast;
+    }
+    expect(fs.readFileSync(path.join(tempKifuDir, "waiting.kif"), "utf8")).toBe("fast");
+  });
+
   it("cancels stalled input after a disk error and releases the upload slot", async () => {
     fs.writeFileSync(path.join(tempKifuDir, "failed.kif"), "old");
     const createWriteStream = fs.createWriteStream.bind(fs);

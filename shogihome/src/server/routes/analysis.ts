@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 import { validator } from "hono/validator";
 import events from "node:events";
-import fs from "fs";
 import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
-import { resolveKifuPath } from "@/server/helpers/kifu";
+import { resolveWritableKifuPath } from "@/server/helpers/kifu";
+import { writeStreamAtomic } from "@/server/file/atomic_stream";
 import {
   cleanupAnalysisResults,
   deleteAnalysisResult,
@@ -19,6 +19,7 @@ import { KIFU_DIR } from "@/server/config";
 import { sendError } from "@/server/errors";
 import { createBodyLimit, DEFAULT_JSON_BODY_LIMIT, type AppEnv } from "@/server/hono";
 import { getString } from "@/server/routes/query";
+import { t } from "@/common/i18n";
 
 type AnalysisDeleteRequest = {
   sfen?: unknown;
@@ -102,7 +103,11 @@ export const analysisRoutes = new Hono<AppEnv>()
   )
 
   .post("/export", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
-    const body = await c.req.json<{ engineId?: unknown; filename?: unknown }>();
+    const body = await c.req.json<{
+      engineId?: unknown;
+      filename?: unknown;
+      overwrite?: unknown;
+    }>();
     const engineId = body.engineId;
     const relPath = body.filename;
     if (typeof engineId !== "number" || !Number.isInteger(engineId) || engineId <= 0) {
@@ -111,29 +116,43 @@ export const analysisRoutes = new Hono<AppEnv>()
     if (typeof relPath !== "string" || !relPath) {
       return sendError(c, 400, "filename is required");
     }
+    if (body.overwrite !== undefined && typeof body.overwrite !== "boolean") {
+      return sendError(c, 400, "overwrite must be a boolean");
+    }
     if (!KIFU_DIR) {
       return sendError(c, 404, "KIFU_DIR is not configured");
     }
 
-    const fullPath = resolveKifuPath(KIFU_DIR, relPath);
+    const fullPath = resolveWritableKifuPath(KIFU_DIR, "book", relPath, ".db");
     if (!fullPath) {
-      return sendError(c, 400, "invalid filename");
+      return sendError(c, 400, t.serverInvalidDestination);
     }
-    const generator = exportAnalysisResultsByEngine(engineId);
-    const stream = fs.createWriteStream(fullPath);
-
-    await new Promise<void>((resolve, reject) => {
-      stream.on("error", reject);
-      stream.on("finish", resolve);
-      (async () => {
-        for (const chunk of generator) {
-          if (!stream.write(chunk)) {
-            await events.once(stream, "drain");
+    const destination = fullPath;
+    const kifuDir = KIFU_DIR;
+    try {
+      await writeStreamAtomic(
+        destination,
+        async (stream) => {
+          for (const chunk of exportAnalysisResultsByEngine(engineId)) {
+            if (!stream.write(chunk)) await events.once(stream, "drain");
           }
-        }
-        stream.end();
-      })().catch(reject);
-    });
+          stream.end();
+        },
+        {
+          overwrite: body.overwrite === true,
+          beforePublish: async () => {
+            if (resolveWritableKifuPath(kifuDir, "book", relPath, ".db") !== destination) {
+              throw new Error("Invalid analysis export destination");
+            }
+          },
+        },
+      );
+    } catch (error) {
+      if (error instanceof Error && (error as NodeJS.ErrnoException).code === "EEXIST") {
+        return sendError(c, 409, t.serverFileExists);
+      }
+      throw error;
+    }
 
     return c.text("ok");
   })

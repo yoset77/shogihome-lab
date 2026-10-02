@@ -64,7 +64,7 @@ export interface Bridge {
   showOpenBookDialog(): Promise<string>;
   showSaveBookDialog(defaultPath: string): Promise<string>;
   openBook(path: string, json: string, sessionId?: string): Promise<BookLoadingMode>;
-  saveBook(path: string, sessionId?: string): Promise<void>;
+  saveBook(path: string, sessionId?: string, overwriteCurrent?: boolean): Promise<boolean>;
   closeBookSession(sessionId: string): Promise<void>;
   clearBook(sessionId?: string, format?: string): Promise<void>;
   searchBookMoves(sfen: string, sessionId?: string): Promise<string>;
@@ -140,5 +140,5 @@ export interface Bridge {
   listServerBook(): Promise<string[]>;
   listServerPosition(): Promise<string[]>;
   loadServerKifu(path: string): Promise<string>;
-  saveServerKifu(path: string, data: Uint8Array): Promise<void>;
+  saveServerKifu(path: string, data: Uint8Array, overwriteCurrent?: boolean): Promise<boolean>;
 }

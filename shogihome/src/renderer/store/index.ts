@@ -1799,7 +1799,7 @@ class Store {
       if (!path) {
         return;
       }
-      await this.saveRecordByPath(path, { detectGarbled: true });
+      if (!(await this.saveRecordByPath(path, { detectGarbled: true }))) return;
       useToastStore().success(t.recordDataWasSaved);
       const actualPath = path.startsWith("server://") ? path.substring(9) : path;
       const fileFormat = detectRecordFileFormatByPath(actualPath) as RecordFileFormat;
@@ -1832,7 +1832,7 @@ class Store {
     }
   }
 
-  private async saveRecordByPath(path: string, opt?: { detectGarbled: boolean }): Promise<void> {
+  private async saveRecordByPath(path: string, opt?: { detectGarbled: boolean }): Promise<boolean> {
     const appSettings = useAppSettings();
     const result = this.recordManager.exportRecordAsBuffer(path, {
       returnCode: appSettings.returnCode,
@@ -1845,7 +1845,13 @@ class Store {
     }
     try {
       if (path.startsWith("server://")) {
-        await api.saveServerKifu(path.substring(9), result.data);
+        const relPath = path.substring(9);
+        const saved = await api.saveServerKifu(
+          relPath,
+          result.data,
+          this.recordManager.serverKifuPath === relPath,
+        );
+        if (!saved) return false;
       } else {
         await api.saveRecord(path, result.data);
       }
@@ -1856,6 +1862,7 @@ class Store {
         });
         this.garbledNotified = true;
       }
+      return true;
     } catch (e) {
       throw new Error(`${t.failedToSaveRecord}: ${e}`, { cause: e });
     }

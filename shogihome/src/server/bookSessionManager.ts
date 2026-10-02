@@ -1,11 +1,13 @@
 import { closeBookSession, initBookSession } from "@/server/book";
 import { HttpError } from "@/server/errors";
 import AsyncLock from "async-lock";
+import { t } from "@/common/i18n";
+import { BOOK_SESSION_IDLE_TIMEOUT_MINUTES } from "@/server/config";
 
 const SESSION_ID_HEADER_REGEX = /^[a-zA-Z0-9_-]{8,128}$/;
 const BOOK_LOCK_MAX_PENDING = 32;
 const BOOK_LOCK_TIMEOUT_MS = 30_000;
-const BOOK_SESSION_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const BOOK_SESSION_TIMEOUT_MS = BOOK_SESSION_IDLE_TIMEOUT_MINUTES * 60 * 1000;
 
 class BookSessionManager {
   private sessions = new Map<string, number>();
@@ -17,16 +19,23 @@ class BookSessionManager {
   private nextSessionId = 1;
   private readonly MAX_SESSIONS = 50;
 
-  get(sessionId: string): number {
-    this.lastAccess.set(sessionId, Date.now());
+  has(sessionId: string): boolean {
+    return this.sessions.has(sessionId);
+  }
+
+  get(sessionId: string, allowReopen = false): number {
     if (!this.sessions.has(sessionId)) {
+      if (!allowReopen) {
+        throw new HttpError(410, t.serverBookSessionExpired);
+      }
       if (this.sessions.size >= this.MAX_SESSIONS) {
         throw new HttpError(503, `Book session limit reached (${this.MAX_SESSIONS})`);
       }
       const id = this.nextSessionId++;
-      this.sessions.set(sessionId, id);
       initBookSession(id);
+      this.sessions.set(sessionId, id);
     }
+    this.lastAccess.set(sessionId, Date.now());
     return this.sessions.get(sessionId)!;
   }
 
@@ -35,8 +44,8 @@ class BookSessionManager {
     if (id !== undefined) {
       closeBookSession(id);
       this.sessions.delete(sessionId);
-      this.lastAccess.delete(sessionId);
     }
+    this.lastAccess.delete(sessionId);
   }
 
   async runExclusive<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
@@ -44,7 +53,11 @@ class BookSessionManager {
     try {
       return await this.lock.acquire(sessionId, async () => {
         operationStarted = true;
-        return operation();
+        try {
+          return await operation();
+        } finally {
+          if (this.sessions.has(sessionId)) this.lastAccess.set(sessionId, Date.now());
+        }
       });
     } catch (error) {
       if (!operationStarted) {
@@ -80,8 +93,8 @@ export const bookSessionManager = new BookSessionManager();
 const bookCleanupInterval = setInterval(() => bookSessionManager.cleanup(), 1000 * 60 * 10);
 bookCleanupInterval.unref();
 
-export function getBookSession(sessionId: string | undefined): number {
-  return bookSessionManager.get(validateBookSessionId(sessionId));
+export function getBookSession(sessionId: string | undefined, allowReopen = false): number {
+  return bookSessionManager.get(validateBookSessionId(sessionId), allowReopen);
 }
 
 export function closeBookSessionForHeader(sessionId: string | undefined): void {

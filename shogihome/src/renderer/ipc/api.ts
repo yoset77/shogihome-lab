@@ -87,7 +87,7 @@ export interface API {
   showSaveBookDialog(defaultPath: string): Promise<string>;
   openBook(path: string, options: BookLoadingOptions): Promise<BookLoadingMode>;
   openBookAsNewSession(path: string, options: BookLoadingOptions): Promise<string>;
-  saveBook(path: string, sessionId?: string): Promise<void>;
+  saveBook(path: string, sessionId?: string, overwriteCurrent?: boolean): Promise<boolean>;
   closeBook(sessionId: string): Promise<void>;
   clearBook(sessionId?: string, format?: BookFormat): Promise<void>;
   searchBookMoves(sfen: string, sessionId?: string): Promise<BookMove[]>;
@@ -165,7 +165,7 @@ export interface API {
   listServerBook(): Promise<string[]>;
   listServerPosition(): Promise<string[]>;
   loadServerKifu(path: string): Promise<string>;
-  saveServerKifu(path: string, data: Uint8Array): Promise<void>;
+  saveServerKifu(path: string, data: Uint8Array, overwriteCurrent?: boolean): Promise<boolean>;
 }
 
 export const appInfo: AppInfo = {
@@ -255,11 +255,11 @@ const api: API = {
       throw error;
     }
   },
-  async saveBook(path: string, sessionId?: string): Promise<void> {
+  async saveBook(path: string, sessionId?: string, overwriteCurrent = false): Promise<boolean> {
     if (!path.startsWith("server://")) {
       throw new Error("Only server-side books are supported");
     }
-    return bridge.saveBook(path, sessionId);
+    return bridge.saveBook(path, sessionId, overwriteCurrent);
   },
   async closeBook(sessionId: string): Promise<void> {
     return bridge.closeBookSession(sessionId);
@@ -379,8 +379,8 @@ const api: API = {
   loadServerKifu(path: string): Promise<string> {
     return bridge.loadServerKifu(path);
   },
-  saveServerKifu(path: string, data: Uint8Array): Promise<void> {
-    return bridge.saveServerKifu(path, data);
+  saveServerKifu(path: string, data: Uint8Array, overwriteCurrent = false): Promise<boolean> {
+    return bridge.saveServerKifu(path, data, overwriteCurrent);
   },
 };
 

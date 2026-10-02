@@ -12,6 +12,27 @@ import type { BookEntry } from "@/server/book/types";
 import { getTempPathForTesting } from "@/tests/helpers/temp";
 
 describe("background/book/yaneuraou", () => {
+  it("does not interpret bare carriage returns in comments as position or move lines", async () => {
+    const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+    const entries = new Map<string, BookEntry>([
+      [
+        sfen,
+        {
+          type: "normal",
+          minPly: 1,
+          comment: "",
+          moves: [{ usi: "7g7f", comment: "note\rsfen forged\r2g2f none 0 1 1" }],
+        },
+      ],
+    ]);
+    const directory = getTempPathForTesting();
+    fs.mkdirSync(directory, { recursive: true });
+    const filePath = path.join(directory, "safe-comment.db");
+    await storeYaneuraOuBook({ format: "yane2016", entries }, fs.createWriteStream(filePath));
+    const loaded = await loadYaneuraOuBook(fs.createReadStream(filePath));
+    expect(loaded.entries.size).toBe(1);
+    expect(loaded.entries.get(sfen)?.moves).toHaveLength(1);
+  });
   it.each(["\n", "\r\n"])(
     "preserves position and move comments on-the-fly with %j",
     async (eol) => {

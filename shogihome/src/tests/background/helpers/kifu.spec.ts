@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   clearKifuListCache,
   getBookList,
@@ -8,7 +8,9 @@ import {
   getServerFileKind,
   resolveKifuDirectory,
   resolveKifuPath,
+  setupKifuWatcher,
 } from "@/server/helpers/kifu";
+import { isReservedServerEntryName } from "@/common/file/upload";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -57,6 +59,120 @@ describe("background/helpers/kifu", () => {
     expect(list[0]).toBe("sub/test.kif");
     expect(list[0]).not.toContain("\\");
   });
+
+  it("does not watch files through a symlinked directory", async () => {
+    fs.writeFileSync(path.join(outsideDir, "game.kif"), "old");
+    fs.symlinkSync(outsideDir, path.join(tempDir, "linked"), "dir");
+    const events: string[] = [];
+    const watcher = setupKifuWatcher(tempDir, false, (_, relPath) => events.push(relPath));
+    expect(watcher).not.toBeNull();
+    try {
+      await new Promise<void>((resolve) => watcher!.once("ready", resolve));
+      fs.writeFileSync(path.join(outsideDir, "game.kif"), "new");
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      expect(events).not.toContain("linked/game.kif");
+    } finally {
+      await watcher?.close();
+    }
+  });
+
+  it.each([false, true])(
+    "ignores reserved writer directories without suppressing ordinary events (polling: %s)",
+    async (usePolling) => {
+      fs.writeFileSync(path.join(tempDir, "existing.kif"), "old");
+      const events: [string, string][] = [];
+      const allEvents: [string, string][] = [];
+      const watcher = setupKifuWatcher(tempDir, usePolling, (event, relPath) =>
+        events.push([event, relPath]),
+      );
+      expect(watcher).not.toBeNull();
+      watcher!.on("all", (event, filePath) =>
+        allEvents.push([event, path.relative(tempDir, filePath)]),
+      );
+      try {
+        await new Promise<void>((resolve) => watcher!.once("ready", resolve));
+        const cached = await getKifuList(tempDir);
+        const reservedNames = ["game.kif.lock", "book.db.LOCK", "alias.lock. "];
+        for (const name of reservedNames) {
+          fs.mkdirSync(path.join(tempDir, name));
+          fs.writeFileSync(path.join(tempDir, name, "internal.kif"), "internal");
+        }
+        fs.mkdirSync(path.join(tempDir, ".atomic-test"));
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        for (const name of [...reservedNames, ".atomic-test"]) {
+          fs.rmSync(path.join(tempDir, name), { recursive: true });
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+
+        expect(events).toEqual([]);
+        expect(allEvents).toEqual([]);
+        expect(await getKifuList(tempDir)).toBe(cached);
+
+        const directory = path.join(tempDir, "games");
+        const target = path.join(directory, "game.kif");
+        fs.mkdirSync(directory);
+        fs.writeFileSync(target, "new");
+        await vi.waitFor(() => expect(events).toContainEqual(["add", "games/game.kif"]), {
+          timeout: 3000,
+        });
+        expect(allEvents).toContainEqual(["addDir", "games"]);
+        expect(await getKifuList(tempDir)).toContain("games/game.kif");
+        fs.writeFileSync(target, "updated");
+        await vi.waitFor(() => expect(events).toContainEqual(["change", "games/game.kif"]), {
+          timeout: 3000,
+        });
+        fs.rmSync(target);
+        await vi.waitFor(() => expect(events).toContainEqual(["unlink", "games/game.kif"]), {
+          timeout: 3000,
+        });
+        fs.rmdirSync(directory);
+        expect(
+          allEvents.some(([, relPath]) => relPath.split(path.sep).some(isReservedServerEntryName)),
+        ).toBe(false);
+      } finally {
+        await watcher?.close();
+      }
+    },
+    15000,
+  );
+
+  it.each([false, true])(
+    "watches changes through a symlinked root (polling: %s)",
+    async (usePolling) => {
+      const linkedRoot = path.join(outsideDir, "linked-root");
+      fs.symlinkSync(tempDir, linkedRoot, "dir");
+      fs.mkdirSync(path.join(tempDir, "games"));
+      expect(await getKifuList(linkedRoot)).toEqual([]);
+      const events: [string, string][] = [];
+      const watcher = setupKifuWatcher(linkedRoot, usePolling, (event, relPath) =>
+        events.push([event, relPath]),
+      );
+      expect(watcher).not.toBeNull();
+      try {
+        await new Promise<void>((resolve) => watcher!.once("ready", resolve));
+        const target = path.join(tempDir, "games", "game.kif");
+        fs.writeFileSync(target, "old");
+        await vi.waitFor(() => expect(events).toContainEqual(["add", "games/game.kif"]), {
+          timeout: 3000,
+        });
+        expect(await getKifuList(linkedRoot)).toEqual(["games/game.kif"]);
+
+        fs.writeFileSync(target, "updated");
+        await vi.waitFor(() => expect(events).toContainEqual(["change", "games/game.kif"]), {
+          timeout: 3000,
+        });
+        fs.rmSync(target);
+        await vi.waitFor(() => expect(events).toContainEqual(["unlink", "games/game.kif"]), {
+          timeout: 3000,
+        });
+        expect(await getKifuList(linkedRoot)).toEqual([]);
+        fs.rmdirSync(path.join(tempDir, "games"));
+      } finally {
+        await watcher?.close();
+      }
+    },
+    10000,
+  );
 
   it("getKifuList respects depth limit", async () => {
     // Create very deep directory

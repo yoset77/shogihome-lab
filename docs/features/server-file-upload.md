@@ -19,6 +19,8 @@
 - 同時に処理するupload数を制限し、temporary fileによるdiskとfile descriptorの消費を抑えます。
 - 完了前のfileをreaderやindexへ公開せず、atomic helperで完成したfileだけを公開します。
 - 同名fileは既定で拒否し、userが競合fileの上書きを承認した場合だけ置き換えます。
+- 他のBrowser保存機能も同じ書き込み先検証とatomic publicationを使います。棋譜・定跡の現在開いている同一pathへの再保存は確認なしで明示的に上書きし、別名保存・解析結果exportは新規保存を既定として競合の確認後に明示的な上書き指定で再送します。
+- 既存targetとの競合は定跡の書き出し・解析結果生成より前に返し、確認だけのために全件exportしません。上書き確認のキャンセルは正常な中断として扱い、成功・失敗の通知を表示せず、元のpathと未保存変更を保持します。
 
 ## Batch Behavior
 

@@ -1052,19 +1052,40 @@ describe("store/index", () => {
     mockAPI.openRecord.mockResolvedValue(
       new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "SJIS" })),
     );
-    mockAPI.saveServerKifu.mockResolvedValue();
+    mockAPI.saveServerKifu.mockResolvedValue(true);
     const store = createStore();
     await store.openRecord("server://games/sample.kif");
 
     await store.saveRecord({ overwrite: true });
 
     expect(mockAPI.showSaveRecordDialog).not.toHaveBeenCalled();
-    expect(mockAPI.saveServerKifu).toHaveBeenCalledWith("games/sample.kif", expect.any(Uint8Array));
+    expect(mockAPI.saveServerKifu).toHaveBeenCalledWith(
+      "games/sample.kif",
+      expect.any(Uint8Array),
+      true,
+    );
     expect(store.serverKifuPath).toBe("games/sample.kif");
     expect(store.isRecordFileUnsaved).toBeFalsy();
     expect(useToastStore().toasts).toMatchObject([
       { type: "success", message: t.recordDataWasSaved },
     ]);
+  });
+
+  it("saveRecord/serverSaveAs does not silently overwrite another destination", async () => {
+    mockAPI.openRecord.mockResolvedValue(
+      new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "SJIS" })),
+    );
+    mockAPI.saveServerKifu.mockResolvedValue(true);
+    const store = createStore();
+    await store.openRecord("server://games/original.kif");
+
+    await store.saveRecord({ path: "server://games/other.kif" });
+
+    expect(mockAPI.saveServerKifu).toHaveBeenCalledWith(
+      "games/other.kif",
+      expect.any(Uint8Array),
+      false,
+    );
   });
 
   it("saveRecord/failureKeepsRecordUnsavedAndOriginalPath", async () => {
@@ -1084,6 +1105,22 @@ describe("store/index", () => {
     expect(store.isRecordFileUnsaved).toBeTruthy();
     expect(useToastStore().toasts).toHaveLength(0);
     expect(useErrorStore().hasError).toBeTruthy();
+  });
+
+  it("saveRecord/cancelledOverwriteKeepsEditsWithoutErrorOrSuccess", async () => {
+    mockAPI.openRecord.mockResolvedValue(
+      new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "SJIS" })),
+    );
+    mockAPI.saveServerKifu.mockResolvedValue(false);
+    const store = createStore();
+    await store.openRecord("server://games/original.kif");
+    store.doMove(store.record.position.createMoveByUSI("2g2f")!);
+    await store.saveRecord({ path: "server://games/other.kif" });
+    expect(store.serverKifuPath).toBe("games/original.kif");
+    expect(store.isRecordFileUnsaved).toBe(true);
+    expect(useToastStore().toasts).toHaveLength(0);
+    expect(useErrorStore().hasError).toBe(false);
+    expect(useBusyState().isBusy).toBe(false);
   });
 
   it("saveRecord/csaV3", async () => {

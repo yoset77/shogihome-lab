@@ -46,18 +46,50 @@ describe("file/atomic_stream", () => {
   it("does not replace an existing file when overwrite is disabled", async () => {
     const outputPath = path.join(rootDir, "result.sfen");
     fs.writeFileSync(outputPath, "old");
+    const handler = vi.fn(async (stream: fs.WriteStream) => {
+      stream.end("new");
+      await finished(stream);
+    });
 
+    await expect(
+      writeStreamAtomic(outputPath, handler, { overwrite: false }),
+    ).rejects.toMatchObject({ code: "EEXIST" });
+    expect(fs.readFileSync(outputPath, "utf8")).toBe("old");
+    expect(handler).not.toHaveBeenCalled();
+    expect(fs.readdirSync(rootDir)).toEqual(["result.sfen"]);
+    await writeStreamAtomic(outputPath, handler, { overwrite: true });
+    expect(fs.readFileSync(outputPath, "utf8")).toBe("new");
+  });
+
+  it("still rejects a conflict created after the early existence check", async () => {
+    const outputPath = path.join(rootDir, "race.sfen");
     await expect(
       writeStreamAtomic(
         outputPath,
         async (stream) => {
           stream.end("new");
-          await finished(stream);
         },
-        { overwrite: false },
+        {
+          overwrite: false,
+          beforePublish: async () => {
+            fs.writeFileSync(outputPath, "racing writer");
+          },
+        },
       ),
     ).rejects.toMatchObject({ code: "EEXIST" });
-    expect(fs.readFileSync(outputPath, "utf8")).toBe("old");
+    expect(fs.readFileSync(outputPath, "utf8")).toBe("racing writer");
+    expect(fs.readdirSync(rootDir)).toEqual(["race.sfen"]);
+  });
+
+  it("does not create missing parent directories", async () => {
+    const parent = path.join(rootDir, "missing", "nested");
+    await expect(
+      writeStreamAtomic(path.join(parent, "record.kif"), async (stream) => {
+        stream.end("data");
+        await finished(stream);
+      }),
+    ).rejects.toThrow();
+    expect(fs.existsSync(path.join(rootDir, "missing"))).toBe(false);
   });
 
   it("replaces a file after a successful streamed write", async () => {
