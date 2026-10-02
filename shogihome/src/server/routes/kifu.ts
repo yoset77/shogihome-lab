@@ -37,7 +37,8 @@ import {
   type AppEnv,
 } from "@/server/hono";
 import { getOptionalInt, getString } from "@/server/routes/query";
-import type { KifuSearchQuery, SfenExportRequest } from "@/common/file/sfen_export";
+import { parseJsonObject, readJsonBody } from "@/server/routes/body";
+import type { KifuSearchQuery } from "@/common/file/sfen_export";
 import { t } from "@/common/i18n";
 import {
   searchableStrategies,
@@ -130,15 +131,15 @@ export const kifuRoutes = new Hono<AppEnv>()
     "/directories",
     createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
     validator("json", (value, c) => {
+      const body = parseJsonObject(value);
       if (
-        !value ||
-        typeof value.parent !== "string" ||
-        typeof value.name !== "string" ||
-        !isValidServerEntryName(value.name)
+        typeof body.parent !== "string" ||
+        typeof body.name !== "string" ||
+        !isValidServerEntryName(body.name)
       ) {
         return sendError(c, 400, "invalid directory name or parent");
       }
-      return { parent: value.parent, name: value.name };
+      return { parent: body.parent, name: body.name };
     }),
     async (c) => {
       if (!KIFU_DIR) return sendError(c, 404, "KIFU_DIR is not configured");
@@ -404,7 +405,7 @@ export const kifuRoutes = new Hono<AppEnv>()
     if (!KIFU_DIR) {
       return sendError(c, 404, "KIFU_DIR is not configured");
     }
-    const body = await c.req.json<Partial<SfenExportRequest>>();
+    const body = await readJsonBody(c);
     if (typeof body.filename !== "string" || !body.filename.toLowerCase().endsWith(".sfen")) {
       return sendError(c, 400, "filename must have a .sfen extension");
     }
@@ -412,7 +413,10 @@ export const kifuRoutes = new Hono<AppEnv>()
     if (!searchQuery) {
       return sendError(c, 400, "search is required");
     }
-    if (body.maxMoves !== undefined && (!Number.isInteger(body.maxMoves) || body.maxMoves <= 0)) {
+    if (
+      body.maxMoves !== undefined &&
+      (typeof body.maxMoves !== "number" || !Number.isInteger(body.maxMoves) || body.maxMoves <= 0)
+    ) {
       return sendError(c, 400, "maxMoves must be a positive integer");
     }
     const destination = resolveWritableKifuPath(KIFU_DIR, "sfen", body.filename);

@@ -858,6 +858,7 @@ export const en: Texts = {
   overwriteUploadConflicts: (names: string) =>
     `Files with the same names already exist. Overwrite them?\n${names}`,
   serverInternalError: "Internal Server Error",
+  serverInvalidJsonBody: "The request body must be a valid JSON object",
   serverFileNotFound: "File not found",
   serverInvalidDestination: "Invalid destination",
   serverFileExists: "File already exists",

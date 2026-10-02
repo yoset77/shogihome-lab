@@ -795,6 +795,7 @@ export type Texts = {
   nFilesUploaded: (n: number) => string;
   overwriteUploadConflicts: (names: string) => string;
   serverInternalError: string;
+  serverInvalidJsonBody: string;
   serverFileNotFound: string;
   serverInvalidDestination: string;
   serverFileExists: string;

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { addHistory, clearHistory, getHistory, saveBackup } from "@/server/file/history";
 import { sendError } from "@/server/errors";
+import { readJsonBody } from "@/server/routes/body";
 import {
   createBodyLimit,
   DEFAULT_JSON_BODY_LIMIT,
@@ -15,7 +16,7 @@ export const historyRoutes = new Hono<AppEnv>()
   })
 
   .post("/add", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
-    const body = await c.req.json<{ path?: unknown }>();
+    const body = await readJsonBody(c);
     const { path } = body;
     if (typeof path !== "string" || !path) {
       return sendError(c, 400, "path is required");

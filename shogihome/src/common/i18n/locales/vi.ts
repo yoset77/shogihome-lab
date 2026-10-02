@@ -847,6 +847,7 @@ export const vi: Texts = {
   overwriteUploadConflicts: (names: string) =>
     `Đã có tệp trùng tên. Bạn có muốn ghi đè không?\n${names}`,
   serverInternalError: "Lỗi máy chủ nội bộ.",
+  serverInvalidJsonBody: "Nội dung yêu cầu phải là một đối tượng JSON hợp lệ.",
   serverFileNotFound: "Không tìm thấy tệp.",
   serverInvalidDestination: "Vị trí lưu không hợp lệ.",
   serverFileExists: "Tệp đã tồn tại.",

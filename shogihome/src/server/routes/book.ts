@@ -30,6 +30,7 @@ import {
   type AppEnv,
 } from "@/server/hono";
 import { getOptionalInt, getString } from "@/server/routes/query";
+import { readJsonBody } from "@/server/routes/body";
 import { parseBookMove, parseBookSfen, parseBookUsi } from "@/server/book/validation";
 import { t } from "@/common/i18n";
 
@@ -187,7 +188,7 @@ export const bookRoutes = new Hono<AppEnv>()
   )
 
   .post("/search/batch", createBodyLimit(LARGE_BODY_LIMIT), async (c) => {
-    const body = await c.req.json<{ sfens?: unknown }>();
+    const body = await readJsonBody(c);
     const sfens = body.sfens;
     if (!Array.isArray(sfens)) {
       return sendError(c, 400, "sfens must be an array");
@@ -240,12 +241,7 @@ export const bookRoutes = new Hono<AppEnv>()
         return sendError(c, 400, "sfen is required");
       }
       const normalized = parseBookSfen(sfen);
-      let raw: unknown;
-      try {
-        raw = await c.req.json();
-      } catch {
-        return sendError(c, 400, t.serverInvalidBookMove);
-      }
+      const raw = await readJsonBody(c, t.serverInvalidBookMove);
       await runBookOperation(c, (bookSession) =>
         updateBookMove(bookSession, normalized, parseBookMove(raw, getBookFormat(bookSession))),
       );
@@ -298,7 +294,7 @@ export const bookRoutes = new Hono<AppEnv>()
     if (!kifuDir) {
       return sendError(c, 404, "KIFU_DIR is not configured");
     }
-    const body = await c.req.json<Record<string, unknown>>();
+    const body = await readJsonBody(c);
     const minPly = body.minPly === undefined ? 0 : Number(body.minPly);
     const maxPly = body.maxPly === undefined ? 100 : Number(body.maxPly);
     if (!Number.isInteger(minPly) || minPly < 0) {
