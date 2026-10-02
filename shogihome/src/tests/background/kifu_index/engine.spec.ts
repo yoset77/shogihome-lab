@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { parseAndIndexFile } from "@/server/kifu_index/engine";
+import { onKifuFileEvent, syncKifuDirectory } from "@/server/kifu_index/sync";
 import { STRATEGY_INDEX_VERSION } from "@/server/kifu_index/strategy";
 import {
   initDatabase,
@@ -164,5 +165,103 @@ describe("background/kifu_index/engine", () => {
 
     const search4 = searchKifu({ keyword: "存在しない" });
     expect(search4).toHaveLength(0);
+  });
+
+  it("does not index symlinked files or files inside symlinked directories", async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "shogihome-index-outside-"));
+    const content = "先手：境界確認\n手合割：平手\n手数----指手----\n1 ７六歩(77)\n";
+    try {
+      fs.writeFileSync(path.join(tempDir, "real.kif"), content);
+      fs.writeFileSync(path.join(outside, "outside.kif"), content);
+      fs.symlinkSync(path.join(outside, "outside.kif"), path.join(tempDir, "outside.kif"));
+      fs.symlinkSync(path.join(tempDir, "real.kif"), path.join(tempDir, "inside.kif"));
+      fs.symlinkSync(outside, path.join(tempDir, "linked"), "dir");
+
+      expect(await parseAndIndexFile(tempDir, "outside.kif")).toBeNull();
+      expect(await parseAndIndexFile(tempDir, "inside.kif")).toBeNull();
+      expect(await parseAndIndexFile(tempDir, "linked/outside.kif")).toBeNull();
+      expect(await parseAndIndexFile(tempDir, "../outside.kif")).toBeNull();
+      expect(await parseAndIndexFile(tempDir, "real.kif")).not.toBeNull();
+
+      const linkedRoot = path.join(outside, "root");
+      fs.symlinkSync(tempDir, linkedRoot, "dir");
+      expect(await parseAndIndexFile(linkedRoot, "real.kif")).not.toBeNull();
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a file replaced by a symlink between validation and opening", async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "shogihome-index-outside-"));
+    const name = "swapped.kif";
+    const content = "先手：境界確認\n手合割：平手\n手数----指手----\n1 ７六歩(77)\n";
+    fs.writeFileSync(path.join(tempDir, name), content);
+    fs.writeFileSync(path.join(outside, name), content);
+    const originalOpen = fs.promises.open.bind(fs.promises);
+    const open = vi.spyOn(fs.promises, "open").mockImplementation((...args) => {
+      fs.rmSync(path.join(tempDir, name));
+      fs.symlinkSync(path.join(outside, name), path.join(tempDir, name));
+      return originalOpen(...args);
+    });
+    try {
+      expect(await parseAndIndexFile(tempDir, name)).toBeNull();
+    } finally {
+      open.mockRestore();
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("removes an indexed file when a change event replaces it with a symlink", async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "shogihome-index-outside-"));
+    const name = "replaced.kif";
+    const content = "先手：境界確認\n手合割：平手\n手数----指手----\n1 ７六歩(77)\n";
+    try {
+      fs.writeFileSync(path.join(tempDir, name), content);
+      fs.writeFileSync(path.join(outside, name), content);
+      await syncKifuDirectory(tempDir);
+      expect(searchKifu({ keyword: "境界確認" })).toHaveLength(1);
+
+      fs.rmSync(path.join(tempDir, name));
+      fs.symlinkSync(path.join(outside, name), path.join(tempDir, name));
+      onKifuFileEvent("change", tempDir, name);
+      await vi.waitFor(() => expect(searchKifu({ keyword: "境界確認" })).toHaveLength(0), {
+        timeout: 3000,
+      });
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("drops stale descendants when a watched directory is removed", async () => {
+    fs.mkdirSync(path.join(tempDir, "games"));
+    fs.writeFileSync(
+      path.join(tempDir, "games", "game.kif"),
+      "先手：境界確認\n手合割：平手\n手数----指手----\n1 ７六歩(77)\n",
+    );
+    await syncKifuDirectory(tempDir);
+    expect(searchKifu({ keyword: "境界確認" })).toHaveLength(1);
+    fs.rmSync(path.join(tempDir, "games"), { recursive: true });
+    onKifuFileEvent("unlinkDir", tempDir, "games");
+    await vi.waitFor(() => expect(searchKifu({ keyword: "境界確認" })).toHaveLength(0), {
+      timeout: 3000,
+    });
+  });
+
+  it("removes previously indexed files replaced by symlinks during a full sync", async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "shogihome-index-outside-"));
+    const name = "replaced.kif";
+    const content = "先手：境界確認\n手合割：平手\n手数----指手----\n1 ７六歩(77)\n";
+    try {
+      fs.writeFileSync(path.join(tempDir, name), content);
+      fs.writeFileSync(path.join(outside, name), content);
+      await syncKifuDirectory(tempDir);
+      expect(searchKifu({ keyword: "境界確認" })).toHaveLength(1);
+      fs.rmSync(path.join(tempDir, name));
+      fs.symlinkSync(path.join(outside, name), path.join(tempDir, name));
+      await syncKifuDirectory(tempDir);
+      expect(searchKifu({ keyword: "境界確認" })).toHaveLength(0);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
   });
 });

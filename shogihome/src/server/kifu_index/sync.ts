@@ -1,6 +1,10 @@
 import fs from "node:fs";
-import path from "node:path";
-import { getKifuList, clearKifuListCache } from "@/server/helpers/kifu";
+import {
+  getKifuList,
+  clearKifuListCache,
+  resolveIndexableKifuPath,
+  type KifuFileEvent,
+} from "@/server/helpers/kifu";
 import { normalizePath } from "@/common/helpers/path";
 import {
   getKifuFileByPath,
@@ -45,6 +49,13 @@ export async function syncKifuDirectory(kifuDir: string) {
   if (syncStatus.isIndexing) {
     return;
   }
+  // Wait for a running event batch to settle instead of racing with it.
+  while (isProcessingEvents && eventBatchCompletion) {
+    await eventBatchCompletion;
+    if (syncStatus.isIndexing) {
+      return;
+    }
+  }
 
   syncStatus.isIndexing = true;
   isStopRequested = false;
@@ -56,12 +67,21 @@ export async function syncKifuDirectory(kifuDir: string) {
     syncStatus.indexed = getKifuCount();
 
     // 2. Identify files to index (new or changed) and files to delete
-    const filesOnDisk = new Set(files);
+    const filesOnDisk = new Set<string>();
     const filesToIndex: string[] = [];
     for (let i = 0; i < files.length; i++) {
       const relPath = files[i];
-      const fullPath = path.join(kifuDir, relPath);
-      const stats = await fs.promises.lstat(fullPath);
+      const fullPath = resolveIndexableKifuPath(kifuDir, relPath);
+      if (!fullPath) continue;
+      let stats: fs.Stats;
+      try {
+        stats = await fs.promises.lstat(fullPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      if (!stats.isFile() || stats.isSymbolicLink()) continue;
+      filesOnDisk.add(relPath);
       const existing = getKifuFileByPath(relPath);
 
       if (!existing || existing.mtime !== stats.mtimeMs || existing.size !== stats.size) {
@@ -101,6 +121,8 @@ export async function syncKifuDirectory(kifuDir: string) {
           } else {
             upsertKifuFile(result.metadata, result.positions);
           }
+        } else {
+          deleteKifuFile(relPath);
         }
       } catch (e) {
         console.error(`Failed to index file: ${relPath}`, e);
@@ -128,16 +150,24 @@ export async function syncKifuDirectory(kifuDir: string) {
 }
 
 let eventDebounceTimer: NodeJS.Timeout | null = null;
-const pendingEvents = new Map<string, "add" | "change" | "unlink">();
+let isProcessingEvents = false;
+let eventBatchCompletion: Promise<void> | null = null;
+const pendingEvents = new Map<string, KifuFileEvent>();
+
+function isInRemovedDirectory(filePath: string, directories: Set<string>): boolean {
+  let current = filePath;
+  while (current) {
+    if (directories.has(current)) return true;
+    const separator = current.lastIndexOf("/");
+    current = separator === -1 ? "" : current.slice(0, separator);
+  }
+  return directories.has("");
+}
 
 /**
  * Handle real-time file system events with debounce.
  */
-export function onKifuFileEvent(
-  event: "add" | "change" | "unlink",
-  kifuDir: string,
-  relPath: string,
-) {
+export function onKifuFileEvent(event: KifuFileEvent, kifuDir: string, relPath: string) {
   const normalizedPath = normalizePath(relPath);
   pendingEvents.set(normalizedPath, event);
 
@@ -146,34 +176,74 @@ export function onKifuFileEvent(
   }
 
   eventDebounceTimer = setTimeout(async function processEvents() {
-    if (syncStatus.isIndexing) {
+    if (syncStatus.isIndexing || isProcessingEvents) {
       eventDebounceTimer = setTimeout(processEvents, 500);
       return;
     }
     eventDebounceTimer = null;
-    const events = Array.from(pendingEvents.entries());
-    pendingEvents.clear();
-
-    for (const [path, ev] of events) {
+    isProcessingEvents = true;
+    eventBatchCompletion = (async () => {
       try {
-        if (ev === "unlink") {
-          deleteKifuFile(path);
-        } else {
-          const result = await parseAndIndexFile(kifuDir, path);
-          if (result) {
-            upsertKifuFile(result.metadata, result.positions);
+        const events = new Map(pendingEvents);
+        pendingEvents.clear();
+
+        const removedDirectories = new Set(
+          [...events].filter(([, ev]) => ev === "unlinkDir").map(([path]) => path),
+        );
+        if (removedDirectories.size) {
+          // Expand directory removals once, preserving newer file additions and changes.
+          try {
+            for (const indexedPath of getAllKifuFilePaths()) {
+              if (!isInRemovedDirectory(indexedPath, removedDirectories)) continue;
+              const latestEvent = events.get(indexedPath);
+              if (latestEvent !== "add" && latestEvent !== "change") {
+                events.set(indexedPath, "unlink");
+              }
+            }
+          } catch (e) {
+            console.error("Error expanding kifu directory removal events:", e);
           }
         }
-      } catch (e) {
-        console.error(`Error handling kifu file event (${ev}) for ${path}:`, e);
-      }
-    }
 
-    if (events.some(([, ev]) => ev === "add" || ev === "unlink")) {
-      clearKifuListCache();
-      const files = await getKifuList(kifuDir);
-      syncStatus.total = files.length;
-    }
-    syncStatus.indexed = getKifuCount();
+        let processed = 0;
+        for (const [path, ev] of events) {
+          if (ev === "unlinkDir") continue;
+          try {
+            if (ev === "unlink") {
+              deleteKifuFile(path);
+            } else {
+              const result = await parseAndIndexFile(kifuDir, path);
+              if (result) {
+                upsertKifuFile(result.metadata, result.positions);
+              } else {
+                deleteKifuFile(path);
+              }
+            }
+          } catch (e) {
+            console.error(`Error handling kifu file event (${ev}) for ${path}:`, e);
+          }
+          if (++processed % 10 === 0) {
+            await new Promise((resolve) => setImmediate(resolve));
+          }
+        }
+
+        if (
+          [...events.values()].some((ev) => ev === "add" || ev === "unlink" || ev === "unlinkDir")
+        ) {
+          clearKifuListCache();
+          try {
+            const files = await getKifuList(kifuDir);
+            syncStatus.total = files.length;
+          } catch (e) {
+            console.error("Error refreshing kifu list after event processing:", e);
+          }
+        }
+        syncStatus.indexed = getKifuCount();
+      } finally {
+        isProcessingEvents = false;
+      }
+    })();
+    // Errors are logged inside; avoid unhandled rejections of the completion promise.
+    eventBatchCompletion.catch(() => undefined);
   }, 500);
 }

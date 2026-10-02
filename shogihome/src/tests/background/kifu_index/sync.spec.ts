@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { syncKifuDirectory, onKifuFileEvent, getSyncStatus } from "@/server/kifu_index/sync";
 import {
   initDatabase,
@@ -6,12 +6,33 @@ import {
   getKifuCount,
   getKifuFileByPath,
 } from "@/server/database/kifu_index";
+import * as kifuIndexDB from "@/server/database/kifu_index";
 import { clearKifuListCache } from "@/server/helpers/kifu";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { STRATEGY_INDEX_VERSION } from "@/server/kifu_index/strategy";
+
+const engineGate = vi.hoisted(() => ({
+  path: undefined as string | undefined,
+  promise: undefined as Promise<void> | undefined,
+}));
+
+vi.mock("@/server/kifu_index/engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/kifu_index/engine")>();
+  return {
+    ...actual,
+    parseAndIndexFile: vi.fn(async (kifuDir: string, relPath: string) => {
+      if (engineGate.path === relPath && engineGate.promise) {
+        await engineGate.promise;
+      }
+      return actual.parseAndIndexFile(kifuDir, relPath);
+    }),
+  };
+});
+
+import { parseAndIndexFile } from "@/server/kifu_index/engine";
 
 describe("background/kifu_index/sync", () => {
   let tempDir: string;
@@ -28,6 +49,8 @@ describe("background/kifu_index/sync", () => {
     closeDatabase();
     fs.rmSync(tempDir, { recursive: true, force: true });
     fs.rmSync(dbDir, { recursive: true, force: true });
+    engineGate.path = undefined;
+    engineGate.promise = undefined;
   });
 
   function insertLegacyOrphan(sfen: string): void {
@@ -93,6 +116,157 @@ describe("background/kifu_index/sync", () => {
     onKifuFileEvent("unlink", tempDir, kifPath);
     await new Promise((resolve) => setTimeout(resolve, 600)); // Wait for debounce
     expect(getKifuCount()).toBe(0);
+  });
+
+  it.each(["add", "change"] as const)(
+    "keeps a recreated file indexed after a directory removal and %s in the same batch",
+    async (event) => {
+      const directory = path.join(tempDir, "games");
+      const relPath = "games/game.kif";
+      fs.mkdirSync(directory);
+      fs.writeFileSync(path.join(tempDir, relPath), "先手：Old\n手数----指手----\n1 ７六歩(77)\n");
+      await syncKifuDirectory(tempDir);
+      fs.rmSync(directory, { recursive: true });
+      onKifuFileEvent("unlink", tempDir, relPath);
+      onKifuFileEvent("unlinkDir", tempDir, "games");
+      fs.mkdirSync(directory);
+      fs.writeFileSync(path.join(tempDir, relPath), "先手：New\n手数----指手----\n1 ７六歩(77)\n");
+      onKifuFileEvent(event, tempDir, relPath);
+
+      await vi.waitFor(() => expect(getKifuFileByPath(relPath)?.black_name).toBe("New"), {
+        timeout: 3000,
+      });
+      expect(getKifuCount()).toBe(1);
+    },
+  );
+
+  it("re-indexes a file re-added to a removed directory in a later batch", async () => {
+    const directory = path.join(tempDir, "games");
+    const removedPath = "games/game.kif";
+    fs.mkdirSync(directory);
+    fs.writeFileSync(
+      path.join(tempDir, removedPath),
+      "先手：Old\n手数----指手----\n1 ７六歩(77)\n",
+    );
+    fs.writeFileSync(path.join(tempDir, "kept.kif"), "先手：Old\n手数----指手----\n1 ７六歩(77)\n");
+    await syncKifuDirectory(tempDir);
+    const callsBeforeBatch = vi.mocked(parseAndIndexFile).mock.calls.length;
+
+    // Hold the first batch on a slow parse so it outlives the next batch's debounce.
+    let release!: () => void;
+    const gated = new Promise<void>((resolve) => (release = resolve));
+    engineGate.path = "kept.kif";
+    engineGate.promise = gated;
+
+    try {
+      // Batch A: directory removal plus a slow change outside the removed directory.
+      fs.rmSync(directory, { recursive: true });
+      onKifuFileEvent("unlinkDir", tempDir, "games");
+      onKifuFileEvent("change", tempDir, "kept.kif");
+      // Batch A started when its slow parse call appears.
+      await vi.waitFor(
+        () => expect(parseAndIndexFile).toHaveBeenCalledTimes(callsBeforeBatch + 1),
+        { timeout: 3000 },
+      );
+
+      // Re-add the removed file while batch A is still processing.
+      fs.mkdirSync(directory);
+      fs.writeFileSync(
+        path.join(tempDir, removedPath),
+        "先手：New\n手数----指手----\n1 ７六歩(77)\n",
+      );
+      onKifuFileEvent("add", tempDir, removedPath);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+
+      // The next batch must not run concurrently with the unfinished one.
+      expect(parseAndIndexFile).toHaveBeenCalledTimes(callsBeforeBatch + 1);
+
+      release();
+      await vi.waitFor(() => expect(getKifuFileByPath(removedPath)?.black_name).toBe("New"), {
+        timeout: 3000,
+      });
+      expect(getKifuFileByPath("kept.kif")?.black_name).toBe("Old");
+      expect(getKifuCount()).toBe(2);
+      // Let the echoing batch tail (list refresh) settle before the teardown
+      // removes the temporary directory.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    } finally {
+      release();
+    }
+  });
+
+  it("does not scan all indexed paths for ordinary file removals", async () => {
+    for (const name of ["first.kif", "second.kif", "kept.kif"]) {
+      fs.writeFileSync(path.join(tempDir, name), "手数----指手----\n1 ７六歩(77)\n");
+    }
+    await syncKifuDirectory(tempDir);
+    const allPaths = vi.spyOn(kifuIndexDB, "getAllKifuFilePaths");
+    try {
+      for (const name of ["first.kif", "second.kif"]) {
+        fs.rmSync(path.join(tempDir, name));
+        onKifuFileEvent("unlink", tempDir, name);
+      }
+      await vi.waitFor(() => expect(getKifuCount()).toBe(1), { timeout: 3000 });
+      expect(getKifuFileByPath("kept.kif")).toBeDefined();
+      expect(allPaths).not.toHaveBeenCalled();
+    } finally {
+      allPaths.mockRestore();
+    }
+  });
+
+  it("scans indexed paths once for overlapping directory removals and preserves adjacent paths", async () => {
+    const removed = ["games/first.kif", "games/nested/second.kif", "other/third.kif"];
+    const kept = "games-old/kept.kif";
+    for (const name of [...removed, kept]) {
+      fs.mkdirSync(path.dirname(path.join(tempDir, name)), { recursive: true });
+      fs.writeFileSync(path.join(tempDir, name), "手数----指手----\n1 ７六歩(77)\n");
+    }
+    await syncKifuDirectory(tempDir);
+    const allPaths = vi.spyOn(kifuIndexDB, "getAllKifuFilePaths");
+    try {
+      for (const directory of ["games", "other"]) {
+        fs.rmSync(path.join(tempDir, directory), { recursive: true });
+      }
+      onKifuFileEvent("unlink", tempDir, removed[0]);
+      for (const directory of ["games/nested", "games", "other"]) {
+        onKifuFileEvent("unlinkDir", tempDir, directory);
+      }
+      await vi.waitFor(() => expect(getKifuCount()).toBe(1), { timeout: 3000 });
+      expect(getKifuFileByPath(kept)).toBeDefined();
+      for (const name of removed) expect(getKifuFileByPath(name)).toBeUndefined();
+      expect(allPaths).toHaveBeenCalledOnce();
+    } finally {
+      allPaths.mockRestore();
+    }
+  });
+
+  it("yields to the event loop before finishing a large directory removal", async () => {
+    fs.mkdirSync(path.join(tempDir, "games"));
+    for (let i = 0; i < 25; i++) {
+      fs.writeFileSync(path.join(tempDir, "games", `${i}.kif`), "手数----指手----\n1 ７六歩(77)\n");
+    }
+    await syncKifuDirectory(tempDir);
+    const originalDelete = kifuIndexDB.deleteKifuFile;
+    let scheduled = false;
+    let remainingWhenYielded: number | undefined;
+    const remove = vi.spyOn(kifuIndexDB, "deleteKifuFile").mockImplementation((filePath) => {
+      originalDelete(filePath);
+      if (!scheduled) {
+        scheduled = true;
+        setImmediate(() => {
+          remainingWhenYielded = getKifuCount();
+        });
+      }
+    });
+    try {
+      fs.rmSync(path.join(tempDir, "games"), { recursive: true });
+      onKifuFileEvent("unlinkDir", tempDir, "games");
+      await vi.waitFor(() => expect(getKifuCount()).toBe(0), { timeout: 3000 });
+      expect(remainingWhenYielded).toBeGreaterThan(0);
+      expect(remainingWhenYielded).toBeLessThan(25);
+    } finally {
+      remove.mockRestore();
+    }
   });
 
   it("defers legacy orphan repair from live events to full sync", async () => {
