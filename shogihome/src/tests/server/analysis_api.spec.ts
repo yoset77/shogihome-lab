@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { requestApp } from "./honoRequest";
 import fs from "node:fs";
 import path from "node:path";
@@ -8,9 +8,14 @@ const SERVER_PORT = vi.hoisted(() => {
   return 8200 + Math.floor(Math.random() * 100);
 });
 
-vi.hoisted(() => {
+const tempKifuDir = await vi.hoisted(async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const os = await import("node:os");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "shogihome-test-analysis-api-"));
   process.env.PORT = SERVER_PORT.toString();
-  process.env.KIFU_DIR = "./data";
+  process.env.KIFU_DIR = dir;
+  return dir;
 });
 
 const sqliteMock = vi.hoisted(() => ({
@@ -35,6 +40,10 @@ import { app } from "@/server/main";
 const host = `localhost:${SERVER_PORT}`;
 
 describe("Analysis DB API error handling", () => {
+  afterAll(() => {
+    fs.rmSync(tempKifuDir, { recursive: true, force: true });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     sqliteMock.getAnalysisResults.mockReturnValue([]);
