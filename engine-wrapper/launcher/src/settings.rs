@@ -69,8 +69,8 @@ pub const SETTINGS: &[Setting] = &[
     Setting { id: "KIFU_DIR", keys: &[("KIFU_DIR", EnvFile::Server)], setting_type: SettingType::Text, default_int: 0, default_str: "", default_bool: false, section: SECTION_KIFU, min_value: None, max_value: None, choices: &[], item_rule: None },
     Setting { id: "KIFU_DIR_USE_POLLING", keys: &[("KIFU_DIR_USE_POLLING", EnvFile::Server)], setting_type: SettingType::Bool, default_int: 0, default_str: "", default_bool: false, section: SECTION_KIFU, min_value: None, max_value: None, choices: &[], item_rule: None },
     Setting { id: "ANALYSIS_DB_MIN_DEPTH", keys: &[("ANALYSIS_DB_MIN_DEPTH", EnvFile::Server)], setting_type: SettingType::Int, default_int: 10, default_str: "", default_bool: false, section: SECTION_KIFU, min_value: Some(0), max_value: Some(100), choices: &[], item_rule: None },
-    Setting { id: "ONTHEFLY_THRESHOLD_MB", keys: &[("ONTHEFLY_THRESHOLD_MB", EnvFile::Server)], setting_type: SettingType::Int, default_int: 128, default_str: "", default_bool: false, section: SECTION_KIFU, min_value: Some(1), max_value: Some(100000), choices: &[], item_rule: None },
-    Setting { id: "SBK_ONTHEFLY_THRESHOLD_MB", keys: &[("SBK_ONTHEFLY_THRESHOLD_MB", EnvFile::Server)], setting_type: SettingType::Int, default_int: 32, default_str: "", default_bool: false, section: SECTION_KIFU, min_value: Some(1), max_value: Some(100000), choices: &[], item_rule: None },
+    Setting { id: "ONTHEFLY_THRESHOLD_MB", keys: &[("ONTHEFLY_THRESHOLD_MB", EnvFile::Server)], setting_type: SettingType::Int, default_int: 64, default_str: "", default_bool: false, section: SECTION_KIFU, min_value: Some(1), max_value: Some(128), choices: &[], item_rule: None },
+    Setting { id: "SBK_ONTHEFLY_THRESHOLD_MB", keys: &[("SBK_ONTHEFLY_THRESHOLD_MB", EnvFile::Server)], setting_type: SettingType::Int, default_int: 32, default_str: "", default_bool: false, section: SECTION_KIFU, min_value: Some(1), max_value: Some(64), choices: &[], item_rule: None },
     Setting { id: "KIFU_UPLOAD_MAX_MB", keys: &[("KIFU_UPLOAD_MAX_MB", EnvFile::Server)], setting_type: SettingType::Int, default_int: 10, default_str: "", default_bool: false, section: SECTION_KIFU, min_value: Some(1), max_value: Some(1024), choices: &[], item_rule: None },
     Setting { id: "BOOK_UPLOAD_MAX_MB", keys: &[("BOOK_UPLOAD_MAX_MB", EnvFile::Server)], setting_type: SettingType::Int, default_int: 512, default_str: "", default_bool: false, section: SECTION_KIFU, min_value: Some(1), max_value: Some(10240), choices: &[], item_rule: None },
 ];
@@ -628,6 +628,14 @@ mod tests {
         );
         assert_eq!(values["KIFU_DIR"], SettingValue::Text(String::new()));
         assert_eq!(
+            values["ONTHEFLY_THRESHOLD_MB"],
+            SettingValue::Text("64".to_string())
+        );
+        assert_eq!(
+            values["SBK_ONTHEFLY_THRESHOLD_MB"],
+            SettingValue::Text("32".to_string())
+        );
+        assert_eq!(
             values["KIFU_UPLOAD_MAX_MB"],
             SettingValue::Text("10".to_string())
         );
@@ -637,6 +645,28 @@ mod tests {
         );
         assert!(validate(&values).is_empty());
         cleanup(&base);
+    }
+
+    #[test]
+    fn book_thresholds_enforce_server_bounds() {
+        for (id, maximum) in [
+            ("ONTHEFLY_THRESHOLD_MB", 128),
+            ("SBK_ONTHEFLY_THRESHOLD_MB", 64),
+        ] {
+            for value in [1, maximum] {
+                let values =
+                    HashMap::from([(id.to_string(), SettingValue::Text(value.to_string()))]);
+                assert!(validate(&values).is_empty());
+            }
+            for value in [0, maximum + 1] {
+                let values =
+                    HashMap::from([(id.to_string(), SettingValue::Text(value.to_string()))]);
+                assert_eq!(
+                    validate(&values).get(id),
+                    Some(&ValidationError::OutOfRange)
+                );
+            }
+        }
     }
 
     #[test]

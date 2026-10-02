@@ -119,20 +119,8 @@ export const KIFU_UPLOAD_MAX_MB = parseIntegerEnv("KIFU_UPLOAD_MAX_MB", 10, 1, 1
 export const BOOK_UPLOAD_MAX_MB = parseIntegerEnv("BOOK_UPLOAD_MAX_MB", 512, 1, 10240);
 export const FILE_UPLOAD_MAX_CONCURRENCY = parseIntegerEnv("FILE_UPLOAD_MAX_CONCURRENCY", 2, 1, 16);
 
-const parseOnTheFlyThresholdMB = (name: string, defaultValue: number): number => {
-  const raw = process.env[name];
-  if (!raw) return defaultValue;
-  const val = parseInt(raw, 10);
-  if (isNaN(val) || val <= 0) {
-    console.error(`Invalid ${name}: "${raw}". Using default (${defaultValue} MB).`);
-    return defaultValue;
-  }
-  return val;
-};
-
-export const ONTHEFLY_THRESHOLD_MB = parseOnTheFlyThresholdMB("ONTHEFLY_THRESHOLD_MB", 128);
-export const SBK_ONTHEFLY_THRESHOLD_MB = parseOnTheFlyThresholdMB("SBK_ONTHEFLY_THRESHOLD_MB", 32);
-
+export const ONTHEFLY_THRESHOLD_MB = parseIntegerEnv("ONTHEFLY_THRESHOLD_MB", 64, 1, 128);
+export const SBK_ONTHEFLY_THRESHOLD_MB = parseIntegerEnv("SBK_ONTHEFLY_THRESHOLD_MB", 32, 1, 64);
 export const BOOK_SESSION_IDLE_TIMEOUT_MINUTES = parseIntegerEnv(
   "BOOK_SESSION_IDLE_TIMEOUT_MINUTES",
   1440,
