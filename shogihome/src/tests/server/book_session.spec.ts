@@ -1,8 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
+import fs from "node:fs";
 import { requestApp, type TestResponse } from "./honoRequest";
 
-vi.hoisted(() => {
-  process.env.KIFU_DIR = "./data";
+const tempKifuDir = await vi.hoisted(async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const os = await import("node:os");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "shogihome-test-book-session-"));
+  process.env.KIFU_DIR = dir;
+  return dir;
 });
 
 import { app } from "@/server/main";
@@ -74,6 +80,10 @@ vi.mock("@/server/book/index.js", () => {
 });
 
 describe("Book Session API", () => {
+  afterAll(() => {
+    fs.rmSync(tempKifuDir, { recursive: true, force: true });
+  });
+
   it("rejects an unknown session on save without initializing an empty book", async () => {
     const response = await requestApp(app, "POST", "/api/book/save?path=test.sbk&overwrite=true", {
       host,
