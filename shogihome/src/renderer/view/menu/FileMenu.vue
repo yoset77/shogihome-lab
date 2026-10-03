@@ -18,11 +18,11 @@
           <Icon :icon="IconType.GAME" />
           <div class="label">{{ t.game }}</div>
         </button>
-        <button v-if="states.stopGame" @click="onStopGame">
+        <button v-if="states.stopGame" class="close" @click="onStopGame">
           <Icon :icon="IconType.STOP" />
           <div class="label">{{ t.stopGame }}</div>
         </button>
-        <button v-if="states.resign" @click="onResign">
+        <button v-if="states.resign" class="close" @click="onResign">
           <Icon :icon="IconType.RESIGN" />
           <div class="label">{{ t.resign }}</div>
         </button>
@@ -47,13 +47,17 @@
           <Icon :icon="IconType.SETTINGS" />
           <div class="label">{{ t.researchSettings }}</div>
         </button>
-        <button v-if="states.stopResearch" @click="onStopResearch">
+        <button v-if="states.stopResearch" class="close" @click="onStopResearch">
           <Icon :icon="IconType.END" />
           <div class="label">{{ t.endResearch }}</div>
         </button>
         <button v-if="states.mateSearch" @click="onMateSearch">
           <Icon :icon="IconType.MATE_SEARCH" />
           <div class="label">{{ t.mateSearch }}</div>
+        </button>
+        <button v-if="states.stopMateSearch" class="close" @click="onStopMateSearch">
+          <Icon :icon="IconType.END" />
+          <div class="label">{{ t.stopMateSearch }}</div>
         </button>
         <button v-if="states.positionEditing" @click="onPositionEditing">
           <Icon :icon="IconType.EDIT" />
@@ -291,6 +295,10 @@ const onMateSearch = () => {
   store.showMateSearchDialog();
   emit("close");
 };
+const onStopMateSearch = () => {
+  store.stopMateSearch();
+  emit("close");
+};
 const onResearch = async () => {
   const uri = appSettings.defaultResearchEngineURI;
   if (isMobileWebApp() && uri) {
@@ -502,6 +510,7 @@ const states = computed(() => {
     puzzle: isFileQuickActionEnabled(FileQuickAction.PUZZLE, store),
     research: store.appState === AppState.NORMAL && store.researchState === ResearchState.IDLE,
     mateSearch: store.appState === AppState.NORMAL && store.researchState === ResearchState.IDLE,
+    stopMateSearch: store.appState === AppState.MATE_SEARCH,
     stopResearch:
       store.researchState === ResearchState.RUNNING ||
       store.researchState === ResearchState.PAUSED ||
