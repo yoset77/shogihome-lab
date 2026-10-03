@@ -1,5 +1,11 @@
 <template>
-  <div ref="rootEl" class="piece-box" :style="style" @pointerdown="onRootPointerDown">
+  <div
+    ref="rootEl"
+    class="piece-box"
+    :class="{ mobile }"
+    :style="style"
+    @pointerdown="onRootPointerDown"
+  >
     <div class="piece-box-header">{{ t.pieceBox }}</div>
     <div class="piece-box-grid">
       <div
@@ -37,10 +43,11 @@ const props = withDefaults(
   defineProps<{
     position: Position;
     scale?: number;
+    mobile?: boolean;
     acceptTapDrop?: boolean;
     selection?: PieceType | null;
   }>(),
-  { scale: 1, selection: null },
+  { scale: 1, mobile: false, selection: null },
 );
 
 const emit = defineEmits<{
@@ -184,6 +191,25 @@ defineExpose({ containsPoint });
 .piece-box-item img {
   width: var(--piece-box-image-size);
   height: var(--piece-box-image-size);
+}
+
+.piece-box.mobile {
+  width: 100%;
+}
+
+.piece-box.mobile .piece-box-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+}
+
+.piece-box.mobile .piece-box-item {
+  min-width: 0;
+}
+
+.piece-box.mobile .piece-box-item img {
+  width: min(100%, var(--piece-box-image-size));
+  height: auto;
+  aspect-ratio: 1;
 }
 
 .piece-count {
