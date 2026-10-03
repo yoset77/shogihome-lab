@@ -350,7 +350,10 @@ export function storeLang(lang: Lang): void {
 export function detectLang(): Lang {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
     ?.SHOGIHOME_LAB_LANG;
-  return normalizeLang(env) ?? storedLang() ?? "ja";
+  const preferred = normalizeLang(env) ?? storedLang();
+  if (preferred) return preferred;
+  const language = (globalThis as { navigator?: { language?: string } }).navigator?.language;
+  return /^ja(?:-|$)/i.test(language ?? "") ? "ja" : "en";
 }
 
 export function text(key: string, lang: Lang, ...args: string[]): string {
