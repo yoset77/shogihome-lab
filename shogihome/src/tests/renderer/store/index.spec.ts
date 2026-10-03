@@ -607,6 +607,24 @@ describe("store/index", () => {
     expect(useBusyState().isBusy).toBeFalsy();
   });
 
+  it.each([false, true])("startResearch/launchFailure with dialog=%s", async (withDialog) => {
+    mockAPI.saveResearchSettings.mockResolvedValue();
+    mockResearchManager.launch.mockRejectedValueOnce(new Error("Engine startup failed"));
+    const store = createStore();
+    if (withDialog) {
+      store.showResearchDialog();
+    }
+    const previousState = store.researchState;
+
+    store.startResearch(researchSettings);
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(store.researchState).toBe(previousState);
+    expect(mockResearchManager.updatePosition).not.toHaveBeenCalled();
+    expect(useBusyState().isBusy).toBeFalsy();
+    expect(useErrorStore().hasError).toBeTruthy();
+  });
+
   it("startAnalysis/success", async () => {
     mockAPI.saveAnalysisSettings.mockResolvedValue();
     mockAnalysisManager.prototype.start.mockResolvedValue();
