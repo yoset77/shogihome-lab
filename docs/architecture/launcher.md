@@ -63,6 +63,7 @@ window allowlist と Tauri capability を維持します。UI は filesystem や
 ## UI Language
 
 - WebView 内の表示言語は日英切替可能で、セレクトは dashboard（`main`）と editor のヘッダー右にのみ置く。`settings`／`logs` にセレクトは置かず、保存済み言語に追従する。全窓が `src/i18n.ts` を共用する。選択は localStorage と backend の `.update_cache.json`（`ui_language`）に保存し、backend 保存値を優先する。
+- 未設定時は `navigator.language` が日本語（`ja`／`ja-*`、大小文字不問）なら日本語、それ以外（取得できない場合を含む）なら英語で表示する。初回の設定移行ダイアログにも適用し、自動判定した言語は保存しない。`SHOGIHOME_LAB_LANG` による既存の明示指定は localStorage と自動判定より優先し、backend 保存値の優先は維持する。
 - native shell 文言（tray・起動前エラー・`--help`）は `shogihome/src/common/i18n/launcher-native.json` を Rust backend に埋め込み、OS locale（`LC_ALL`→`LC_MESSAGES`→`LANG`）で選択する。WebView 内の言語選択とは独立している。
 
 ネイティブファイル選択は Windows で実行ファイルと全ファイルを提供し、Unix では拡張子による制約を設けません。実行エラーは既存 probe 経路で報告し、任意ファイルを shell 経由で実行するフォールバックは追加しません。
