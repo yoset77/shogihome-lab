@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { detectLang, normalizeLang, storedLang, storeLang, text } from "./i18n";
 
 describe("i18n", () => {
@@ -15,8 +15,69 @@ describe("i18n", () => {
     expect(text("settingsError_out_of_range", "en", "PORT", "1", "9")).toContain("1");
   });
 
-  it("detects language from the environment", () => {
-    expect(["ja", "en"]).toContain(detectLang());
+  describe("detectLang", () => {
+    beforeEach(() => {
+      vi.stubEnv("SHOGIHOME_LAB_LANG", undefined);
+      vi.stubGlobal("localStorage", { getItem: vi.fn(() => null), setItem: vi.fn() });
+      vi.stubGlobal("navigator", undefined);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    });
+
+    it.each([
+      ["ja", "ja"],
+      ["ja-JP", "ja"],
+      ["JA-jp", "ja"],
+      ["en-US", "en"],
+      ["fr-FR", "en"],
+      ["zh-CN", "en"],
+      ["", "en"],
+      [undefined, "en"],
+    ])("detects navigator.language %s as %s without persisting it", (language, expected) => {
+      vi.stubGlobal("navigator", { language });
+      expect(detectLang()).toBe(expected);
+      expect(localStorage.setItem).not.toHaveBeenCalled();
+    });
+
+    it("falls back to English without navigator", () => {
+      expect(detectLang()).toBe("en");
+    });
+
+    it.each([
+      ["ja", "en-US"],
+      ["en", "ja-JP"],
+    ])("prefers saved %s over navigator.language %s", (saved, language) => {
+      vi.stubGlobal("localStorage", { getItem: vi.fn(() => saved) });
+      vi.stubGlobal("navigator", { language });
+      expect(detectLang()).toBe(saved);
+    });
+
+    it("preserves the environment override over saved and detected languages", () => {
+      vi.stubEnv("SHOGIHOME_LAB_LANG", "en");
+      vi.stubGlobal("localStorage", { getItem: vi.fn(() => "ja") });
+      vi.stubGlobal("navigator", { language: "ja-JP" });
+      expect(detectLang()).toBe("en");
+    });
+
+    it("ignores unsupported environment and saved languages", () => {
+      vi.stubEnv("SHOGIHOME_LAB_LANG", "fr");
+      vi.stubGlobal("localStorage", { getItem: vi.fn(() => "fr") });
+      vi.stubGlobal("navigator", { language: "en-US" });
+      expect(detectLang()).toBe("en");
+    });
+
+    it("detects the language when localStorage is unavailable", () => {
+      vi.stubGlobal("localStorage", {
+        getItem: () => {
+          throw new Error("Storage blocked");
+        },
+      });
+      vi.stubGlobal("navigator", { language: "en-US" });
+      expect(detectLang()).toBe("en");
+    });
   });
 
   it("normalizes and round-trips the persisted language", () => {
