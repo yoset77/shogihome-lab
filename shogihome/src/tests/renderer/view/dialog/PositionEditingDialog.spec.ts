@@ -40,6 +40,12 @@ const mountDialog = () =>
     },
   });
 
+const expectBefore = (before: Element, after: Element) => {
+  expect(before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+};
+
 describe("PositionEditingDialog", () => {
   beforeEach(() => {
     closePositionEditingDialog.mockReset();
@@ -71,7 +77,8 @@ describe("PositionEditingDialog", () => {
     const wrapper = mountDialog();
     const core = wrapper.findComponent(PositionEditorCore);
     expect(core.props("layoutType")).toBe(BoardLayoutType.STANDARD);
-    expect(wrapper.find(".desktop-toolbar").exists()).toBe(true);
+    expectBefore(wrapper.find(".desktop-toolbar").element, core.element);
+    expectBefore(core.element, wrapper.find(".main-buttons").element);
   });
 
   it("does not use inline sizing feedback on desktop", () => {
@@ -84,6 +91,15 @@ describe("PositionEditingDialog", () => {
     const wrapper = mountDialog();
     const core = wrapper.findComponent(PositionEditorCore);
     expect(core.props("layoutType")).toBe(BoardLayoutType.PORTRAIT);
+  });
+
+  it("places mobile actions below the editor and above the confirmation buttons", () => {
+    isMobileWebApp.mockReturnValue(true);
+    const wrapper = mountDialog();
+    const editor = wrapper.findComponent(PositionEditorCore).element;
+    const toolbar = wrapper.find(".mobile-toolbar").element;
+    expectBefore(editor, toolbar);
+    expectBefore(toolbar, wrapper.find(".mobile-buttons").element);
   });
 
   it("keeps both toolbars text-only", () => {

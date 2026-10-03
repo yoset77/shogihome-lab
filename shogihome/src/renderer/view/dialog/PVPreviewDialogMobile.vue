@@ -47,11 +47,17 @@
         {{ info }}
       </div>
       <div class="information">
-        <span v-for="(move, index) in displayPV" :key="index">
-          <span class="move-element" :class="{ selected: move.selected }"
-            >&nbsp;{{ move.text }}&nbsp;</span
-          >
-        </span>
+        <button
+          v-for="move in displayPV"
+          :key="move.ply"
+          type="button"
+          class="move-element"
+          :class="{ selected: move.selected }"
+          :aria-current="move.selected ? 'step' : undefined"
+          @click="record.goto(move.ply)"
+        >
+          {{ move.text }}
+        </button>
       </div>
     </div>
     <div class="insert-buttons">
@@ -284,6 +290,7 @@ const lastMove = computed(() => (record.current.move instanceof Move ? record.cu
 const displayPV = computed(() => {
   return record.moves.slice(1).map((move) => {
     return {
+      ply: move.ply,
       text: move.displayText,
       selected: move.ply === record.current.ply,
     };
@@ -370,8 +377,24 @@ const insertToComment = () => {
   margin: 2px;
   text-align: left;
 }
+.move-element,
+.move-element:hover {
+  margin: 0;
+  padding: 0 0.25em;
+  border: none;
+  border-radius: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
 .move-element.selected {
+  background-image: none;
   background-color: var(--text-bg-color-selected);
+}
+.move-element:focus-visible {
+  outline: 2px solid var(--text-color);
+  outline-offset: -2px;
 }
 .insert-buttons {
   display: flex;

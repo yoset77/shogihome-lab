@@ -48,7 +48,7 @@ const createWrapper = (
         },
         PieceBox: {
           name: "PieceBox",
-          props: ["scale"],
+          props: ["scale", "mobile"],
           template: "<div />",
           methods: { containsPoint: () => true },
         },
@@ -75,6 +75,14 @@ describe("PositionEditorCore", () => {
     const wrapper = createWrapper(position);
 
     expect(wrapper.findComponent(BoardView).props("ghostTeleportTarget")).toBe("#dialog");
+  });
+
+  it.each([false, true])("passes mobile=%s to PieceBox", async (mobile) => {
+    const position = Position.newBySFEN(InitialPositionSFEN.EMPTY) as Position;
+    const wrapper = createWrapper(position);
+    await wrapper.setProps({ mobile });
+
+    expect(wrapper.findComponent(PieceBox).props("mobile")).toBe(mobile);
   });
 
   it("uses the measured board area and scales PieceBox with the board", async () => {
