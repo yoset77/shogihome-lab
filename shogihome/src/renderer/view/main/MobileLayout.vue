@@ -93,6 +93,7 @@
     />
     <HorizontalSelector
       v-if="!isEvaluationPuzzle"
+      ref="bottomUISelector"
       v-model:value="bottomUIType"
       :items="bottomUIItems"
       :height="selectorHeight"
@@ -121,7 +122,7 @@ import { BoardLayoutType } from "@/common/settings/layout";
 import { Lazy } from "@/renderer/helpers/lazy";
 import BoardPane from "@/renderer/view/main/BoardPane.vue";
 import RecordPane from "@/renderer/view/main/RecordPane.vue";
-import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import MobileControls from "./MobileControls.vue";
 import RecordComment from "@/renderer/view/tab/RecordComment.vue";
 import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
@@ -134,7 +135,7 @@ import PuzzlePane from "@/renderer/view/tab/PuzzlePane.vue";
 import BookPane from "@/renderer/view/tab/BookPane.vue";
 import { useAppSettings } from "@/renderer/store/settings";
 import { useStore } from "@/renderer/store";
-import { AppState } from "@/common/control/state";
+import { AppState, ResearchState } from "@/common/control/state";
 import { isIOS } from "@/renderer/ipc/api";
 
 const lazyUpdateDelay = 80;
@@ -148,8 +149,29 @@ const windowSize = reactive(
   new RectSize(window.innerWidth, Math.max(0, window.innerHeight - safeAreaMarginY)),
 );
 const bottomUIType = ref(BottomUIType.RECORD);
+const bottomUISelector = ref<InstanceType<typeof HorizontalSelector>>();
 const appSettings = useAppSettings();
 const store = useStore();
+
+watch(
+  () => store.researchState,
+  async (state, previousState) => {
+    if (
+      state !== ResearchState.RUNNING ||
+      (previousState !== ResearchState.IDLE && previousState !== ResearchState.STARTUP_DIALOG) ||
+      bottomUIType.value === BottomUIType.PV ||
+      bottomUIType.value === BottomUIType.CHART ||
+      (bottomUIType.value === BottomUIType.SEARCH && appSettings.showSearchLogOnMobile)
+    ) {
+      return;
+    }
+    bottomUIType.value = BottomUIType.PV;
+    await nextTick();
+    if (bottomUIType.value === BottomUIType.PV) {
+      bottomUISelector.value?.scrollToSelected();
+    }
+  },
+);
 
 const windowLazyUpdate = new Lazy();
 const updateSize = () => {

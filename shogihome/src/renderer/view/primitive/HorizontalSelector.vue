@@ -1,5 +1,5 @@
 <template>
-  <div class="root" :class="{ scroll }">
+  <div ref="root" class="root" :class="{ scroll }">
     <div ref="container" class="row container">
       <div v-for="item of items" :key="item.value" class="item">
         <input
@@ -48,6 +48,7 @@ const emit = defineEmits<{
   "update:value": [value: string];
 }>();
 
+const root = ref<HTMLDivElement>();
 const container = ref() as Ref<HTMLDivElement>;
 const name = issueDOMID();
 const buttonStyle = computed(() => {
@@ -78,7 +79,23 @@ const getValue = () => {
   });
   return checked ? checked.value : props.value;
 };
-defineExpose({ setValue, getValue });
+const scrollToSelected = () => {
+  if (!props.scroll || !root.value) {
+    return;
+  }
+  const selected = container.value.querySelector("input:checked")?.parentElement;
+  if (!selected) {
+    return;
+  }
+  const viewport = root.value.getBoundingClientRect();
+  const item = selected.getBoundingClientRect();
+  if (item.left < viewport.left) {
+    root.value.scrollLeft += item.left - viewport.left;
+  } else if (item.right > viewport.right) {
+    root.value.scrollLeft += item.right - viewport.right;
+  }
+};
+defineExpose({ setValue, getValue, scrollToSelected });
 </script>
 
 <style scoped>

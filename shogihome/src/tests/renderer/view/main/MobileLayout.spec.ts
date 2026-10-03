@@ -2,7 +2,7 @@ import { enableAutoUnmount, shallowMount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick, reactive } from "vue";
 import { RectSize } from "@/common/assets/geometry";
-import { AppState } from "@/common/control/state";
+import { AppState, ResearchState } from "@/common/control/state";
 import { defaultAppSettings } from "@/common/settings/app";
 import MobileLayout from "@/renderer/view/main/MobileLayout.vue";
 import BoardPane from "@/renderer/view/main/BoardPane.vue";
@@ -32,6 +32,7 @@ vi.mock("@/renderer/ipc/api", () => ({
 const settings = reactive(defaultAppSettings());
 const store = reactive({
   appState: AppState.NORMAL,
+  researchState: ResearchState.IDLE,
   puzzle: undefined as { type: string } | undefined,
 });
 const originalViewport = { width: window.innerWidth, height: window.innerHeight };
@@ -45,7 +46,8 @@ const resizeViewport = async (width: number, height: number) => {
   await vi.advanceTimersByTimeAsync(80);
   await nextTick();
 };
-const mountLayout = () => shallowMount(MobileLayout);
+const mountLayout = () =>
+  shallowMount(MobileLayout, { global: { stubs: { HorizontalSelector: false } } });
 type LayoutWrapper = ReturnType<typeof mountLayout>;
 const selectTab = async (wrapper: LayoutWrapper, value: string) => {
   wrapper.getComponent(HorizontalSelector).vm.$emit("update:value", value);
@@ -72,6 +74,7 @@ describe("MobileLayout", () => {
     setViewport(390, 844);
     Object.assign(settings, defaultAppSettings());
     store.appState = AppState.NORMAL;
+    store.researchState = ResearchState.IDLE;
     store.puzzle = undefined;
     useStore.mockReturnValue(store);
     useAppSettings.mockReturnValue(settings);
@@ -119,6 +122,114 @@ describe("MobileLayout", () => {
     expect(wrapper.getComponent(RecordInfo).props("size")).toEqual(
       new RectSize(390, height - 500 - controlHeight - 30),
     );
+  });
+
+  describe.each([ResearchState.IDLE, ResearchState.STARTUP_DIALOG])(
+    "research starting from %s",
+    (initialState) => {
+      it.each(["record", "comment", "info", "analysisDB", "book"])(
+        "switches the %s tab to PV after startup succeeds",
+        async (tab) => {
+          settings.showBookTableOnMobile = true;
+          store.researchState = initialState;
+          const wrapper = mountLayout();
+          await selectTab(wrapper, tab);
+
+          store.researchState = ResearchState.RUNNING;
+          await nextTick();
+
+          expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe("pv");
+          expect(wrapper.getComponent(EngineAnalytics).props("historyMode")).toBe(false);
+        },
+      );
+
+      it.each(["pv", "search", "chart"])("preserves the %s tab", async (tab) => {
+        settings.showSearchLogOnMobile = true;
+        store.researchState = initialState;
+        const wrapper = mountLayout();
+        await selectTab(wrapper, tab);
+
+        store.researchState = ResearchState.RUNNING;
+        await nextTick();
+
+        expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe(tab);
+      });
+    },
+  );
+
+  it("switches a disabled search tab to PV when research starts", async () => {
+    settings.showSearchLogOnMobile = true;
+    const wrapper = mountLayout();
+    await selectTab(wrapper, "search");
+    settings.showSearchLogOnMobile = false;
+    await nextTick();
+
+    store.researchState = ResearchState.RUNNING;
+    await nextTick();
+
+    expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe("pv");
+  });
+
+  it("preserves the tab when opening or cancelling startup and when startup fails", async () => {
+    const wrapper = mountLayout();
+    await selectTab(wrapper, "comment");
+
+    for (const state of [
+      ResearchState.STARTUP_DIALOG,
+      ResearchState.IDLE,
+      ResearchState.STARTUP_DIALOG,
+    ]) {
+      store.researchState = state;
+      await nextTick();
+      expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe("comment");
+    }
+  });
+
+  it("preserves manual selection through pause, resume and stop, but switches on restart", async () => {
+    const wrapper = mountLayout();
+    store.researchState = ResearchState.RUNNING;
+    await nextTick();
+    await selectTab(wrapper, "record");
+
+    for (const state of [
+      ResearchState.PAUSED,
+      ResearchState.RUNNING,
+      ResearchState.STOPPING,
+      ResearchState.IDLE,
+    ]) {
+      store.researchState = state;
+      await nextTick();
+      expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe("record");
+    }
+
+    store.researchState = ResearchState.RUNNING;
+    await nextTick();
+    expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe("pv");
+  });
+
+  it("does not switch tabs on mount even if research is already running", () => {
+    store.researchState = ResearchState.RUNNING;
+    const wrapper = mountLayout();
+    expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe("record");
+  });
+
+  it("reveals the PV tab after automatically switching without scrolling on manual selection", async () => {
+    const wrapper = mountLayout();
+    const selector = wrapper.getComponent(HorizontalSelector);
+    const root = selector.element as HTMLElement;
+    const pv = selector.get('input[value="pv"]').element.parentElement!;
+    root.scrollLeft = 400;
+    vi.spyOn(root, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 390, 30));
+    vi.spyOn(pv, "getBoundingClientRect").mockReturnValue(new DOMRect(-300, 0, 80, 30));
+
+    await selectTab(wrapper, "comment");
+    expect(root.scrollLeft).toBe(400);
+    store.researchState = ResearchState.RUNNING;
+    await nextTick();
+    await nextTick();
+
+    expect(selector.props("value")).toBe("pv");
+    expect(root.scrollLeft).toBe(100);
   });
 
   it.each([
