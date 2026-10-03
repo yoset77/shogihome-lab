@@ -163,18 +163,14 @@ SFEN boundaryは既存decoderによる検証・正規化を共有し、Apery has
 
 ## Deployment Variants
 
-- 開発時は TypeScript entry point と、必要に応じて source の Vision worker を実行します。
-- 配布版は Middle Server、Vision worker、model、必要な runtime asset をビルドスクリプトで配置します。
-- Engine Wrapper は Rust 版が配布の正本であり、唯一の実装です。protocol 変更時は共通 contract suite で検証します。
-- 配布版の Launcher は Tauri app です。設定フォームの schema は `shogihome-launcher` の `settings` module が所有し、server / wrapper の両 `.env` を読み書きします。設定の正本は引き続き各 `.env` と `shogihome/src/server/config.ts` であり、Launcher は読み書きの bridge に留まります。
-- Launcher は各 service の `.env` を別々の環境変数 snapshot として子プロセスへ渡し、同じ snapshot から readiness の host / port を決定します。ファイルにある値は継承環境より優先します。初回移行と未完了移行の再開は、server が data directory を作成する前に完了させます。
-- Launcher は `ShogiHomeLab[.exe] --config-editor [--config-dir DIR]` で設定エディタ単独起動ができます。controller・dashboard・tray・service 監視は初期化せず、editor close が明示的に共通 shutdown を開始して probe cleanup 完了を待ちます。初期 window は `setup` で mode に応じて生成し、`tauri.conf.json` に静的 window は持ちません。
-- `paths` module は portable root と native 実行ファイル名を一元化し、service 起動と設定編集は同じ配置契約を使います。トレイ常駐時だけ main close を hide に変換し、トレイなしでは service・probe を停止して終了します。Linux は `--tray` による opt-in、全 OS で `--no-tray` を利用できます。native／IPC の Quit は `lifecycle` の終了方針に従い、cleanup 前の終了を保留します。インストール型パッケージの保存先分離は別段階で扱います。
-- Editor の設定 directory は wrapper と同じ意味の `--config-dir`（`engines.json` と `.env` の所在、相対 engine path と probe の基準）です。省略時は portable 既定 `<exe-dir>/engine-wrapper` を使います。`--config-dir` は `--config-editor` との組み合わせでのみ受け付け、通常 Launcher の supervision 対象と編集対象がずれないようにします。編集中は設定 directory 単位の OS 管理 session lock（異常終了時は自動解放）を保持し、同時編集の上書き消失を防ぎます。保存は process 単位の一意な tmp file 経由の atomic rename とします。
-- Rust wrapper と launcher の probe は、親 process の終了状態とは別に POSIX process group / Windows Job Object を保持します。親の正常終了後も子孫を回収してから pipe を閉じ、Launcher の明示終了と standalone editor 終了はいずれも probe の cleanup 完了も待ちます。
-- Docker構成はMiddle Serverを実行し、Engine Wrapperは別プロセスまたは別ホストで動作します。分割配置向けに wrapper + GUI のみの `engine-tools` ZIP（`ShogiHomeLab.exe`、`wrapper.exe`、`engine-wrapper/`、専用 README）も配布します。エディタは `ShogiHomeLab.exe --config-editor`、wrapper はダブルクリック（いずれも同梱の `engine-wrapper/` を既定で使用）で起動します。standalone wrapper は `<config-dir>/.env` を自動読込します（優先順位: CLI > 環境変数 > `.env` > 既定値。Launcher 経由では確定済み snapshot を渡すため `--no-env-file` で再読込を抑止します）。
+- **開発**: TypeScript entry point と、必要に応じて source の Vision worker を実行します。
+- **Portable 配布**: 書き込み可能な portable layout に Launcher、Middle Server、Engine Wrapper を配置し、Launcher が service を管理します。Middle Server の配布物には Vision worker、model、必要な runtime asset を含めます。
+- **分割配置**: Docker などで Middle Server を実行し、Engine Wrapper は別プロセスまたは別ホストで動作します。
+- **エンジン側ツール**: 分割配置向けの `engine-tools` ZIP は Engine Wrapper と設定エディタのみを含みます。設定エディタは Launcher と同じ Tauri app の独立モードで、Middle Server を必要としません。
 
-正確な起動手順は [README.md](README.md)、設定は各 `.env.example`、配布構成はビルドスクリプトとrelease workflowを参照してください。
+Launcher の設定・移行・終了処理は [Launcher / Config Editor Architecture](docs/architecture/launcher.md)、worker のビルド境界は [Vision Architecture](docs/architecture/vision.md) を参照してください。
+
+起動・配置手順は [README.md](README.md) と [launcher-app README](engine-wrapper/launcher-app/README.md)、分割配布の操作は [engine-tools README](assets/release/README-engine-tools.txt) に記載します。設定は各 `.env.example`、配布構成はビルドスクリプトと release workflow を正本とします。
 
 ## Detailed References
 

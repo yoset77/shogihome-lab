@@ -39,7 +39,7 @@ Linux／macOS の例（上記ディレクトリから）:
 
 Windows では `ShogiHomeLab.exe --config-editor --config-dir "D:\engine-config"` を使います。
 
-- `--config-dir` は `engines.json` と wrapper の `.env` の所在です。editor が編集するのは `engines.json` です。
+- Launcher の `--config-dir` は `--config-editor` との組み合わせでのみ指定できます。対象は `engines.json` と wrapper の `.env` の所在です。editor が編集するのは `engines.json` です。
 - 相対エンジンパスは設定ディレクトリから解決し、probe の CWD は解決したエンジンのディレクトリです。
 - 省略時は `<exe-dir>/engine-wrapper`。相対 `--config-dir` を明示した場合だけ起動時 CWD を基準にします。
 - window を閉じると probe をキャンセルし、子孫プロセスの回収完了を待ってアプリを終了します。
