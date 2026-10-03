@@ -105,6 +105,7 @@ describe("VisionPositionEditDialog", () => {
 
     expect(wrapper.find(".vision-position-edit-dialog").classes()).toContain("mobile");
     expect(wrapper.find(".dialog-header").exists()).toBe(false);
+    expect(wrapper.findComponent(PositionEditorCore).props("mobile")).toBe(true);
   });
 
   it("imports the position emitted by the shared editor core", async () => {

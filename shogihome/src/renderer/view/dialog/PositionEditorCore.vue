@@ -47,6 +47,7 @@
         ref="pieceBoxRef"
         :position="position"
         :scale="pieceBoxScale"
+        :mobile="mobile"
         :accept-tap-drop="editSelection !== null"
         :selection="pieceBoxSelection"
         @dragstart="onPieceBoxDragStart"

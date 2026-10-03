@@ -1,6 +1,14 @@
 <template>
   <DialogFrame ref="dialogFrame" :limited="isMobile" @cancel="onCancel">
     <div v-if="isMobile" class="mobile-shell">
+      <PositionEditorCore
+        :position="position"
+        :layout-type="BoardLayoutType.PORTRAIT"
+        :mobile="true"
+        :flip="flip"
+        :ghost-teleport-target="ghostTeleportTarget"
+        @change="commitPosition"
+      />
       <div class="mobile-toolbar">
         <button type="button" data-test="undo" :disabled="!canUndo" @click="undo">
           {{ t.undo }}
@@ -21,14 +29,6 @@
         <button type="button" data-test="copy-bod" @click="onCopyBOD">{{ t.copy }} (BOD)</button>
         <button type="button" data-test="paste" @click="onPaste">{{ t.paste }}</button>
       </div>
-      <PositionEditorCore
-        :position="position"
-        :layout-type="BoardLayoutType.PORTRAIT"
-        :mobile="true"
-        :flip="flip"
-        :ghost-teleport-target="ghostTeleportTarget"
-        @change="commitPosition"
-      />
       <div class="main-buttons mobile-buttons">
         <button type="button" data-test="ok" data-hotkey="Enter" @click="onOk">
           {{ t.ok }}
@@ -279,6 +279,8 @@ const onCancel = () => store.closePositionEditingDialog();
 
 .mobile-buttons {
   flex: 0 0 auto;
+  border-top: 1px dashed var(--text-dashed-separator-color);
+  padding-top: 6px;
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
