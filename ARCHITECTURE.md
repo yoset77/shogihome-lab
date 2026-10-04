@@ -56,15 +56,15 @@ flowchart LR
 
 ## Component Responsibilities
 
-| 領域                                       | 責務                                                                        |
-| ------------------------------------------ | --------------------------------------------------------------------------- |
-| `shogihome/src/renderer/`                  | UI、browser-local state、ユーザー操作、HTTP/WebSocket client                |
-| `shogihome/src/common/`                    | Browser と Server が共有する純粋な型、codec、domain utility                 |
-| `shogihome/src/node/`                      | Node.js runtime に依存する共有 utility                                      |
-| `shogihome/src/server/`                    | HTTP、WebSocket、engine session、filesystem、database、worker orchestration |
-| `engine-wrapper/`                          | engine 設定の読み込み、process 起動、TCP/stdio relay、process cleanup。Rust 実装（`wrapper/`）が唯一の実装。process 所有は共有 `process` crate、wrapper 用 `.env` codec は共有 `env-file` crate、server 用 `.env` 解決は同梱 Node `parseEnv`（`launcher/src/server_env.rs`）に集約する |
-| `engine-wrapper/launcher-app/` + `launcher/` | Tauri shell（window/tray/IPC）と `shogihome-launcher` library（supervision、設定、移行、更新、型付き `LauncherError`）。UI は process 起動や設定書き込みを直接行わない |
-| `shogihome/src/server/vision/node-worker/` | 画像推論、盤面幾何処理、候補生成、診断 warning                              |
+| 領域                                         | 責務                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shogihome/src/renderer/`                    | UI、browser-local state、ユーザー操作、HTTP/WebSocket client                                                                                                                                                                                                                           |
+| `shogihome/src/common/`                      | Browser と Server が共有する純粋な型、codec、domain utility                                                                                                                                                                                                                            |
+| `shogihome/src/node/`                        | Node.js runtime に依存する共有 utility                                                                                                                                                                                                                                                 |
+| `shogihome/src/server/`                      | HTTP、WebSocket、engine session、filesystem、database、worker orchestration                                                                                                                                                                                                            |
+| `engine-wrapper/`                            | engine 設定の読み込み、process 起動、TCP/stdio relay、process cleanup。Rust 実装（`wrapper/`）が唯一の実装。process 所有は共有 `process` crate、wrapper 用 `.env` codec は共有 `env-file` crate、server 用 `.env` 解決は同梱 Node `parseEnv`（`launcher/src/server_env.rs`）に集約する |
+| `engine-wrapper/launcher-app/` + `launcher/` | Tauri shell（window/tray/IPC）と `shogihome-launcher` library（supervision、設定、移行、更新、型付き `LauncherError`）。UI は process 起動や設定書き込みを直接行わない                                                                                                                 |
+| `shogihome/src/server/vision/node-worker/`   | 画像推論、盤面幾何処理、候補生成、診断 warning                                                                                                                                                                                                                                         |
 
 複雑な状態や business logic は UI component ではなく、renderer store、domain module、または server module が所有します。
 
@@ -95,15 +95,15 @@ flowchart LR
 
 境界を越える値は `unknown` として受け取り、既存の decoder、schema、path resolver を通過した後でのみ domain logic へ渡します。
 
-| 境界                          | 所有者と検証責任                                                                                               |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Browser ↔ Server WebSocket    | `src/common/engine/relay_protocol.ts` が共有契約を所有し、renderer と server の双方が frame を decode します。 |
-| Browser ↔ HTTP API            | Hono routes が body、query、session header を検証し、共有型がresponse contractを定義します。                   |
-| Server ↔ Engine Wrapper       | engine session、list、auth module と Rust wrapper（`wrapper/`）が line protocol を共有します。共通 contract suite が wrapper を同一条件で検証します。 |
-| Wrapper ↔ USI Engine          | Wrapper は byte/line relay と process lifecycle を担当し、USI state は解釈しません。                           |
-| Server ↔ Vision Worker        | Server が JSON Lines envelope、response shape、SFEN を検証します。                                             |
+| 境界                          | 所有者と検証責任                                                                                                                                                                                                        |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser ↔ Server WebSocket    | `src/common/engine/relay_protocol.ts` が共有契約を所有し、renderer と server の双方が frame を decode します。                                                                                                          |
+| Browser ↔ HTTP API            | Hono routes が body、query、session header を検証し、共有型がresponse contractを定義します。                                                                                                                            |
+| Server ↔ Engine Wrapper       | engine session、list、auth module と Rust wrapper（`wrapper/`）が line protocol を共有します。共通 contract suite が wrapper を同一条件で検証します。                                                                   |
+| Wrapper ↔ USI Engine          | Wrapper は byte/line relay と process lifecycle を担当し、USI state は解釈しません。                                                                                                                                    |
+| Server ↔ Vision Worker        | Server が JSON Lines envelope、response shape、SFEN を検証します。                                                                                                                                                      |
 | Server ↔ `KIFU_DIR`           | 集中化された path resolver が traversal、real path、symlink、用途別extensionを検証します。Browserからの保存は既存parentと全path segmentを検証してatomicに公開し、directory作成は検証済みparent直下の1階層に限定します。 |
-| Server ↔ external kifu source | Server が allowlist と resource limit を適用し、Browser が任意URLを直接指定できないようにします。              |
+| Server ↔ external kifu source | Server が allowlist と resource limit を適用し、Browser が任意URLを直接指定できないようにします。                                                                                                                       |
 
 Host、Origin、body size、rate limit などのHTTP共通ポリシーは `shogihome/src/server/security.ts` と `shogihome/src/server/hono.ts` が所有します。
 
@@ -125,6 +125,7 @@ Middle Server の `shogihome/src/server/engine/session.ts` が、engine 接続�
 - Engine output は対応する `position` と関連付け、古い局面の結果で現在の探索を更新しません。
 - 識別付き探索では、session実体IDと探索IDを局面とは別に照合します。Middle Serverは取消境界と停止完了を保持し、Browserは完了確認後に対局棋譜と時計を一括で巻き戻します。同じ局面への指し直しでも旧探索を採用しません。
 - 一時的な WebSocket 切断では論理 session を保護し、同じ session ID の再接続へ状態と必要な出力を再同期できます。
+- 棋譜解析の内部sessionは `AnalysisJob` が所有し、公開relayの `SessionManager` へ登録しません。Browser切断保護とは独立して、jobの完了・取消・失敗時に停止とtransport cleanupを行います。
 - 置換済み socket の command や state frame で現在の接続を汚染しません。
 - Engine Wrapper は browser session、再接続、USI state machine を所有しません。
 
@@ -144,16 +145,19 @@ Vision scan は Middle Server が管理する worker process で実行します�
 
 ## Data Ownership and Persistence
 
-| データ                  | 所有者                            | 性質                                         |
-| ----------------------- | --------------------------------- | -------------------------------------------- |
-| `KIFU_DIR`              | Middle Serverと外部ファイル管理者 | ユーザーが所有する棋譜・定跡・SFENの正本     |
-| `data/analysis.db`      | Analysis DB module                | Engine解析結果の永続データ                   |
-| `data/kifu_index.db`    | Kifu index module                 | `KIFU_DIR` から再構築可能な派生index         |
-| record history / backup | History service                   | Server共有の履歴と復元データ                 |
-| Book session            | Book session manager              | 保存前の変更を含む有期限の作業状態           |
-| Browser storage         | Renderer                          | 端末・origin固有の設定、復元情報、接続識別子 |
+| データ                  | 所有者                            | 性質                                               |
+| ----------------------- | --------------------------------- | -------------------------------------------------- |
+| `KIFU_DIR`              | Middle Serverと外部ファイル管理者 | ユーザーが所有する棋譜・定跡・SFENの正本           |
+| `data/analysis.db`      | Analysis DB module                | Engine解析結果の永続データ                         |
+| `data/kifu_index.db`    | Kifu index module                 | `KIFU_DIR` から再構築可能な派生index               |
+| record history / backup | History service                   | Server共有の履歴と復元データ                       |
+| Book session            | Book session manager              | 保存前の変更を含む有期限の作業状態                 |
+| Analysis job            | Analysis job manager              | 固定入力・進捗・結果・取消を持つ有期限の揮発性状態 |
+| Browser storage         | Renderer                          | 端末・origin固有の設定、復元情報、接続識別子       |
 
 対局進行と時計、および「待った」のcheckpointはRendererの `GameManager` が所有します。checkpointは現在の対局に限るメモリー上の状態です。EngineSessionの再接続保護は対局状態の永続化を意味しません。詳細は [Takeback](docs/features/takeback.md) を参照してください。
+
+棋譜解析の進行はServerの `src/server/analysis/` が所有し、Rendererの `AnalysisManager` はHTTPによる作成・同期・取消・復元と安全な注釈反映だけを担当します。入力棋譜のtreeと選択経路、設定は作成時に固定し、解析cursorと閲覧cursorを分離します。Browserを閉じても解析は継続しますが、Server再起動からのjob復旧や棋譜ファイルへの自動保存は行いません。詳細は [Analysis Jobs](docs/features/analysis-jobs.md) を参照してください。
 
 Database、filesystem、browser storage は互いに代替可能な正本ではありません。特に kifu index は派生データであり、ユーザーファイルの正本として扱いません。
 

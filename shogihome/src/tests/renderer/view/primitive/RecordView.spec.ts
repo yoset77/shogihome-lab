@@ -33,6 +33,21 @@ describe("RecordView", () => {
     document.body.innerHTML = "";
   });
 
+  it("allows read-only browsing while disabling branch reordering", async () => {
+    const wrapper = mount(RecordView, {
+      props: { record: buildBranchRecord(), operational: true, editable: false, shortcutKeys },
+    });
+    await wrapper.findAll(".move-list .move-element")[1].trigger("click");
+    expect(wrapper.emitted("selectMove")?.[0]).toEqual([1]);
+    await wrapper.findAll(".control button")[0].trigger("click");
+    expect(wrapper.emitted("goBegin")).toHaveLength(1);
+    const buttons = wrapper.findAll(".branch-side-control button");
+    expect(buttons.every((button) => (button.element as HTMLButtonElement).disabled)).toBe(true);
+    await buttons[0].trigger("click");
+    expect(wrapper.emitted("swapWithPreviousBranch")).toBeUndefined();
+    wrapper.unmount();
+  });
+
   it("scrolls the selected move into view when mounted", () => {
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,

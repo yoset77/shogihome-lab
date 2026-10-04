@@ -5,6 +5,7 @@ import { WebSocket } from "ws";
 import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
 import { saveAnalysisResults } from "@/server/database/sqlite";
 import { parseInfoCommand, type USIInfoCommand } from "@/common/game/usi";
+import { parseAnalysisInfo } from "@/common/analysis/types";
 import {
   decodeClientRelayMessage,
   encodeClientRelayMessage,
@@ -70,10 +71,51 @@ export class EngineSession {
   private settledThrough = 0;
   private terminalSearch: SearchSnapshot["terminal"] = null;
   private terminalCreatedAt = 0;
+  private internalListeners = new Set<(event: SessionRelayPayload) => void>();
+
+  get internalSnapshot() {
+    return {
+      state: this.engineState,
+      instanceId: this.instanceId,
+      active: this.activeSearch?.searchId ?? null,
+      settled: this.settledThrough,
+      cancelled: this.cancelledThrough,
+      terminal: this.terminalSearch,
+    };
+  }
+
+  subscribeInternal(listener: (event: SessionRelayPayload) => void): () => void {
+    if (this.owner !== "internal") throw new Error("Session is owned by relay");
+    this.internalListeners.add(listener);
+    return () => this.internalListeners.delete(listener);
+  }
+
+  dispatchInternal(message: ClientRelayMessage): void {
+    if (this.owner !== "internal") throw new Error("Session is owned by relay");
+    const decoded = decodeClientRelayMessage(encodeClientRelayMessage(message));
+    if (!decoded.ok) throw new Error(decoded.error);
+    this.handleMessage(decoded.value);
+  }
+
+  startInternalEngine(config: EngineConfig): void {
+    if (this.owner !== "internal") throw new Error("Session is owned by relay");
+    const decoded = decodeClientRelayMessage(
+      encodeClientRelayMessage({ type: "startEngine", engineId: config.id }),
+    );
+    if (!decoded.ok) throw new Error(decoded.error);
+    this.startEngine(config.id, { ...config });
+  }
+
+  destroyInternal(): void {
+    if (this.owner !== "internal") throw new Error("Session is owned by relay");
+    this.connectingSocket?.destroy();
+    this.engineHandle?.destroy?.();
+    this.onEngineClose();
+  }
 
   private sendSearchSnapshot() {
     // Snapshots are authoritative and regenerated on attach, never buffered as events.
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (this.owner === "relay" && (!this.ws || this.ws.readyState !== WebSocket.OPEN)) return;
     this.sendToClient({
       type: "searchSnapshot",
       instanceId: this.instanceId,
@@ -164,6 +206,7 @@ export class EngineSession {
   constructor(
     public readonly sessionId: string,
     private readonly removeSession: (sessionId: string) => void = () => {},
+    private readonly owner: "relay" | "internal" = "relay",
   ) {}
 
   private pushToQueue(queue: string[], command: string) {
@@ -177,6 +220,7 @@ export class EngineSession {
   }
 
   attach(ws: ExtendedWebSocket) {
+    if (this.owner !== "relay") throw new Error("Session is owned by server");
     console.log(`Attaching session ${this.sessionId} to new WebSocket`);
     this.clearCleanupTimeout();
 
@@ -339,6 +383,11 @@ export class EngineSession {
   }
 
   private sendToClient(data: SessionRelayPayload, createdAt: number = Date.now()) {
+    if (this.owner === "internal") {
+      // Deliver only after the complete synchronous USI transition.
+      queueMicrotask(() => this.internalListeners.forEach((listener) => listener(data)));
+      return;
+    }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const delay = Math.max(0, Date.now() - createdAt);
       this.ws.send(encodeSessionRelayMessage(data, delay));
@@ -496,7 +545,9 @@ export class EngineSession {
       }
 
       if (line.startsWith("info ")) {
-        const parsed = parseInfoCommand(line.substring(5));
+        const parsed =
+          this.owner === "internal" ? parseAnalysisInfo(line) : parseInfoCommand(line.substring(5));
+        if (!parsed) return;
         const hasScore = parsed.scoreCP !== undefined || parsed.scoreMate !== undefined;
         const hasInvalidBound =
           (parsed.lowerbound && parsed.upperbound) ||
@@ -625,14 +676,15 @@ export class EngineSession {
     });
   }
 
-  private startEngine(engineId: string) {
+  private startEngine(engineId: string, config?: EngineConfig) {
     if (this.engineHandle || this.engineState === EngineState.STARTING) {
       this.sendError("engine already running or starting");
       return;
     }
     this.engineState = EngineState.STARTING;
     this.currentEngineId = engineId;
-    this.currentEngineConfig = engineConfigCache.get(engineId) || { id: engineId, name: engineId };
+    this.currentEngineConfig = config ??
+      engineConfigCache.get(engineId) ?? { id: engineId, name: engineId };
 
     console.log(`Connecting to remote engine at ${REMOTE_ENGINE_HOST}:${REMOTE_ENGINE_PORT}`);
     const socket = new net.Socket();
@@ -669,6 +721,7 @@ export class EngineSession {
         this.engineHandle = {
           write: (cmd) => socket.write(cmd),
           close: () => socket.end(),
+          destroy: () => socket.destroy(),
           on: (e, l) => socket.on(e, l),
           off: (e, l) => socket.off(e, l),
           removeAllListeners: (e) => socket.removeAllListeners(e),

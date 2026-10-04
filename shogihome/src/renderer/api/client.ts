@@ -15,12 +15,25 @@ export class RequestTimeoutError extends Error {
 
 export class ApiResponseError extends Error {
   readonly status: number;
+  readonly retryAfterMs?: number;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, retryAfterMs?: number) {
     super(message);
     this.name = "ApiResponseError";
     this.status = status;
+    this.retryAfterMs = retryAfterMs;
   }
+}
+
+function readRetryAfter(response: Response): number | undefined {
+  const value = response.headers.get("Retry-After")?.trim();
+  if (!value) return;
+  const delay = /^\d+$/.test(value)
+    ? Number(value) * 1000
+    : /^[A-Za-z]/.test(value)
+      ? Date.parse(value) - Date.now()
+      : NaN;
+  return Number.isFinite(delay) ? Math.max(0, delay) : undefined;
 }
 
 export function isRequestTimeoutError(error: unknown): boolean {
@@ -86,14 +99,13 @@ export const createHonoApiClient = (options: ApiClientOptions = {}) => {
 };
 
 export const parseJsonResponse = async <T>(response: Response): Promise<T> => {
-  if (!response.ok) {
-    throw new ApiResponseError(response.status, await response.text());
-  }
+  await assertOkResponse(response);
   return (await response.json()) as T;
 };
 
 export const assertOkResponse = async (response: Response): Promise<void> => {
   if (!response.ok) {
-    throw new ApiResponseError(response.status, await response.text());
+    const retryAfterMs = readRetryAfter(response);
+    throw new ApiResponseError(response.status, await response.text(), retryAfterMs);
   }
 };

@@ -132,13 +132,20 @@ export function saveRecordForWebApp(record: ImmutableRecord): void {
     clearTimeout(saveTimeout);
   }
   saveTimeout = window.setTimeout(() => {
-    const jkf = exportJKFString(record);
-    const [usen, branch] = record.usen;
-    localStorage.setItem(webAppJKFStorageKey, jkf);
-    localStorage.setItem(webAppUsenStorageKey, usen);
-    localStorage.setItem(webAppBranchStorageKey, (branch || 0).toString());
-    localStorage.setItem(webAppPlyStorageKey, record.current.ply.toString());
+    flushRecordForWebApp(record);
   }, 300);
+}
+
+export function flushRecordForWebApp(record: ImmutableRecord): void {
+  if (isNative() || hasUSENParam()) return;
+  clearTimeout(saveTimeout);
+  saveTimeout = undefined;
+  const jkf = exportJKFString(record);
+  const [usen, branch] = record.usen;
+  localStorage.setItem(webAppJKFStorageKey, jkf);
+  localStorage.setItem(webAppUsenStorageKey, usen);
+  localStorage.setItem(webAppBranchStorageKey, (branch || 0).toString());
+  localStorage.setItem(webAppPlyStorageKey, record.current.ply.toString());
 }
 
 export function clearURLParams(): void {

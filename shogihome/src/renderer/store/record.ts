@@ -11,7 +11,6 @@ import {
   detectRecordFormat,
   DoMoveOption,
   exportKIF,
-  formatPV,
   ImmutablePosition,
   ImmutableRecord,
   importCSA,
@@ -30,11 +29,9 @@ import {
   SpecialMoveType,
   importJKFString,
   Color,
-  formatCSAMove,
-  formatKIFMove,
   ImmutableNode,
 } from "tsshogi";
-import { getSituationText } from "./score.js";
+import { applyComment, buildSearchComment } from "@/common/record/search_comment";
 import { CommentBehavior, SearchCommentFormat } from "@/common/settings/comment";
 import { t, localizeError } from "@/common/i18n/index";
 import {
@@ -44,15 +41,25 @@ import {
   exportRecordAsBuffer,
   importRecordFromBuffer,
 } from "@/common/file/record";
-import { SCORE_MATE_INFINITE } from "@/common/game/usi";
 import { findKifuPosition } from "@/common/kifu/position";
 import api from "@/renderer/ipc/api";
 import { LogLevel } from "@/common/log";
 import { secondsToMMSS } from "@/common/helpers/time";
+import {
+  indexRecordNodes,
+  recordContent,
+  restoreRecord,
+  restoreSearchInfo,
+  snapshotRecord,
+  type RecordSnapshot,
+} from "@/common/record/snapshot";
+import type { AnalysisNodeResult } from "@/common/analysis/types";
+import { analysisTexts } from "@/common/i18n/analysis";
 
 type replaceRecordOption = {
   path?: string;
   markAsSaved?: boolean;
+  preserveCustomData?: boolean;
 };
 
 export type ImportRecordOption = {
@@ -66,87 +73,6 @@ function restoreCustomData(record: Record): void {
   record.forEach((node) => {
     node.customData = parseComment(node.comment, node.customData as RecordCustomData);
   });
-}
-
-function buildSearchComment(
-  position: ImmutablePosition,
-  type: SearchInfoSenderType,
-  searchInfo: SearchInfo,
-  options?: {
-    engineName?: string;
-  },
-): string {
-  const prefix = type === SearchInfoSenderType.PLAYER ? "*" : "#";
-  let comment = "";
-  if (searchInfo.mate) {
-    const result = searchInfo.mate >= 0 ? "先手勝ち" : "後手勝ち";
-    comment += `${prefix}詰み=${result}`;
-    if (Math.abs(searchInfo.mate) !== SCORE_MATE_INFINITE) {
-      comment += `:${Math.abs(searchInfo.mate)}手`;
-    }
-    comment += "\n";
-  }
-  if (searchInfo.score !== undefined) {
-    comment += getSituationText(searchInfo.score) + "\n";
-    comment += `${prefix}評価値=${searchInfo.score}\n`;
-  }
-  if (searchInfo.pv && searchInfo.pv.length !== 0) {
-    comment += `${prefix}読み筋=${formatPV(position, searchInfo.pv)}\n`;
-  }
-  if (searchInfo.depth) {
-    comment += `${prefix}深さ=${searchInfo.depth}\n`;
-  }
-  if (searchInfo.nodes) {
-    comment += `${prefix}ノード数=${searchInfo.nodes}\n`;
-  }
-  if (comment && options?.engineName) {
-    comment += `${prefix}エンジン=${options.engineName}\n`;
-  }
-  return comment;
-}
-
-function buildFloodgateSearchComment(searchInfo: SearchInfo): string {
-  const score =
-    searchInfo.mate !== undefined
-      ? searchInfo.mate > 0
-        ? 30000
-        : -30000
-      : searchInfo.score !== undefined
-        ? searchInfo.score
-        : 0;
-  let comment = `* ${score}`;
-  for (const move of searchInfo.pv || []) {
-    comment += " " + formatCSAMove(move);
-  }
-  return comment;
-}
-
-function buildCSA3SearchComment(searchInfo: SearchInfo): string {
-  const floodgate = buildFloodgateSearchComment(searchInfo);
-  return floodgate + (searchInfo.nodes !== undefined ? ` #${searchInfo.nodes}` : "");
-}
-
-function buildShogiGUISearchComment(type: SearchInfoSenderType, searchInfo: SearchInfo): string {
-  // *[<種類>] [<multipv>] [時間 <時間>] [深さ <深さ>] [ノード数 <ノード数>] [評価値 <評価値>] [<読み筋>]
-  let comment = `*${type === SearchInfoSenderType.PLAYER ? "対局" : "解析"}`;
-  if (searchInfo.depth !== undefined) {
-    comment += ` 深さ ${searchInfo.depth}`;
-  }
-  if (searchInfo.nodes !== undefined) {
-    comment += ` ノード数 ${searchInfo.nodes}`;
-  }
-  if (searchInfo.score !== undefined) {
-    comment += ` 評価値 ${searchInfo.score}`;
-  } else if (searchInfo.mate !== undefined) {
-    comment += ` 評価値 ${searchInfo.mate > 0 ? 30000 : -30000}`;
-  }
-  if (searchInfo.pv?.length) {
-    comment += " 読み筋";
-    for (const move of searchInfo.pv) {
-      comment += " " + (move.color === Color.BLACK ? "▲" : "△") + formatKIFMove(move);
-    }
-  }
-  return comment;
 }
 
 function parseFloodgatePVComment(position: ImmutablePosition, line: string): Move[] {
@@ -236,6 +162,13 @@ export type GameRecordCheckpoint = {
 };
 
 export class RecordManager {
+  private _navigationRevision = 0;
+  private analysisBinding?: {
+    token: string;
+    record: Record;
+    content: string;
+    nodes: Map<string, ImmutableNode>;
+  };
   private _recordFilePath?: string;
   private _serverKifuPath?: string;
   private _unsaved = false;
@@ -255,6 +188,67 @@ export class RecordManager {
 
   get record(): ImmutableRecord {
     return this._record;
+  }
+
+  get analysisLocked(): boolean {
+    return !!this.analysisBinding;
+  }
+
+  get navigationRevision(): number {
+    return this._navigationRevision;
+  }
+
+  beginAnalysis(token: string): RecordSnapshot {
+    if (this.analysisLocked) throw new Error(analysisTexts().capacity);
+    const source = snapshotRecord(this.record);
+    this.analysisBinding = {
+      token,
+      record: this._record,
+      content: recordContent(source),
+      nodes: indexRecordNodes(this.record),
+    };
+    return source;
+  }
+
+  endAnalysis(token: string): void {
+    if (this.analysisBinding?.token === token) this.analysisBinding = undefined;
+  }
+
+  applyAnalysisResults(token: string, updates: AnalysisNodeResult[]): boolean {
+    const binding = this.analysisBinding;
+    if (
+      !binding ||
+      binding.token !== token ||
+      binding.record !== this._record ||
+      binding.content !== recordContent(snapshotRecord(this.record))
+    )
+      return false;
+    if (updates.some((update) => !binding.nodes.has(update.id))) return false;
+    if (!updates.length) return true;
+    const prepared = updates.map((update) => ({
+      ...update,
+      info: update.researchInfo && restoreSearchInfo(update.researchInfo),
+    }));
+    for (const update of prepared) {
+      const node = binding.nodes.get(update.id)! as Record["current"];
+      node.comment = update.comment;
+      if (update.info)
+        node.customData = {
+          ...((node.customData as RecordCustomData) ?? {}),
+          researchInfo: update.info,
+        };
+    }
+    this._unsaved = true;
+    binding.content = recordContent(snapshotRecord(this.record));
+    this.onUpdateComment();
+    this.onUpdateCustomData();
+    return true;
+  }
+
+  async openAnalysisSnapshot(source: RecordSnapshot): Promise<void> {
+    if (this.analysisLocked) throw new Error(analysisTexts().invalid);
+    await this.saveBackup();
+    this.replaceRecord(restoreRecord(source).record, { preserveCustomData: true });
   }
 
   get recordFilePath(): string | undefined {
@@ -317,6 +311,7 @@ export class RecordManager {
   }
 
   private clearRecord(position?: ImmutablePosition): void {
+    if (this.analysisLocked) throw new Error(analysisTexts().invalid);
     this.saveBackupOnBackground();
     this._record.clear(position);
     this._unsaved = false;
@@ -328,6 +323,7 @@ export class RecordManager {
   }
 
   private replaceRecord(record: Record, option?: replaceRecordOption): void {
+    if (this.analysisLocked) throw new Error(analysisTexts().invalid);
     this.saveBackupOnBackground();
     this._record = record;
     this.resetPositionCounts();
@@ -339,7 +335,7 @@ export class RecordManager {
     }
     this._unsaved = !option?.markAsSaved;
     this._sourceURL = undefined;
-    restoreCustomData(this._record);
+    if (!option?.preserveCustomData) restoreCustomData(this._record);
     this.onChangePosition();
     this.onUpdateTree();
   }
@@ -483,14 +479,17 @@ export class RecordManager {
   }
 
   goForward(): void {
+    this._navigationRevision++;
     this._record.goForward();
   }
 
   goBack(): void {
+    this._navigationRevision++;
     this._record.goBack();
   }
 
   changePly(ply: number): void {
+    this._navigationRevision++;
     this._record.goto(ply);
   }
 
@@ -514,6 +513,7 @@ export class RecordManager {
   }
 
   rollbackGameMoves(checkpoints: GameRecordCheckpoint[], restoreClocks: () => void): void {
+    if (this.analysisLocked) throw new Error(analysisTexts().invalid);
     let node: ImmutableNode = this._record.current;
     for (const checkpoint of [...checkpoints].reverse()) {
       if (node.prev !== checkpoint.node) throw new Error("Invalid game rollback path");
@@ -547,6 +547,7 @@ export class RecordManager {
   }
 
   changePlyBySFEN(ply: number, sfen: string): boolean {
+    this._navigationRevision++;
     const target = findKifuPosition(this._record.first, ply, sfen);
     if (target) {
       return this._record.gotoNode(target);
@@ -555,14 +556,17 @@ export class RecordManager {
   }
 
   changeBranch(index: number): boolean {
+    this._navigationRevision++;
     return this._record.switchBranchByIndex(index);
   }
 
   changeNode(node: ImmutableNode): boolean {
+    this._navigationRevision++;
     return this._record.gotoNode(node);
   }
 
   swapWithNextBranch(): boolean {
+    if (this.analysisLocked) return false;
     if (this._record.swapWithNextBranch()) {
       this._unsaved = true;
       return true;
@@ -571,6 +575,7 @@ export class RecordManager {
   }
 
   swapWithPreviousBranch(): boolean {
+    if (this.analysisLocked) return false;
     if (this._record.swapWithPreviousBranch()) {
       this._unsaved = true;
       return true;
@@ -579,10 +584,12 @@ export class RecordManager {
   }
 
   resetAllBranchSelection() {
+    this._navigationRevision++;
     this._record.resetAllBranchSelection();
   }
 
   removeCurrentMove(): boolean {
+    if (this.analysisLocked) return false;
     if (this._record.removeCurrentMove()) {
       this._unsaved = true;
       this.onUpdateTree();
@@ -592,6 +599,7 @@ export class RecordManager {
   }
 
   removeNextMove(): boolean {
+    if (this.analysisLocked) return false;
     if (this._record.removeNextMove()) {
       this._unsaved = true;
       this.onUpdateTree();
@@ -601,40 +609,30 @@ export class RecordManager {
   }
 
   jumpToBookmark(bookmark: string): boolean {
+    this._navigationRevision++;
     return this._record.jumpToBookmark(bookmark);
   }
 
   updateComment(comment: string): void {
+    if (this.analysisLocked) return;
     this._record.current.comment = comment;
     this._unsaved = true;
     this.onUpdateComment();
   }
 
   updateBookmark(bookmark: string): void {
+    if (this.analysisLocked) return;
     this._record.current.bookmark = bookmark;
     this._unsaved = true;
     this.onUpdateBookmark();
   }
 
   appendComment(add: string, behavior: CommentBehavior): void {
+    if (this.analysisLocked) return;
     if (!add) {
       return;
     }
-    const org = this._record.current.comment;
-    const sep = this.record.current.comment ? "\n" : "";
-    switch (behavior) {
-      case CommentBehavior.NONE:
-        break;
-      case CommentBehavior.INSERT:
-        this._record.current.comment = add + sep + org;
-        break;
-      case CommentBehavior.APPEND:
-        this._record.current.comment = org + sep + add;
-        break;
-      case CommentBehavior.OVERWRITE:
-        this._record.current.comment = add;
-        break;
-    }
+    this._record.current.comment = applyComment(this._record.current.comment, add, behavior);
     this._unsaved = true;
     this.onUpdateComment();
   }
@@ -649,24 +647,8 @@ export class RecordManager {
       engineName?: string;
     },
   ): void {
-    let comment: string;
-    switch (format) {
-      case SearchCommentFormat.SHOGIHOME:
-        comment = buildSearchComment(this.record.position, type, searchInfo, options);
-        break;
-      case SearchCommentFormat.FLOODGATE:
-        comment = buildFloodgateSearchComment(searchInfo);
-        break;
-      case SearchCommentFormat.CSA3:
-        comment = buildCSA3SearchComment(searchInfo);
-        break;
-      case SearchCommentFormat.SHOGIGUI:
-        comment = buildShogiGUISearchComment(type, searchInfo);
-        break;
-    }
-    if (options?.header) {
-      comment = options.header + "\n" + comment;
-    }
+    if (this.analysisLocked) return;
+    const comment = buildSearchComment(this.record.position, type, format, searchInfo, options);
     this.appendComment(comment, behavior);
     this._unsaved = true;
   }
@@ -676,6 +658,7 @@ export class RecordManager {
   }
 
   setGameStartMetadata(metadata: GameStartMetadata): void {
+    if (this.analysisLocked) return;
     if (metadata.gameTitle) {
       this._record.metadata.setStandardMetadata(RecordMetadataKey.TITLE, metadata.gameTitle);
     }
@@ -704,11 +687,13 @@ export class RecordManager {
   }
 
   setGameEndMetadata(): void {
+    if (this.analysisLocked) return;
     this._record.metadata.setStandardMetadata(RecordMetadataKey.END_DATETIME, getDateTimeString());
     this._unsaved = true;
   }
 
   updateSearchInfo(type: SearchInfoSenderType, searchInfo: SearchInfo): void {
+    if (this.analysisLocked) return;
     const data = (this.record.current.customData || {}) as RecordCustomData;
     switch (type) {
       case SearchInfoSenderType.PLAYER:
@@ -743,6 +728,7 @@ export class RecordManager {
   }
 
   appendMove(params: AppendMoveParams): boolean {
+    if (this.analysisLocked) return false;
     const ok = this._record.append(params.move, params.moveOption);
     if (!ok) {
       return false;
@@ -755,6 +741,7 @@ export class RecordManager {
   }
 
   appendMovesSilently(moves: Move[], opt?: DoMoveOption): number {
+    if (this.analysisLocked) return 0;
     this.unbindRecordHandlers();
     try {
       let n = 0;
@@ -775,6 +762,7 @@ export class RecordManager {
   }
 
   mergeRecord(record: ImmutableRecord): Error | undefined {
+    if (this.analysisLocked) return new Error(analysisTexts().invalid);
     if (this._record.initialPosition.sfen !== record.initialPosition.sfen) {
       return new Error(t.failedToMergeRecordWithDifferentInitialPosition);
     }
@@ -785,6 +773,7 @@ export class RecordManager {
   }
 
   mergeRecordIntoCurrent(record: ImmutableRecord): Error | undefined {
+    if (this.analysisLocked) return new Error(analysisTexts().invalid);
     if (this._record.position.color !== record.initialPosition.color) {
       return new Error(t.failedToMergeRecordWithDifferentTurn);
     }
@@ -798,6 +787,7 @@ export class RecordManager {
   }
 
   updateStandardMetadata(update: { key: RecordMetadataKey; value: string }): void {
+    if (this.analysisLocked) return;
     this._record.metadata.setStandardMetadata(update.key, update.value);
     this._unsaved = true;
   }

@@ -31,7 +31,8 @@ Remote engine は `sessionId` で識別される論理sessionに属します。M
 - [`websocket.ts`](../../shogihome/src/server/websocket.ts) はHost、Origin、session IDを検証し、socketを論理sessionへ接続します。
 - [`sessionManager.ts`](../../shogihome/src/server/engine/sessionManager.ts) は `sessionId` と [`EngineSession`](../../shogihome/src/server/engine/session.ts) の対応を管理します。
 - [`session.ts`](../../shogihome/src/server/engine/session.ts) はengine起動、USI handshake、探索状態、stop sequencing、command queue、出力の局面帰属、終了、再接続bufferを所有します。
-- [`list.ts`](../../shogihome/src/server/engine/list.ts) は短命なTCP接続でwrapperから設定を取得し、Browserへ公開可能なengine情報だけを返します。
+- [`list.ts`](../../shogihome/src/server/engine/list.ts) は短命なTCP接続でwrapperから設定を取得します。設定の取得はWebSocket送信から独立し、Browserへは公開可能なengine情報だけを返します。
+- [`internal.ts`](../../shogihome/src/server/engine/internal.ts) はServer所有sessionの型付き起動・探索・通常停止・取消・終了APIです。USI遷移は `session.ts` を共有し、状態遷移完了後に内部subscriberへ通知します。engine名・research能力・DB保存設定はServerで解決し、job用sessionへ固定して渡します。
 - [`auth.ts`](../../shogihome/src/server/engine/auth.ts) は任意設定のwrapper challenge-response認証を実装します。
 
 ### Engine Wrapper
@@ -63,6 +64,14 @@ Wrapper の `ENGINE_HIGH_QOS` は既定で無効です。有効時は Windows �
 6. 明示的終了、session失効、または回復不能なengine failureでTCP接続とchild processを終了します。
 
 Browserから送られたhandshake commandはstate machineを迂回しません。USI lifecycleの解釈はMiddle Serverに限定します。
+
+### Server-owned Analysis Sessions
+
+[`AnalysisJob`](../../shogihome/src/server/analysis/job.ts) はWebSocketを持たない内部 `EngineSession` を所有します。公開relayのsession mapに登録せず、Browserからのattachやcloseでjobのengineを操作できないようにします。内部探索にも既存の実体ID・探索ID・取消境界を使用し、stopのterminal outputを消費してから次の局面へ進みます。局面ごとの解析時間は探索開始後に計測し、起動や前の探索の停止待ちを含めません。
+
+HTTP pollingの失敗やBrowser終了では内部sessionを終了しません。jobの明示的取消・失敗・完了がcleanupを所有し、終了応答が来ない場合にも期限付きでTCP transportを破棄します。結果やlive PVの保持量は有界です。内部sessionも既存のAnalysis DB保存経路を使用し、job側から二重保存しません。
+
+対局・通常検討・詰み探索は従来のrelay経路を維持します。jobのHTTP契約と失効時の方針は [Analysis Jobs](../features/analysis-jobs.md) を参照してください。
 
 ## Search and Stop Invariants
 

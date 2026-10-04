@@ -89,12 +89,37 @@
         </button>
         <!-- 解析中断 -->
         <button
+          v-if="store.appState === AppState.NORMAL && store.hasRetainedAnalysis"
+          class="control-item"
+          @click="store.restoreAnalysis()"
+        >
+          <Icon :icon="IconType.ANALYSIS" />
+          <span>{{ analysisMessages.recoverAction }}</span>
+        </button>
+        <div
+          v-if="store.appState === AppState.ANALYSIS"
+          class="control-item"
+          role="status"
+          aria-live="polite"
+        >
+          <span v-if="store.analysisReconnecting">{{ analysisMessages.reconnecting }}</span>
+          <span v-else
+            >{{ analysisMessages.progress }} {{ store.analysisStatus?.completedPositions ?? 0 }}/{{
+              store.analysisStatus?.totalPositions ?? 0
+            }}</span
+          >
+        </div>
+        <button
           v-show="store.appState === AppState.ANALYSIS"
           class="control-item close"
+          :disabled="store.isAnalysisCancelling"
+          :aria-busy="store.isAnalysisCancelling"
           @click="onEndAnalysis"
         >
           <Icon :icon="IconType.STOP" />
-          <span :class="{ tooltip: compact }">{{ t.stopAnalysis }}</span>
+          <span :class="{ tooltip: compact }">{{
+            store.isAnalysisCancelling ? analysisMessages.cancelling : t.stopAnalysis
+          }}</span>
         </button>
         <!-- 詰み探索 -->
         <button
@@ -194,6 +219,7 @@ export enum ControlGroup {
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
+import { analysisTexts } from "@/common/i18n/analysis";
 import { useStore } from "@/renderer/store";
 import { computed, onBeforeUnmount, onMounted, PropType, ref, watch } from "vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
@@ -229,6 +255,7 @@ defineProps({
 
 const store = useStore();
 const appSettings = useAppSettings();
+const analysisMessages = computed(() => analysisTexts(appSettings.language));
 const quickAction = computed(() => getFileQuickAction(appSettings.fileQuickAction));
 const root = ref();
 const isFileMenuVisible = ref(false);
