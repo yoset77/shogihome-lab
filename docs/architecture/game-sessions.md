@@ -41,10 +41,11 @@ HTTP が作成・操作・復元を、専用 WebSocket が snapshot と時計・
 Browser 側の検討注釈は専用 WebSocket から送り、対局・手番・node・局面を照合して反映します。HTTP の共有 rate limit を使う操作とは分けます。
 
 - 作成は request ID と Server 実体 ID で照合し、応答喪失後も同じ要求を解決します。操作も元の request ID を保って再送し、二重着手を防ぎます。
-- 制御権の世代と対局・手番の世代を照合し、置換済み socket や旧手番の操作を拒否します。古い tab が自動で制御権を取り返すことはありません。
+- 制御権の世代と対局・手番の世代を照合し、置換済み socket や旧手番の操作を拒否します。自動再接続は接続識別子と既知の制御権世代で照合し、古い tab が自動で制御権を取り返すことはありません。Reload や明示的な復元は新しい接続識別子で現在の制御権を引き継ぎます。
 - Snapshot の revision と node ID で棋譜を同期し、古い snapshot で現在の状態を上書きしません。
 - 通信障害や rate limit では復元用識別子、未確認操作、文書 lock を保持して再試行します。失効や Server 再起動を新しい対局の自動作成へ変換しません。
-- 別の棋譜へ復元する場合は確認と backup を先に行い、完了棋譜を Browser storage へ反映してから session との linkage を解除します。
+- 復元用 linkage は作成要求ごとに独立して保持し、別 tab の開始失敗で削除しません。開始前にも共有の linkage を再確認し、同時作成の競合は Server の実行数制約で拒否します。
+- 対局開始前に未保存棋譜の backup を完了します。別の棋譜へ復元する場合も確認と backup を先に行い、完了棋譜を Browser storage へ反映してから session との linkage を解除します。
 
 ## Takeback Transaction
 

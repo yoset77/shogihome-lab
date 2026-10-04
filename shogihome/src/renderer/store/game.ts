@@ -13,7 +13,7 @@ import {
   type GameFrame,
 } from "@/common/game/protocol";
 import { recordContent, snapshotRecord, type RecordSnapshot } from "@/common/record/snapshot";
-import { object, identifier, text } from "@/common/analysis/validation";
+import { object, identifier, text, counter } from "@/common/analysis/validation";
 import { gameTexts } from "@/common/i18n/game";
 import { createGameSessionsClient, type GameSessionsClient } from "@/renderer/api/game_sessions";
 import { ApiResponseError, isRequestTimeoutError } from "@/renderer/api/client";
@@ -40,6 +40,8 @@ type Reference = {
   requestId: string;
   serverInstanceId: string;
   controllerId: string;
+  connectionId?: string;
+  controllerEpoch?: number;
   sessionId?: string;
   content: string;
   pending: GameCommand[];
@@ -67,9 +69,8 @@ function durableContent(source: RecordSnapshot): string {
     })),
   });
 }
-function loadReference(): Reference | undefined {
+function readReference(raw: string | null): Reference | undefined {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
     const input = object(JSON.parse(raw));
     const pending = Array.isArray(input.pending)
@@ -84,6 +85,10 @@ function loadReference(): Reference | undefined {
       requestId: identifier(input.requestId),
       serverInstanceId: identifier(input.serverInstanceId),
       controllerId: identifier(input.controllerId),
+      ...(input.connectionId === undefined ? {} : { connectionId: identifier(input.connectionId) }),
+      ...(input.controllerEpoch === undefined
+        ? {}
+        : { controllerEpoch: counter(input.controllerEpoch) }),
       ...(input.sessionId === undefined ? {} : { sessionId: identifier(input.sessionId) }),
       content: text(input.content, 20 * 1024 * 1024),
       pending,
@@ -93,15 +98,58 @@ function loadReference(): Reference | undefined {
     return;
   }
 }
+function referenceKey(ref: Reference): string {
+  // Independent keys keep concurrent creation failures from erasing another game.
+  return `${STORAGE_KEY}:${ref.requestId}`;
+}
+function sameReference(a: Reference, b: Reference): boolean {
+  return (
+    a.requestId === b.requestId &&
+    a.serverInstanceId === b.serverInstanceId &&
+    a.controllerId === b.controllerId
+  );
+}
+function loadReferences(): Reference[] {
+  try {
+    const keys = Object.keys(localStorage).filter((key) => key.startsWith(`${STORAGE_KEY}:`));
+    const references = new Map<string, Reference>();
+    for (const key of [...keys, STORAGE_KEY]) {
+      const ref = readReference(localStorage.getItem(key));
+      if (
+        ref &&
+        (key === STORAGE_KEY || key === referenceKey(ref)) &&
+        !references.has(ref.requestId)
+      )
+        references.set(ref.requestId, ref);
+    }
+    return [...references.values()].sort((a, b) => Number(!!b.sessionId) - Number(!!a.sessionId));
+  } catch {
+    return [];
+  }
+}
+function forgetReference(ref: Reference): void {
+  for (const key of [referenceKey(ref), STORAGE_KEY]) {
+    const stored = readReference(localStorage.getItem(key));
+    if (
+      stored &&
+      sameReference(stored, ref) &&
+      (stored.controllerEpoch ?? 0) <= (ref.controllerEpoch ?? 0)
+    )
+      localStorage.removeItem(key);
+  }
+}
 
 export class GameManager {
-  private reference = loadReference();
+  private reference?: Reference = loadReferences()[0];
   private pendingRequest?: GameSessionRequest;
   private _status?: GameSnapshot;
   private active = false;
   private socket?: WebSocket;
   private socketReady = false;
   private generation = 0;
+  private connectionId = generateSessionId();
+  // Only our own connection may advance the epoch used for automatic reconnects.
+  private controllerEpoch?: number;
   private lifecycle = 0;
   private bindingToken?: string;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
@@ -154,7 +202,7 @@ export class GameManager {
     return this.active;
   }
   get hasRetainedSession(): boolean {
-    return !!this.reference;
+    return this.active ? !!this.reference : loadReferences().length > 0;
   }
   get reconnecting(): boolean {
     return this.active && !this.socketReady;
@@ -188,8 +236,17 @@ export class GameManager {
     return this._status?.interactionId ?? 0;
   }
   private persist(): void {
-    if (this.reference) localStorage.setItem(STORAGE_KEY, JSON.stringify(this.reference));
-    else localStorage.removeItem(STORAGE_KEY);
+    const ref = this.reference;
+    if (!ref) return;
+    const stored = readReference(localStorage.getItem(referenceKey(ref)));
+    if (
+      stored &&
+      (!sameReference(stored, ref) || (stored.controllerEpoch ?? 0) > (ref.controllerEpoch ?? 0))
+    )
+      throw new ApiResponseError(409, gameTexts().conflict);
+    localStorage.setItem(referenceKey(ref), JSON.stringify(ref));
+    const legacy = readReference(localStorage.getItem(STORAGE_KEY));
+    if (legacy && sameReference(legacy, ref)) localStorage.removeItem(STORAGE_KEY);
   }
   private transient(error: unknown): boolean {
     return (
@@ -223,6 +280,8 @@ export class GameManager {
     this.finished = false;
     this.connection.reset();
     this._status = undefined;
+    this.connectionId = generateSessionId();
+    this.controllerEpoch = undefined;
     this.lastMoveId = 0;
     this.lastSampleId = 0;
     this.warned.clear();
@@ -232,7 +291,7 @@ export class GameManager {
     return source;
   }
   async start(settings: GameSettings): Promise<void> {
-    if (this.active || this.reference)
+    if (this.active || this.hasRetainedSession)
       throw new Error(gameTexts(useAppSettings().language).capacity);
     const requestId = generateSessionId();
     const source = this.bind(requestId);
@@ -266,6 +325,9 @@ export class GameManager {
       if (!decoded.ok) throw new Error(gameTexts(app.language).invalid);
       if (new TextEncoder().encode(JSON.stringify(decoded.value)).length > caps.maxInputBytes)
         throw new Error(gameTexts(app.language).capacity);
+      await this.recordManager.saveBackup();
+      if (lifecycle !== this.lifecycle) return;
+      if (loadReferences().length) throw new Error(gameTexts(app.language).capacity);
       this.reference = {
         requestId,
         serverInstanceId: caps.serverInstanceId,
@@ -298,16 +360,22 @@ export class GameManager {
     }
   }
   async resume(confirmRecovery: () => Promise<boolean>): Promise<boolean> {
-    const ref = this.reference;
-    if (!ref || this.active) return false;
-    const local = durableContent(snapshotRecord(this.recordManager.record));
-    if (local !== ref.content && !(await confirmRecovery())) return false;
-    await this.recordManager.saveBackup();
-    this.bind(ref.requestId);
-    await this.synchronize();
-    return this.active || this.finished;
+    if (this.active) return false;
+    const references = loadReferences();
+    this.reference = references[0];
+    for (const [index, ref] of references.entries()) {
+      const local = durableContent(snapshotRecord(this.recordManager.record));
+      if (local !== ref.content && !(await confirmRecovery())) return false;
+      await this.recordManager.saveBackup();
+      this.reference = ref;
+      this.bind(ref.requestId);
+      await this.synchronize(!ref.sessionId && index < references.length - 1);
+      if (this.active || this.finished) return true;
+      if (this.reference) return false;
+    }
+    return false;
   }
-  private async synchronize(): Promise<void> {
+  private async synchronize(skipMissingRequest = false): Promise<void> {
     const ref = this.reference;
     if (!ref || this.synchronizing) return;
     if (Date.now() < this.retryNotBefore) {
@@ -344,7 +412,8 @@ export class GameManager {
         this.schedule();
       } else {
         this.release(ref.requestId, error instanceof ApiResponseError && error.status === 410);
-        this.handlers.error(error);
+        if (!(skipMissingRequest && error instanceof ApiResponseError && error.status === 410))
+          this.handlers.error(error);
       }
     } finally {
       this.synchronizing = false;
@@ -357,6 +426,9 @@ export class GameManager {
     url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
     url.searchParams.set("serverInstanceId", ref.serverInstanceId);
     url.searchParams.set("controllerId", ref.controllerId);
+    this.controllerEpoch ??= this._status!.controllerEpoch;
+    url.searchParams.set("connectionId", this.connectionId);
+    url.searchParams.set("controllerEpoch", String(this.controllerEpoch));
     const generation = ++this.generation;
     this.lastFrameAt = Date.now();
     const socket = (this.socket = this.createSocket(url.href));
@@ -483,6 +555,12 @@ export class GameManager {
     )
       throw new Error(gameTexts().invalid);
     if (
+      this.controllerEpoch !== undefined &&
+      snapshot.controllerEpoch > this.controllerEpoch &&
+      snapshot.controllerConnectionId !== this.connectionId
+    )
+      throw new ApiResponseError(409, gameTexts().conflict);
+    if (
       this._status &&
       (snapshot.revision < this._status.revision ||
         snapshot.controllerEpoch < this._status.controllerEpoch)
@@ -499,6 +577,11 @@ export class GameManager {
       ref.content = durableContent(snapshotRecord(this.recordManager.record));
     }
     ref.sessionId = snapshot.sessionId;
+    if (snapshot.controllerConnectionId === this.connectionId) {
+      this.controllerEpoch = snapshot.controllerEpoch;
+      ref.connectionId = this.connectionId;
+      ref.controllerEpoch = snapshot.controllerEpoch;
+    }
     this._status = snapshot;
     this.lastSampleId = Math.max(this.lastSampleId, snapshot.sampleId);
     this.persist();
@@ -544,9 +627,9 @@ export class GameManager {
       this.handlers.stopBeep();
       for (const id of Object.values(MONITOR_IDS)) setInfoSessionActive(id, false);
       this.connection.restored();
+      if (this.reference) forgetReference(this.reference);
       this.reference = undefined;
       this.pendingRequest = undefined;
-      this.persist();
       this.detach();
       if (snapshot.error && snapshot.error !== "save")
         this.handlers.error(new Error(gameTexts(useAppSettings().language)[snapshot.error]));
@@ -575,9 +658,9 @@ export class GameManager {
     this.handlers.stopBeep();
     for (const id of Object.values(MONITOR_IDS)) setInfoSessionActive(id, false);
     if (clear) {
+      if (this.reference?.requestId === token) forgetReference(this.reference);
       this.reference = undefined;
       this.pendingRequest = undefined;
-      this.persist();
     }
     this.handlers.status(null);
   }

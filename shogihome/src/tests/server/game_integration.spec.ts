@@ -177,12 +177,12 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
     expect(response.status).toBeLessThan(300);
     return response.json();
   };
-  async function browser(snapshot: GameSnapshot) {
-    const ws = new WebSocket(
-      url.replace("http:", "ws:") +
-        `/ws/game-sessions/${snapshot.sessionId}?controllerId=controller&serverInstanceId=${snapshot.serverInstanceId}`,
-      { headers },
-    );
+  const browserURL = (snapshot: GameSnapshot, connectionId: string) =>
+    url.replace("http:", "ws:") +
+    `/ws/game-sessions/${snapshot.sessionId}?controllerId=controller&serverInstanceId=${snapshot.serverInstanceId}&connectionId=${connectionId}&controllerEpoch=${snapshot.controllerEpoch}`;
+  let nextConnection = 0;
+  async function browser(snapshot: GameSnapshot, connectionId = `browser-${++nextConnection}`) {
+    const ws = new WebSocket(browserURL(snapshot, connectionId), { headers });
     browsers.add(ws);
     const frames: GameSnapshot[] = [];
     ws.on("message", (data) => {
@@ -194,6 +194,45 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
     await vi.waitFor(() => expect(frames.length).toBeGreaterThan(0));
     return { ws, frames, latest: () => frames.at(-1)! };
   }
+
+  it("rejects a stale reconnect over WebSocket without replacing the active browser", async () => {
+    const request = gameRequest();
+    request.serverInstanceId = manager.serverInstanceId;
+    const created = (await call("", request)) as GameSnapshot;
+    const first = await browser(created, "first");
+    const stale = first.latest();
+    first.ws.terminate();
+    await vi.waitFor(() => expect(manager.get(created.sessionId).snapshot().state).toBe("paused"));
+    const replacement = await browser(stale, "replacement");
+    await call(`/${created.sessionId}/commands`, gameCommand(replacement.latest(), "resume"));
+    await vi.waitFor(() => expect(replacement.latest().canMove).toBe(true));
+    const epoch = replacement.latest().controllerEpoch;
+    const retry = new WebSocket(browserURL(stale, "first"), { headers });
+    browsers.add(retry);
+    const [code] = await once(retry, "close");
+    expect(code).toBe(4001);
+    expect(replacement.ws.readyState).toBe(WebSocket.OPEN);
+    expect(manager.get(created.sessionId).snapshot().controllerEpoch).toBe(epoch);
+    expect(manager.get(created.sessionId).snapshot().state).toBe("running");
+  });
+
+  it.each([
+    { connectionId: "", controllerEpoch: "0" },
+    { connectionId: "browser", controllerEpoch: "NaN" },
+    { connectionId: "browser", controllerEpoch: "9007199254740992" },
+  ])("rejects malformed reconnect identifiers: %j", async (binding) => {
+    const request = gameRequest();
+    request.serverInstanceId = manager.serverInstanceId;
+    const created = (await call("", request)) as GameSnapshot;
+    const target = new URL(browserURL(created, "browser"));
+    target.searchParams.set("connectionId", binding.connectionId);
+    target.searchParams.set("controllerEpoch", binding.controllerEpoch);
+    const ws = new WebSocket(target, { headers });
+    browsers.add(ws);
+    const [code] = await once(ws, "close");
+    expect(code).toBe(1008);
+    expect(manager.get(created.sessionId).snapshot().controllerEpoch).toBe(0);
+  });
 
   it("pauses after a disconnected AI reply and recovers before accepting another human move", async () => {
     const request = gameRequest();

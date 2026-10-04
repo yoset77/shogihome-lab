@@ -9,6 +9,7 @@ import {
   type GameClocks,
   type GameError,
   type GameRecordSummary,
+  type GameConnection,
 } from "@/common/game/protocol";
 import {
   restoreRecord,
@@ -69,6 +70,7 @@ export class GameSession {
   private sampleId = 0;
   private lastMoveId = 0;
   private controllerEpoch = 0;
+  private controllerConnectionId?: string;
   private controller?: {
     epoch: number;
     lastSeen: number;
@@ -246,6 +248,9 @@ export class GameSession {
       requestId: this.request.requestId,
       serverInstanceId: this.request.serverInstanceId,
       controllerEpoch: this.controllerEpoch,
+      ...(this.controllerConnectionId === undefined
+        ? {}
+        : { controllerConnectionId: this.controllerConnectionId }),
       revision: this.revision,
       recordRevision: this.recordRevision,
       sampleId: ++this.sampleId,
@@ -303,12 +308,22 @@ export class GameSession {
     controllerId: string,
     send: (frame: GameFrame) => void,
     close: (code?: number) => void = () => {},
+    connection?: GameConnection,
   ): { epoch: number; heartbeat: () => void; disconnect: () => void } {
     if (controllerId !== this.request.controllerId) throw new HttpError(403, gameTexts().invalid);
+    // A retry may have missed the epoch assigned to its own previous connection.
+    if (
+      connection &&
+      (connection.controllerEpoch > this.controllerEpoch ||
+        (connection.controllerEpoch !== this.controllerEpoch &&
+          connection.connectionId !== this.controllerConnectionId))
+    )
+      throw new HttpError(409, gameTexts().conflict);
     const previous = this.controller;
     this.controller = undefined;
     this.core.setConnected(false);
     const epoch = ++this.controllerEpoch;
+    this.controllerConnectionId = connection?.connectionId;
     this.controller = { epoch, lastSeen: Date.now(), send, close };
     previous?.close(4001);
     this.publish();

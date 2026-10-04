@@ -73,6 +73,7 @@ export type GameSnapshot = {
   requestId: string;
   serverInstanceId: string;
   controllerEpoch: number;
+  controllerConnectionId?: string;
   revision: number;
   recordRevision: number;
   sampleId: number;
@@ -127,6 +128,7 @@ export type GameFrame =
       }[];
     };
 export type GameHeartbeat = { type: "heartbeat"; controllerEpoch: number };
+export type GameConnection = { connectionId: string; controllerEpoch: number };
 export type GameClientFrame = GameHeartbeat | { type: "annotation"; value: GameCommand };
 export type GameCapabilities = {
   serverInstanceId: string;
@@ -339,6 +341,9 @@ export function decodeGameSnapshot(value: unknown): DecodeResult<GameSnapshot> {
       requestId: v.identifier(input.requestId),
       serverInstanceId: v.identifier(input.serverInstanceId),
       controllerEpoch: v.counter(input.controllerEpoch),
+      ...(input.controllerConnectionId === undefined
+        ? {}
+        : { controllerConnectionId: v.identifier(input.controllerConnectionId) }),
       revision: v.counter(input.revision),
       recordRevision: v.counter(input.recordRevision),
       sampleId: v.counter(input.sampleId),
@@ -411,6 +416,15 @@ export function decodeGameHeartbeat(value: unknown): DecodeResult<GameHeartbeat>
     const input = v.object(value);
     if (input.type !== "heartbeat") throw new Error("Invalid heartbeat");
     return { type: "heartbeat", controllerEpoch: v.counter(input.controllerEpoch) };
+  });
+}
+export function decodeGameConnection(value: unknown): DecodeResult<GameConnection> {
+  return decoded(() => {
+    const input = v.object(value);
+    return {
+      connectionId: v.identifier(input.connectionId),
+      controllerEpoch: v.counter(input.controllerEpoch),
+    };
   });
 }
 export function decodeGameClientFrame(value: unknown): DecodeResult<GameClientFrame> {
