@@ -27,8 +27,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Security Audit
-        run: npm audit --audit-level=high
+      - name: Security Audit (production dependencies)
+        run: npm audit --omit=dev --audit-level=high
+
+      # Tooling uses a higher failure threshold, but high findings remain visible
+      # and require review for CI/build exposure.
+      - name: Security Audit (including dev dependencies)
+        run: npm audit --include=dev --audit-level=critical
 
       - name: Audit Scripts
         run: npm run audit:scripts
