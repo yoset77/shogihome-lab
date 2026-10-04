@@ -1,76 +1,52 @@
 # Launcher / Config Editor Architecture
 
+この文書は、native shell と headless backend の責務、設定・process の所有権、終了時の保証を説明します。Window 構成、IPC schema、設定値、CLI の詳細はコードと操作文書を正本とします。
+
 ## Responsibilities
 
-Windows・Linux・macOS で同じ Tauri shell を native build します。設定エディタは同一実行ファイルの `--config-editor` モードです。UI・IPC・probe・終了処理を共用し、editor 専用成果物による二重保守を避けます。
+Windows・Linux・macOS で同じ Tauri shell を native build します。Launcher と standalone 設定エディタは同一アプリの起動モードで、UI・IPC・probe・終了処理を共用します。
 
-| 所有者 | 責務 |
-|---|---|
-| `engine-wrapper/launcher-app/src-tauri/src/app.rs` | `setup` で起動モードに応じた初期 window 生成、native event の配送。`tauri.conf.json` に静的 window は持たない |
-| `src-tauri/src/state.rs` | shell state と window command allowlist への bridge |
-| `src-tauri/src/editor.rs` | editor IPC、window と編集セッションの結び付け |
-| `src-tauri/src/launcher.rs` | dashboard IPC、controller への委譲 |
-| `src-tauri/src/tray.rs` | トレイ生成・メニュー操作 |
-| `src-tauri/src/shutdown.rs` | native／IPC 共通の非同期 cleanup と exit |
-| `engine-wrapper/launcher/src/paths.rs` | portable root、native 実行ファイル名、設定・ログの所在 |
-| `launcher/src/lifecycle.rs` | close／quit の方針と `Running → Closing → ReadyToExit` |
-| `launcher/src/editor_session.rs` | session lock の寿命、probe 登録・キャンセル・完了の直列化 |
-| `launcher/src/editor.rs` | registry 検証（engine `id` の一意性を含む）・process 一意 tmp file 経由の atomic rename による保存・USI option probe |
-| `launcher/src/controller.rs` + `service.rs` | service lifecycle、設定 snapshot、readiness、移行との排他 |
-| `launcher/src/settings.rs` | 設定フォームの schema・型変換・検証・server／wrapper 両 `.env` の読み書き。production の保存時は controller の操作ロック内で現在値を Node 準拠で解決する |
-| `launcher/src/network.rs` | server の生の設定値と親環境変数から PC URL／QR／接続可否を解決。フォーム用の型変換を経由しない |
-| `engine-wrapper/process/` | 子プロセスの tree 所有（POSIX process group／Windows Job）。sync (`SyncChild`) と tokio (`AsyncChild`) を一元化し、`launcher/src/process.rs` と `wrapper/src/process.rs` は互換 shims に留める。`.bat`/`.cmd` 判定もここに集約する |
-| `launcher/src/session_lock.rs` | 設定 directory 単位の OS 管理編集セッションロック（`.engines.lock`）。異常終了時は自動解放し、同時編集の上書き消失を防ぐ |
-| `launcher/src/error.rs` | backend の型付きエラー（`LauncherError`）。`Io`／`Json` は source chain を保持し、設定検証エラーは項目別の型付きエラーを保持する。Tauri IPC 境界で文字列／既存の項目別 JSON エラーコードへ変換する |
-| `engine-wrapper/env-file/` | `.env` decode／parse（`export ` と `export\t` の単一スキャナ）と atomic write（プロセス一意 tmp＋rename）の共有実装 |
+| 所有者                                                                                                                                               | 責務                                                                            |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| [`launcher-app/src-tauri/src/`](../../engine-wrapper/launcher-app/src-tauri/src/)                                                                    | Window・tray・native event、IPC と backend の bridge、非同期 shutdown           |
+| [`launcher/src/controller.rs`](../../engine-wrapper/launcher/src/controller.rs) + [`service.rs`](../../engine-wrapper/launcher/src/service.rs)       | Service supervision、設定 snapshot、readiness、起動・停止・移行・設定保存の排他 |
+| [`launcher/src/paths.rs`](../../engine-wrapper/launcher/src/paths.rs)                                                                                | Portable root と設定・ログ・実行ファイルの所在                                  |
+| [`launcher/src/settings.rs`](../../engine-wrapper/launcher/src/settings.rs) + [`server_env.rs`](../../engine-wrapper/launcher/src/server_env.rs)     | 設定の解決・検証・保存と Server の Node 準拠の環境解決                          |
+| [`launcher/src/network.rs`](../../engine-wrapper/launcher/src/network.rs)                                                                            | 実行設定に基づく接続 URL・QR・接続可否                                          |
+| [`launcher/src/editor.rs`](../../engine-wrapper/launcher/src/editor.rs) + [`editor_session.rs`](../../engine-wrapper/launcher/src/editor_session.rs) | Engine registry、probe、編集 session と lock の寿命                             |
+| [`launcher/src/lifecycle.rs`](../../engine-wrapper/launcher/src/lifecycle.rs)                                                                        | Close／quit と cleanup 完了までの終了制御                                       |
+| [`process/`](../../engine-wrapper/process/) + [`env-file/`](../../engine-wrapper/env-file/)                                                          | Wrapper と共有する process tree 所有・設定ファイル codec と atomic write        |
 
-設定の正本は各 `.env` と [`shogihome/src/server/config.ts`](../../shogihome/src/server/config.ts) であり、Launcher は読み書きの bridge に留まります。
+設定の正本は各 `.env` と service 側の設定解決であり、Launcher は読み書きの bridge に留まります。UI は process 起動や設定書き込みを直接行いません。Backend の型付きエラーは [`error.rs`](../../engine-wrapper/launcher/src/error.rs) が所有し、IPC 境界で表示用の表現へ変換します。
 
 Tauri shell は GUI システム依存を通常の backend test から切り離すため、Cargo workspace とは独立した manifest／lockfile を持ちます。これは Windows 限定の境界ではありません。
 
 ## Path and State Ownership
 
-- 現在の native 起動は書き込み可能な portable layout を対象とし、root は実行ファイルの親ディレクトリです。
-- server／wrapper の実行ファイル名は `paths` が OS ごとの suffix を付与します。server runtime builder は同じ命名契約で native Node をコピーし、実行権限を保持します。
-- launcher の設定フォーム、editor、service 起動、ログ、移行は同一 root を使います。service ごとの `.env` snapshot を起動環境と readiness の両方に使い、wrapper の再読込は `--no-env-file` で抑止します。親環境変数はファイルより優先します（server の Node `loadEnvFile` 互換、wrapper の CLI > env > file 互換）。Windows では親環境変数名を大文字・小文字を区別せず解決します（Node の `process.env` 互換）。
-- 初回移行と未完了移行の再開は service 起動前に処理し、server による data directory 作成と競合させません。未完了の移行がある間は service 起動を拒否します。
-- server の `.env` は同梱 Node runtime の `parseEnv` で解決します（`launcher/src/server_env.rs`）。引用符付き Windows パスなど python-dotenv と解釈が異なる値を、直接起動と Launcher 起動で一致させます。wrapper の `.env` は共有 `env-file` パーサーを使います。Node helper の stdout は実行中から並行回収し、大容量 JSON でもパイプ詰まりを起こさないようにします。待機側が子プロセスを所有し、タイムアウト時は kill・回収と reader の終了を待ってエラーを返します。helper の失敗はエラーとして伝播し、デフォルト値で表示・保存することはありません。
-- PC URL／QR は起動 snapshot と同じ優先順位（親環境変数がファイルより優先、Windows では変数名の大文字・小文字を区別しない）で求めます。export された `PORT` とファイルの `PORT` が異なる場合も、実際に listen する側を表示します。`DISABLE_AUTO_ALLOWED_ORIGINS` は server と同じく生の値が `true` に完全一致する場合のみ有効とし、フォームの `1`／`yes` 等を受け付ける真偽値変換とは分離します。
-- 設定フォームの choice は既存のカスタム値（例：`BIND_ADDRESS=192.168.1.10`）を保持します。保存時は controller の操作ロック内で現在値の Node 準拠の読込・検証・書込を完結させ、別パーサーによる再検証をしません。別項目の保存で待受アドレスを暗黙に変更せず、新規のカスタム値は validation で拒否します。
-- editor の明示的 `--config-dir` は wrapper と同じ意味で、registry の所在と相対 engine path の基準です。probe の CWD は解決した engine の親ディレクトリです。明示した相対 directory だけが起動 CWD に依存します。
-- 通常 Launcher の編集対象は supervision と同じ portable root に固定します。`--config-dir` は standalone editor に限定し、稼働する wrapper と編集対象のずれを防ぎます。
-- standalone editor は controller を構築せず、dashboard、service、health polling、tray を初期化しません。
-- インストール型の `.app`／AppImage／deb と OS 標準保存先は別の配布段階で扱います。bundle 内の assets を書き込み可能な設定の所在と混同してはいけません。
+- 現在の native 起動は書き込み可能な portable layout を対象とします。設定フォーム、editor、service 起動、ログ、移行は同じ root を使用し、bundle 内の assets を書き込み可能な設定の所在と混同しません。
+- Service ごとに解決した設定 snapshot を起動環境と readiness の双方に使い、Wrapper 側で設定ファイルを再読込して snapshot がずれることを防ぎます。
+- Server の `.env` は同梱 Node runtime、Wrapper の `.env` は共有 `env-file` codec で解決します。親環境変数の優先順位や OS ごとの扱いも直接起動と一致させます。解決に失敗した場合はエラーを返し、既定値への置換で表示・保存を続けません。
+- 設定保存は controller の操作 lock 内で現在値の解決・検証・書込を完結させます。既存のカスタム値を別項目の編集で暗黙に置き換えません。
+- 接続表示はフォーム用の型変換ではなく Server の生の設定値から解決し、実際の待受・Origin policy と一致させます。
+- 初回移行と未完了移行の再開は service 起動前に処理します。未完了の移行中は起動を拒否し、既存データの上書き移行は提供しません。
+- 通常 Launcher の編集対象は supervision と同じ root に固定します。Standalone editor は service を起動せず、Wrapper と同じ基準で設定 directory と相対 engine path を解決します。
 
 ## Close and Exit Invariants
 
-- Rust wrapper と launcher の probe は、親 process の終了状態とは別に POSIX process group／Windows Job Object を保持します。親の正常終了後も子孫を回収してから pipe を閉じます。
-- トレイ常駐が有効で、実際にトレイを作成できた場合だけ main close を hide に変換します。
-- Linux は tray host の表示を検出できないため常駐を opt-in にします。`--no-tray` は全 desktop OS で利用できます。
-- standalone editor close、トレイなし main close、dashboard／tray／OS の明示 Quit は共通 shutdown を開始します。macOS の最後の window close に暗黙の process exit を期待しません。
-- shutdown worker は一度だけ開始し、処理中の追加終了要求を保留します。controller の停止と probe cleanup が完了した後だけ exit 0 を許可します。
-- probe drain timeout は standalone では exit 1、launcher では UI を保持してエラー通知・終了再試行とします。controller は quit 後の再起動を拒否します。
-- editor session の mutex は probe 登録と close を直列化します。close 後は probe と保存を拒否し、IPC future の終了ではなく blocking worker の RAII guard 破棄をもって probe 完了とします。
-- 編集ロックは probe が残る間は解放しません。window 再表示で generation を更新し、古い timer は新しい session を解放できません。期限後に完了した worker も、閉じた session のロックを解放できます。
+- Wrapper・probe は共有 process module を使い、親 process の終了後も子孫を回収してから pipe を閉じます。IPC future の終了だけを probe の完了とみなしません。
+- Main window の close を hide に変換するのは、トレイ常駐が有効で実際に tray を作成できた場合だけです。Linux は tray host の表示を検出できないため常駐を opt-in とし、最後の window close による OS の暗黙終了に依存しません。
+- Standalone editor の close、tray 常駐しない main window の close、明示的 Quit は共通 shutdown に収束させます。Shutdown は重複実行せず、service 停止と probe cleanup 完了後だけ正常終了します。Quit 開始後の再起動は拒否します。
+- Probe cleanup が収束しない場合、standalone editor は異常終了を返し、Launcher は UI を保持して通知・終了再試行を可能にします。
+- 設定 directory 単位の編集 lock は probe が残る間は解放しません。Probe 登録と close を直列化し、close 後の probe・保存や古い session の完了通知が新しい編集 session を変更することを防ぎます。
 
 ## Trust and UI Boundaries
 
-window allowlist と Tauri capability を維持します。UI は filesystem や process を直接操作せず、既存 registry validator／env decoder／probe を通過します。USI session state machine は Middle Server の責務のままです。
+Window ごとの [`command allowlist`](../../engine-wrapper/launcher/src/permissions.rs) と [Tauri capability](../../engine-wrapper/launcher-app/src-tauri/capabilities/) を維持します。UI は既存 registry validator／env decoder／probe を通過し、filesystem や process を直接操作しません。長時間の IPC は UI event loop の外で実行します。USI session state machine は Middle Server の責務のままです。
 
-## Dashboard Windows
+## Presentation State
 
-- dashboard（`main`）は状態表示・起動制御・QR／URL・更新通知・初回移行に専念し、サーバー設定とログ表示は持たない。設定とログは独立した単一インスタンスの WebviewWindow（`settings`、`logs`）で表示する。起動・再起動・設定保存後は状態と接続表示（URL／QR／接続可否）を一緒に更新し、非同期の取得順が逆転しても古い表示に戻さない。
-- `settings`／`logs` は単一インスタンスで、存在すれば show＋focus する。閉鎖はバックエンドの `close_settings_window`／`close_logs_window`（`window.destroy()`、エディタの `close_window` と同パターン）で行い、フロントの window 権限に依存しない。保存後は `settings-saved` イベントで dashboard が QR／URL を再読込する。
-- window 別の command allowlist（`launcher/src/permissions.rs`）と capability（`src-tauri/capabilities/{settings,logs}.json`）を持つ。`settings` は設定系＋再起動のみ、`logs` はログ読込のみ許可する。
-- データ移行に常設ボタンは置かない。初回起動時（`shogihome/data` 不在）または未完了の移行がある場合に `startAfterMigration` が案内し、既存データへの上書きは提供しない。
-- dashboard の表示 URL は QR ペイロード（LAN URL）と一致させる。QR がない構成では PC URL に加えてカスタムネットワーク文言を表示する。strict 設定でも LAN URL が `ALLOWED_ORIGINS` に明示されている場合に限り QR を生成し、それ以外（127.0.0.1 bind・許可なし・proxy のみ等）では QR を出さない。
+- Dashboard、設定、ログ、editor は権限を分けた window とし、window lifecycle は backend が管理します。起動・再起動・設定保存後の状態と接続表示を同期し、遅延した応答で古い表示へ戻しません。
+- QR は実際に LAN 接続可能な構成だけを表し、表示 URL と payload を一致させます。待受・Origin policy で接続できない構成に QR を出しません。
+- WebView の表示言語はアプリ内で共有する保存設定に従います。Native shell の tray・起動前エラー・CLI 文言は OS locale に基づく独立した表示境界です。
 
-## UI Language
-
-- WebView 内の表示言語は日英切替可能で、セレクトは dashboard（`main`）と editor のヘッダー右にのみ置く。`settings`／`logs` にセレクトは置かず、保存済み言語に追従する。全窓が `src/i18n.ts` を共用する。選択は localStorage と backend の `.update_cache.json`（`ui_language`）に保存し、backend 保存値を優先する。
-- 未設定時は `navigator.language` が日本語（`ja`／`ja-*`、大小文字不問）なら日本語、それ以外（取得できない場合を含む）なら英語で表示する。初回の設定移行ダイアログにも適用し、自動判定した言語は保存しない。`SHOGIHOME_LAB_LANG` による既存の明示指定は localStorage と自動判定より優先し、backend 保存値の優先は維持する。
-- native shell 文言（tray・起動前エラー・`--help`）は `shogihome/src/common/i18n/launcher-native.json` を Rust backend に埋め込み、OS locale（`LC_ALL`→`LC_MESSAGES`→`LANG`）で選択する。WebView 内の言語選択とは独立している。
-
-ネイティブファイル選択は Windows で実行ファイルと全ファイルを提供し、Unix では拡張子による制約を設けません。実行エラーは既存 probe 経路で報告し、任意ファイルを shell 経由で実行するフォールバックは追加しません。
-
-詳細な build／検証手順は [launcher-app README](../../engine-wrapper/launcher-app/README.md) に記載します。
+操作・build 手順は [launcher-app README](../../engine-wrapper/launcher-app/README.md)、設定名・既定値は各 `.env.example`、配布 layout は build script を参照してください。

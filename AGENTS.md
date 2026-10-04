@@ -33,8 +33,14 @@ Run commands from the indicated directory.
 - Keep the USI state machine in `src/server/engine/session.ts`. Engine wrappers should remain process/TCP bridges and must not own session state.
 - At WebSocket, TCP, USI, SFEN, and file-system boundaries, use the existing decoders and validators rather than bypassing them.
 - Put user-visible messages in `src/common/i18n/` resources instead of hardcoding them.
-- Update `ARCHITECTURE.md` and the relevant `docs/architecture/` document when changing architecture, protocols, or module responsibilities.
-- Update the relevant `docs/features/` document when changing a documented feature's design intent or decision criteria. Value-only changes remain in code and tests.
+
+## Documentation Rules
+
+- Keep `ARCHITECTURE.md` limited to system structure, ownership, dependency/trust boundaries, and cross-module invariants.
+- Use `docs/architecture/` for subsystem design, lifecycle, and key contracts; omit exhaustive specifications evident from code and tests.
+- Use `docs/features/` only for non-obvious rationale, trade-offs, non-goals, and decision criteria. Do not create a document when no such explanation is needed.
+- Link to code and tests instead of duplicating implementation details, schemas, defaults, limits, or verification reports.
+- Update only the documentation layers whose design or intent changed. Avoid duplicating detailed content across documents.
 
 ## Version Control
 

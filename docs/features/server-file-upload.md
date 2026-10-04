@@ -4,34 +4,20 @@
 
 ## Intent
 
-同期folderを`KIFU_DIR`に指定していないdeviceからも、serverが管理する棋譜や定跡を追加できるようにします。Uploadは現在開いている棋譜やBook sessionを変更せず、userが選択したfileのbyte列をそのまま保存します。
+同期folderを`KIFU_DIR`に指定していないdeviceからも、serverが管理する棋譜や定跡を追加できるようにします。Uploadはfileの追加であり、現在の棋譜へ取り込む操作やBook sessionを開く操作とは分けます。選択したfileのbyte列をそのまま保存し、uploadを理由に内容を書き換えません。
 
 保存名の変更と保存先folderの作成をupload画面内で提供し、local fileの改名やserver側の手動操作なしに同名競合の回避と分類を行えるようにします。既存server fileのrenameや削除は、この機能に含めません。
 
-## Safety
+## Explicit Destination and Overwrite
 
-- Browserが送るfile名やdirectory名をfilesystem capabilityとして扱いません。
-- 保存先は`KIFU_DIR`内の既存directoryに限定し、Serverのpath resolverで再検証します。
-- 新規folderは検証済みの既存parent直下に1階層だけ作成します。再帰的な作成、symlinkを経由するparent、深さ制限超過を許可せず、同名entryとの競合では既存entryを変更しません。
-- 新しい保存名とfolder名はBrowserとServerの共有validatorで検証します。空名、hidden name、path区切り、制御文字、Windowsの禁止文字・予約名、末尾のdotや前後の空白を拒否し、lock用suffixを考慮してUTF-8 byte長も制限します。
-- Atomic writerが使う`*.lock` directoryは保存先に表示せず、その内部へのuploadやfolder作成、同名folderの新規作成も拒否します。大文字小文字やWindowsの末尾dot/spaceによる別表記も予約対象とし、内部lockの更新時刻をuser操作で変更させません。
-- 1 fileを1 requestとしてstreamingし、file種別ごとの容量上限を適用します。
-- 同時に処理するupload数を制限し、temporary fileによるdiskとfile descriptorの消費を抑えます。
-- 完了前のfileをreaderやindexへ公開せず、atomic helperで完成したfileだけを公開します。
-- 同名fileは既定で拒否し、userが競合fileの上書きを承認した場合だけ置き換えます。
-- 他のBrowser保存機能も同じ書き込み先検証とatomic publicationを使います。棋譜・定跡の現在開いている同一pathへの再保存は確認なしで明示的に上書きし、別名保存・解析結果exportは新規保存を既定として競合の確認後に明示的な上書き指定で再送します。
-- 既存targetとの競合は定跡の書き出し・解析結果生成より前に返し、確認だけのために全件exportしません。上書き確認のキャンセルは正常な中断として扱い、成功・失敗の通知を表示せず、元のpathと未保存変更を保持します。
+新しい保存は既存fileの保護を優先し、同名競合を上書きの暗黙の承認とみなしません。上書き確認は実際の保存先を対象とし、承認後に保存名や保存先を取り直して別のfileを置き換えることを避けます。
 
-## Batch Behavior
+共有する保存policyでも、競合確認だけのために定跡の全件exportや解析結果生成を行いません。確認のキャンセルはエラーではなく、既存fileと未保存内容を保持する正常な中断です。
 
-複数選択はfile単位のuploadを順番に実行します。新規fileの成功は維持し、競合したfileだけをまとめてuserへ確認して再送します。1件の失敗によって、別の成功済みfileを削除しません。
+## Independent Batch Results
 
-保存名はfileごとに編集し、元の拡張子とbyte列は維持します。同じlocal file名でも異なる保存名なら同時に選択できます。保存名の検証とcase-insensitiveな重複検出は送信開始前に行います。送信開始時に保存名と保存先を固定し、競合確認には実際の保存先pathを表示して、承認後も同じpathへ再送します。
+複数fileの追加は全件一括のtransactionにはしません。成功済みfileは残し、競合や失敗をfile単位で扱います。別fileの失敗を理由に成功済みの追加を削除せず、再試行も未完了の対象だけに限定します。
 
-Folder作成に成功すると、そのfolderを保存先に選択します。作成済みfolderはuploadをキャンセルしても残します。名前の検証失敗やfolder作成失敗では選択fileと入力値を維持し、userが修正して再試行できるようにします。
+Folder作成も独立した明示操作であり、uploadのキャンセルをfolder削除の指示にはしません。入力や作成に失敗しても選択fileと編集内容を維持し、userが修正して再試行できることを優先します。
 
-## Ownership
-
-- Renderer storeは保存名の検証、batchのsnapshot、競合再送の対象を所有し、UIはfile選択、保存名編集、保存先選択、folder作成操作、競合確認、結果表示を所有します。
-- Middle Serverはrequest validation、resource limit、path boundary、folder作成、atomic publicationを所有します。
-- Kifu indexは従来どおりfilesystem eventから更新され、upload routeはindex databaseを直接正本として更新しません。
+責務、path検証、streamingとatomic publicationの保証は [Storage Architecture](../architecture/storage.md) を参照してください。
