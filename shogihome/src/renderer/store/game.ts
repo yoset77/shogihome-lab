@@ -31,6 +31,7 @@ import { GameClockDisplay } from "./game_clock";
 import { useAppSettings } from "./settings";
 import { clearURLParams, flushRecordForWebApp } from "./webapp";
 import { ConnectionNotification } from "@/renderer/helpers/connection_notification";
+import { ES_HUMAN } from "@/common/uri";
 
 export { calculateGameStatistics } from "@/common/game/results";
 export type { GameResults, GameStatistics } from "@/common/game/results";
@@ -54,6 +55,7 @@ type Handlers = {
   beepShort: () => void;
   beepUnlimited: () => void;
   stopBeep: () => void;
+  resetMonitor: (sessionId: number) => void;
   error: (error: unknown) => void;
   status: (status: GameSnapshot | null) => void;
 };
@@ -174,6 +176,7 @@ export class GameManager {
     beepShort: () => {},
     beepUnlimited: () => {},
     stopBeep: () => {},
+    resetMonitor: () => {},
     error: () => {},
     status: () => {},
   };
@@ -285,10 +288,16 @@ export class GameManager {
     this.lastMoveId = 0;
     this.lastSampleId = 0;
     this.warned.clear();
-    this.lastSearch.clear();
-    for (const id of Object.values(MONITOR_IDS)) setInfoSessionActive(id, true);
+    this.resetMonitors();
     this.handlers.status(null);
     return source;
+  }
+  private resetMonitors(): void {
+    this.lastSearch.clear();
+    for (const id of Object.values(MONITOR_IDS)) {
+      setInfoSessionActive(id, false);
+      this.handlers.resetMonitor(id);
+    }
   }
   async start(settings: GameSettings): Promise<void> {
     if (this.active || this.hasRetainedSession)
@@ -568,6 +577,12 @@ export class GameManager {
       return;
     if (this._status?.revision === snapshot.revision && snapshot.sampleId <= this.lastSampleId)
       return;
+    if (this._status && this._status.gameId !== snapshot.gameId) this.resetMonitors();
+    for (const color of [Color.BLACK, Color.WHITE])
+      setInfoSessionActive(
+        MONITOR_IDS[color],
+        !isGameTerminal(snapshot.state) && snapshot.settings[color].uri !== ES_HUMAN,
+      );
     if (this._status?.interactionId !== snapshot.interactionId) this.annotationTimes.clear();
     if (this.active && (!this._status || snapshot.recordRevision !== this._status.recordRevision)) {
       if (!this.recordManager.applyGameSnapshot(ref.requestId, snapshot.record))

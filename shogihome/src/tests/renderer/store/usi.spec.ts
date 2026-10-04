@@ -1,4 +1,5 @@
-import { USIPlayerMonitor } from "@/renderer/store/usi";
+import { USIMonitor, USIPlayerMonitor } from "@/renderer/store/usi";
+import { Position } from "tsshogi";
 
 describe("USIPlayerMonitor", () => {
   const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
@@ -69,5 +70,28 @@ describe("USIPlayerMonitor", () => {
 
     expect(monitor.latestInfo).toHaveLength(1);
     expect(monitor.latestInfo[0].multiPV).toBe(1);
+  });
+});
+
+describe("USIMonitor", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it("discards queued updates for a removed session without clearing other sessions", async () => {
+    const monitor = new USIMonitor();
+    const position = new Position();
+    monitor.update(10, position, "Old Game Engine", { pv: ["7g7f"] }, 100);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(monitor.sessions).toHaveLength(1);
+    monitor.update(10, position, "Old Game Engine", { pv: ["2g2f"] }, 100);
+    monitor.update(20, position, "Research Engine", { pv: ["2h3h"] }, 100);
+    monitor.removeSession(10);
+    expect(monitor.sessions).toEqual([]);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(monitor.sessions.map((session) => session.sessionID)).toEqual([20]);
+    expect(monitor.sessions[0].latestInfo[0].pv).toEqual(["2h3h"]);
   });
 });

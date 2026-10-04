@@ -265,6 +265,7 @@ export class USIMonitor {
 
   removeSession(sessionID: number): void {
     this._sessions = this._sessions.filter((session) => session.sessionID !== sessionID);
+    this.updateQueue = this.updateQueue.filter((update) => update.sessionID !== sessionID);
   }
 
   clearSession(sessionID: number): void {

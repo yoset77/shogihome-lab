@@ -200,6 +200,23 @@ describe("store/index", () => {
     }
   });
 
+  it("resets game PV monitors without removing the research monitor", async () => {
+    vi.useFakeTimers();
+    const store = createStore();
+    const reset = mockGameManager.prototype.on.mock.calls.find(
+      ([event]) => event === "resetMonitor",
+    )![1] as (sessionID: number) => void;
+    const position = new Position();
+    store.updateUSIInfo(200200, position, "Old Black Engine", { pv: ["7g7f"] });
+    store.updateUSIInfo(200201, position, "Old White Engine", { pv: ["2g2f"] });
+    store.updateUSIInfo(200000, position, "Research Engine", { pv: ["2h3h"] });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(store.usiMonitors).toHaveLength(3);
+    reset(200200);
+    reset(200201);
+    expect(store.usiMonitors.map((monitor) => monitor.name)).toEqual(["Research Engine"]);
+  });
+
   it("uses the ordinary analysis action to recover existing work without a new POST", async () => {
     const retained = vi
       .spyOn(AnalysisManager.prototype, "hasRetainedJob", "get")
