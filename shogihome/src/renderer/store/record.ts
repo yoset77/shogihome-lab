@@ -155,13 +155,8 @@ export type UpdateBookmarkHandler = () => void;
 export type UpdateCustomDataHandler = () => void;
 export type BackupHandler = () => BackupOptions | null | void;
 
-export type GameRecordCheckpoint = {
-  node: ImmutableNode;
-  children: { node: ImmutableNode; comment: string; customData: unknown; elapsedMs: number }[];
-  customData: unknown;
-};
-
 export class RecordManager {
+  private gameBinding?: { token: string; record: Record; content: string };
   private _navigationRevision = 0;
   private analysisBinding?: {
     token: string;
@@ -191,7 +186,42 @@ export class RecordManager {
   }
 
   get analysisLocked(): boolean {
-    return !!this.analysisBinding;
+    return !!this.analysisBinding || !!this.gameBinding;
+  }
+
+  beginGame(token: string): RecordSnapshot {
+    if (this.analysisLocked) throw new Error(analysisTexts().capacity);
+    const source = snapshotRecord(this.record);
+    this.gameBinding = { token, record: this._record, content: recordContent(source) };
+    return source;
+  }
+  endGame(token: string): void {
+    if (this.gameBinding?.token === token) this.gameBinding = undefined;
+  }
+  applyGameSnapshot(token: string, source: RecordSnapshot): boolean {
+    const binding = this.gameBinding;
+    if (
+      !binding ||
+      binding.token !== token ||
+      binding.record !== this._record ||
+      binding.content !== recordContent(snapshotRecord(this.record))
+    )
+      return false;
+    const restored = restoreRecord(source).record;
+    this.unbindRecordHandlers();
+    this._record = restored;
+    this._recordFilePath = undefined;
+    this._serverKifuPath = undefined;
+    this._sourceURL = undefined;
+    this._unsaved = true;
+    this.resetPositionCounts();
+    this.bindRecordHandlers();
+    binding.record = this._record;
+    binding.content = recordContent(snapshotRecord(this.record));
+    this.onChangePosition();
+    this.onUpdateTree();
+    this.onUpdateCustomData();
+    return true;
   }
 
   get navigationRevision(): number {
@@ -246,6 +276,9 @@ export class RecordManager {
   }
 
   async openAnalysisSnapshot(source: RecordSnapshot): Promise<void> {
+    await this.openSnapshot(source);
+  }
+  async openSnapshot(source: RecordSnapshot): Promise<void> {
     if (this.analysisLocked) throw new Error(analysisTexts().invalid);
     await this.saveBackup();
     this.replaceRecord(restoreRecord(source).record, { preserveCustomData: true });
@@ -479,74 +512,25 @@ export class RecordManager {
   }
 
   goForward(): void {
+    if (this.gameBinding) return;
     this._navigationRevision++;
     this._record.goForward();
   }
 
   goBack(): void {
+    if (this.gameBinding) return;
     this._navigationRevision++;
     this._record.goBack();
   }
 
   changePly(ply: number): void {
+    if (this.gameBinding) return;
     this._navigationRevision++;
     this._record.goto(ply);
   }
 
-  createGameCheckpoint(): GameRecordCheckpoint {
-    const children: GameRecordCheckpoint["children"] = [];
-    for (let node = this._record.current.next; node; node = node.branch) {
-      children.push({
-        node,
-        comment: node.comment,
-        customData: node.customData && { ...(node.customData as object) },
-        elapsedMs: node.elapsedMs,
-      });
-    }
-    return {
-      node: this._record.current,
-      children,
-      customData: this._record.current.customData && {
-        ...(this._record.current.customData as object),
-      },
-    };
-  }
-
-  rollbackGameMoves(checkpoints: GameRecordCheckpoint[], restoreClocks: () => void): void {
-    if (this.analysisLocked) throw new Error(analysisTexts().invalid);
-    let node: ImmutableNode = this._record.current;
-    for (const checkpoint of [...checkpoints].reverse()) {
-      if (node.prev !== checkpoint.node) throw new Error("Invalid game rollback path");
-      node = checkpoint.node;
-    }
-    this.unbindRecordHandlers();
-    try {
-      for (const checkpoint of [...checkpoints].reverse()) {
-        const current = this._record.current;
-        const existing = checkpoint.children.find((child) => child.node === current);
-        if (existing) {
-          current.comment = existing.comment;
-          current.customData = existing.customData;
-          current.setElapsedMs(existing.elapsedMs);
-          this._record.gotoNode(checkpoint.node);
-        } else {
-          this._record.removeCurrentMove();
-          this._record.gotoNode(checkpoint.node);
-        }
-        this._record.current.customData = checkpoint.customData;
-      }
-      restoreClocks();
-      this._unsaved = true;
-    } finally {
-      this.resetPositionCounts();
-      this.bindRecordHandlers();
-    }
-    this.onChangePosition();
-    this.onUpdateTree();
-    this.onUpdateCustomData();
-  }
-
   changePlyBySFEN(ply: number, sfen: string): boolean {
+    if (this.gameBinding) return false;
     this._navigationRevision++;
     const target = findKifuPosition(this._record.first, ply, sfen);
     if (target) {
@@ -556,11 +540,13 @@ export class RecordManager {
   }
 
   changeBranch(index: number): boolean {
+    if (this.gameBinding) return false;
     this._navigationRevision++;
     return this._record.switchBranchByIndex(index);
   }
 
   changeNode(node: ImmutableNode): boolean {
+    if (this.gameBinding) return false;
     this._navigationRevision++;
     return this._record.gotoNode(node);
   }
@@ -584,6 +570,7 @@ export class RecordManager {
   }
 
   resetAllBranchSelection() {
+    if (this.gameBinding) return;
     this._navigationRevision++;
     this._record.resetAllBranchSelection();
   }
@@ -609,6 +596,7 @@ export class RecordManager {
   }
 
   jumpToBookmark(bookmark: string): boolean {
+    if (this.gameBinding) return false;
     this._navigationRevision++;
     return this._record.jumpToBookmark(bookmark);
   }

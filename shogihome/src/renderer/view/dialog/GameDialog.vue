@@ -10,14 +10,14 @@
             :contains-human="true"
             :engines="engines"
             :default-tag="getPredefinedUSIEngineTag('game')"
-            :display-ponder-state="true"
+            :display-ponder-state="false"
             :display-thread-state="true"
             :display-multi-pv-state="true"
             @update-engines="onUpdatePlayerSettings"
           />
           <div v-if="isBlackEngine" class="form-item extra-book">
             <div class="row center">
-              <div class="form-item-label">{{ t.frontendBook }}</div>
+              <div class="form-item-label">{{ gameMessages.externalBook }}</div>
               <ToggleButton v-model:value="blackExtraBook.enabled" />
             </div>
             <div v-if="blackExtraBook.enabled" class="form-item additional book-file-row">
@@ -41,14 +41,14 @@
             :contains-human="true"
             :engines="engines"
             :default-tag="getPredefinedUSIEngineTag('game')"
-            :display-ponder-state="true"
+            :display-ponder-state="false"
             :display-thread-state="true"
             :display-multi-pv-state="true"
             @update-engines="onUpdatePlayerSettings"
           />
           <div v-if="isWhiteEngine" class="form-item extra-book">
             <div class="row center">
-              <div class="form-item-label">{{ t.frontendBook }}</div>
+              <div class="form-item-label">{{ gameMessages.externalBook }}</div>
               <ToggleButton v-model:value="whiteExtraBook.enabled" />
             </div>
             <div v-if="whiteExtraBook.enabled" class="form-item additional book-file-row">
@@ -295,6 +295,8 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
+import { gameTexts } from "@/common/i18n/game";
+import { useAppSettings } from "@/renderer/store/settings";
 import {
   USIEngine,
   USIEngines,
@@ -329,6 +331,7 @@ import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
 import ExtraBookSettingsDialog from "./ExtraBookSettingsDialog.vue";
 
 const store = useStore();
+const gameMessages = computed(() => gameTexts(useAppSettings().language));
 const busyState = useBusyState();
 const hours = ref(0);
 const minutes = ref(0);

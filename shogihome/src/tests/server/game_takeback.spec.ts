@@ -1,13 +1,11 @@
 import { Move, Record, SpecialMoveType } from "tsshogi";
 import { defaultGameSettings, type GameSettings } from "@/common/settings/game";
 import { ES_HUMAN } from "@/common/uri";
-import { GameManager } from "@/renderer/store/game";
-import { Clock } from "@/renderer/store/clock";
-import { RecordManager } from "@/renderer/store/record";
-import { HumanPlayer } from "@/renderer/players/human";
-import type { Player, SearchHandler } from "@/renderer/players/player";
-
-vi.mock("@/renderer/ipc/api");
+import { GameController as GameManager } from "@/server/game/controller";
+import { Clock } from "@/server/game/clock";
+import { GameRecord as RecordManager } from "@/common/game/record";
+import { HumanPlayer } from "@/server/game/player";
+import type { Player, SearchHandler } from "@/common/game/player";
 
 async function setup(options: Partial<GameSettings> = {}, record = new Record()) {
   const settings = {
@@ -36,15 +34,16 @@ async function setup(options: Partial<GameSettings> = {}, record = new Record())
     close: vi.fn(async () => {}),
   };
   const records = new RecordManager(record);
-  const black = new Clock();
-  const white = new Clock();
+  const black = new Clock(() => Date.now());
+  const white = new Clock(() => Date.now());
   const end = vi.fn();
   const error = vi.fn();
   const game = new GameManager(records, black, white).on("gameEnd", end).on("error", error);
   await game.start(settings, { build: async (player) => (player.uri === ES_HUMAN ? human : ai) });
   await vi.advanceTimersByTimeAsync(0);
   const move = (usi: string) => records.record.position.createMoveByUSI(usi) as Move;
-  return { game, human, ai, requests, records, black, white, end, error, move };
+  const input = { doMove: (move: Move) => game.humanMove(move.usi) };
+  return { game, human: input, ai, requests, records, black, white, end, error, move };
 }
 
 describe("game takeback", () => {

@@ -60,7 +60,6 @@ import { RectSize } from "@/common/assets/geometry.js";
 import { useStore } from "@/renderer/store";
 import ControlPane, { ControlGroup } from "@/renderer/view/main/ControlPane.vue";
 import { AppState } from "@/common/control/state.js";
-import { humanPlayer } from "@/renderer/players/human";
 import { isMobileWebApp } from "@/renderer/ipc/api.js";
 import { useAppSettings } from "@/renderer/store/settings";
 import {
@@ -103,7 +102,7 @@ const onResize = (size: RectSize) => emit("resize", size);
 
 const onMove = (move: Move) => {
   if (store.appState === AppState.GAME) {
-    humanPlayer.doMove(move);
+    store.doGameMove(move);
   } else {
     store.doMove(move);
   }

@@ -65,7 +65,6 @@ import { BookSession, useBookStore } from "@/renderer/store/book";
 import { computed, ref } from "vue";
 import BookMoveDialog, { Result as EditResult } from "@/renderer/view/dialog/BookMoveDialog.vue";
 import { formatMove, Move } from "tsshogi";
-import { humanPlayer } from "@/renderer/players/human";
 import { t } from "@/common/i18n";
 import { useConfirmationStore } from "@/renderer/store/confirm";
 import { useErrorStore } from "@/renderer/store/error";
@@ -130,7 +129,7 @@ const onUpdateFlippedBook = (value: boolean) => {
 
 const playBookMove = (move: Move) => {
   if (store.appState === AppState.GAME) {
-    humanPlayer.doMove(move);
+    store.doGameMove(move);
   } else {
     store.doMove(move);
   }

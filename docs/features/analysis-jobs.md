@@ -4,7 +4,7 @@
 
 棋譜解析をBrowserのtimerやWebSocket接続寿命から分離し、Browserを閉じてもServer上で解析を完了できるようにします。Serverが固定入力・設定・進捗・結果・取消・engine寿命を所有し、Rendererは要求・同期・表示・結果反映を担当します。
 
-対象はWrapperに登録されたresearch対応LAN engineです。対局の `GameManager`・時計・待った、通常の `ResearchManager`、詰み探索は移行しません。native USI、外部定跡探索、Server再起動からの復旧、共同編集、別端末への制御移譲、棋譜ファイルへの自動保存は対象外です。
+対象はWrapperに登録されたresearch対応LAN engineです。この機能では通常の `ResearchManager`、詰み探索を移行しません。対局・時計・待ったの移譲は別機能の [Game Sessions](game-sessions.md) が所有します。native USI、解析時の外部定跡探索、Server再起動からの復旧、共同編集、別端末への制御移譲、解析棋譜ファイルへの自動保存は対象外です。
 
 ## Frozen Input and Browsing
 

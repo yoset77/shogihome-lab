@@ -31,6 +31,7 @@ const { newBook, storeMock, confirmationShowMock, bookStoreMock } = vi.hoisted((
       isMovableByUser: true,
       record: undefined as unknown as Record,
       showAddBookMovesDialog: vi.fn(),
+      doGameMove: vi.fn(),
     },
     confirmationShowMock,
     bookStoreMock: {
@@ -74,6 +75,7 @@ describe("BookPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     storeMock.record = new Record();
+    storeMock.appState = "normal";
   });
 
   it("edits a move in the session belonging to the operated column", async () => {
@@ -94,6 +96,15 @@ describe("BookPanel", () => {
         undefined,
       ),
     );
+    wrapper.unmount();
+  });
+
+  it("submits a selected book move to the server-owned game", () => {
+    storeMock.appState = "game";
+    const wrapper = shallowMount(BookPanel);
+    const move = storeMock.record.position.createMoveByUSI("7g7f")!;
+    wrapper.findAllComponents(BookComparisonColumn)[0].vm.$emit("play", move);
+    expect(storeMock.doGameMove).toHaveBeenCalledWith(move);
     wrapper.unmount();
   });
 

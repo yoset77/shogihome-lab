@@ -67,7 +67,6 @@ import { BookFormat, BookMove } from "@/common/book";
 import { RectSize } from "@/common/assets/geometry";
 import { AppState } from "@/common/control/state";
 import { t } from "@/common/i18n";
-import { humanPlayer } from "@/renderer/players/human";
 import { useStore } from "@/renderer/store";
 import { useBookStore } from "@/renderer/store/book";
 import BookView from "@/renderer/view/primitive/BookView.vue";
@@ -105,7 +104,7 @@ const isMenuVisible = ref(false);
 
 const onPlayBookMove = (move: Move) => {
   if (store.appState === AppState.GAME) {
-    humanPlayer.doMove(move);
+    store.doGameMove(move);
   } else {
     store.doMove(move);
   }
