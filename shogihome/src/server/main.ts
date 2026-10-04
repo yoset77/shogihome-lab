@@ -22,6 +22,7 @@ import * as kifuIndexSync from "@/server/kifu_index/sync";
 import { writeFileAtomicSync } from "@/server/file/atomic";
 import { initDatabase } from "@/server/database/sqlite";
 import { analysisRoutes } from "@/server/routes/analysis";
+import { analysisJobRoutes } from "@/server/routes/analysis_jobs";
 import { bookRoutes } from "@/server/routes/book";
 import { fetchRemoteRoutes } from "@/server/routes/fetchRemote";
 import { historyRoutes } from "@/server/routes/history";
@@ -93,6 +94,7 @@ export const rpcRoutes = app
   .route("/api/fetch-remote", fetchRemoteRoutes)
   .route("/api/history", historyRoutes)
   .route("/api/analysis", analysisRoutes)
+  .route("/api/analysis-jobs", analysisJobRoutes)
   .route("/api/book", bookRoutes)
   .route("/api/vision", visionRoutes);
 export type AppType = typeof rpcRoutes;

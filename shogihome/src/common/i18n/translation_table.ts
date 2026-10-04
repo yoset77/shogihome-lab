@@ -7,10 +7,12 @@ import { Texts } from "./text_template.js";
 
 export const t = ja;
 
-function getTranslationTable(language: Language): Texts {
+const tables = { ja: { ...ja }, en, zh_tw, vi };
+
+export function getTranslationTable(language: Language): Texts {
   switch (language) {
     case Language.JA:
-      return ja;
+      return tables.ja;
     case Language.EN:
       return en;
     case Language.ZH_TW:
@@ -18,7 +20,7 @@ function getTranslationTable(language: Language): Texts {
     case Language.VI:
       return vi;
     default:
-      return ja;
+      return tables.ja;
   }
 }
 

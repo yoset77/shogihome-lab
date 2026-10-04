@@ -2,6 +2,7 @@ import { USIInfoCommand } from "@/common/game/usi";
 import { Color, ImmutablePosition, Move, Position, formatMove } from "tsshogi";
 import { isActiveUSIPlayerSession } from "@/renderer/players/usi";
 import { isActiveLanPlayerSession } from "@/renderer/players/lan_player";
+import { isInfoSessionActive } from "@/renderer/players/usi_events";
 import { formatDisplayPV } from "@/renderer/helpers/pv";
 
 export type USIInfo = {
@@ -217,6 +218,7 @@ export class USIMonitor {
       return (
         isActiveUSIPlayerSession(session.sessionID) ||
         isActiveLanPlayerSession(session.sessionID) ||
+        isInfoSessionActive(session.sessionID) ||
         this.updateQueue.some((update) => update.sessionID === session.sessionID)
       );
     });

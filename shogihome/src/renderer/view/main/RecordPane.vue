@@ -5,6 +5,7 @@
         :record="store.record"
         :position-counts="positionCounts"
         :operational="isRecordOperational"
+        :editable="store.appState === AppState.NORMAL"
         :show-comment="showComment"
         :show-elapsed-time="showElapsedTime"
         :back-to-main-branch-label="t.backToMainBranch"
@@ -43,7 +44,7 @@
       <button class="wide" @click="store.loadRemoteRecordFile()">{{ t.fetchLatestData }}</button>
     </div>
     <DuplicatePositionsDialog
-      v-if="store.appState === AppState.NORMAL && duplicatePositionsDialog"
+      v-if="isRecordOperational && duplicatePositionsDialog"
       :sfen="duplicatePositionsDialog"
       @select="changeNode"
       @close="duplicatePositionsDialog = ''"
@@ -113,7 +114,9 @@ onBeforeUnmount(() => {
 const positionCounts = computed(() =>
   appSettings.liveDuplicatePositionDetection ? store.positionCounts : undefined,
 );
-const isRecordOperational = computed(() => store.appState === AppState.NORMAL);
+const isRecordOperational = computed(
+  () => store.appState === AppState.NORMAL || store.appState === AppState.ANALYSIS,
+);
 
 const showDuplicatePositions = (sfen: string) => {
   duplicatePositionsDialog.value = sfen;

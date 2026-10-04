@@ -24,6 +24,7 @@ export enum EngineState {
 export type EngineHandle = {
   write: (command: string) => void;
   close: () => void;
+  destroy?: () => void;
   on: (event: string, listener: (...args: unknown[]) => void) => void;
   off: (event: string, listener: (...args: unknown[]) => void) => void;
   removeAllListeners: (event?: string) => void;

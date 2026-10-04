@@ -13,6 +13,16 @@ type onUpdateUSIInfoHandler = (
 
 let onStartSearch: onStartSearchHandler = () => {};
 let onUpdateUSIInfo: onUpdateUSIInfoHandler = () => {};
+const infoSessions = new Set<number>();
+
+export function setInfoSessionActive(sessionID: number, active: boolean): void {
+  if (active) infoSessions.add(sessionID);
+  else infoSessions.delete(sessionID);
+}
+
+export function isInfoSessionActive(sessionID: number): boolean {
+  return infoSessions.has(sessionID);
+}
 
 export function setOnStartSearchHandler(handler: onStartSearchHandler) {
   onStartSearch = handler;

@@ -11,6 +11,7 @@
 | `data/kifu_index.db`    | Kifu index module                 | `KIFU_DIR` から再構築可能な派生index                            |
 | record history / backup | History service                   | Serverで共有する履歴と復元データ                                |
 | Book sessions           | Book session manager              | 保存前の変更を含む揮発性の作業状態                              |
+| Analysis jobs           | Analysis job manager              | 固定入力・結果・進捗を持つ有期限の揮発性状態                    |
 | Browser `localStorage`  | Renderer                          | Originと端末に限定された設定、復元情報、接続識別子              |
 | Process内cacheとjob map | 各module                          | Process終了時に失われる揮発性状態                               |
 
@@ -124,6 +125,18 @@ On-the-fly modeで読み込み中の定跡は、読み込み元のfileへの上�
 [`file/history.ts`](../../shogihome/src/server/file/history.ts) がServer共有のrecord historyとbackupを所有します。Read-modify-writeはprocess内lockで直列化し、文書全体をatomicに置き換えます。
 
 共有contractは [`src/common/file/history.ts`](../../shogihome/src/common/file/history.ts)、HTTP boundaryは [`routes/history.ts`](../../shogihome/src/server/routes/history.ts) が所有します。保存されたユーザーpathは履歴metadataであり、検証済みfilesystem capabilityではありません。
+
+## Analysis Job Snapshots and Recovery
+
+[`common/record/snapshot.ts`](../../shogihome/src/common/record/snapshot.ts) はversion付きの棋譜snapshotを所有します。tree・分岐順・選択経路・metadata・comment・bookmark・消費時間・既存評価を保存し、各nodeにはsnapshot内で安定したIDを割り当てます。指し手とPVはUSI文字列を含むJSON表現へ変換し、復元時に既存のSFEN／指し手decoderを通します。通常の棋譜ファイル形式や対局checkpointの代替ではありません。
+
+Serverの [`analysis/jobManager.ts`](../../shogihome/src/server/analysis/jobManager.ts) は入力snapshotと設定、実行状態、有限の最新node注釈を保持します。完了jobには保持件数と期限を適用し、Server終了で失われます。`requestId` とServer実体IDで作成を冪等にし、失効後の再送で同じ解析を再生成しません。失効済みrequestの小さなhash台帳も有界で、上限時は新規作成を拒否します。
+
+Rendererは作成POST前にrequest／Server／job識別子だけを `localStorage` へ保存します。job入力全体を別途複製せず、復元時にはServerから固定入力と完全結果を取得します。現在の文書内容・文書実体が一致する場合だけnode IDで絶対値の注釈を反映するため、deltaの再送でcommentを重複追記しません。閲覧や分岐選択は編集と区別します。別内容の未保存棋譜を置き換える場合は確認と既存backupを先に行います。
+
+完了確認時は、通常のBrowser棋譜復元用storageへの反映をflushしてからjob linkageを消します。debounce待ち中の画面終了で最終結果と復元用IDを同時に失わないためです。storageへの書き込みが失敗した場合はlinkageを保持し、Serverの完全結果からの復元を残します。
+
+Job結果の保持は棋譜ファイルの自動保存を意味しません。取消・失敗時の有効な途中結果は復元可能ですが、jobの410応答を作成要求へ自動変換しません。機能の設計意図は [Analysis Jobs](../features/analysis-jobs.md) を参照してください。
 
 ## Settings and Browser Storage
 

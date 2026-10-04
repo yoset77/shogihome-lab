@@ -46,6 +46,8 @@ import { useToastStore } from "./toast.js";
 import * as uri from "@/common/uri";
 import { humanPlayer } from "@/renderer/players/human";
 import { AnalysisManager } from "./analysis.js";
+import type { AnalysisJobStatus } from "@/common/analysis/types";
+import { analysisTexts } from "@/common/i18n/analysis";
 import { AnalysisSettings } from "@/common/settings/analysis";
 import { MateSearchSettings } from "@/common/settings/mate";
 import { LogLevel } from "@/common/log";
@@ -291,9 +293,12 @@ class Store {
         useErrorStore().add(e);
         refs.stopResearch();
       });
-    this.analysisManager.on("finish", this.onFinish.bind(refs)).on("error", (e) => {
-      useErrorStore().add(e);
-    });
+    this.analysisManager
+      .on("finish", this.onFinish.bind(refs))
+      .on("error", (e) => {
+        useErrorStore().add(e);
+      })
+      .on("status", this.onAnalysisStatus.bind(refs));
     this.mateSearchManager
       .on("checkmate", this.onCheckmate.bind(refs))
       .on("notImplemented", this.onNotImplemented.bind(refs))
@@ -1273,9 +1278,10 @@ class Store {
     playPieceBeat(appSettings.pieceVolume);
   }
 
-  private onFinish(): void {
-    if (this.appState === AppState.ANALYSIS) {
-      useMessageStore().enqueue({ text: t.recordAnalysisCompleted });
+  private onFinish(status?: AnalysisJobStatus): void {
+    if (this.appState === AppState.ANALYSIS || status) {
+      if (!status || status.state === "completed")
+        useMessageStore().enqueue({ text: t.recordAnalysisCompleted });
       this._appState = AppState.NORMAL;
     }
   }
@@ -1388,7 +1394,7 @@ class Store {
         this._appState = AppState.ANALYSIS;
       })
       .catch((e) => {
-        useErrorStore().add("検討の初期化中にエラーが出ました: " + e);
+        useErrorStore().add(e);
       })
       .finally(() => {
         useBusyState().release();
@@ -1400,7 +1406,45 @@ class Store {
       return;
     }
     this.analysisManager.close();
-    this._appState = AppState.NORMAL;
+  }
+
+  get analysisStatus() {
+    return this.analysisManager.status;
+  }
+  get isAnalysisCancelling(): boolean {
+    return this.analysisManager.isCancelling;
+  }
+  get analysisReconnecting(): boolean {
+    return this.analysisManager.reconnecting;
+  }
+  get hasRetainedAnalysis(): boolean {
+    return this.analysisManager.hasRetainedJob;
+  }
+
+  private onAnalysisStatus(status: AnalysisJobStatus | null): void {
+    if (status || this.analysisManager.isActive) this._appState = AppState.ANALYSIS;
+    else if (this.appState === AppState.ANALYSIS) this._appState = AppState.NORMAL;
+  }
+
+  async restoreAnalysis(): Promise<void> {
+    if (this.appState !== AppState.NORMAL || useBusyState().isBusy) return;
+    useBusyState().retain();
+    try {
+      await this.analysisManager.resume(
+        () =>
+          new Promise<boolean>((resolve) => {
+            useConfirmationStore().show({
+              message: analysisTexts(useAppSettings().language).recover,
+              onOk: () => resolve(true),
+              onCancel: () => resolve(false),
+            });
+          }),
+      );
+    } catch (error) {
+      useErrorStore().add(error);
+    } finally {
+      useBusyState().release();
+    }
   }
 
   startMateSearch(mateSearchSettings: MateSearchSettings): void {
@@ -1540,25 +1584,37 @@ class Store {
   }
 
   goForward(): void {
-    if (this.appState === AppState.NORMAL || this.appState === AppState.ELAPSED_TIME_CHART_DIALOG) {
+    if (
+      this.appState === AppState.NORMAL ||
+      this.appState === AppState.ANALYSIS ||
+      this.appState === AppState.ELAPSED_TIME_CHART_DIALOG
+    ) {
       this.recordManager.goForward();
     }
   }
 
   goBack(): void {
-    if (this.appState === AppState.NORMAL || this.appState === AppState.ELAPSED_TIME_CHART_DIALOG) {
+    if (
+      this.appState === AppState.NORMAL ||
+      this.appState === AppState.ANALYSIS ||
+      this.appState === AppState.ELAPSED_TIME_CHART_DIALOG
+    ) {
       this.recordManager.goBack();
     }
   }
 
   changePly(ply: number): void {
-    if (this.appState === AppState.NORMAL || this.appState === AppState.ELAPSED_TIME_CHART_DIALOG) {
+    if (
+      this.appState === AppState.NORMAL ||
+      this.appState === AppState.ANALYSIS ||
+      this.appState === AppState.ELAPSED_TIME_CHART_DIALOG
+    ) {
       this.recordManager.changePly(ply);
     }
   }
 
   changeBranch(index: number): void {
-    if (this.appState === AppState.NORMAL) {
+    if (this.appState === AppState.NORMAL || this.appState === AppState.ANALYSIS) {
       this.recordManager.changeBranch(index);
     }
   }
@@ -1572,7 +1628,7 @@ class Store {
   }
 
   backToMainBranch(): void {
-    if (this.appState === AppState.NORMAL) {
+    if (this.appState === AppState.NORMAL || this.appState === AppState.ANALYSIS) {
       this.recordManager.resetAllBranchSelection();
     }
   }

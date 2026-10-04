@@ -89,10 +89,10 @@
         </div>
       </div>
       <div class="column branch-side-control">
-        <button :disabled="!operational" @click="swapWithPreviousBranch()">
+        <button :disabled="!operational || !editable" @click="swapWithPreviousBranch()">
           <Icon :icon="IconType.ARROW_UP" />
         </button>
-        <button :disabled="!operational" @click="swapWithNextBranch()">
+        <button :disabled="!operational || !editable" @click="swapWithNextBranch()">
           <Icon :icon="IconType.ARROW_DROP" />
         </button>
       </div>
@@ -153,6 +153,10 @@ const props = defineProps({
   operational: {
     type: Boolean,
     required: false,
+  },
+  editable: {
+    type: Boolean,
+    default: true,
   },
   showElapsedTime: {
     type: Boolean,
@@ -325,7 +329,7 @@ const changeBranch = (index: number) => {
 };
 
 const swapWithPreviousBranch = () => {
-  if (props.operational) {
+  if (props.operational && props.editable) {
     if (props.branchListMode === BranchListMode.NEXT_MOVE) {
       if (selectedNextBranchIndex.value !== -1) {
         emit("swapNextWithPreviousBranch", selectedNextBranchIndex.value);
@@ -337,7 +341,7 @@ const swapWithPreviousBranch = () => {
 };
 
 const swapWithNextBranch = () => {
-  if (props.operational) {
+  if (props.operational && props.editable) {
     if (props.branchListMode === BranchListMode.NEXT_MOVE) {
       if (selectedNextBranchIndex.value !== -1) {
         emit("swapNextWithNextBranch", selectedNextBranchIndex.value);
