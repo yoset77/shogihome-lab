@@ -7,6 +7,11 @@ import { Record } from "tsshogi";
 import { decodeGameRequest } from "@/common/game/protocol";
 import { MAX_SNAPSHOT_PLY } from "@/common/record/snapshot";
 
+vi.mock("@/server/file/history", () => ({
+  saveBackup: vi.fn().mockResolvedValue(undefined),
+  addHistory: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe("game API boundary", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => {

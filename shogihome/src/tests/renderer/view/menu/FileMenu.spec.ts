@@ -4,6 +4,8 @@ import { nextTick, reactive } from "vue";
 import { AppState, ResearchState } from "@/common/control/state";
 import { t } from "@/common/i18n";
 import FileMenu from "@/renderer/view/menu/FileMenu.vue";
+import { analysisTexts } from "@/common/i18n/analysis";
+import MobileGameMenu from "@/renderer/view/menu/MobileGameMenu.vue";
 
 const { useStore, isMobileWebApp } = vi.hoisted(() => ({
   useStore: vi.fn(),
@@ -30,6 +32,14 @@ const store = reactive({
   appState: AppState.NORMAL,
   researchState: ResearchState.IDLE,
   stopMateSearch: vi.fn(),
+  isAnalysisCancelling: false,
+  hasRetainedGame: false,
+  hasRetainedAnalysis: true,
+  gameReconnecting: true,
+  gamePaused: true,
+  showAnalysisDialog: vi.fn(),
+  stopAnalysis: vi.fn(),
+  showGameDialog: vi.fn(),
 });
 const mountMenu = () => shallowMount(FileMenu);
 const findStopButton = (wrapper: ReturnType<typeof mountMenu>) =>
@@ -42,6 +52,11 @@ describe("FileMenu mate search", () => {
     store.appState = AppState.NORMAL;
     store.researchState = ResearchState.IDLE;
     store.stopMateSearch.mockReset();
+    store.stopAnalysis.mockReset();
+    store.showAnalysisDialog.mockReset();
+    store.showGameDialog.mockReset();
+    store.isAnalysisCancelling = false;
+    store.hasRetainedGame = false;
     isMobileWebApp.mockReturnValue(true);
     useStore.mockReturnValue(store);
   });
@@ -82,5 +97,52 @@ describe("FileMenu mate search", () => {
 
     expect(findStopButton(wrapper)).toBeUndefined();
     expect(store.stopMateSearch).not.toHaveBeenCalled();
+  });
+
+  it("starts or recovers record analysis from the same mobile action", async () => {
+    const wrapper = mountMenu();
+    const button = wrapper.findAll("button").find((button) => button.text() === t.recordAnalysis);
+    expect(button).toBeDefined();
+    expect(wrapper.find('[role="status"]').exists()).toBe(false);
+    await button!.trigger("click");
+    expect(store.showAnalysisDialog).toHaveBeenCalledOnce();
+    expect(wrapper.emitted("close")).toHaveLength(1);
+  });
+
+  it("stops analysis and prevents duplicate cancellation while awaiting confirmation", async () => {
+    store.appState = AppState.ANALYSIS;
+    const wrapper = mountMenu();
+    const button = wrapper.findAll("button").find((button) => button.text() === t.stopAnalysis)!;
+    expect(button).toBeDefined();
+    await button.trigger("click");
+    expect(store.stopAnalysis).toHaveBeenCalledOnce();
+    expect(wrapper.emitted("close")).toHaveLength(1);
+    store.isAnalysisCancelling = true;
+    await nextTick();
+    expect(button.attributes("disabled")).toBeDefined();
+    expect(button.attributes("aria-busy")).toBe("true");
+    expect(button.text()).toBe(analysisTexts().cancelling);
+  });
+
+  it.each([AppState.GAME, AppState.MATE_SEARCH, AppState.ANALYSIS_DIALOG])(
+    "does not offer a new analysis in %s",
+    (appState) => {
+      store.appState = appState;
+      expect(
+        mountMenu()
+          .findAll("button")
+          .some((button) => button.text() === t.recordAnalysis),
+      ).toBe(false);
+    },
+  );
+
+  it("opens a retained game from the ordinary game action rather than a new settings menu", async () => {
+    store.hasRetainedGame = true;
+    const wrapper = mountMenu();
+    const button = wrapper.findAll("button").find((button) => button.text() === t.game)!;
+    await button.trigger("click");
+    expect(store.showGameDialog).toHaveBeenCalledOnce();
+    expect(wrapper.findComponent(MobileGameMenu).exists()).toBe(false);
+    expect(wrapper.emitted("close")).toHaveLength(1);
   });
 });

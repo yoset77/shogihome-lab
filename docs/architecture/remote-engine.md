@@ -27,7 +27,7 @@ Remote engine は `sessionId` で識別される論理sessionに属します。M
 - `game/controller.ts` は対局ルール、手番、結果、反復、checkpointを所有します。
 - `game/clock.ts` はmonotonic timeを使用し、操作前にdeadlineを確定します。Browser補間・通信遅延は時間切れ判定に影響しません。
 - `game/player.ts` は識別付きtimed search、取消、gameover、外部定跡を内部USI sessionへ適合させます。Ponderは送信しません。
-- `game/session.ts` / `game/manager.ts` は固定入力、安定node ID、revision、controller epoch、冪等操作、保持、保存を所有します。
+- `game/session.ts` / `game/manager.ts` は固定入力、安定node ID、revision、controller epoch、冪等操作、session保持、自動保存と既存履歴への登録を所有します。
 - Browserの `store/game.ts` は要求・同期・復元と表示だけを行い、旧対局executorは保持しません。
 - 人間手番はapplication heartbeat切れ／切断で停止し、同期後に再開します。AI手番は完了して次の人間手番で停止します。AI同士はBrowserなしで継続します。
 

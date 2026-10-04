@@ -27,6 +27,7 @@ import {
 import { RecordManager } from "./record";
 import { useAppSettings } from "./settings";
 import { clearURLParams, flushRecordForWebApp } from "./webapp";
+import { ConnectionNotification } from "@/renderer/helpers/connection_notification";
 
 const STORAGE_KEY = "shogihome-analysis-job";
 const MONITOR_SESSION_ID = 200100;
@@ -79,6 +80,7 @@ export class AnalysisManager {
   private onFinish: FinishCallback = () => {};
   private onError: ErrorCallback = () => {};
   private onStatus: StatusCallback = () => {};
+  private readonly connection = new ConnectionNotification("analysis-connection");
 
   constructor(
     private recordManager: RecordManager,
@@ -141,6 +143,7 @@ export class AnalysisManager {
     )
       throw new Error(analysisTexts(useAppSettings().language).invalid);
     const requestId = generateSessionId();
+    this.connection.reset();
     const source = this.bind(requestId);
     try {
       const app = useAppSettings();
@@ -200,6 +203,7 @@ export class AnalysisManager {
   async resume(confirmRecovery: () => Promise<boolean>): Promise<boolean> {
     const ref = this.reference;
     if (!ref || this.active || this.recovering) return false;
+    this.connection.reset();
     this.bind(ref.requestId);
     this.needsRecovery = true;
     return this.recover(confirmRecovery);
@@ -258,6 +262,7 @@ export class AnalysisManager {
       this.needsRecovery = false;
       this.resetRetry();
       this.acceptStatus(status);
+      this.connection.restored();
       if (isAnalysisTerminal(status.state)) this.finish(status);
       else this.schedule();
       return true;
@@ -363,6 +368,7 @@ export class AnalysisManager {
   }
 
   private backoff(error: unknown): void {
+    this.connection.lost();
     this._reconnecting = true;
     this.retryMs = Math.min(Math.max(this.retryMs, this.pollMs) * 2, Math.max(this.pollMs, 10_000));
     if (error instanceof ApiResponseError && error.status === 429)
@@ -423,6 +429,7 @@ export class AnalysisManager {
       }
       this.resetRetry();
       this.acceptStatus(status);
+      this.connection.restored();
       if (isAnalysisTerminal(status.state)) this.finish(status);
     } catch (error) {
       if (generation !== this.generation) return;
@@ -456,6 +463,7 @@ export class AnalysisManager {
     ++this.generation;
     clearTimeout(this.timer);
     this.active = false;
+    this.connection.reset();
     this.needsRecovery = false;
     this.recordManager.endAnalysis(token);
     setInfoSessionActive(MONITOR_SESSION_ID, false);

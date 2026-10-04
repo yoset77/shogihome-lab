@@ -1,5 +1,5 @@
 <template>
-  <DialogFrame @cancel="onCancel">
+  <DialogFrame limited @cancel="onCancel">
     <div class="root">
       <div class="title">{{ t.recordAnalysis }}</div>
       <div class="form-group">
@@ -189,7 +189,11 @@ const onUpdatePlayerSettings = async (val: USIEngines) => {
 
 <style scoped>
 .root {
-  width: 420px;
+  width: min(420px, calc(95vw - 32px));
+  max-width: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
 }
 input.toggle {
   height: 1em;
@@ -201,5 +205,12 @@ input.small {
 }
 .selector {
   max-width: 210px;
+}
+@media (max-width: 480px) {
+  .form-item-label-wide {
+    display: block;
+    width: auto;
+    margin-bottom: 5px;
+  }
 }
 </style>

@@ -30,6 +30,7 @@ import { RecordManager } from "./record";
 import { GameClockDisplay } from "./game_clock";
 import { useAppSettings } from "./settings";
 import { clearURLParams, flushRecordForWebApp } from "./webapp";
+import { ConnectionNotification } from "@/renderer/helpers/connection_notification";
 
 export { calculateGameStatistics } from "@/common/game/results";
 export type { GameResults, GameStatistics } from "@/common/game/results";
@@ -117,6 +118,7 @@ export class GameManager {
   private sending = new Set<string>();
   private annotationTimes = new Map<string, number>();
   private warned = new Set<string>();
+  private readonly connection = new ConnectionNotification("game-connection");
   private handlers: Handlers = {
     gameEnd: () => {},
     flipBoard: () => {},
@@ -185,10 +187,6 @@ export class GameManager {
   get interactionId(): number {
     return this._status?.interactionId ?? 0;
   }
-  get hasUnsavedRecords(): boolean {
-    return !!this._status?.records.some((record) => record.state !== "saved");
-  }
-
   private persist(): void {
     if (this.reference) localStorage.setItem(STORAGE_KEY, JSON.stringify(this.reference));
     else localStorage.removeItem(STORAGE_KEY);
@@ -201,6 +199,7 @@ export class GameManager {
     );
   }
   private backoff(error: unknown): void {
+    this.connection.lost();
     const retry = error instanceof ApiResponseError ? error.retryAfterMs : undefined;
     this.retryNotBefore = Date.now() + Math.max(this.retryMs, retry ?? 0);
     this.retryMs = Math.min(30_000, this.retryMs * 2);
@@ -222,6 +221,7 @@ export class GameManager {
     this.active = true;
     ++this.lifecycle;
     this.finished = false;
+    this.connection.reset();
     this._status = undefined;
     this.lastMoveId = 0;
     this.lastSampleId = 0;
@@ -381,6 +381,10 @@ export class GameManager {
               if (this.active && this.socketReady)
                 return this.request(this.reference?.stopRequested ? "interrupt" : "resume");
             })
+            .then(() => {
+              if (generation === this.generation && this.active && this.socketReady)
+                this.connection.restored();
+            })
             .catch((error) => this.handlers.error(error));
         }
       } catch (error) {
@@ -403,7 +407,10 @@ export class GameManager {
       } else if (event.code === 4004) {
         this.release(ref.requestId, true);
         this.handlers.error(new Error(gameTexts().expired));
-      } else this.schedule();
+      } else {
+        this.connection.lost();
+        this.schedule();
+      }
     };
   }
   private heartbeat(): void {
@@ -523,11 +530,6 @@ export class GameManager {
       }
     if (isGameTerminal(snapshot.state)) {
       this.finish(snapshot);
-      if (this.finished && this.reference && !this.hasUnsavedRecords) {
-        this.reference = undefined;
-        this.persist();
-        this.detach();
-      }
     }
   }
   private finish(snapshot: GameSnapshot): void {
@@ -535,20 +537,17 @@ export class GameManager {
     this.finishing = true;
     try {
       flushRecordForWebApp(this.recordManager.record);
-      const retain =
-        snapshot.records.some((record) => record.state === "failed") ||
-        (!snapshot.settings.enableAutoSave && snapshot.records.length > 1);
       this.recordManager.endGame(snapshot.requestId);
       this.bindingToken = undefined;
       this.active = false;
       this.finished = true;
       this.handlers.stopBeep();
       for (const id of Object.values(MONITOR_IDS)) setInfoSessionActive(id, false);
-      if (!retain) {
-        this.reference = undefined;
-        this.persist();
-        this.detach();
-      }
+      this.connection.restored();
+      this.reference = undefined;
+      this.pendingRequest = undefined;
+      this.persist();
+      this.detach();
       if (snapshot.error && snapshot.error !== "save")
         this.handlers.error(new Error(gameTexts(useAppSettings().language)[snapshot.error]));
       this.handlers.gameEnd(snapshot.results, snapshot.lastResult ?? SpecialMoveType.INTERRUPT);
@@ -570,6 +569,7 @@ export class GameManager {
     this.recordManager.endGame(token);
     this.bindingToken = undefined;
     this.active = false;
+    this.connection.reset();
     this.blackClock.pause();
     this.whiteClock.pause();
     this.handlers.stopBeep();
@@ -677,33 +677,6 @@ export class GameManager {
       ++this.lifecycle;
       this.detach();
     }
-  }
-  async retrySaving(): Promise<void> {
-    if (!this.reference) return;
-    if (!this.socket) await this.synchronize();
-    for (const record of this._status?.records ?? [])
-      if (record.state !== "saved") await this.request("saveRetry", { recordId: record.gameId });
-    if (this._status && this.finished && !this.hasUnsavedRecords) {
-      this.reference = undefined;
-      this.persist();
-      this.detach();
-    }
-  }
-  async openRecord(gameId: string): Promise<void> {
-    const ref = this.reference;
-    if (this.active || !ref?.sessionId) throw new Error(gameTexts().conflict);
-    const source = await this.client.record(ref.sessionId, gameId);
-    if (this.reference !== ref || this.active) return;
-    this.detach();
-    await this.recordManager.openSnapshot(source);
-    clearURLParams();
-    flushRecordForWebApp(this.recordManager.record);
-  }
-  forget(): void {
-    if (this.active || !this._status || !isGameTerminal(this._status.state)) return;
-    localStorage.removeItem(STORAGE_KEY);
-    this.reference = undefined;
-    this.detach();
   }
   annotate(type: SearchInfoSenderType, info: SearchInfo & { usi: string }): void {
     const slots = {

@@ -75,24 +75,20 @@ export function getHistory(): Promise<RecordFileHistory> {
   });
 }
 
-export function addHistory(path: string): void {
-  lock.acquire("history", async () => {
-    try {
-      const history = await getHistoryWithoutLock();
-      history.entries = history.entries.filter(
-        (e) => e.class !== HistoryClass.USER || e.userFilePath !== path,
-      );
-      history.entries.push({
-        id: issueEntryID(),
-        time: new Date().toISOString(),
-        class: HistoryClass.USER,
-        userFilePath: path,
-      });
-      truncate(history);
-      await saveHistories(history);
-    } catch (e) {
-      getAppLogger().error("failed to add history: %s", e);
-    }
+export function addHistory(path: string): Promise<void> {
+  return lock.acquire("history", async () => {
+    const history = await getHistoryWithoutLock();
+    history.entries = history.entries.filter(
+      (e) => e.class !== HistoryClass.USER || e.userFilePath !== path,
+    );
+    history.entries.push({
+      id: issueEntryID(),
+      time: new Date().toISOString(),
+      class: HistoryClass.USER,
+      userFilePath: path,
+    });
+    truncate(history);
+    await saveHistories(history);
   });
 }
 

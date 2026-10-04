@@ -18,8 +18,12 @@ import { decodeGameFrame, type GameSnapshot } from "@/common/game/protocol";
 import { restoreRecord } from "@/common/record/snapshot";
 import { gameRequest, gameCommand } from "./helpers/game";
 import type { AppEnv } from "@/server/hono";
+import { getHistory } from "@/server/file/history";
+import { HistoryClass } from "@/common/file/history";
+import { importKIF, Record } from "tsshogi";
 
-const wrapperConfig = vi.hoisted(() => ({ port: 0 }));
+const wrapperConfig = vi.hoisted(() => ({ port: 0, directory: "" }));
+vi.mock("@/node/proc/path", () => ({ getUserDataPath: () => wrapperConfig.directory }));
 vi.mock("@/server/config", async (original) => ({
   ...(await original<typeof import("@/server/config")>()),
   REMOTE_ENGINE_HOST: "127.0.0.1",
@@ -40,6 +44,7 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
   const connections = new Set<net.Socket>();
   const browsers = new Set<WebSocket>();
   let commands: string[];
+  const saveRecord = vi.fn(async () => "saved.kifu");
   const token = process.env.WRAPPER_ACCESS_TOKEN;
   const config = { id: "test-game", name: "Game Fixture", type: ["game"], skipAnalysisDB: true };
   const headers = {
@@ -51,10 +56,12 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
   beforeEach(async () => {
     delete process.env.WRAPPER_ACCESS_TOKEN;
     commands = [];
+    saveRecord.mockReset().mockResolvedValue("saved.kifu");
+    directory = await fs.mkdtemp(
+      path.join(process.env.OPENCODE_TMP_DIR ?? "/tmp/opencode", "game-wrapper-"),
+    );
+    wrapperConfig.directory = path.join(directory, "data");
     if (mode === "rust") {
-      directory = await fs.mkdtemp(
-        path.join(process.env.OPENCODE_TMP_DIR ?? "/tmp/opencode", "game-wrapper-"),
-      );
       const script = path.join(directory, "engine.mjs");
       await fs.writeFile(
         script,
@@ -133,7 +140,7 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
     }
     manager = new GameSessionManager({
       resolveEngine: async () => config,
-      saveRecord: async () => "saved.kifu",
+      saveRecord,
     });
     const app = new Hono<AppEnv>().route("/api/game-sessions", createGameSessionRoutes(manager));
     app.onError(handleError);
@@ -236,7 +243,7 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
     )) as GameSnapshot;
     expect(restoreRecord(rolledBack.record).record.current.ply).toBe(0);
     expect(rolledBack.state).toBe("running");
-    if (directory)
+    if (mode === "rust" && directory)
       commands = (await fs.readFile(path.join(directory, "engine.log"), "utf8")).trim().split("\n");
     expect(commands).toContain("stop");
     expect(
@@ -256,11 +263,38 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
     const result = (await call(`/${created.sessionId}`)) as GameSnapshot;
     expect(result).toMatchObject({ state: "completed", results: { total: 2 } });
     expect(result.records.map((record) => record.state)).toEqual(["saved", "saved"]);
-    if (directory)
+    expect((await getHistory()).entries).toMatchObject([
+      { class: HistoryClass.USER, userFilePath: "server://saved.kifu" },
+    ]);
+    if (mode === "rust" && directory)
       commands = (await fs.readFile(path.join(directory, "engine.log"), "utf8")).trim().split("\n");
     expect(commands.filter((line) => line === "usinewgame")).toHaveLength(4);
     expect(commands.some((line) => line.startsWith("go btime "))).toBe(true);
     expect(commands.some((line) => line.startsWith("go ponder"))).toBe(false);
     await vi.waitFor(() => expect(connections.size).toBe(0));
   });
+
+  it.each([false, true])(
+    "backs up detached repeated games in history when auto-saving fails or is disabled (%s)",
+    async (autoSave) => {
+      saveRecord.mockRejectedValue(new Error("Save unavailable"));
+      const request = gameRequest();
+      request.serverInstanceId = manager.serverInstanceId;
+      request.settings.black = request.settings.white = { uri: "lan-engine:test-game", name: "AI" };
+      request.settings.repeat = 2;
+      request.settings.enableAutoSave = autoSave;
+      const created = (await call("", request)) as GameSnapshot;
+      await manager.get(created.sessionId).completion;
+      expect(manager.get(created.sessionId).snapshot().results.total).toBe(2);
+      const history = await getHistory();
+      expect(history.entries).toHaveLength(2);
+      for (const [index, entry] of history.entries.entries()) {
+        expect(entry.class).toBe(HistoryClass.BACKUP_V2);
+        if (entry.class !== HistoryClass.BACKUP_V2) throw new Error("Missing backup");
+        expect(entry.title).toContain(`${index + 1}/2`);
+        const record = importKIF(entry.kif) as Record;
+        expect(record.length).toBe(5);
+      }
+    },
+  );
 });

@@ -136,4 +136,12 @@ describe("responsive desktop dialog styles", () => {
     expect(source).toContain("min-width: 0");
     expect(source).toContain("aspect-ratio: auto");
   });
+
+  it("sizes AnalysisDialog from the viewport instead of its shrink-to-fit parent", () => {
+    const source = readFileSync("src/renderer/view/dialog/AnalysisDialog.vue", "utf-8");
+
+    expect(source).toContain("width: min(420px, calc(95vw - 32px))");
+    expect(source).toContain("max-width: 100%");
+    expect(source).not.toContain("width: min(420px, 100%)");
+  });
 });

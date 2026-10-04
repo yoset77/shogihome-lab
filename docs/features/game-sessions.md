@@ -43,10 +43,18 @@ continue through the existing engine session writer.
 - HTTP 429 and temporary communication failures preserve linkage and edit locks,
   with exponential backoff respecting Retry-After. Normal updates do not poll
   HTTP. Full HTTP snapshots recover from transport gaps.
+- Transport outages use the existing short `connectionLostRetrying` toast once per
+  interruption, replaced by `reconnected` after the snapshot and pending commands
+  are synchronized. Initial connection and intentional shutdown are silent.
+  ControlPane and FileMenu contain actions, not connection-status indicators.
 - Recovering over another record requires confirmation and a backup. Browser
   record storage is flushed before clearing completion linkage. Runtime search
   data and sub-second file-format precision are excluded from the reload content
   comparison, but preserved in the server snapshot.
+- Reload reconnects automatically. If recovery over a different record is declined,
+  the ordinary Game action offers recovery again without creating a new game.
+  There is no separate recovery or retained-record button. Each ControlPane group
+  has at most five visible action buttons.
 
 ## Records, books and saving
 
@@ -67,19 +75,25 @@ annotations never enter a new turn. They do not consume the global HTTP quota.
 Each completed record is frozen before advancing. Automatic saves use the
 configured server directory and format, existing filename templates and atomic
 non-overwrite publishing. Filename collisions select another name. Save failures
-warn, retain the complete record, and continue to the next game. Retained-record
-UI provides opening/exporting via the normal record workflow, save retry and an
-explicit recovery-link release. Link release does not delete server records.
+warn and continue to the next game. The server awaits ordinary history registration
+before advancing, whether or not a browser is connected. Successfully saved files
+are registered as `server://` file entries. Games without automatic saving, or whose
+automatic saving failed, use the existing KIF history backup instead.
 
-Retention is bounded rather than silently discarding failures: reaching the
-unsaved count/byte limit stops safely between games. All session state is volatile;
-restart recovery and durable unsaved-record spooling are deliberately excluded.
+History retains the latest twenty entries and is a recent-record recovery aid,
+not an archive of every game. Users wanting to preserve all games enable automatic
+saving. There is no third storage layer, separate unsaved-record capacity, save-retry
+command, or retained-record management UI. History write failures are reported and
+do not prevent the next game. Browser completion linkage is released after the
+final record is stored even when a save failed, so another game can start.
+Live game state remains volatile; server-restart recovery is excluded. Completed
+file/history records use the existing persistent storage, not session retention.
 
 ## Operational limits
 
 Current limits are defined by code and tested: one active game (no queue), at most
-two internal game engines, ten terminal sessions retained for 24 hours, 100
-unsaved records / 20 MiB per session, and 16 MiB current-record snapshot budget.
+two internal game engines, ten terminal sessions retained for 24 hours, twenty
+history entries, and 16 MiB current-record snapshot budget.
 The creation body limit is 10 MiB. The shared tree/ply limits apply, and input
 reserves node capacity for subsequent play. Heartbeat is sent every five seconds
 and expires after thirty seconds; display interpolation is bounded and is not an
@@ -95,6 +109,9 @@ Analysis-job and public-relay resource limits are independent and unchanged.
   process: set `SHOGIHOME_WRAPPER_EXE` when running `game_integration.spec.ts`.
 - Production-build PC/mobile UI was verified against the Rust Wrapper and fixture
   USI engine: board input, takeback, page-close/reload recovery, detached repeated
-  games, forced save failures, retained-record opening, and save retry/link release.
+  games, forced save failures, short outage/recovery toasts, and five-action groups.
+  Failed-save backups and actual automatic-save files were opened through ordinary
+  history; completed linkage no longer blocked a new game. History registration
+  also has regression coverage for detached games through the Wrapper.
 - Actual-engine playing strength/performance and restart persistence are not
   covered by the fixture integration tests.

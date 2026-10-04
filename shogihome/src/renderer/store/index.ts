@@ -552,13 +552,15 @@ class Store {
 
   showGameDialog(): void {
     if (this.appState === AppState.NORMAL) {
-      this._appState = AppState.GAME_DIALOG;
+      if (this.hasRetainedGame) void this.restoreGame();
+      else this._appState = AppState.GAME_DIALOG;
     }
   }
 
   showAnalysisDialog(): void {
     if (this.appState === AppState.NORMAL) {
-      this._appState = AppState.ANALYSIS_DIALOG;
+      if (this.hasRetainedAnalysis) void this.restoreAnalysis();
+      else this._appState = AppState.ANALYSIS_DIALOG;
     }
   }
 
@@ -917,17 +919,8 @@ class Store {
   get gameStatus(): GameSnapshot | undefined {
     return this.gameManager.status;
   }
-  get gameReconnecting(): boolean {
-    return this.gameManager.reconnecting;
-  }
-  get gamePaused(): boolean {
-    return this.gameManager.isPaused;
-  }
   get hasRetainedGame(): boolean {
     return this.gameManager.hasRetainedSession;
-  }
-  get hasUnsavedGameRecords(): boolean {
-    return this.gameManager.hasUnsavedRecords;
   }
   private onGameStatus(): void {
     if (this.gameManager.isActive) this._appState = AppState.GAME;
@@ -952,31 +945,6 @@ class Store {
     } finally {
       useBusyState().release();
     }
-  }
-  async retryGameSaving(): Promise<void> {
-    try {
-      await this.gameManager.retrySaving();
-    } catch (error) {
-      useErrorStore().add(error);
-    }
-  }
-  async openRetainedGameRecord(gameId: string): Promise<void> {
-    if (this.appState !== AppState.NORMAL || useBusyState().isBusy) return;
-    useBusyState().retain();
-    try {
-      await this.gameManager.openRecord(gameId);
-    } catch (error) {
-      useErrorStore().add(error);
-    } finally {
-      useBusyState().release();
-    }
-  }
-  forgetGame(): void {
-    if (this.appState !== AppState.NORMAL) return;
-    useConfirmationStore().show({
-      message: gameTexts(useAppSettings().language).forgetConfirm,
-      onOk: () => this.gameManager.forget(),
-    });
   }
   doGameMove(move: Move): void {
     void this.gameManager.move(move).catch((error) => useErrorStore().add(error));
@@ -1456,14 +1424,8 @@ class Store {
     this.analysisManager.close();
   }
 
-  get analysisStatus() {
-    return this.analysisManager.status;
-  }
   get isAnalysisCancelling(): boolean {
     return this.analysisManager.isCancelling;
-  }
-  get analysisReconnecting(): boolean {
-    return this.analysisManager.reconnecting;
   }
   get hasRetainedAnalysis(): boolean {
     return this.analysisManager.hasRetainedJob;

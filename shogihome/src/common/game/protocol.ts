@@ -93,7 +93,7 @@ export type GameSnapshot = {
   records: GameRecordSummary[];
 };
 export type GameCommandAction =
-  "move" | "resign" | "declare" | "takeback" | "interrupt" | "resume" | "saveRetry" | "annotate";
+  "move" | "resign" | "declare" | "takeback" | "interrupt" | "resume" | "annotate";
 export type GameCommand = {
   requestId: string;
   serverInstanceId: string;
@@ -103,7 +103,6 @@ export type GameCommand = {
   interactionId: number;
   action: GameCommandAction;
   move?: string;
-  recordId?: string;
   nodeId?: string;
   annotation?: {
     slot: "researchInfo" | "researchInfo2" | "researchInfo3" | "researchInfo4";
@@ -284,7 +283,6 @@ export function decodeGameCommand(value: unknown): DecodeResult<GameCommand> {
         "takeback",
         "interrupt",
         "resume",
-        "saveRetry",
         "annotate",
       ]),
     };
@@ -292,7 +290,6 @@ export function decodeGameCommand(value: unknown): DecodeResult<GameCommand> {
       result.move = v.text(input.move, 5);
       if (!parseUSIMove(result.move)) throw new Error("Invalid move");
     }
-    if (result.action === "saveRetry") result.recordId = v.identifier(input.recordId);
     if (result.action === "annotate") {
       const annotation = v.object(input.annotation);
       result.nodeId = v.identifier(input.nodeId);

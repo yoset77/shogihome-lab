@@ -10,9 +10,6 @@ const messages = {
     recover:
       "保持されている解析棋譜を開きますか？ 現在の棋譜は別の内容のため、自動反映できません。",
     cancelling: "解析の取消を確認中",
-    reconnecting: "解析状態を再取得しています。サーバー上の解析は継続します。",
-    progress: "解析進捗",
-    recoverAction: "解析結果を復元",
   },
   [Language.EN]: {
     engine: "The analysis engine failed. Partial results have been retained.",
@@ -24,9 +21,6 @@ const messages = {
     recover:
       "Open the retained analysis record? The current record differs and cannot be updated automatically.",
     cancelling: "Waiting for analysis cancellation",
-    reconnecting: "Reconnecting to analysis. The server continues processing.",
-    progress: "Analysis progress",
-    recoverAction: "Recover analysis",
   },
   [Language.ZH_TW]: {
     engine: "分析引擎發生錯誤。已保留部分結果。",
@@ -36,9 +30,6 @@ const messages = {
     deadline: "分析已達執行期限，已保留部分結果。",
     recover: "開啟保留的分析棋譜嗎？目前棋譜不同，無法自動套用結果。",
     cancelling: "正在確認取消分析",
-    reconnecting: "正在重新取得分析狀態，伺服器上的分析會繼續。",
-    progress: "分析進度",
-    recoverAction: "復原分析結果",
   },
   [Language.VI]: {
     engine: "Công cụ phân tích gặp lỗi. Kết quả một phần đã được giữ lại.",
@@ -48,9 +39,6 @@ const messages = {
     deadline: "Đã đạt thời hạn phân tích. Kết quả một phần đã được giữ lại.",
     recover: "Mở biên bản phân tích đã lưu? Biên bản hiện tại khác nên không thể tự động cập nhật.",
     cancelling: "Đang xác nhận hủy phân tích",
-    reconnecting: "Đang kết nối lại. Máy chủ tiếp tục phân tích.",
-    progress: "Tiến độ phân tích",
-    recoverAction: "Khôi phục phân tích",
   },
 };
 
