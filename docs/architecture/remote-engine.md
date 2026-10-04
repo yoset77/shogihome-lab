@@ -18,7 +18,20 @@ flowchart LR
 
 Remote engine は `sessionId` で識別される論理sessionに属します。Middle Server が論理sessionとUSI state machineを所有し、WebSocketはそのsessionへ接続される交換可能なtransportです。
 
+通常のWeb対局は公開relayではなくServerの `game/session.ts` が所有します。Browserは `game-sessions` HTTP APIと `/ws/game-sessions/:sessionId` から完全な棋譜・時計snapshotを同期し、着手・待った・中断を要求します。`websocket.ts` の単一upgrade listenerが経路を振り分け、いずれも同じHost／Origin policyを適用します。game engineは `engine/internal.ts` のtimed search adapter経由で同じ `EngineSession` を使用します。Wrapperに対局状態を追加しません。
+
 ## Responsibilities
+
+### Server-owned games
+
+- `game/controller.ts` は対局ルール、手番、結果、反復、checkpointを所有します。
+- `game/clock.ts` はmonotonic timeを使用し、操作前にdeadlineを確定します。Browser補間・通信遅延は時間切れ判定に影響しません。
+- `game/player.ts` は識別付きtimed search、取消、gameover、外部定跡を内部USI sessionへ適合させます。Ponderは送信しません。
+- `game/session.ts` / `game/manager.ts` は固定入力、安定node ID、revision、controller epoch、冪等操作、保持、保存を所有します。
+- Browserの `store/game.ts` は要求・同期・復元と表示だけを行い、旧対局executorは保持しません。
+- 人間手番はapplication heartbeat切れ／切断で停止し、同期後に再開します。AI手番は完了して次の人間手番で停止します。AI同士はBrowserなしで継続します。
+
+詳細な設計・保持制限・検証は [Game Sessions](../features/game-sessions.md) を参照してください。
 
 ### Browser
 

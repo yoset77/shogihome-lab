@@ -28,7 +28,7 @@
     <!-- Extra Book Row -->
     <template v-if="isLanEngine">
       <div class="list-item">
-        <div class="item-label">{{ t.frontendBook }}</div>
+        <div class="item-label">{{ gameMessages.externalBook }}</div>
         <div class="item-value">
           <ToggleButton v-model:value="extraBook.enabled" :disabled="disabled" />
         </div>
@@ -69,6 +69,8 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
+import { gameTexts } from "@/common/i18n/game";
+import { useAppSettings } from "@/renderer/store/settings";
 import * as uri from "@/common/uri";
 import { useLanStore } from "@/renderer/store/lan";
 import { ref, computed } from "vue";
@@ -91,6 +93,7 @@ defineProps({
 });
 
 const lanStore = useLanStore();
+const gameMessages = computed(() => gameTexts(useAppSettings().language));
 
 const playerUri = defineModel<string>("playerUri", { required: true });
 const playerName = defineModel<string>("playerName", { required: true });

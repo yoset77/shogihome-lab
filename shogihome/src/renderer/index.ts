@@ -164,5 +164,5 @@ Promise.allSettled([
 
   api.log(LogLevel.INFO, "mount app");
   createApp(App).mount("#app");
-  void store.restoreAnalysis();
+  void store.restoreGame().then(() => store.restoreAnalysis());
 });

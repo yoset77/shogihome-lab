@@ -21,6 +21,17 @@ export interface ResearchEngine {
   close(): Promise<void>;
 }
 
+export interface GameEngine extends ResearchEngine {
+  startSearch(
+    position: string,
+    go: string,
+    onOutput: (line: string) => void,
+    signal: AbortSignal,
+  ): Promise<ResearchSearch>;
+  cancelAll(): Promise<void>;
+  gameover(result: string): void;
+}
+
 export class InternalEngine implements ResearchEngine {
   private session = new EngineSession(`internal-${randomUUID()}`, undefined, "internal");
   private nextSearchId = 0;
@@ -70,6 +81,15 @@ export class InternalEngine implements ResearchEngine {
     onOutput: (line: string) => void,
     signal: AbortSignal,
   ): Promise<ResearchSearch> {
+    return this.startSearch(position, "go infinite", onOutput, signal);
+  }
+
+  async startSearch(
+    position: string,
+    go: string,
+    onOutput: (line: string) => void,
+    signal: AbortSignal,
+  ): Promise<ResearchSearch> {
     if (signal.aborted) throw new Error("Engine operation cancelled");
     const searchId = ++this.nextSearchId;
     const instanceId = this.session.internalSnapshot.instanceId;
@@ -88,12 +108,14 @@ export class InternalEngine implements ResearchEngine {
       instanceId,
       searchId,
       position,
-      go: "go infinite",
+      go,
     });
     const finished = this.wait(
       () =>
         this.session.internalSnapshot.instanceId === instanceId &&
-        this.session.internalSnapshot.terminal?.searchId === searchId,
+        (this.session.internalSnapshot.terminal?.searchId === searchId ||
+          (this.session.internalSnapshot.cancelled >= searchId &&
+            this.session.internalSnapshot.settled >= searchId)),
       24 * 60 * 60 * 1000,
     );
     // The owner may still be waiting for the search to start when the engine fails.
@@ -144,5 +166,20 @@ export class InternalEngine implements ResearchEngine {
       }
     })();
     return this.closing;
+  }
+
+  gameover(result: string): void {
+    this.session.dispatchInternal({ type: "usi", command: `gameover ${result}` });
+  }
+
+  async cancelAll(): Promise<void> {
+    const through = this.nextSearchId;
+    if (!through) return;
+    const instanceId = this.session.internalSnapshot.instanceId;
+    this.session.dispatchInternal({ type: "cancelSearch", instanceId, through });
+    await this.wait(
+      () => this.session.internalSnapshot.settled >= through,
+      ENGINE_STOP_TIMEOUT_MS + 1000,
+    );
   }
 }

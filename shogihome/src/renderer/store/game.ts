@@ -1,904 +1,745 @@
-import { LogLevel } from "@/common/log";
-import api from "@/renderer/ipc/api";
-import { Player, SearchInfo } from "@/renderer/players/player";
-import { defaultGameSettings, GameSettings, JishogiRule } from "@/common/settings/game";
+import { Color, Move, SpecialMoveType } from "tsshogi";
+import { defaultGameSettings, type GameSettings } from "@/common/settings/game";
+import { newGameResults, type GameResults } from "@/common/game/results";
 import {
-  Color,
-  detectRecordFormat,
-  formatMove,
-  JishogiDeclarationResult,
-  JishogiDeclarationRule,
-  judgeJishogiDeclaration,
-  Move,
-  PieceType,
-  Record,
-  RecordFormatType,
-  reverseColor,
-  SpecialMoveType,
-  Square,
-} from "tsshogi";
-import { CommentBehavior } from "@/common/settings/comment";
-import { RecordManager, SearchInfoSenderType, type GameRecordCheckpoint } from "./record.js";
-import { Clock, type ClockSnapshot } from "./clock.js";
-import { ES_HUMAN } from "@/common/uri";
-import { defaultPlayerBuilder, PlayerBuilder } from "@/renderer/players/builder";
-import { GameResult } from "@/common/game/result";
-import { t } from "@/common/i18n/index";
-import { TimeStates } from "@/common/game/time";
+  decodeGameRequest,
+  decodeGameCommand,
+  decodeGameFrame,
+  isGameTerminal,
+  type GameSessionRequest,
+  type GameSnapshot,
+  type GameCommand,
+  type GameCommandAction,
+  type GameFrame,
+} from "@/common/game/protocol";
+import { recordContent, snapshotRecord, type RecordSnapshot } from "@/common/record/snapshot";
+import { object, identifier, text } from "@/common/analysis/validation";
+import { gameTexts } from "@/common/i18n/game";
+import { createGameSessionsClient, type GameSessionsClient } from "@/renderer/api/game_sessions";
+import { ApiResponseError, isRequestTimeoutError } from "@/renderer/api/client";
+import { generateSessionId } from "@/renderer/helpers/unique";
 import {
-  calculateEloRatingFromWinRate,
-  calculateWinRateConfidenceInterval,
-  calculateZValue,
-  Z_VALUE_95,
-  Z_VALUE_99,
-} from "@/common/statistics";
-import { useAppSettings } from "./settings.js";
+  dispatchUSIInfoUpdate,
+  setInfoSessionActive,
+  triggerOnStartSearch,
+} from "@/renderer/players/usi_events";
+import type { SearchInfo } from "@/common/record/types";
+import { SearchInfoSenderType } from "@/common/record/types";
+import { encodeSearchInfo } from "@/common/record/snapshot";
+import { RecordManager } from "./record";
+import { GameClockDisplay } from "./game_clock";
+import { useAppSettings } from "./settings";
+import { clearURLParams, flushRecordForWebApp } from "./webapp";
 
-enum GameState {
-  IDLE = "idle",
-  STARTING = "STARTING",
-  ACTIVE = "active",
-  PENDING = "pending",
-  BUSY = "busy",
-  TAKING_BACK = "takingBack",
-}
-
-export type PlayerGameResults = {
-  name: string;
-  win: number;
-  winBlack: number;
-  winWhite: number;
+export { calculateGameStatistics } from "@/common/game/results";
+export type { GameResults, GameStatistics } from "@/common/game/results";
+const STORAGE_KEY = "shogihome-game-session";
+const MONITOR_IDS = { [Color.BLACK]: 200200, [Color.WHITE]: 200201 };
+type Reference = {
+  requestId: string;
+  serverInstanceId: string;
+  controllerId: string;
+  sessionId?: string;
+  content: string;
+  pending: GameCommand[];
+  stopRequested?: boolean;
+};
+type Handlers = {
+  gameEnd: (results: GameResults, result: SpecialMoveType) => void;
+  flipBoard: (flip: boolean) => void;
+  pieceBeat: () => void;
+  beepShort: () => void;
+  beepUnlimited: () => void;
+  stopBeep: () => void;
+  error: (error: unknown) => void;
+  status: (status: GameSnapshot | null) => void;
 };
 
-export type GameResults = {
-  player1: PlayerGameResults;
-  player2: PlayerGameResults;
-  draw: number;
-  invalid: number;
-  total: number;
-};
-
-export type GameStatistics = {
-  rating: number;
-  ratingLower: number;
-  ratingUpper: number;
-  npIsGreaterThan5: boolean;
-  zValue: number;
-  significance5pc: boolean;
-  significance1pc: boolean;
-};
-
-export function calculateGameStatistics(results: GameResults): GameStatistics {
-  const n = results.player1.win + results.player2.win;
-  const wins = Math.max(results.player1.win, results.player2.win);
-  const winRate = wins / n;
-  const winRateCI = calculateWinRateConfidenceInterval(Z_VALUE_95, winRate, n);
-  const rating = calculateEloRatingFromWinRate(winRate);
-  const ratingLower = calculateEloRatingFromWinRate(winRate - winRateCI);
-  const ratingUpper = calculateEloRatingFromWinRate(winRate + winRateCI);
-  const zValue = Math.abs(calculateZValue(results.player1.win, n, 0.5));
-  return {
-    rating,
-    ratingLower,
-    ratingUpper,
-    npIsGreaterThan5: n > 10,
-    zValue,
-    significance5pc: zValue > Z_VALUE_95,
-    significance1pc: zValue > Z_VALUE_99,
-  };
+// Browser record storage does not persist runtime search objects.
+function durableContent(source: RecordSnapshot): string {
+  return recordContent({
+    ...source,
+    nodes: source.nodes.map((node) => ({
+      ...node,
+      elapsedMs: Math.floor(node.elapsedMs / 1000) * 1000,
+      customData: null,
+    })),
+  });
 }
-
-type SaveRecordCallback = () => void;
-type GameNextCallback = () => void;
-type GameEndCallback = (results: GameResults, specialMoveType: SpecialMoveType) => void;
-type FlipBoardCallback = (flip: boolean) => void;
-type PieceBeatCallback = () => void;
-type BeepShortCallback = () => void;
-type BeepUnlimitedCallback = () => void;
-type StopBeepCallback = () => void;
-type ErrorCallback = (e: unknown) => void;
-
-function newGameResults(name1: string, name2: string): GameResults {
-  return {
-    player1: { name: name1, win: 0, winBlack: 0, winWhite: 0 },
-    player2: { name: name2, win: 0, winBlack: 0, winWhite: 0 },
-    draw: 0,
-    invalid: 0,
-    total: 0,
-  };
-}
-
-export class StartPositionList {
-  private usiList: string[] = [];
-  private maxRepeat: number = 1;
-  private index = 0;
-  private repeat = 0;
-
-  clear(): void {
-    this.usiList = [];
-    this.maxRepeat = 1;
-    this.index = 0;
-    this.repeat = 0;
-  }
-
-  async reset(params: {
-    filePath: string;
-    swapPlayers: boolean;
-    order: "sequential" | "shuffle";
-    maxGames: number;
-    ply?: number;
-  }): Promise<void> {
-    // load SFEN file
-    const usiList = await api.loadSFENFile(params.filePath);
-    if (params.order === "shuffle") {
-      for (let i = usiList.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [usiList[i], usiList[j]] = [usiList[j], usiList[i]];
-      }
-    }
-    const maxPositions = Math.ceil(params.maxGames / (params.swapPlayers ? 2 : 1));
-    if (usiList.length > maxPositions) {
-      usiList.length = maxPositions;
-    }
-
-    // add "sfen " prefix to simple SFEN strings
-    for (let i = 0; i < usiList.length; i++) {
-      if (
-        !usiList[i].startsWith("sfen ") &&
-        detectRecordFormat(usiList[i]) === RecordFormatType.SFEN
-      ) {
-        usiList[i] = `sfen ${usiList[i]}`;
-      }
-    }
-
-    // validate USI and extract position at specified ply
-    if (usiList.length === 0) {
-      throw new Error("No available positions in the list.");
-    }
-    for (let i = 0; i < usiList.length; i++) {
-      const record = Record.newByUSI(usiList[i]);
-      if (!(record instanceof Record)) {
-        throw record;
-      }
-      if (params.ply !== undefined) {
-        record.goto(params.ply - 1);
-        usiList[i] = record.getUSI();
-      }
-    }
-
-    this.usiList = usiList;
-    this.maxRepeat = params.swapPlayers ? 2 : 1;
-    this.index = 0;
-    this.repeat = 0;
-  }
-
-  next(): string {
-    if (this.usiList.length === 0) {
-      return "position startpos";
-    }
-    if (this.repeat < this.maxRepeat) {
-      this.repeat++;
-    } else {
-      this.index++;
-      this.repeat = 1;
-      if (this.index >= this.usiList.length) {
-        this.index = 0;
-      }
-    }
-    return this.usiList[this.index];
+function loadReference(): Reference | undefined {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const input = object(JSON.parse(raw));
+    const pending = Array.isArray(input.pending)
+      ? input.pending.map((value) => {
+          const decoded = decodeGameCommand(value);
+          if (!decoded.ok) throw new Error(decoded.error);
+          return decoded.value;
+        })
+      : [];
+    if (pending.length > 8) return;
+    return {
+      requestId: identifier(input.requestId),
+      serverInstanceId: identifier(input.serverInstanceId),
+      controllerId: identifier(input.controllerId),
+      ...(input.sessionId === undefined ? {} : { sessionId: identifier(input.sessionId) }),
+      content: text(input.content, 20 * 1024 * 1024),
+      pending,
+      stopRequested: input.stopRequested === true,
+    };
+  } catch {
+    return;
   }
 }
 
 export class GameManager {
-  private turnCheckpoint?: {
-    record: GameRecordCheckpoint;
-    black: ClockSnapshot;
-    white: ClockSnapshot;
-    human: boolean;
-  };
-  private moveHistory: NonNullable<GameManager["turnCheckpoint"]>[] = [];
-  private state: GameState;
-  private _settings: GameSettings;
-  private startPly = 0;
-  private repeat = 0;
-  private startPositionList = new StartPositionList();
-  private blackPlayer?: Player;
-  private whitePlayer?: Player;
-  private playerBuilder = defaultPlayerBuilder();
-  private _results: GameResults = newGameResults("", "");
-  private lastEventID: number;
-  private onSaveRecord: SaveRecordCallback = () => {
-    /* noop */
-  };
-  private onGameNext: GameNextCallback = () => {
-    /* noop */
-  };
-  private onGameEnd: GameEndCallback = () => {
-    /* noop */
-  };
-  private onFlipBoard: FlipBoardCallback = () => {
-    /* noop */
-  };
-  private onPieceBeat: PieceBeatCallback = () => {
-    /* noop */
-  };
-  private onBeepShort: BeepShortCallback = () => {
-    /* noop */
-  };
-  private onBeepUnlimited: BeepUnlimitedCallback = () => {
-    /* noop */
-  };
-  private onStopBeep: StopBeepCallback = () => {
-    /* noop */
-  };
-  private onError: ErrorCallback = () => {
-    /* noop */
+  private reference = loadReference();
+  private pendingRequest?: GameSessionRequest;
+  private _status?: GameSnapshot;
+  private active = false;
+  private socket?: WebSocket;
+  private socketReady = false;
+  private generation = 0;
+  private lifecycle = 0;
+  private bindingToken?: string;
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
+  private heartbeatTimer?: ReturnType<typeof setInterval>;
+  private retryMs = 1000;
+  private retryNotBefore = 0;
+  private synchronizing = false;
+  private finishing = false;
+  private finished = false;
+  private lastMoveId = 0;
+  private lastSampleId = 0;
+  private lastFrameAt = 0;
+  private lastSearch = new Map<Color, number>();
+  private sending = new Set<string>();
+  private annotationTimes = new Map<string, number>();
+  private warned = new Set<string>();
+  private handlers: Handlers = {
+    gameEnd: () => {},
+    flipBoard: () => {},
+    pieceBeat: () => {},
+    beepShort: () => {},
+    beepUnlimited: () => {},
+    stopBeep: () => {},
+    error: () => {},
+    status: () => {},
   };
 
   constructor(
-    private recordManager: RecordManager,
-    private blackClock: Clock,
-    private whiteClock: Clock,
-  ) {
-    this.state = GameState.IDLE;
-    this._settings = defaultGameSettings();
-    this.lastEventID = 0;
-  }
-
-  on(event: "saveRecord", handler: SaveRecordCallback): this;
-  on(event: "gameNext", handler: GameNextCallback): this;
-  on(event: "gameEnd", handler: GameEndCallback): this;
-  on(event: "flipBoard", handler: FlipBoardCallback): this;
-  on(event: "pieceBeat", handler: PieceBeatCallback): this;
-  on(event: "beepShort", handler: BeepShortCallback): this;
-  on(event: "beepUnlimited", handler: BeepUnlimitedCallback): this;
-  on(event: "stopBeep", handler: StopBeepCallback): this;
-  on(event: "error", handler: ErrorCallback): this;
-  on(event: string, handler: unknown): this {
-    switch (event) {
-      case "saveRecord":
-        this.onSaveRecord = handler as SaveRecordCallback;
-        break;
-      case "gameNext":
-        this.onGameNext = handler as GameNextCallback;
-        break;
-      case "gameEnd":
-        this.onGameEnd = handler as GameEndCallback;
-        break;
-      case "flipBoard":
-        this.onFlipBoard = handler as FlipBoardCallback;
-        break;
-      case "pieceBeat":
-        this.onPieceBeat = handler as PieceBeatCallback;
-        break;
-      case "beepShort":
-        this.onBeepShort = handler as BeepShortCallback;
-        break;
-      case "beepUnlimited":
-        this.onBeepUnlimited = handler as BeepUnlimitedCallback;
-        break;
-      case "stopBeep":
-        this.onStopBeep = handler as StopBeepCallback;
-        break;
-      case "error":
-        this.onError = handler as ErrorCallback;
-        break;
-    }
+    private readonly recordManager: RecordManager,
+    readonly blackClock = new GameClockDisplay(),
+    readonly whiteClock = new GameClockDisplay(),
+    private readonly client: GameSessionsClient = createGameSessionsClient(),
+    private readonly createSocket: (url: string) => WebSocket = (url) => new WebSocket(url),
+  ) {}
+  on<K extends keyof Handlers>(event: K, handler: Handlers[K]): this {
+    this.handlers[event] = handler;
     return this;
   }
-
   get settings(): GameSettings {
-    return this._settings;
+    return this._status?.settings ?? defaultGameSettings();
   }
-
   get results(): GameResults {
-    return this._results;
+    return this._status?.results ?? newGameResults("", "");
   }
-
-  get supportsTakeback(): boolean {
-    return (
-      (this.settings.black.uri === ES_HUMAN) !== (this.settings.white.uri === ES_HUMAN) &&
-      !!this.blackPlayer?.supportsTakeback &&
-      !!this.whitePlayer?.supportsTakeback
-    );
-  }
-
-  get isTakingBack(): boolean {
-    return this.state === GameState.TAKING_BACK;
+  get status(): GameSnapshot | undefined {
+    return this._status;
   }
   get isActive(): boolean {
-    return this.state === GameState.ACTIVE;
+    return this.active;
+  }
+  get hasRetainedSession(): boolean {
+    return !!this.reference;
+  }
+  get reconnecting(): boolean {
+    return this.active && !this.socketReady;
+  }
+  get isPaused(): boolean {
+    return this._status?.state === "paused";
+  }
+  get supportsTakeback(): boolean {
+    return !!this._status?.supportsTakeback;
+  }
+  get isTakingBack(): boolean {
+    return (
+      this._status?.state === "takingBack" ||
+      !!this.reference?.pending.some((command) => command.action === "takeback")
+    );
+  }
+  get canMove(): boolean {
+    return (
+      this.active && this.socketReady && !!this._status?.canMove && !this.reference?.pending.length
+    );
+  }
+  get canTakeback(): boolean {
+    return (
+      this.active &&
+      this.socketReady &&
+      !!this._status?.canTakeback &&
+      !this.reference?.pending.length
+    );
   }
   get interactionId(): number {
-    return this.lastEventID;
+    return this._status?.interactionId ?? 0;
+  }
+  get hasUnsavedRecords(): boolean {
+    return !!this._status?.records.some((record) => record.state !== "saved");
   }
 
-  get canTakeback(): boolean {
-    return this.isActive && this.supportsTakeback && this.moveHistory.some((entry) => entry.human);
+  private persist(): void {
+    if (this.reference) localStorage.setItem(STORAGE_KEY, JSON.stringify(this.reference));
+    else localStorage.removeItem(STORAGE_KEY);
   }
-
-  async takeback(): Promise<void> {
-    if (!this.canTakeback) return;
-    this.getActiveClock().settle();
-    if (!this.canTakeback) return;
-    const index = this.moveHistory.findLastIndex((entry) => entry.human);
-    const target = this.moveHistory[index];
-    this.state = GameState.TAKING_BACK;
-    const operation = this.issueEventID();
+  private transient(error: unknown): boolean {
+    return (
+      error instanceof TypeError ||
+      isRequestTimeoutError(error) ||
+      (error instanceof ApiResponseError && (error.status === 429 || error.status >= 500))
+    );
+  }
+  private backoff(error: unknown): void {
+    const retry = error instanceof ApiResponseError ? error.retryAfterMs : undefined;
+    this.retryNotBefore = Date.now() + Math.max(this.retryMs, retry ?? 0);
+    this.retryMs = Math.min(30_000, this.retryMs * 2);
+    this.detach();
+  }
+  private schedule(): void {
+    clearTimeout(this.reconnectTimer);
+    if (!this.reference) return;
+    this.reconnectTimer = setTimeout(
+      () => {
+        void this.synchronize();
+      },
+      Math.max(1000, this.retryNotBefore - Date.now()),
+    );
+  }
+  private bind(token: string): RecordSnapshot {
+    const source = this.recordManager.beginGame(token);
+    this.bindingToken = token;
+    this.active = true;
+    ++this.lifecycle;
+    this.finished = false;
+    this._status = undefined;
+    this.lastMoveId = 0;
+    this.lastSampleId = 0;
+    this.warned.clear();
+    this.lastSearch.clear();
+    for (const id of Object.values(MONITOR_IDS)) setInfoSessionActive(id, true);
+    this.handlers.status(null);
+    return source;
+  }
+  async start(settings: GameSettings): Promise<void> {
+    if (this.active || this.reference)
+      throw new Error(gameTexts(useAppSettings().language).capacity);
+    const requestId = generateSessionId();
+    const source = this.bind(requestId);
+    const lifecycle = this.lifecycle;
+    let posted = false;
+    try {
+      const app = useAppSettings();
+      const caps = await this.client.capabilities();
+      if (lifecycle !== this.lifecycle) return;
+      const input: GameSessionRequest = {
+        requestId,
+        serverInstanceId: caps.serverInstanceId,
+        controllerId: generateSessionId(),
+        source,
+        settings,
+        options: {
+          engineTimeoutSeconds: app.engineTimeoutSeconds,
+          commentFormat: app.searchCommentFormat,
+          language: app.language,
+          save: {
+            directory: app.autoSaveDirectory,
+            template: app.recordFileNameTemplate,
+            format: app.defaultRecordFileFormat,
+            returnCode: app.returnCode,
+            useCSAV3: app.useCSAV3,
+            useUTF8ForKifAndKi2: app.useUTF8ForKifAndKi2,
+          },
+        },
+      };
+      const decoded = decodeGameRequest(JSON.parse(JSON.stringify(input)));
+      if (!decoded.ok) throw new Error(gameTexts(app.language).invalid);
+      if (new TextEncoder().encode(JSON.stringify(decoded.value)).length > caps.maxInputBytes)
+        throw new Error(gameTexts(app.language).capacity);
+      this.reference = {
+        requestId,
+        serverInstanceId: caps.serverInstanceId,
+        controllerId: input.controllerId,
+        content: durableContent(source),
+        pending: [],
+      };
+      this.persist();
+      this.pendingRequest = decoded.value;
+      posted = true;
+      try {
+        const snapshot = await this.client.create(decoded.value);
+        if (lifecycle !== this.lifecycle) return;
+        this.accept(snapshot, true);
+        this.pendingRequest = undefined;
+        this.connect();
+      } catch (error) {
+        if (lifecycle !== this.lifecycle) return;
+        if (!this.transient(error) || (error instanceof ApiResponseError && error.status === 503))
+          throw error;
+        this.backoff(error);
+        this.schedule();
+      }
+    } catch (error) {
+      if (lifecycle !== this.lifecycle) return;
+      const rejected =
+        error instanceof ApiResponseError && [400, 403, 409, 410, 413, 503].includes(error.status);
+      this.release(requestId, !posted || rejected);
+      throw error;
+    }
+  }
+  async resume(confirmRecovery: () => Promise<boolean>): Promise<boolean> {
+    const ref = this.reference;
+    if (!ref || this.active) return false;
+    const local = durableContent(snapshotRecord(this.recordManager.record));
+    if (local !== ref.content && !(await confirmRecovery())) return false;
+    await this.recordManager.saveBackup();
+    this.bind(ref.requestId);
+    await this.synchronize();
+    return this.active || this.finished;
+  }
+  private async synchronize(): Promise<void> {
+    const ref = this.reference;
+    if (!ref || this.synchronizing) return;
+    if (Date.now() < this.retryNotBefore) {
+      this.schedule();
+      return;
+    }
+    this.synchronizing = true;
+    const lifecycle = this.lifecycle;
+    try {
+      const caps = await this.client.capabilities();
+      if (lifecycle !== this.lifecycle || this.reference !== ref) return;
+      if (caps.serverInstanceId !== ref.serverInstanceId)
+        throw new ApiResponseError(410, gameTexts().expired);
+      let snapshot: GameSnapshot;
+      try {
+        snapshot = ref.sessionId
+          ? await this.client.snapshot(ref.sessionId)
+          : await this.client.byRequest(ref.requestId);
+      } catch (error) {
+        if (!(error instanceof ApiResponseError && error.status === 410 && this.pendingRequest))
+          throw error;
+        snapshot = await this.client.create(this.pendingRequest);
+      }
+      this.pendingRequest = undefined;
+      if (lifecycle !== this.lifecycle || this.reference !== ref) return;
+      this.accept(snapshot, true);
+      this.retryMs = 1000;
+      this.retryNotBefore = 0;
+      this.connect();
+    } catch (error) {
+      if (lifecycle !== this.lifecycle || this.reference !== ref) return;
+      if (this.transient(error)) {
+        this.backoff(error);
+        this.schedule();
+      } else {
+        this.release(ref.requestId, error instanceof ApiResponseError && error.status === 410);
+        this.handlers.error(error);
+      }
+    } finally {
+      this.synchronizing = false;
+    }
+  }
+  private connect(): void {
+    const ref = this.reference;
+    if (!ref?.sessionId || this.socket) return;
+    const url = new URL(`/ws/game-sessions/${ref.sessionId}`, location.href);
+    url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    url.searchParams.set("serverInstanceId", ref.serverInstanceId);
+    url.searchParams.set("controllerId", ref.controllerId);
+    const generation = ++this.generation;
+    this.lastFrameAt = Date.now();
+    const socket = (this.socket = this.createSocket(url.href));
+    socket.onmessage = (event) => {
+      if (generation !== this.generation || this.socket !== socket) return;
+      try {
+        if (typeof event.data !== "string" || event.data.length > 32 * 1024 * 1024)
+          throw new Error(gameTexts().invalid);
+        const decoded = decodeGameFrame(JSON.parse(event.data));
+        if (!decoded.ok) throw new Error(gameTexts().invalid);
+        this.lastFrameAt = Date.now();
+        const initial = !this.socketReady;
+        this.frame(decoded.value, initial);
+        if (decoded.value.type === "snapshot" && initial && this.reference) {
+          this.socketReady = true;
+          this.retryMs = 1000;
+          this.heartbeat();
+          clearInterval(this.heartbeatTimer);
+          this.heartbeatTimer = setInterval(() => this.heartbeat(), 5000);
+          void this.resendPending()
+            .then(() => {
+              if (this.active && this.socketReady)
+                return this.request(this.reference?.stopRequested ? "interrupt" : "resume");
+            })
+            .catch((error) => this.handlers.error(error));
+        }
+      } catch (error) {
+        this.handlers.error(error);
+        socket.close();
+      }
+    };
+    socket.onerror = () => socket.close();
+    socket.onclose = (event) => {
+      if (generation !== this.generation || this.socket !== socket) return;
+      this.socket = undefined;
+      this.socketReady = false;
+      this.blackClock.pause();
+      this.whiteClock.pause();
+      this.handlers.stopBeep();
+      clearInterval(this.heartbeatTimer);
+      if (event.code === 4001) {
+        this.release(ref.requestId, false);
+        this.handlers.error(new Error(gameTexts().conflict));
+      } else if (event.code === 4004) {
+        this.release(ref.requestId, true);
+        this.handlers.error(new Error(gameTexts().expired));
+      } else this.schedule();
+    };
+  }
+  private heartbeat(): void {
+    if (Date.now() - this.lastFrameAt > 10_000) {
+      this.backoff(new TypeError("Game updates timed out"));
+      this.blackClock.pause();
+      this.whiteClock.pause();
+      this.handlers.stopBeep();
+      this.schedule();
+      return;
+    }
+    if (this.socket?.readyState === 1 && this._status)
+      this.socket.send(
+        JSON.stringify({ type: "heartbeat", controllerEpoch: this._status.controllerEpoch }),
+      );
+  }
+  private frame(frame: GameFrame, initial: boolean): void {
+    if (frame.type === "snapshot") {
+      this.accept(frame.value, initial);
+      return;
+    }
+    const status = this._status;
+    if (
+      !status ||
+      frame.sessionId !== status.sessionId ||
+      frame.serverInstanceId !== status.serverInstanceId
+    )
+      throw new Error(gameTexts().invalid);
+    if (frame.revision > status.revision) {
+      void this.synchronize();
+      return;
+    }
+    if (frame.revision < status.revision || frame.sampleId <= this.lastSampleId) return;
+    this.lastSampleId = frame.sampleId;
+    this.updateClocks(frame.clocks, false);
+    for (const live of frame.infos) {
+      if (live.position !== this.recordManager.record.usi || live.searchId !== this.interactionId)
+        continue;
+      const id = MONITOR_IDS[live.color];
+      if (this.lastSearch.get(live.color) !== live.searchId) {
+        this.lastSearch.set(live.color, live.searchId);
+        triggerOnStartSearch(id, this.recordManager.record.position);
+      }
+      dispatchUSIInfoUpdate(id, this.recordManager.record.position, live.name, live.info);
+    }
+  }
+  private updateClocks(clocks: GameSnapshot["clocks"], silent: boolean): void {
+    const active = clocks.black.running
+      ? this.blackClock
+      : clocks.white.running
+        ? this.whiteClock
+        : undefined;
+    const old = active ? active.time || active.byoyomi : 0;
+    this.blackClock.update(clocks.black);
+    this.whiteClock.update(clocks.white);
+    const remaining = active ? active.time || active.byoyomi : 0;
+    if (!active) this.handlers.stopBeep();
+    if (!silent && active && remaining !== old && !(active.time && active.byoyomi)) {
+      if (remaining <= 5) this.handlers.beepUnlimited();
+      else if (remaining <= 10 || [20, 30, 60].includes(remaining)) this.handlers.beepShort();
+    }
+  }
+  private accept(snapshot: GameSnapshot, silent = false): void {
+    const ref = this.reference;
+    if (
+      !ref ||
+      snapshot.requestId !== ref.requestId ||
+      snapshot.serverInstanceId !== ref.serverInstanceId ||
+      (ref.sessionId && ref.sessionId !== snapshot.sessionId)
+    )
+      throw new Error(gameTexts().invalid);
+    if (
+      this._status &&
+      (snapshot.revision < this._status.revision ||
+        snapshot.controllerEpoch < this._status.controllerEpoch)
+    )
+      return;
+    if (this._status?.revision === snapshot.revision && snapshot.sampleId <= this.lastSampleId)
+      return;
+    if (this._status?.interactionId !== snapshot.interactionId) this.annotationTimes.clear();
+    if (this.active && (!this._status || snapshot.recordRevision !== this._status.recordRevision)) {
+      if (!this.recordManager.applyGameSnapshot(ref.requestId, snapshot.record))
+        throw new Error(gameTexts().conflict);
+      clearURLParams();
+      flushRecordForWebApp(this.recordManager.record);
+      ref.content = durableContent(snapshotRecord(this.recordManager.record));
+    }
+    ref.sessionId = snapshot.sessionId;
+    this._status = snapshot;
+    this.lastSampleId = Math.max(this.lastSampleId, snapshot.sampleId);
+    this.persist();
+    this.updateClocks(snapshot.clocks, silent);
+    if (
+      !silent &&
+      snapshot.lastMoveId === this.lastMoveId + 1 &&
+      this.recordManager.record.current.move instanceof Move
+    )
+      this.handlers.pieceBeat();
+    this.lastMoveId = snapshot.lastMoveId;
+    if (snapshot.settings.humanIsFront) {
+      if (
+        snapshot.settings.black.uri === "es://human" &&
+        snapshot.settings.white.uri !== "es://human"
+      )
+        this.handlers.flipBoard(false);
+      else if (
+        snapshot.settings.white.uri === "es://human" &&
+        snapshot.settings.black.uri !== "es://human"
+      )
+        this.handlers.flipBoard(true);
+    }
+    this.handlers.status(snapshot);
+    for (const record of snapshot.records)
+      if (record.state === "failed" && !this.warned.has(record.gameId)) {
+        this.warned.add(record.gameId);
+        this.handlers.error(new Error(gameTexts(useAppSettings().language).save));
+      }
+    if (isGameTerminal(snapshot.state)) {
+      this.finish(snapshot);
+      if (this.finished && this.reference && !this.hasUnsavedRecords) {
+        this.reference = undefined;
+        this.persist();
+        this.detach();
+      }
+    }
+  }
+  private finish(snapshot: GameSnapshot): void {
+    if (this.finishing || this.finished) return;
+    this.finishing = true;
+    try {
+      flushRecordForWebApp(this.recordManager.record);
+      const retain =
+        snapshot.records.some((record) => record.state === "failed") ||
+        (!snapshot.settings.enableAutoSave && snapshot.records.length > 1);
+      this.recordManager.endGame(snapshot.requestId);
+      this.bindingToken = undefined;
+      this.active = false;
+      this.finished = true;
+      this.handlers.stopBeep();
+      for (const id of Object.values(MONITOR_IDS)) setInfoSessionActive(id, false);
+      if (!retain) {
+        this.reference = undefined;
+        this.persist();
+        this.detach();
+      }
+      if (snapshot.error && snapshot.error !== "save")
+        this.handlers.error(new Error(gameTexts(useAppSettings().language)[snapshot.error]));
+      this.handlers.gameEnd(snapshot.results, snapshot.lastResult ?? SpecialMoveType.INTERRUPT);
+    } finally {
+      this.finishing = false;
+    }
+  }
+  private detach(): void {
+    ++this.generation;
+    clearTimeout(this.reconnectTimer);
+    clearInterval(this.heartbeatTimer);
+    this.socket?.close();
+    this.socket = undefined;
+    this.socketReady = false;
+  }
+  private release(token: string, clear: boolean): void {
+    ++this.lifecycle;
+    this.detach();
+    this.recordManager.endGame(token);
+    this.bindingToken = undefined;
+    this.active = false;
     this.blackClock.pause();
     this.whiteClock.pause();
+    this.handlers.stopBeep();
+    for (const id of Object.values(MONITOR_IDS)) setInfoSessionActive(id, false);
+    if (clear) {
+      this.reference = undefined;
+      this.pendingRequest = undefined;
+      this.persist();
+    }
+    this.handlers.status(null);
+  }
+  private async send(command: GameCommand): Promise<void> {
+    const ref = this.reference,
+      status = this._status;
+    if (!ref?.sessionId || !status || !this.socketReady || this.sending.has(command.requestId))
+      return;
+    command.controllerEpoch = status.controllerEpoch;
+    this.persist();
+    this.sending.add(command.requestId);
+    const lifecycle = this.lifecycle;
     try {
-      await Promise.all([this.blackPlayer!.cancelSearch!(), this.whitePlayer!.cancelSearch!()]);
-      if (!this.isTakingBack || operation !== this.lastEventID) return;
-      this.recordManager.rollbackGameMoves(
-        this.moveHistory.slice(index).map((entry) => entry.record),
-        () => {
-          this.blackClock.restore(target.black);
-          this.whiteClock.restore(target.white);
-        },
-      );
-      this.moveHistory.length = index;
-      this.turnCheckpoint = undefined;
-      this.state = GameState.ACTIVE;
-      this.nextMove();
-    } catch (cause) {
-      if (!this.isTakingBack || operation !== this.lastEventID) return;
-      this.end(SpecialMoveType.INTERRUPT);
-      this.onError(new Error(t.takebackFailed, { cause }));
-    }
-  }
-
-  async start(settings: GameSettings, playerBuilder: PlayerBuilder): Promise<void> {
-    if (this.state !== GameState.IDLE) {
-      throw Error(
-        "GameManager#start: 前回の対局が正常に終了できていません。アプリを再起動してください。",
-      );
-    }
-    this.state = GameState.STARTING;
-    this._settings = settings;
-    this.playerBuilder = playerBuilder;
-    this.repeat = 0;
-    if (settings.startPosition === "current") {
-      // 連続対局用に何手目から開始するかを記憶する。
-      this.startPly = this.recordManager.record.current.ply;
-    }
-    this._results = newGameResults(settings.black.name, settings.white.name);
-    try {
-      // 初期局面リストを読み込む。
-      if (settings.startPosition === "list") {
-        await this.startPositionList.reset({
-          filePath: settings.startPositionListFile,
-          swapPlayers: settings.swapPlayers,
-          order: settings.startPositionListOrder,
-          maxGames: settings.repeat,
-          ply: settings.startPositionListPly,
-        });
-      }
-      // プレイヤーを初期化する。
-      this.blackPlayer = await this.playerBuilder.build(
-        this.settings.black,
-        (info) => this.updateSearchInfo(SearchInfoSenderType.OPPONENT, info),
-        "game_black",
-      );
-      this.whitePlayer = await this.playerBuilder.build(
-        this.settings.white,
-        (info) => this.updateSearchInfo(SearchInfoSenderType.OPPONENT, info),
-        "game_white",
-      );
-      await this.goNextGame();
-    } catch (e) {
-      try {
-        await this.closePlayers();
-      } catch (errorOnClose) {
-        this.onError(errorOnClose);
-      } finally {
-        this.state = GameState.IDLE;
-        this.startPositionList.clear();
-      }
-      throw new Error(`GameManager#start: ${t.failedToStartNewGame}: ${e}`, { cause: e });
-    }
-  }
-
-  private async goNextGame(): Promise<void> {
-    if (this.blackPlayer === undefined || this.whitePlayer === undefined) {
-      throw new Error("GameManager#goNextGame: プレイヤーが初期化されていません。");
-    }
-    // 連続対局の回数をカウントアップする。
-    this.repeat++;
-    // 初期局面を設定する。
-    switch (this.settings.startPosition) {
-      case "current":
-        if (this.recordManager.record.current.ply !== this.startPly) {
-          this.recordManager.changePly(this.startPly);
-          this.recordManager.removeNextMove();
-        }
-        break;
-      case "list":
-        this.recordManager.importRecord(this.startPositionList.next(), {
-          type: RecordFormatType.USI,
-          markAsSaved: true,
-        });
-        this.recordManager.updateComment(t.beginFromThisPosition);
-        break;
-      default:
-        this.recordManager.resetByInitialPositionType(this.settings.startPosition);
-    }
-    // 対局のメタデータを設定する。
-    this.recordManager.setGameStartMetadata({
-      gameTitle:
-        this.settings.repeat >= 2 ? `連続対局 ${this.repeat}/${this.settings.repeat}` : undefined,
-      blackName: this.settings.black.name,
-      whiteName: this.settings.white.name,
-      blackTimeLimit: this.settings.timeLimit,
-      whiteTimeLimit: this.settings.whiteTimeLimit || this.settings.timeLimit,
-    });
-    // 対局時計を設定する。
-    this.blackClock.setup(this.getBlackClockSettings());
-    this.whiteClock.setup(this.getWhiteClockSettings());
-    this.moveHistory = [];
-    this.turnCheckpoint = undefined;
-    // プレイヤーに対局開始を通知する。
-    await Promise.all([this.blackPlayer.readyNewGame(), this.whitePlayer.readyNewGame()]);
-    // State を更新する。
-    this.state = GameState.ACTIVE;
-    // ハンドラーを呼び出す。
-    this.onGameNext();
-    // 盤面の向きを調整する。
-    this.adjustBoardOrientation();
-    // 最初の手番へ移る。
-    setTimeout(() => this.nextMove());
-  }
-
-  private getCommonClockSettings() {
-    return {
-      timeMs: this.settings.timeLimit.timeSeconds * 1e3,
-      byoyomi: this.settings.timeLimit.byoyomi,
-      increment: this.settings.timeLimit.increment,
-      onBeepShort: () => this.onBeepShort(),
-      onBeepUnlimited: () => this.onBeepUnlimited(),
-      onStopBeep: () => this.onStopBeep(),
-    };
-  }
-
-  private getBlackClockSettings() {
-    return {
-      ...this.getCommonClockSettings(),
-      onTimeout: () => {
-        this.timeout(Color.BLACK);
-      },
-    };
-  }
-
-  private getWhiteClockSettings() {
-    const settings = {
-      ...this.getCommonClockSettings(),
-      onTimeout: () => {
-        this.timeout(Color.WHITE);
-      },
-    };
-    if (!this.settings.whiteTimeLimit) {
-      return settings;
-    }
-    return {
-      ...settings,
-      timeMs: this.settings.whiteTimeLimit.timeSeconds * 1e3,
-      byoyomi: this.settings.whiteTimeLimit.byoyomi,
-      increment: this.settings.whiteTimeLimit.increment,
-    };
-  }
-
-  private adjustBoardOrientation(): void {
-    if (this.settings.humanIsFront) {
-      if (!this.blackPlayer?.isEngine() && this.whitePlayer?.isEngine()) {
-        this.onFlipBoard(false);
-      } else if (this.blackPlayer?.isEngine() && !this.whitePlayer?.isEngine()) {
-        this.onFlipBoard(true);
-      }
-    }
-  }
-
-  private nextMove(): void {
-    if (this.state !== GameState.ACTIVE) {
-      return;
-    }
-    // 最大手数に到達したら終了する。
-    // ただし、最後の2手のどちらかが王手なら対局を延長する。
-    if (
-      this._settings.maxMoves &&
-      this.recordManager.record.current.ply >= this._settings.maxMoves &&
-      !this.recordManager.record.current.isCheck &&
-      !this.recordManager.record.current.prev?.isCheck
-    ) {
-      this.end(SpecialMoveType.IMPASS);
-      return;
-    }
-    // 手番側の時計をスタートする。
-    this.getActiveClock().start();
-    if (this.supportsTakeback) {
-      this.turnCheckpoint = {
-        record: this.recordManager.createGameCheckpoint(),
-        black: this.blackClock.snapshot(),
-        white: this.whiteClock.snapshot(),
-        human: this.settings[this.recordManager.record.position.color].uri === ES_HUMAN,
-      };
-    }
-    // プレイヤーを取得する。
-    const color = this.recordManager.record.position.color;
-    const player = this.getPlayer(color);
-    const ponderPlayer = this.getPlayer(reverseColor(color));
-    if (!player || !ponderPlayer) {
-      this.onError(new Error("GameManager#nextMove: プレイヤーが初期化されていません。"));
-      return;
-    }
-    // イベント ID を発行する。
-    const eventID = this.issueEventID();
-    // 時間の情報をまとめる。
-    const timeStates: TimeStates = {
-      black: {
-        timeMs: this.blackClock.timeMs,
-        byoyomi: this.blackClock.settings.byoyomi || 0,
-        increment: this.blackClock.settings.increment || 0,
-      },
-      white: {
-        timeMs: this.whiteClock.timeMs,
-        byoyomi: this.whiteClock.settings.byoyomi || 0,
-        increment: this.whiteClock.settings.increment || 0,
-      },
-    };
-    // 手番側のプレイヤーの思考を開始する。
-    player
-      .startSearch(this.recordManager.record.position, this.recordManager.record.usi, timeStates, {
-        onMove: (move, info) => this.onMove(eventID, move, info),
-        onResign: () => this.onResign(eventID),
-        onWin: () => this.onWin(eventID),
-        onError: (e) => {
-          if (eventID === this.lastEventID && this.isActive) this.onError(e);
-        },
-      })
-      .catch((e) => {
-        if (eventID !== this.lastEventID || !this.isActive) return;
-        this.onError(new Error(`GameManager#nextMove: ${t.failedToSendGoCommand}: ${e}`));
-      });
-    // Ponder を開始する。
-    ponderPlayer
-      .startPonder(this.recordManager.record.position, this.recordManager.record.usi, timeStates)
-      .catch((e) => {
-        if (eventID !== this.lastEventID || !this.isActive) return;
-        this.onError(new Error(`GameManager#nextMove: ${t.failedToSendPonderCommand}: ${e}`));
-      });
-  }
-
-  private onMove(eventID: number, move: Move, info?: SearchInfo): void {
-    if (eventID !== this.lastEventID) {
-      api.log(LogLevel.ERROR, "GameManager#onMove: event ID already disabled");
-      return;
-    }
-    if (this.state !== GameState.ACTIVE) {
-      api.log(LogLevel.ERROR, "GameManager#onMove: invalid state: " + this.state);
-      return;
-    }
-    // 合法手かどうかをチェックする。
-    if (!this.recordManager.record.position.isValidMove(move)) {
-      this.onError("反則手: " + formatMove(this.recordManager.record.position, move));
-      this.end(SpecialMoveType.FOUL_LOSE);
-      return;
-    }
-    // 遅延を補正する。
-    if (info?.delay) {
-      this.getActiveClock().correct(-info.delay);
-    }
-    // 手番側の時計をストップする。
-    this.getActiveClock().stop();
-    // 指し手を追加して局面を進める。
-    this.recordManager.appendMove({
-      move,
-      moveOption: { ignoreValidation: true },
-      elapsedMs: this.getActiveClock().elapsedMs,
-    });
-    if (this.turnCheckpoint) {
-      this.moveHistory.push(this.turnCheckpoint);
-      this.turnCheckpoint = undefined;
-    }
-    // 評価値を記録する。
-    if (info) {
-      this.updateSearchInfo(SearchInfoSenderType.PLAYER, info);
-    }
-    // コメントを追加する。
-    if (info && this.settings.enableComment) {
-      const appSettings = useAppSettings();
-      const engineName = this.settings[move.color].name;
-      this.recordManager.appendSearchComment(
-        SearchInfoSenderType.PLAYER,
-        appSettings.searchCommentFormat,
-        info,
-        CommentBehavior.APPEND,
-        { engineName },
-      );
-    }
-    // 駒音を鳴らす。
-    this.onPieceBeat();
-    // 千日手をチェックする。
-    const faulColor = this.recordManager.record.perpetualCheck;
-    if (faulColor) {
-      // 連続王手の場合は王手した側を反則負けとする。
-      if (faulColor === this.recordManager.record.position.color) {
-        this.end(SpecialMoveType.FOUL_LOSE);
-        return;
+      const response = await this.client.command(ref.sessionId, command);
+      if (this.reference !== ref || lifecycle !== this.lifecycle) return;
+      ref.pending = ref.pending.filter((item) => item.requestId !== command.requestId);
+      if (command.action === "interrupt") ref.stopRequested = false;
+      this.persist();
+      this.accept(response);
+    } catch (error) {
+      if (this.reference !== ref || lifecycle !== this.lifecycle) return;
+      if (this.transient(error)) {
+        this.backoff(error);
+        this.schedule();
       } else {
-        this.end(SpecialMoveType.FOUL_WIN);
-        return;
-      }
-    } else if (this.recordManager.record.repetition) {
-      // シンプルな千日手の場合は引き分けとする。
-      this.end(SpecialMoveType.REPETITION_DRAW);
-      return;
-    }
-    // トライルールのチェックを行う。
-    if (
-      this.settings.jishogiRule == JishogiRule.TRY &&
-      move.pieceType === PieceType.KING &&
-      ((move.color === Color.BLACK && move.to.equals(new Square(5, 1))) ||
-        (move.color === Color.WHITE && move.to.equals(new Square(5, 9))))
-    ) {
-      this.end(SpecialMoveType.TRY);
-      return;
-    }
-    // 次の手番へ移る。
-    this.nextMove();
-  }
-
-  private onResign(eventID: number): void {
-    if (eventID !== this.lastEventID) {
-      api.log(LogLevel.ERROR, "GameManager#onResign: event ID already disabled");
-      return;
-    }
-    if (this.state !== GameState.ACTIVE) {
-      api.log(LogLevel.ERROR, "GameManager#onResign: invalid state: " + this.state);
-      return;
-    }
-    this.end(SpecialMoveType.RESIGN);
-  }
-
-  private onWin(eventID: number): void {
-    if (eventID !== this.lastEventID) {
-      api.log(LogLevel.ERROR, "GameManager#onWin: event ID already disabled");
-      return;
-    }
-    if (this.state !== GameState.ACTIVE) {
-      api.log(LogLevel.ERROR, "GameManager#onWin: invalid state: " + this.state);
-      return;
-    }
-    const position = this.recordManager.record.position;
-    if (
-      this.settings.jishogiRule == JishogiRule.NONE ||
-      this.settings.jishogiRule == JishogiRule.TRY
-    ) {
-      this.end(SpecialMoveType.FOUL_LOSE);
-      return;
-    }
-    const rule =
-      this.settings.jishogiRule == JishogiRule.GENERAL24
-        ? JishogiDeclarationRule.GENERAL24
-        : JishogiDeclarationRule.GENERAL27;
-    switch (judgeJishogiDeclaration(rule, position, position.color)) {
-      case JishogiDeclarationResult.WIN:
-        this.end(SpecialMoveType.ENTERING_OF_KING);
-        break;
-      case JishogiDeclarationResult.DRAW:
-        this.end(SpecialMoveType.DRAW);
-        break;
-      case JishogiDeclarationResult.LOSE:
-        this.end(SpecialMoveType.FOUL_LOSE);
-        break;
-    }
-  }
-
-  private timeout(color: Color): void {
-    if (!this.isActive || color !== this.recordManager.record.position.color) return;
-    // 時計音を止める。
-    this.onStopBeep();
-    // エンジンの時間切れが無効の場合は通知を送って対局を継続する。
-    const player = this.getPlayer(color);
-    if (player?.isEngine() && !this.settings.enableEngineTimeout) {
-      player.stop().catch((e) => {
-        this.onError(new Error(`GameManager#timeout: ${t.failedToSendStopCommand}: ${e}`));
-      });
-      return;
-    }
-    // 時間切れ負けで対局を終了する。
-    this.end(SpecialMoveType.TIMEOUT);
-  }
-
-  stop(): void {
-    this.end(SpecialMoveType.INTERRUPT);
-  }
-
-  private end(specialMoveType: SpecialMoveType): void {
-    if (
-      this.state !== GameState.ACTIVE &&
-      this.state !== GameState.PENDING &&
-      this.state !== GameState.TAKING_BACK
-    ) {
-      return;
-    }
-    this.issueEventID();
-    this.getActiveClock().pause();
-    this.state = GameState.BUSY;
-    const color = this.recordManager.record.position.color;
-    Promise.resolve()
-      .then(() => {
-        // プレイヤーに対局結果を通知する。
-        return this.sendGameResult(color, specialMoveType);
-      })
-      .then(() => {
-        // 終局理由を棋譜に記録する。
-        this.recordManager.appendMove({
-          move: specialMoveType,
-          elapsedMs: this.getActiveClock().elapsedMs,
-        });
-        this.recordManager.setGameEndMetadata();
-        // 連続対局の記録に追加する。
-        this.addGameResults(color, specialMoveType);
-        // 自動保存が有効な場合は棋譜を保存する。
-        if (this._settings.enableAutoSave) {
-          this.onSaveRecord();
-        }
-        // 連続対局の終了条件を満たしているか中断が要求されていれば終了する。
-        const complete =
-          specialMoveType === SpecialMoveType.INTERRUPT || this.repeat >= this.settings.repeat;
-        if (complete) {
-          // プレイヤーを解放する。
-          this.closePlayers()
-            .catch((e) => {
-              this.onError(e);
-            })
-            .finally(() => {
-              this.state = GameState.IDLE;
-              this.startPositionList.clear();
-              this.onGameEnd(this.results, specialMoveType);
-            });
+        ref.pending = ref.pending.filter((item) => item.requestId !== command.requestId);
+        this.persist();
+        if (error instanceof ApiResponseError && error.status === 409) {
+          await this.synchronize();
           return;
         }
-        // 連続対局時の手番入れ替えが有効ならプレイヤーを入れ替える。
-        if (this.settings.swapPlayers) {
-          this.swapPlayers();
-        }
-        // 次の対局を開始する。
-        this.state = GameState.STARTING;
-        this.goNextGame().catch((e) => {
-          this.onError(new Error(`GameManager#end: ${t.failedToStartNewGame}: ${e}`));
-        });
-      })
-      .catch((e) => {
-        this.onError(new Error(`GameManager#end: ${t.errorOccuredWhileEndingGame}: ${e}`));
-        this.state = GameState.PENDING;
-      });
+        throw error;
+      }
+    } finally {
+      this.sending.delete(command.requestId);
+    }
   }
-
-  private updateSearchInfo(senderType: SearchInfoSenderType, info: SearchInfo): void {
-    if (this.state !== GameState.ACTIVE) {
+  private async resendPending(): Promise<void> {
+    for (const command of [...(this.reference?.pending ?? [])]) await this.send(command);
+  }
+  private async request(
+    action: GameCommandAction,
+    fields: Partial<GameCommand> = {},
+  ): Promise<void> {
+    const ref = this.reference,
+      status = this._status;
+    if (!ref || !status) return;
+    if (ref.pending.length >= 8) throw new Error(gameTexts().capacity);
+    const command: GameCommand = {
+      requestId: generateSessionId(),
+      serverInstanceId: ref.serverInstanceId,
+      controllerId: ref.controllerId,
+      controllerEpoch: status.controllerEpoch,
+      gameId: status.gameId,
+      interactionId: status.interactionId,
+      action,
+      ...fields,
+    };
+    ref.pending.push(command);
+    try {
+      this.persist();
+    } catch (error) {
+      ref.pending = ref.pending.filter((item) => item !== command);
+      throw error;
+    }
+    await this.send(command);
+  }
+  async move(move: Move): Promise<void> {
+    if (this.canMove) await this.request("move", { move: move.usi });
+  }
+  async resign(): Promise<void> {
+    if (this.canMove) await this.request("resign");
+  }
+  async declareWin(): Promise<void> {
+    if (this.canMove) await this.request("declare");
+  }
+  async takeback(): Promise<void> {
+    if (this.canTakeback) await this.request("takeback");
+  }
+  stop(): void {
+    if (!this.reference) return;
+    this.reference.stopRequested = true;
+    try {
+      this.persist();
+    } catch (error) {
+      this.handlers.error(error);
       return;
     }
-    this.recordManager.updateSearchInfo(senderType, info);
+    if (this._status && this.socketReady)
+      void this.request("interrupt").catch((error) => this.handlers.error(error));
+    else this.schedule();
   }
-
-  private addGameResults(color: Color, specialMoveType: SpecialMoveType): void {
-    const gameResult = specialMoveToPlayerGameResult(color, Color.BLACK, specialMoveType);
-    switch (gameResult) {
-      case GameResult.WIN:
-        this._results.player1.win++;
-        this._results.player1.winBlack++;
-        break;
-      case GameResult.LOSE:
-        this._results.player2.win++;
-        this._results.player2.winWhite++;
-        break;
-      case GameResult.DRAW:
-        this._results.draw++;
-        break;
-      default:
-        this._results.invalid++;
-        break;
+  dispose(): void {
+    const token = this.reference?.requestId ?? this.bindingToken;
+    if (token) this.release(token, false);
+    else {
+      ++this.lifecycle;
+      this.detach();
     }
-    this._results.total++;
   }
-
-  private swapPlayers(): void {
-    this._settings = {
-      ...this.settings,
-      black: this.settings.white,
-      white: this.settings.black,
+  async retrySaving(): Promise<void> {
+    if (!this.reference) return;
+    if (!this.socket) await this.synchronize();
+    for (const record of this._status?.records ?? [])
+      if (record.state !== "saved") await this.request("saveRetry", { recordId: record.gameId });
+    if (this._status && this.finished && !this.hasUnsavedRecords) {
+      this.reference = undefined;
+      this.persist();
+      this.detach();
+    }
+  }
+  async openRecord(gameId: string): Promise<void> {
+    const ref = this.reference;
+    if (this.active || !ref?.sessionId) throw new Error(gameTexts().conflict);
+    const source = await this.client.record(ref.sessionId, gameId);
+    if (this.reference !== ref || this.active) return;
+    this.detach();
+    await this.recordManager.openSnapshot(source);
+    clearURLParams();
+    flushRecordForWebApp(this.recordManager.record);
+  }
+  forget(): void {
+    if (this.active || !this._status || !isGameTerminal(this._status.state)) return;
+    localStorage.removeItem(STORAGE_KEY);
+    this.reference = undefined;
+    this.detach();
+  }
+  annotate(type: SearchInfoSenderType, info: SearchInfo & { usi: string }): void {
+    const slots = {
+      [SearchInfoSenderType.RESEARCHER]: "researchInfo",
+      [SearchInfoSenderType.RESEARCHER_2]: "researchInfo2",
+      [SearchInfoSenderType.RESEARCHER_3]: "researchInfo3",
+      [SearchInfoSenderType.RESEARCHER_4]: "researchInfo4",
+    } as const;
+    if (
+      !this.active ||
+      !this.socketReady ||
+      !this._status ||
+      !this.reference ||
+      this.socket?.readyState !== 1 ||
+      info.usi !== this.recordManager.record.usi ||
+      !(type in slots)
+    )
+      return;
+    const slot = slots[type as keyof typeof slots];
+    if (
+      Date.now() - (this.annotationTimes.get(slot) ?? -Infinity) < 1000 ||
+      this.reference.pending.length
+    )
+      return;
+    this.annotationTimes.set(slot, Date.now());
+    const command: GameCommand = {
+      requestId: generateSessionId(),
+      serverInstanceId: this.reference.serverInstanceId,
+      controllerId: this.reference.controllerId,
+      controllerEpoch: this._status.controllerEpoch,
+      gameId: this._status.gameId,
+      interactionId: this._status.interactionId,
+      action: "annotate",
+      nodeId: this._status.record.currentId,
+      annotation: { slot, info: encodeSearchInfo(info) },
     };
-    if (this._settings.whiteTimeLimit) {
-      this._settings = {
-        ...this.settings,
-        timeLimit: this._settings.whiteTimeLimit,
-        whiteTimeLimit: this._settings.timeLimit,
-      };
-    }
-    [this.blackPlayer, this.whitePlayer] = [this.whitePlayer, this.blackPlayer];
-    this._results = {
-      ...this.results,
-      player1: this.results.player2,
-      player2: this.results.player1,
-    };
+    this.socket.send(JSON.stringify({ type: "annotation", value: command }));
   }
-
-  private async sendGameResult(color: Color, specialMoveType: SpecialMoveType): Promise<void> {
-    if (this.blackPlayer) {
-      const gameResult = specialMoveToPlayerGameResult(color, Color.BLACK, specialMoveType);
-      if (gameResult) {
-        await this.blackPlayer.gameover(gameResult);
-      }
-    }
-    if (this.whitePlayer) {
-      const gameResult = specialMoveToPlayerGameResult(color, Color.WHITE, specialMoveType);
-      if (gameResult) {
-        await this.whitePlayer.gameover(gameResult);
-      }
-    }
-  }
-
-  private async closePlayers(): Promise<void> {
-    const tasks: Promise<void>[] = [];
-    if (this.blackPlayer) {
-      tasks.push(this.blackPlayer.close());
-      this.blackPlayer = undefined;
-    }
-    if (this.whitePlayer) {
-      tasks.push(this.whitePlayer.close());
-      this.whitePlayer = undefined;
-    }
-    try {
-      await Promise.all(tasks);
-    } catch (e) {
-      throw new Error(`GameManager#closePlayers: ${t.failedToShutdownEngines}: ${e}`, { cause: e });
-    }
-  }
-
-  private getPlayer(color: Color): Player | undefined {
-    switch (color) {
-      case Color.BLACK:
-        return this.blackPlayer;
-      case Color.WHITE:
-        return this.whitePlayer;
-    }
-  }
-
-  private getActiveClock(): Clock {
-    const color = this.recordManager.record.position.color;
-    switch (color) {
-      case Color.BLACK:
-        return this.blackClock;
-      case Color.WHITE:
-        return this.whiteClock;
-    }
-  }
-
-  private issueEventID(): number {
-    this.lastEventID += 1;
-    return this.lastEventID;
-  }
-}
-
-function specialMoveToPlayerGameResult(
-  currentColor: Color,
-  playerColor: Color,
-  specialMoveType: SpecialMoveType,
-): GameResult | null {
-  switch (specialMoveType) {
-    case SpecialMoveType.FOUL_WIN:
-    case SpecialMoveType.ENTERING_OF_KING:
-      return currentColor == playerColor ? GameResult.WIN : GameResult.LOSE;
-    case SpecialMoveType.RESIGN:
-    case SpecialMoveType.MATE:
-    case SpecialMoveType.TIMEOUT:
-    case SpecialMoveType.FOUL_LOSE:
-    case SpecialMoveType.TRY:
-      return currentColor == playerColor ? GameResult.LOSE : GameResult.WIN;
-    case SpecialMoveType.IMPASS:
-    case SpecialMoveType.REPETITION_DRAW:
-      return GameResult.DRAW;
-  }
-  return null;
 }

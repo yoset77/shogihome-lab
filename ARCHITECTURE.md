@@ -107,6 +107,8 @@ flowchart LR
 
 Host、Origin、body size、rate limit などのHTTP共通ポリシーは `shogihome/src/server/security.ts` と `shogihome/src/server/hono.ts` が所有します。
 
+対局専用WebSocketは `src/common/game/protocol.ts` を共有契約とし、双方がframeをdecodeします。`src/server/websocket.ts` の単一upgrade routerが対局と既存relayの経路を選び、共通のHost／Origin検証を適用します。
+
 `KIFU_DIR` 内の atomic writer が使用する `*.lock` directory は内部専用の名前空間です。共有name validatorとpath resolverは、この名前空間へのBrowserからの作成・アクセスを拒否し、directoryとfileの一覧にも公開しません。
 
 棋譜indexも既存のpath boundaryを使用し、設定したroot自体を除くsymlinkを追跡せず、通常の棋譜fileだけを読み込みます。Watcherはconfigured rootのreal pathを監視し、配下のsymlinkは追跡しません。Atomic writerの予約名前空間は監視からも除外し、内部lockの作成・削除で一覧やindexを再走査しません。監視対象から外れたfileの派生indexは同期時に削除します。Directory削除はfile削除と区別し、同じevent batchの再追加・変更を優先します。
@@ -123,9 +125,9 @@ Middle Server の `shogihome/src/server/engine/session.ts` が、engine 接続�
 - Middle Server が `usi` / `isready` handshake、search、stop sequencing、termination を管理します。
 - 思考中に新しい局面や探索要求を受けた場合、現在の探索停止が解決するまで競合する探索を開始しません。
 - Engine output は対応する `position` と関連付け、古い局面の結果で現在の探索を更新しません。
-- 識別付き探索では、session実体IDと探索IDを局面とは別に照合します。Middle Serverは取消境界と停止完了を保持し、Browserは完了確認後に対局棋譜と時計を一括で巻き戻します。同じ局面への指し直しでも旧探索を採用しません。
+- 識別付き探索では、session実体IDと探索IDを局面とは別に照合します。Middle Serverは取消境界と停止完了を保持し、対局sessionは完了確認後に棋譜と時計を一括で巻き戻します。同じ局面への指し直しでも旧探索を採用しません。
 - 一時的な WebSocket 切断では論理 session を保護し、同じ session ID の再接続へ状態と必要な出力を再同期できます。
-- 棋譜解析の内部sessionは `AnalysisJob` が所有し、公開relayの `SessionManager` へ登録しません。Browser切断保護とは独立して、jobの完了・取消・失敗時に停止とtransport cleanupを行います。
+- 棋譜解析と対局の内部sessionは `AnalysisJob` / `GameSession` が所有し、公開relayの `SessionManager` へ登録しません。Browser切断保護とは独立して、ownerの完了・取消・失敗時に停止とtransport cleanupを行います。
 - 置換済み socket の command や state frame で現在の接続を汚染しません。
 - Engine Wrapper は browser session、再接続、USI state machine を所有しません。
 
@@ -145,17 +147,18 @@ Vision scan は Middle Server が管理する worker process で実行します�
 
 ## Data Ownership and Persistence
 
-| データ                  | 所有者                            | 性質                                               |
-| ----------------------- | --------------------------------- | -------------------------------------------------- |
-| `KIFU_DIR`              | Middle Serverと外部ファイル管理者 | ユーザーが所有する棋譜・定跡・SFENの正本           |
-| `data/analysis.db`      | Analysis DB module                | Engine解析結果の永続データ                         |
-| `data/kifu_index.db`    | Kifu index module                 | `KIFU_DIR` から再構築可能な派生index               |
-| record history / backup | History service                   | Server共有の履歴と復元データ                       |
-| Book session            | Book session manager              | 保存前の変更を含む有期限の作業状態                 |
-| Analysis job            | Analysis job manager              | 固定入力・進捗・結果・取消を持つ有期限の揮発性状態 |
-| Browser storage         | Renderer                          | 端末・origin固有の設定、復元情報、接続識別子       |
+| データ                  | 所有者                            | 性質                                                       |
+| ----------------------- | --------------------------------- | ---------------------------------------------------------- |
+| `KIFU_DIR`              | Middle Serverと外部ファイル管理者 | ユーザーが所有する棋譜・定跡・SFENの正本                   |
+| `data/analysis.db`      | Analysis DB module                | Engine解析結果の永続データ                                 |
+| `data/kifu_index.db`    | Kifu index module                 | `KIFU_DIR` から再構築可能な派生index                       |
+| record history / backup | History service                   | Server共有の履歴と復元データ                               |
+| Book session            | Book session manager              | 保存前の変更を含む有期限の作業状態                         |
+| Analysis job            | Analysis job manager              | 固定入力・進捗・結果・取消を持つ有期限の揮発性状態         |
+| Game session            | Game session manager              | 対局・時計・checkpoint・未保存棋譜を持つ有期限の揮発性状態 |
+| Browser storage         | Renderer                          | 端末・origin固有の設定、復元情報、接続識別子               |
 
-対局進行と時計、および「待った」のcheckpointはRendererの `GameManager` が所有します。checkpointは現在の対局に限るメモリー上の状態です。EngineSessionの再接続保護は対局状態の永続化を意味しません。詳細は [Takeback](docs/features/takeback.md) を参照してください。
+対局進行・時計・「待った」のcheckpoint・連続対局と保存はServerの `src/server/game/` が所有します。Rendererの `GameManager` はHTTP操作・専用WebSocket同期・復元・表示を担当し、対局中の文書編集をロックします。人間手番は切断検知時に停止し、AI手番は完了してから人間手番で停止します。AI同士はBrowserを閉じても継続します。未保存棋譜の保持は有界で、Server再起動からの対局復旧は行いません。詳細は [Game Sessions](docs/features/game-sessions.md) と [Takeback](docs/features/takeback.md) を参照してください。
 
 棋譜解析の進行はServerの `src/server/analysis/` が所有し、Rendererの `AnalysisManager` はHTTPによる作成・同期・取消・復元と安全な注釈反映だけを担当します。入力棋譜のtreeと選択経路、設定は作成時に固定し、解析cursorと閲覧cursorを分離します。Browserを閉じても解析は継続しますが、Server再起動からのjob復旧や棋譜ファイルへの自動保存は行いません。詳細は [Analysis Jobs](docs/features/analysis-jobs.md) を参照してください。
 

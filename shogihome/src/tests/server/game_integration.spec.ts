@@ -1,0 +1,266 @@
+// @vitest-environment node
+import net from "node:net";
+import http from "node:http";
+import readline from "node:readline";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { spawn, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
+import { getRequestListener } from "@hono/node-server";
+import { Hono } from "hono";
+import WebSocket from "ws";
+import { GameSessionManager } from "@/server/game/manager";
+import { createGameSessionRoutes } from "@/server/routes/game_sessions";
+import { createEngineWebSocketServer } from "@/server/websocket";
+import { handleError } from "@/server/errors";
+import { ALLOWED_ORIGINS, ALLOWED_HOSTS } from "@/server/config";
+import { decodeGameFrame, type GameSnapshot } from "@/common/game/protocol";
+import { restoreRecord } from "@/common/record/snapshot";
+import { gameRequest, gameCommand } from "./helpers/game";
+import type { AppEnv } from "@/server/hono";
+
+const wrapperConfig = vi.hoisted(() => ({ port: 0 }));
+vi.mock("@/server/config", async (original) => ({
+  ...(await original<typeof import("@/server/config")>()),
+  REMOTE_ENGINE_HOST: "127.0.0.1",
+  get REMOTE_ENGINE_PORT() {
+    return wrapperConfig.port;
+  },
+}));
+vi.mock("@/server/database/sqlite", () => ({ saveAnalysisResults: vi.fn() }));
+
+const modes = process.env.SHOGIHOME_WRAPPER_EXE ? ["tcp", "rust"] : ["tcp"];
+describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
+  let manager: GameSessionManager;
+  let middle: http.Server;
+  let tcp: net.Server | undefined;
+  let child: ChildProcess | undefined;
+  let directory: string | undefined;
+  let url: string;
+  const connections = new Set<net.Socket>();
+  const browsers = new Set<WebSocket>();
+  let commands: string[];
+  const token = process.env.WRAPPER_ACCESS_TOKEN;
+  const config = { id: "test-game", name: "Game Fixture", type: ["game"], skipAnalysisDB: true };
+  const headers = {
+    "Content-Type": "application/json",
+    Origin: ALLOWED_ORIGINS[0],
+    Host: [...ALLOWED_HOSTS][0],
+  };
+
+  beforeEach(async () => {
+    delete process.env.WRAPPER_ACCESS_TOKEN;
+    commands = [];
+    if (mode === "rust") {
+      directory = await fs.mkdtemp(
+        path.join(process.env.OPENCODE_TMP_DIR ?? "/tmp/opencode", "game-wrapper-"),
+      );
+      const script = path.join(directory, "engine.mjs");
+      await fs.writeFile(
+        script,
+        `#!${process.execPath}\n` +
+          (await fs.readFile(new URL("./helpers/game_engine.mjs", import.meta.url), "utf8")),
+        { mode: 0o755 },
+      );
+      await fs.writeFile(
+        path.join(directory, "engines.json"),
+        JSON.stringify([{ ...config, path: script }]),
+      );
+      const probe = net.createServer();
+      await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+      wrapperConfig.port = (probe.address() as net.AddressInfo).port;
+      await new Promise<void>((resolve) => probe.close(() => resolve()));
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        BIND_ADDRESS: "127.0.0.1",
+        LISTEN_PORT: String(wrapperConfig.port),
+        GAME_TEST_LOG: path.join(directory, "engine.log"),
+      };
+      delete env.WRAPPER_ACCESS_TOKEN;
+      child = spawn(process.env.SHOGIHOME_WRAPPER_EXE!, ["--config-dir", directory], {
+        cwd: directory,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let childLog = "";
+      child.stdout?.on("data", (data) => {
+        childLog += data.toString();
+      });
+      child.stderr?.on("data", (data) => {
+        childLog += data.toString();
+      });
+      await vi.waitFor(
+        () => {
+          expect(childLog).toContain(`listening on 127.0.0.1:${wrapperConfig.port}`);
+        },
+        { timeout: 10_000, interval: 50 },
+      );
+      child.on("exit", (code) => {
+        if (code !== 0 && childLog) console.error(childLog);
+      });
+    } else {
+      tcp = net.createServer((socket) => {
+        connections.add(socket);
+        let position = "position startpos";
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        socket.on("close", () => {
+          clearTimeout(timer);
+          connections.delete(socket);
+        });
+        readline.createInterface({ input: socket }).on("line", (line) => {
+          commands.push(line);
+          if (line === "list") socket.end(JSON.stringify([config]) + "\n");
+          else if (line === "usi") socket.write("id name Game Fixture\nusiok\n");
+          else if (line === "isready") socket.write("readyok\n");
+          else if (line.startsWith("position ")) position = line;
+          else if (line.startsWith("go ")) {
+            const ply = position.includes(" moves ")
+              ? position.split(" moves ")[1].split(" ").length
+              : 0;
+            const move = ["7g7f", "3c3d", "2g2f", "8c8d"][ply] ?? "resign";
+            socket.write(
+              `info depth 8 score cp 20 nodes 100 pv ${move === "resign" ? "7g7f" : move}\n`,
+            );
+            timer = setTimeout(() => socket.write(`bestmove ${move}\n`), 200);
+          } else if (line === "stop") {
+            clearTimeout(timer);
+            socket.write("info depth 99 score cp 999 pv 3c3d\nbestmove resign\n");
+          }
+        });
+      });
+      await new Promise<void>((resolve) => tcp!.listen(0, "127.0.0.1", resolve));
+      wrapperConfig.port = (tcp.address() as net.AddressInfo).port;
+    }
+    manager = new GameSessionManager({
+      resolveEngine: async () => config,
+      saveRecord: async () => "saved.kifu",
+    });
+    const app = new Hono<AppEnv>().route("/api/game-sessions", createGameSessionRoutes(manager));
+    app.onError(handleError);
+    middle = http.createServer(getRequestListener(app.fetch));
+    createEngineWebSocketServer(middle, { getOrCreateSession: () => null }, manager);
+    await new Promise<void>((resolve) => middle.listen(0, "127.0.0.1", resolve));
+    url = `http://127.0.0.1:${(middle.address() as net.AddressInfo).port}`;
+  });
+  afterEach(async () => {
+    for (const browser of browsers) browser.terminate();
+    browsers.clear();
+    await manager?.close();
+    await new Promise<void>((resolve) => middle?.close(() => resolve()));
+    for (const socket of connections) socket.destroy();
+    connections.clear();
+    if (tcp) await new Promise<void>((resolve) => tcp!.close(() => resolve()));
+    tcp = undefined;
+    if (child && child.exitCode === null) {
+      child.kill();
+      await once(child, "exit");
+    }
+    child = undefined;
+    if (directory) await fs.rm(directory, { recursive: true, force: true });
+    directory = undefined;
+    if (token === undefined) delete process.env.WRAPPER_ACCESS_TOKEN;
+    else process.env.WRAPPER_ACCESS_TOKEN = token;
+  });
+  const call = async (pathname: string, body?: unknown) => {
+    const response = await fetch(url + "/api/game-sessions" + pathname, {
+      method: body === undefined ? "GET" : "POST",
+      headers,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    expect(response.status).toBeLessThan(300);
+    return response.json();
+  };
+  async function browser(snapshot: GameSnapshot) {
+    const ws = new WebSocket(
+      url.replace("http:", "ws:") +
+        `/ws/game-sessions/${snapshot.sessionId}?controllerId=controller&serverInstanceId=${snapshot.serverInstanceId}`,
+      { headers },
+    );
+    browsers.add(ws);
+    const frames: GameSnapshot[] = [];
+    ws.on("message", (data) => {
+      const decoded = decodeGameFrame(JSON.parse(data.toString()));
+      expect(decoded.ok).toBe(true);
+      if (decoded.ok && decoded.value.type === "snapshot") frames.push(decoded.value.value);
+    });
+    await once(ws, "open");
+    await vi.waitFor(() => expect(frames.length).toBeGreaterThan(0));
+    return { ws, frames, latest: () => frames.at(-1)! };
+  }
+
+  it("pauses after a disconnected AI reply and recovers before accepting another human move", async () => {
+    const request = gameRequest();
+    request.serverInstanceId = manager.serverInstanceId;
+    request.settings.white = { uri: "lan-engine:test-game", name: "AI" };
+    const created = (await call("", request)) as GameSnapshot;
+    await vi.waitFor(() => expect(manager.get(created.sessionId).snapshot().state).toBe("paused"));
+    const first = await browser(created);
+    await call(`/${created.sessionId}/commands`, gameCommand(first.latest(), "resume"));
+    await vi.waitFor(() => expect(first.latest().canMove).toBe(true));
+    await call(
+      `/${created.sessionId}/commands`,
+      gameCommand(first.latest(), "move", { move: "7g7f" }),
+    );
+    first.ws.terminate();
+    await vi.waitFor(() => expect(manager.get(created.sessionId).snapshot().state).toBe("paused"));
+    const recovered = (await call(`/by-request/${request.requestId}`)) as GameSnapshot;
+    expect(restoreRecord(recovered.record).record.current.ply).toBe(2);
+    const second = await browser(recovered);
+    expect(second.latest().canMove).toBe(false);
+    await call(`/${created.sessionId}/commands`, gameCommand(second.latest(), "resume"));
+    await vi.waitFor(() => expect(second.latest().canMove).toBe(true));
+    await call(`/${created.sessionId}/commands`, gameCommand(second.latest(), "interrupt"));
+    await manager.get(created.sessionId).completion;
+    expect(manager.get(created.sessionId).snapshot().state).toBe("completed");
+  });
+
+  it("settles USI cancellation before rollback and rejects cancelled bestmove", async () => {
+    const request = gameRequest();
+    request.serverInstanceId = manager.serverInstanceId;
+    request.settings.white = { uri: "lan-engine:test-game", name: "AI" };
+    const created = (await call("", request)) as GameSnapshot;
+    await vi.waitFor(() => expect(manager.get(created.sessionId).snapshot().state).toBe("paused"));
+    const client = await browser(created);
+    await call(`/${created.sessionId}/commands`, gameCommand(client.latest(), "resume"));
+    await vi.waitFor(() => expect(client.latest().canMove).toBe(true));
+    await call(
+      `/${created.sessionId}/commands`,
+      gameCommand(client.latest(), "move", { move: "7g7f" }),
+    );
+    await vi.waitFor(() =>
+      expect(manager.get(created.sessionId).snapshot().clocks.white.running).toBe(true),
+    );
+    const rolledBack = (await call(
+      `/${created.sessionId}/commands`,
+      gameCommand(manager.get(created.sessionId).snapshot(), "takeback"),
+    )) as GameSnapshot;
+    expect(restoreRecord(rolledBack.record).record.current.ply).toBe(0);
+    expect(rolledBack.state).toBe("running");
+    if (directory)
+      commands = (await fs.readFile(path.join(directory, "engine.log"), "utf8")).trim().split("\n");
+    expect(commands).toContain("stop");
+    expect(
+      rolledBack.record.nodes.some((node) => node.customData?.opponentSearchInfo?.depth === 99),
+    ).toBe(false);
+  });
+
+  it("finishes repeated AI games with no browser and releases both TCP engines", async () => {
+    const request = gameRequest();
+    request.serverInstanceId = manager.serverInstanceId;
+    request.settings.black = request.settings.white = { uri: "lan-engine:test-game", name: "AI" };
+    request.settings.repeat = 2;
+    request.settings.swapPlayers = true;
+    request.settings.enableAutoSave = true;
+    const created = (await call("", request)) as GameSnapshot;
+    await manager.get(created.sessionId).completion;
+    const result = (await call(`/${created.sessionId}`)) as GameSnapshot;
+    expect(result).toMatchObject({ state: "completed", results: { total: 2 } });
+    expect(result.records.map((record) => record.state)).toEqual(["saved", "saved"]);
+    if (directory)
+      commands = (await fs.readFile(path.join(directory, "engine.log"), "utf8")).trim().split("\n");
+    expect(commands.filter((line) => line === "usinewgame")).toHaveLength(4);
+    expect(commands.some((line) => line.startsWith("go btime "))).toBe(true);
+    expect(commands.some((line) => line.startsWith("go ponder"))).toBe(false);
+    await vi.waitFor(() => expect(connections.size).toBe(0));
+  });
+});

@@ -1,4 +1,4 @@
-import api, { isNative } from "@/renderer/ipc/api";
+import api from "@/renderer/ipc/api";
 import {
   Color,
   exportCSA,
@@ -37,22 +37,21 @@ import {
   UpdateTreeHandler,
 } from "./record.js";
 import { calculateGameStatistics, GameManager, GameResults } from "./game.js";
-import { generateRecordFileName, join } from "@/renderer/helpers/path";
+import { generateRecordFileName } from "@/renderer/helpers/path";
 import { ResearchSettings } from "@/common/settings/research";
 import { USIPlayerMonitor, USIMonitor } from "./usi.js";
 import { AppState, ResearchState } from "@/common/control/state";
 import { useMessageStore } from "./message.js";
 import { useToastStore } from "./toast.js";
-import * as uri from "@/common/uri";
-import { humanPlayer } from "@/renderer/players/human";
 import { AnalysisManager } from "./analysis.js";
 import type { AnalysisJobStatus } from "@/common/analysis/types";
 import { analysisTexts } from "@/common/i18n/analysis";
 import { AnalysisSettings } from "@/common/settings/analysis";
 import { MateSearchSettings } from "@/common/settings/mate";
 import { LogLevel } from "@/common/log";
-import { Clock } from "./clock.js";
-import { defaultPlayerBuilder } from "@/renderer/players/builder";
+import { GameClockDisplay } from "./game_clock.js";
+import { gameTexts } from "@/common/i18n/game";
+import type { GameSnapshot } from "@/common/game/protocol";
 import { type USIInfoCommand } from "@/common/game/usi";
 import { ResearchManager } from "./research.js";
 import { SearchInfo } from "@/renderer/players/player";
@@ -225,8 +224,8 @@ class Store {
   private _pvPreview?: PVPreview;
   private _kifuPreview?: KifuPreviewRequest;
   private usiMonitor = new USIMonitor();
-  private blackClock = new Clock();
-  private whiteClock = new Clock();
+  private blackClock = new GameClockDisplay();
+  private whiteClock = new GameClockDisplay();
   private gameManager = new GameManager(this.recordManager, this.blackClock, this.whiteClock);
   private analysisManager = new AnalysisManager(this.recordManager);
   private mateSearchManager = new MateSearchManager();
@@ -276,7 +275,6 @@ class Store {
         };
       });
     this.gameManager
-      .on("saveRecord", this.onSaveRecord.bind(refs))
       .on("gameEnd", this.onGameEnd.bind(refs))
       .on("flipBoard", this.onFlipBoard.bind(refs))
       .on("pieceBeat", () => playPieceBeat(useAppSettings().pieceVolume))
@@ -285,8 +283,8 @@ class Store {
       .on("stopBeep", stopBeep)
       .on("error", (e) => {
         useErrorStore().add(e);
-        refs.stopGame({ force: true });
-      });
+      })
+      .on("status", this.onGameStatus.bind(refs));
     this.researchManager
       .on("updateSearchInfo", this.onUpdateSearchInfo.bind(refs))
       .on("error", (e) => {
@@ -887,12 +885,10 @@ class Store {
     useBusyState().retain();
     api
       .saveGameSettings(settings)
+      .then(() => this.gameManager.start(settings))
       .then(() => {
-        const appSettings = useAppSettings();
-        const builder = defaultPlayerBuilder(appSettings.engineTimeoutSeconds);
-        return this.gameManager.start(settings, builder);
+        if (!this.gameManager.status || this.gameManager.isActive) this._appState = AppState.GAME;
       })
-      .then(() => (this._appState = AppState.GAME))
       .catch((e) => {
         useErrorStore().add(e);
       })
@@ -917,6 +913,73 @@ class Store {
   }
   get isTakingBack(): boolean {
     return this.gameManager.isTakingBack;
+  }
+  get gameStatus(): GameSnapshot | undefined {
+    return this.gameManager.status;
+  }
+  get gameReconnecting(): boolean {
+    return this.gameManager.reconnecting;
+  }
+  get gamePaused(): boolean {
+    return this.gameManager.isPaused;
+  }
+  get hasRetainedGame(): boolean {
+    return this.gameManager.hasRetainedSession;
+  }
+  get hasUnsavedGameRecords(): boolean {
+    return this.gameManager.hasUnsavedRecords;
+  }
+  private onGameStatus(): void {
+    if (this.gameManager.isActive) this._appState = AppState.GAME;
+    else if (this.appState === AppState.GAME) this._appState = AppState.NORMAL;
+  }
+  async restoreGame(): Promise<void> {
+    if (this.appState !== AppState.NORMAL || useBusyState().isBusy) return;
+    useBusyState().retain();
+    try {
+      await this.gameManager.resume(
+        () =>
+          new Promise<boolean>((resolve) => {
+            useConfirmationStore().show({
+              message: gameTexts(useAppSettings().language).recover,
+              onOk: () => resolve(true),
+              onCancel: () => resolve(false),
+            });
+          }),
+      );
+    } catch (error) {
+      useErrorStore().add(error);
+    } finally {
+      useBusyState().release();
+    }
+  }
+  async retryGameSaving(): Promise<void> {
+    try {
+      await this.gameManager.retrySaving();
+    } catch (error) {
+      useErrorStore().add(error);
+    }
+  }
+  async openRetainedGameRecord(gameId: string): Promise<void> {
+    if (this.appState !== AppState.NORMAL || useBusyState().isBusy) return;
+    useBusyState().retain();
+    try {
+      await this.gameManager.openRecord(gameId);
+    } catch (error) {
+      useErrorStore().add(error);
+    } finally {
+      useBusyState().release();
+    }
+  }
+  forgetGame(): void {
+    if (this.appState !== AppState.NORMAL) return;
+    useConfirmationStore().show({
+      message: gameTexts(useAppSettings().language).forgetConfirm,
+      onOk: () => this.gameManager.forget(),
+    });
+  }
+  doGameMove(move: Move): void {
+    void this.gameManager.move(move).catch((error) => useErrorStore().add(error));
   }
   async takeback(): Promise<void> {
     if (this.canTakeback) await this.gameManager.takeback();
@@ -983,7 +1046,7 @@ class Store {
         message: t.areYouSureWantToResign,
         onOk: () => {
           if (this.isMovableByUser && interaction === this.gameManager.interactionId)
-            humanPlayer.resign();
+            void this.gameManager.resign().catch((error) => useErrorStore().add(error));
         },
       });
     }
@@ -996,7 +1059,7 @@ class Store {
       message: t.areYouSureWantToDoDeclaration,
       onOk: () => {
         if (this.isMovableByUser && interaction === this.gameManager.interactionId)
-          humanPlayer.win();
+          void this.gameManager.declareWin().catch((error) => useErrorStore().add(error));
       },
     });
   }
@@ -1006,22 +1069,6 @@ class Store {
     if (appSettings.boardFlipping !== flip) {
       useAppSettings().flipBoard();
     }
-  }
-
-  private onSaveRecord(): void {
-    const appSettings = useAppSettings();
-    let dir = appSettings.autoSaveDirectory;
-    if (!isNative() && dir && !dir.startsWith("server://")) {
-      dir = "server://" + dir;
-    }
-    const fname = generateRecordFileName(this.recordManager.record, {
-      template: appSettings.recordFileNameTemplate,
-      extension: appSettings.defaultRecordFileFormat,
-    });
-    const path = join(dir, fname);
-    this.saveRecordByPath(path).catch((e) => {
-      useErrorStore().add(e);
-    });
   }
 
   private onBeepShort(): void {
@@ -1379,7 +1426,8 @@ class Store {
   }
 
   private onUpdateSearchInfo(type: SearchInfoSenderType, info: SearchInfo): void {
-    this.recordManager.updateSearchInfo(type, info);
+    if (this.gameManager.isActive) this.gameManager.annotate(type, info);
+    else this.recordManager.updateSearchInfo(type, info);
   }
 
   startAnalysis(analysisSettings: AnalysisSettings): void {
@@ -2038,12 +2086,7 @@ class Store {
       case AppState.PUZZLE:
         return true;
       case AppState.GAME:
-        return (
-          this.gameManager.isActive &&
-          (this.recordManager.record.position.color === Color.BLACK
-            ? this.gameManager.settings.black.uri
-            : this.gameManager.settings.white.uri) === uri.ES_HUMAN
-        );
+        return this.gameManager.canMove;
     }
     return false;
   }

@@ -140,6 +140,10 @@ Job結果の保持は棋譜ファイルの自動保存を意味しません。�
 
 ## Settings and Browser Storage
 
+対局sessionも共有snapshotを使用します。`server/game/` が棋譜とcheckpoint、凍結済み終局棋譜の有界保持を所有し、Rendererは安定node IDとrevisionで完全snapshotを反映します。自動保存は既存 `KIFU_DIR` path resolverとatomic writerを使用し、non-overwrite公開で同名棋譜を保護します。失敗棋譜は次局へ進む前に凍結し、再保存／取り出しが可能です。Server再起動時の永続復旧は行いません。
+
+Rendererは作成POST前に対局linkageと文書比較情報を保存し、未確認操作はrequest ID付きで保持します。別棋譜への復元には確認とbackupが必要です。完了棋譜をBrowser storageへflushするまでlinkageを解除しません。詳細は [Game Sessions](../features/game-sessions.md) を参照してください。
+
 Rendererの設定、record recovery、remote engine session ID、feature preferenceなどはBrowser originのstorageへ保存されます。これは端末固有の状態であり、Server共有の正本ではありません。
 
 [`server/settings.ts`](../../shogihome/src/server/settings.ts) が読むServer側設定ファイルは、Browser設定とは別のsourceです。両者が常に同期すると仮定しません。

@@ -23,6 +23,8 @@ import { writeFileAtomicSync } from "@/server/file/atomic";
 import { initDatabase } from "@/server/database/sqlite";
 import { analysisRoutes } from "@/server/routes/analysis";
 import { analysisJobRoutes } from "@/server/routes/analysis_jobs";
+import { gameSessionRoutes } from "@/server/routes/game_sessions";
+import { gameSessionManager } from "@/server/game/manager";
 import { bookRoutes } from "@/server/routes/book";
 import { fetchRemoteRoutes } from "@/server/routes/fetchRemote";
 import { historyRoutes } from "@/server/routes/history";
@@ -95,6 +97,7 @@ export const rpcRoutes = app
   .route("/api/history", historyRoutes)
   .route("/api/analysis", analysisRoutes)
   .route("/api/analysis-jobs", analysisJobRoutes)
+  .route("/api/game-sessions", gameSessionRoutes)
   .route("/api/book", bookRoutes)
   .route("/api/vision", visionRoutes);
 export type AppType = typeof rpcRoutes;
@@ -104,7 +107,7 @@ app.onError(handleError);
 const sessionManager = new SessionManager<EngineSession>(
   (sessionId) => new EngineSession(sessionId, (id) => sessionManager.removeSession(id)),
 );
-createEngineWebSocketServer(server, sessionManager);
+createEngineWebSocketServer(server, sessionManager, gameSessionManager);
 
 let isServerInitialized = false;
 

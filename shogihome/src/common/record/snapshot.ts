@@ -169,8 +169,10 @@ export function indexRecordNodes(record: ImmutableRecord): Map<string, Immutable
   return new Map(nodes.map((node, index) => [`n${index}`, node]));
 }
 
-export function snapshotRecord(record: ImmutableRecord): RecordSnapshot {
-  const indexed = indexRecordNodes(record);
+export function snapshotRecord(
+  record: ImmutableRecord,
+  indexed = indexRecordNodes(record),
+): RecordSnapshot {
   const nodes = [...indexed.values()];
   const ids = new Map([...indexed].map(([id, node]) => [node, id]));
   return {

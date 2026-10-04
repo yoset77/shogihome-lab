@@ -8,6 +8,25 @@
         </button>
       </div>
       <div v-if="isMobileWebApp()" class="group">
+        <div v-if="store.gameReconnecting || store.gamePaused" role="status">
+          {{ store.gameReconnecting ? gameMessages.reconnecting : gameMessages.paused }}
+        </div>
+        <button
+          v-if="store.appState === AppState.NORMAL && store.hasRetainedGame"
+          @click="onRecoverGame"
+        >
+          <div class="label">{{ gameMessages.recoverAction }}</div>
+        </button>
+        <button
+          v-if="
+            store.appState === AppState.NORMAL &&
+            store.hasRetainedGame &&
+            store.hasUnsavedGameRecords
+          "
+          @click="gameRecordsVisible = true"
+        >
+          <div class="label">{{ gameMessages.retainedRecords }}</div>
+        </button>
         <button @click="onFlip">
           <Icon :icon="IconType.FLIP" />
           <div class="label">{{ t.flipBoard }}</div>
@@ -224,11 +243,14 @@
     </dialog>
     <MobileGameMenu v-if="isGameMenuVisible" @close="emit('close')" />
     <SpecialMoveMenu v-if="isSpecialMoveMenuVisible" @close="emit('close')" />
+    <GameRecordsDialog v-if="gameRecordsVisible" @close="gameRecordsVisible = false" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
+import { gameTexts } from "@/common/i18n/game";
+import GameRecordsDialog from "@/renderer/view/dialog/GameRecordsDialog.vue";
 import { showModalDialog } from "@/renderer/helpers/dialog.js";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
@@ -254,6 +276,12 @@ const emit = defineEmits<{
 
 const store = useStore();
 const appSettings = useAppSettings();
+const gameMessages = computed(() => gameTexts(appSettings.language));
+const gameRecordsVisible = ref(false);
+const onRecoverGame = () => {
+  emit("close");
+  void store.restoreGame();
+};
 const lanStore = useLanStore();
 const dialog = ref();
 const isGameMenuVisible = ref(false);

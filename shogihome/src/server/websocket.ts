@@ -1,8 +1,10 @@
 import http from "http";
-import { WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import type { ExtendedWebSocket } from "@/server/engine/types";
 import { ALLOWED_ORIGINS } from "@/server/config";
 import { isValidHost } from "@/server/security";
+import type { GameSessionManager } from "@/server/game/manager";
+import { decodeGameClientFrame } from "@/common/game/protocol";
 
 interface WebSocketSession {
   attach(ws: ExtendedWebSocket): void;
@@ -15,9 +17,10 @@ interface WebSocketSessionManager {
 export const createEngineWebSocketServer = (
   server: http.Server,
   sessionManager: WebSocketSessionManager,
+  gameManager?: GameSessionManager,
 ) => {
   const wss = new WebSocketServer({
-    server,
+    noServer: true,
     maxPayload: 1 * 1024 * 1024,
     perMessageDeflate: false,
     verifyClient: (info, cb) => {
@@ -42,6 +45,25 @@ export const createEngineWebSocketServer = (
     },
   });
 
+  // A single listener owns upgrade dispatch for both transports.
+  const upgrade: Parameters<typeof server.on<"upgrade">>[1] = (req, socket, head) => {
+    try {
+      const url = new URL(req.url ?? "", `http://${req.headers.host}`);
+      if (
+        url.pathname !== "/" &&
+        !/^\/ws\/game-sessions\/[a-zA-Z0-9_-]{1,100}$/.test(url.pathname)
+      ) {
+        socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+        return;
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+    } catch {
+      socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+    }
+  };
+  server.on("upgrade", upgrade);
+  server.once("close", () => wss.close());
+
   const interval = setInterval(function ping() {
     wss.clients.forEach(function each(ws: ExtendedWebSocket) {
       if (ws.isAlive === false) {
@@ -56,6 +78,7 @@ export const createEngineWebSocketServer = (
 
   wss.on("close", function close() {
     clearInterval(interval);
+    server.off("upgrade", upgrade);
   });
 
   wss.on("connection", (ws: ExtendedWebSocket, req) => {
@@ -70,6 +93,63 @@ export const createEngineWebSocketServer = (
     } catch {
       console.warn("Blocked connection with invalid WebSocket URL");
       ws.close(1008, "Invalid URL");
+      return;
+    }
+    if (url.pathname.startsWith("/ws/game-sessions/")) {
+      try {
+        if (
+          !gameManager ||
+          url.searchParams.get("serverInstanceId") !== gameManager.serverInstanceId
+        ) {
+          ws.close(4004, "Game expired");
+          return;
+        }
+        const session = gameManager.get(url.pathname.substring("/ws/game-sessions/".length));
+        const connection = session.connect(
+          url.searchParams.get("controllerId") ?? "",
+          (frame) => {
+            if (ws.readyState !== WebSocket.OPEN) return;
+            if (ws.bufferedAmount > 32 * 1024 * 1024) {
+              ws.close(1013, "Slow game consumer");
+              return;
+            }
+            ws.send(JSON.stringify(frame));
+          },
+          (code = 4004) => ws.close(code, "Controller disconnected"),
+        );
+        let messages = 0;
+        let windowStart = Date.now();
+        ws.on("message", (data, binary) => {
+          if (Date.now() - windowStart >= 10_000) {
+            windowStart = Date.now();
+            messages = 0;
+          }
+          if (binary || ++messages > 200) {
+            ws.close(1008, "Invalid game message");
+            return;
+          }
+          try {
+            const decoded = decodeGameClientFrame(JSON.parse(data.toString()));
+            if (!decoded.ok) {
+              ws.close(1008, "Invalid game message");
+              return;
+            }
+            if (decoded.value.type === "heartbeat") {
+              if (decoded.value.controllerEpoch !== connection.epoch) {
+                ws.close(1008, "Invalid heartbeat");
+                return;
+              }
+              connection.heartbeat();
+            } else session.annotate(decoded.value.value);
+          } catch {
+            ws.close(1008, "Invalid heartbeat");
+          }
+        });
+        ws.on("close", () => connection.disconnect());
+        ws.on("error", () => connection.disconnect());
+      } catch {
+        ws.close(4004, "Game unavailable");
+      }
       return;
     }
     const sessionId = url.searchParams.get("sessionId");

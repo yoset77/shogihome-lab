@@ -1,13 +1,12 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { Move } from "tsshogi";
 import { EngineSession } from "@/server/engine/session";
 import { EngineState } from "@/server/engine/types";
 import { LanPlayer } from "@/renderer/players/lan_player";
-import { HumanPlayer } from "@/renderer/players/human";
-import { GameManager } from "@/renderer/store/game";
-import { RecordManager } from "@/renderer/store/record";
-import { Clock } from "@/renderer/store/clock";
+import { HumanPlayer } from "@/server/game/player";
+import { GameController as GameManager } from "@/server/game/controller";
+import { GameRecord as RecordManager } from "@/common/game/record";
+import { Clock } from "@/server/game/clock";
 import { defaultGameSettings } from "@/common/settings/game";
 import { ES_HUMAN } from "@/common/uri";
 
@@ -98,7 +97,7 @@ describe("takeback across the real relay", () => {
     const lan = new LanPlayer("takeback", "test", "Test");
     const human = new HumanPlayer();
     const records = new RecordManager();
-    const game = new GameManager(records, new Clock(), new Clock());
+    const game = new GameManager(records, new Clock(() => Date.now()), new Clock(() => Date.now()));
     const error = vi.fn();
     game.on("error", error);
     await lan.launch();
@@ -113,7 +112,7 @@ describe("takeback across the real relay", () => {
       { build: async (p) => (p.uri === ES_HUMAN ? human : lan) },
     );
     await vi.advanceTimersByTimeAsync(0);
-    const move = () => human.doMove(records.record.position.createMoveByUSI("7g7f") as Move);
+    const move = () => game.humanMove("7g7f");
     dropClient = loseSearch;
     move();
     await vi.advanceTimersByTimeAsync(0);

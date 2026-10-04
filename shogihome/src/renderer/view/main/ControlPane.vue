@@ -38,6 +38,35 @@
         </button>
         <!-- 対局中断 -->
         <button
+          v-if="store.appState === AppState.NORMAL && store.hasRetainedGame"
+          class="control-item"
+          @click="store.restoreGame()"
+        >
+          <Icon :icon="IconType.GAME" />
+          <span>{{ gameMessages.recoverAction }}</span>
+        </button>
+        <div
+          v-if="store.appState === AppState.GAME && (store.gameReconnecting || store.gamePaused)"
+          class="control-item"
+          role="status"
+        >
+          <span>{{
+            store.gameReconnecting ? gameMessages.reconnecting : gameMessages.paused
+          }}</span>
+        </div>
+        <button
+          v-if="
+            store.appState === AppState.NORMAL &&
+            store.hasUnsavedGameRecords &&
+            store.hasRetainedGame
+          "
+          class="control-item"
+          @click="gameRecordsVisible = true"
+        >
+          <Icon :icon="IconType.SAVE" />
+          <span>{{ gameMessages.retainedRecords }}</span>
+        </button>
+        <button
           v-show="store.appState === AppState.GAME"
           class="control-item close"
           @click="onStop"
@@ -201,6 +230,7 @@
         </button>
       </div>
       <FileMenu v-if="isFileMenuVisible" @close="isFileMenuVisible = false" />
+      <GameRecordsDialog v-if="gameRecordsVisible" @close="gameRecordsVisible = false" />
       <GameActionMenu
         v-if="isGameActionMenuVisible && store.appState === AppState.GAME"
         @close="isGameActionMenuVisible = false"
@@ -220,6 +250,7 @@ export enum ControlGroup {
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import { analysisTexts } from "@/common/i18n/analysis";
+import { gameTexts } from "@/common/i18n/game";
 import { useStore } from "@/renderer/store";
 import { computed, onBeforeUnmount, onMounted, PropType, ref, watch } from "vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
@@ -227,6 +258,7 @@ import { AppState, ResearchState } from "@/common/control/state.js";
 import { IconType } from "@/renderer/assets/icons";
 import FileMenu from "@/renderer/view/menu/FileMenu.vue";
 import GameActionMenu from "@/renderer/view/menu/GameActionMenu.vue";
+import GameRecordsDialog from "@/renderer/view/dialog/GameRecordsDialog.vue";
 import { useAppSettings } from "@/renderer/store/settings";
 import {
   installHotKeyForMainWindow,
@@ -256,6 +288,8 @@ defineProps({
 const store = useStore();
 const appSettings = useAppSettings();
 const analysisMessages = computed(() => analysisTexts(appSettings.language));
+const gameMessages = computed(() => gameTexts(appSettings.language));
+const gameRecordsVisible = ref(false);
 const quickAction = computed(() => getFileQuickAction(appSettings.fileQuickAction));
 const root = ref();
 const isFileMenuVisible = ref(false);
