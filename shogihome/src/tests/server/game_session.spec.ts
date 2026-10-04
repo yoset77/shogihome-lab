@@ -113,6 +113,78 @@ describe("server game sessions", () => {
     await session.close();
   });
 
+  it("fences reconnects without disturbing the replacement controller", async () => {
+    const { session, connection } = await humanGame();
+    const epoch = session.snapshot().controllerEpoch;
+    connection.disconnect();
+    const close = vi.fn();
+    session.connect("controller", () => {}, close, {
+      connectionId: "replacement",
+      controllerEpoch: epoch,
+    });
+    await session.command(gameCommand(session.snapshot(), "resume"));
+    const current = session.snapshot();
+    expect(() =>
+      session.connect(
+        "controller",
+        () => {},
+        () => {},
+        {
+          connectionId: "old-tab",
+          controllerEpoch: epoch,
+        },
+      ),
+    ).toThrow();
+    expect(session.snapshot().controllerEpoch).toBe(current.controllerEpoch);
+    expect(session.snapshot().state).toBe("running");
+    expect(close).not.toHaveBeenCalled();
+    await session.command(gameCommand(session.snapshot(), "interrupt"));
+    await vi.advanceTimersByTimeAsync(0);
+    await session.close();
+  });
+
+  it("allows the same connection to retry when its initial snapshot was lost", async () => {
+    const { session, connection } = await humanGame();
+    connection.disconnect();
+    const binding = {
+      connectionId: "browser",
+      controllerEpoch: session.snapshot().controllerEpoch,
+    };
+    session
+      .connect(
+        "controller",
+        () => {},
+        () => {},
+        binding,
+      )
+      .disconnect();
+    const send = vi.fn();
+    const retry = session.connect("controller", send, () => {}, binding);
+    expect(send).toHaveBeenCalledWith({
+      type: "snapshot",
+      value: expect.objectContaining({
+        controllerEpoch: retry.epoch,
+        controllerConnectionId: binding.connectionId,
+      }),
+    });
+    expect(() =>
+      session.connect(
+        "controller",
+        () => {},
+        () => {},
+        {
+          ...binding,
+          controllerEpoch: retry.epoch + 1,
+        },
+      ),
+    ).toThrow();
+    await session.command(gameCommand(session.snapshot(), "resume"));
+    expect(session.snapshot().state).toBe("running");
+    await session.command(gameCommand(session.snapshot(), "interrupt"));
+    await vi.advanceTimersByTimeAsync(0);
+    await session.close();
+  });
+
   it("settles timeout before accepting a human move", async () => {
     const { session } = await humanGame();
     vi.setSystemTime(Date.now() + 70_001);

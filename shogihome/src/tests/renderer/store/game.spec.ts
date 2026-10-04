@@ -1,4 +1,4 @@
-import { Record, Move } from "tsshogi";
+import { Record, Move, importKIF } from "tsshogi";
 import { reactive, markRaw } from "vue";
 import { GameManager } from "@/renderer/store/game";
 import { RecordManager } from "@/renderer/store/record";
@@ -9,6 +9,7 @@ import { ApiResponseError } from "@/renderer/api/client";
 import type { GameSessionsClient } from "@/renderer/api/game_sessions";
 import {
   decodeGameClientFrame,
+  decodeGameConnection,
   type GameSessionRequest,
   type GameCommand,
   type GameFrame,
@@ -19,6 +20,7 @@ import { loadRecordForWebApp } from "@/renderer/store/webapp";
 import { fakeGamePlayer } from "@/tests/server/helpers/game";
 import { useToastStore } from "@/renderer/store/toast";
 import { t } from "@/common/i18n";
+import api from "@/renderer/ipc/api";
 
 vi.mock("@/server/file/history", () => ({
   saveBackup: vi.fn().mockResolvedValue(undefined),
@@ -30,6 +32,11 @@ vi.mock("@/renderer/ipc/api", () => ({
   isMobileWebApp: () => false,
   default: { log: vi.fn(), saveRecordFileBackup: vi.fn().mockResolvedValue(undefined) },
 }));
+
+function storedReference(): string | null {
+  const key = Object.keys(localStorage).find((key) => key.startsWith("shogihome-game-session:"));
+  return localStorage.getItem(key ?? "shogihome-game-session");
+}
 
 function setup() {
   const fake = fakeGamePlayer();
@@ -53,8 +60,9 @@ function setup() {
   const client = {
     capabilities: vi.fn(async () => server.capabilities()),
     create: vi.fn(async (input: GameSessionRequest) => {
+      const session = await asHttp(() => server.create(input));
       request = input;
-      return asHttp(() => server.create(input).snapshot());
+      return session.snapshot();
     }),
     byRequest: vi.fn(async (id: string) => asHttp(() => server.byRequest(id).snapshot())),
     snapshot: vi.fn(async (id: string) => asHttp(() => server.get(id).snapshot())),
@@ -64,6 +72,7 @@ function setup() {
   } satisfies GameSessionsClient;
   const sockets: FakeSocket[] = [];
   let socketDelayMs = 0;
+  let dropNextFrames = false;
   class FakeSocket {
     readyState = 0;
     onmessage?: (event: { data: string }) => void;
@@ -72,19 +81,32 @@ function setup() {
     connection?: { disconnect(): void; heartbeat(): void };
     constructor(url: string) {
       sockets.push(this);
+      const dropFrames = dropNextFrames;
+      dropNextFrames = false;
       const connect = () => {
         if (this.readyState === 3) return;
         this.readyState = 1;
         const parsed = new URL(url);
-        this.connection = server.byRequest(request!.requestId).connect(
-          parsed.searchParams.get("controllerId")!,
-          (frame: GameFrame) => {
-            queueMicrotask(() => {
-              if (this.readyState === 1) this.onmessage?.({ data: JSON.stringify(frame) });
-            });
-          },
-          (code) => this.close(code),
-        );
+        const binding = decodeGameConnection({
+          connectionId: parsed.searchParams.get("connectionId"),
+          controllerEpoch: Number(parsed.searchParams.get("controllerEpoch")),
+        });
+        if (!binding.ok) throw new Error(binding.error);
+        try {
+          this.connection = server.byRequest(request!.requestId).connect(
+            parsed.searchParams.get("controllerId")!,
+            (frame: GameFrame) => {
+              queueMicrotask(() => {
+                if (this.readyState === 1 && !dropFrames)
+                  this.onmessage?.({ data: JSON.stringify(frame) });
+              });
+            },
+            (code) => this.close(code),
+            binding.value,
+          );
+        } catch (error) {
+          this.close(error instanceof HttpError && error.status === 409 ? 4001 : 4004);
+        }
       };
       if (socketDelayMs) setTimeout(connect, socketDelayMs);
       else queueMicrotask(connect);
@@ -132,6 +154,9 @@ function setup() {
     delayConnections: (ms: number) => {
       socketDelayMs = ms;
     },
+    dropNextConnectionFrames: () => {
+      dropNextFrames = true;
+    },
     socketFactory,
     error,
     end,
@@ -153,6 +178,7 @@ function setup() {
 
 describe("game session client", () => {
   const fixtures: ReturnType<typeof setup>[] = [];
+  const extraClients: GameManager[] = [];
   const fixture = () => {
     const value = setup();
     fixtures.push(value);
@@ -161,10 +187,12 @@ describe("game session client", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.useFakeTimers();
+    vi.mocked(api.saveRecordFileBackup).mockReset().mockResolvedValue(undefined);
     useToastStore().clear();
   });
   afterEach(async () => {
     vi.restoreAllMocks();
+    for (const game of extraClients.splice(0)) game.dispose();
     for (const value of fixtures.splice(0)) {
       value.game.dispose();
       const close = value.server.close();
@@ -181,6 +209,217 @@ describe("game session client", () => {
     expect(value.error.mock.calls).toEqual([]);
     expect(value.game.canMove).toBe(true);
   }
+
+  it("preserves the active game's recovery reference when a stale tab tries to start", async () => {
+    const value = fixture();
+    const records = new RecordManager();
+    const stale = new GameManager(
+      records,
+      new GameClockDisplay(),
+      new GameClockDisplay(),
+      value.client,
+      value.socketFactory,
+    );
+    extraClients.push(stale);
+    await start(value);
+    const reference = storedReference();
+    expect(reference).not.toBeNull();
+    await expect(stale.start(value.settings)).rejects.toThrow();
+    expect(storedReference()).toBe(reference);
+    expect(value.client.create).toHaveBeenCalledOnce();
+    expect(records.analysisLocked).toBe(false);
+    value.game.dispose();
+    const recovered = value.reload();
+    extraClients.push(recovered);
+    await recovered.resume(async () => true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(recovered.canMove).toBe(true);
+  });
+
+  it("rechecks shared recovery state after asynchronous startup preparation", async () => {
+    const value = fixture();
+    const stale = new GameManager(
+      new RecordManager(),
+      new GameClockDisplay(),
+      new GameClockDisplay(),
+      value.client,
+      value.socketFactory,
+    );
+    extraClients.push(stale);
+    let complete!: () => void;
+    value.client.capabilities.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        complete = resolve;
+      });
+      return value.server.capabilities();
+    });
+    const starting = stale.start(value.settings);
+    await start(value);
+    const reference = storedReference();
+    complete();
+    await expect(starting).rejects.toThrow();
+    expect(storedReference()).toBe(reference);
+    expect(value.client.create).toHaveBeenCalledOnce();
+  });
+
+  it("backs up the unsaved document before creating a game that replaces it", async () => {
+    const value = fixture();
+    value.records.appendMove({ move: value.records.record.position.createMoveByUSI("2g2f")! });
+    value.records.updateComment("Unsaved analysis");
+    let complete!: () => void;
+    vi.mocked(api.saveRecordFileBackup).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const starting = value.game.start(value.settings);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.saveRecordFileBackup).toHaveBeenCalledOnce();
+    expect(value.client.create).not.toHaveBeenCalled();
+    expect(value.records.record.current.comment).toBe("Unsaved analysis");
+    complete();
+    await starting;
+    await vi.advanceTimersByTimeAsync(1);
+    const backup = importKIF(vi.mocked(api.saveRecordFileBackup).mock.calls[0][0]) as Record;
+    backup.goto(backup.length);
+    expect(backup.current.move).toBeInstanceOf(Move);
+    expect((backup.current.move as Move).usi).toBe("2g2f");
+    expect(backup.current.comment.trim()).toBe("Unsaved analysis");
+    expect(value.records.record.current.ply).toBe(0);
+  });
+
+  it("preserves the document and releases its lock when startup backup fails", async () => {
+    const value = fixture();
+    value.records.updateComment("Unsaved analysis");
+    vi.mocked(api.saveRecordFileBackup).mockRejectedValueOnce(new Error("Backup failed"));
+    await expect(value.game.start(value.settings)).rejects.toThrow("Backup failed");
+    expect(value.client.create).not.toHaveBeenCalled();
+    expect(value.records.record.current.comment).toBe("Unsaved analysis");
+    expect(value.records.analysisLocked).toBe(false);
+    expect(storedReference()).toBeNull();
+  });
+
+  it("does not let a disconnected old tab automatically reclaim a replacement controller", async () => {
+    const value = fixture();
+    await start(value);
+    value.sockets[0].close();
+    await vi.advanceTimersByTimeAsync(0);
+    const recovered = value.reload();
+    extraClients.push(recovered);
+    await recovered.resume(async () => true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(recovered.canMove).toBe(true);
+    const reference = storedReference();
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(recovered.canMove).toBe(true);
+    expect(value.game.isActive).toBe(false);
+    expect(value.records.analysisLocked).toBe(false);
+    expect(storedReference()).toBe(reference);
+    expect(value.error).toHaveBeenCalledOnce();
+  });
+
+  it("does not delete another game's linkage when its own creation is rejected", async () => {
+    const value = fixture();
+    const other = JSON.stringify({
+      requestId: "other-request",
+      serverInstanceId: value.server.serverInstanceId,
+      controllerId: "other-controller",
+      sessionId: "other-session",
+      content: "Other game",
+      pending: [],
+    });
+    value.client.create.mockImplementationOnce(async () => {
+      localStorage.setItem("shogihome-game-session:other-request", other);
+      throw new ApiResponseError(503, "Another game is running");
+    });
+    await expect(value.game.start(value.settings)).rejects.toMatchObject({ status: 503 });
+    expect(storedReference()).toBe(other);
+    expect(value.game.hasRetainedSession).toBe(true);
+    expect(value.records.analysisLocked).toBe(false);
+  });
+
+  it("migrates legacy recovery linkage without creating another game", async () => {
+    const value = fixture();
+    await start(value);
+    value.game.dispose();
+    const reference = storedReference()!;
+    const key = Object.keys(localStorage).find((key) => key.startsWith("shogihome-game-session:"))!;
+    localStorage.setItem("shogihome-game-session", reference);
+    localStorage.removeItem(key);
+    const recovered = value.reload();
+    extraClients.push(recovered);
+    await recovered.resume(async () => true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(recovered.canMove).toBe(true);
+    expect(value.client.create).toHaveBeenCalledOnce();
+    expect(localStorage.getItem("shogihome-game-session")).toBeNull();
+    expect(localStorage.getItem(key)).not.toBeNull();
+  });
+
+  it("skips an unconfirmed rejected creation when recovering a concurrently delivered request", async () => {
+    const value = fixture();
+    const original = value.client.create.getMockImplementation()!;
+    value.client.create.mockImplementationOnce(async (request) => {
+      await original(request);
+      throw new TypeError("Response lost");
+    });
+    await value.game.start(value.settings);
+    const reference = storedReference()!;
+    const key = Object.keys(localStorage).find((key) => key.startsWith("shogihome-game-session:"))!;
+    localStorage.removeItem(key);
+    localStorage.setItem(
+      "shogihome-game-session:rejected",
+      JSON.stringify({
+        ...JSON.parse(reference),
+        requestId: "rejected",
+      }),
+    );
+    localStorage.setItem(key, reference);
+    value.game.dispose();
+    const recovered = value.reload();
+    extraClients.push(recovered);
+    const error = vi.fn();
+    recovered.on("error", error);
+    await recovered.resume(async () => true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(recovered.canMove).toBe(true);
+    expect(value.client.create).toHaveBeenCalledOnce();
+    expect(localStorage.getItem("shogihome-game-session:rejected")).toBeNull();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("recovers a lost initial socket snapshot using the same connection identity", async () => {
+    const value = fixture();
+    value.dropNextConnectionFrames();
+    await value.game.start(value.settings);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(value.game.canMove).toBe(false);
+    value.sockets[0].close();
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(value.game.canMove).toBe(true);
+    expect(value.error).not.toHaveBeenCalled();
+  });
+
+  it("fences a delayed retry handshake after another tab takes control", async () => {
+    const value = fixture();
+    await start(value);
+    value.delayConnections(50);
+    value.sockets[0].close();
+    await vi.advanceTimersByTimeAsync(1000);
+    value.delayConnections(0);
+    const recovered = value.reload();
+    extraClients.push(recovered);
+    await recovered.resume(async () => true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(recovered.canMove).toBe(true);
+    const reference = storedReference();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(recovered.canMove).toBe(true);
+    expect(value.game.isActive).toBe(false);
+    expect(storedReference()).toBe(reference);
+    expect(value.error).toHaveBeenCalledOnce();
+  });
 
   it("uses server-confirmed moves, locks edits and navigates only after game completion", async () => {
     const value = fixture();
@@ -212,7 +451,7 @@ describe("game session client", () => {
     expect(game.isActive).toBe(false);
     expect(records.analysisLocked).toBe(false);
     expect(value.end).toHaveBeenCalledOnce();
-    expect(localStorage.getItem("shogihome-game-session")).toBeNull();
+    expect(storedReference()).toBeNull();
   });
 
   it("recovers a delivered move whose HTTP response was lost without playing it twice", async () => {
@@ -269,7 +508,7 @@ describe("game session client", () => {
     });
     await value.game.start(value.settings);
     value.game.stop();
-    expect(JSON.parse(localStorage.getItem("shogihome-game-session")!).stopRequested).toBe(true);
+    expect(JSON.parse(storedReference()!).stopRequested).toBe(true);
     await vi.advanceTimersByTimeAsync(1100);
     expect(value.game.isActive).toBe(false);
     expect(value.session().snapshot().state).toBe("completed");
@@ -346,7 +585,7 @@ describe("game session client", () => {
     expect(value.client.create).toHaveBeenCalledOnce();
     expect(recovered.isActive).toBe(false);
     expect(error).toHaveBeenCalledOnce();
-    expect(localStorage.getItem("shogihome-game-session")).toBeNull();
+    expect(storedReference()).toBeNull();
     recovered.dispose();
   });
 
@@ -374,12 +613,12 @@ describe("game session client", () => {
     });
     await expect(value.game.resign()).rejects.toThrow("Record storage failed");
     await vi.advanceTimersByTimeAsync(0);
-    expect(localStorage.getItem("shogihome-game-session")).not.toBeNull();
+    expect(storedReference()).not.toBeNull();
     expect(value.game.isActive).toBe(true);
     storage.mockRestore();
     await vi.advanceTimersByTimeAsync(1100);
     expect(value.game.isActive).toBe(false);
-    expect(localStorage.getItem("shogihome-game-session")).toBeNull();
+    expect(storedReference()).toBeNull();
   });
 
   it("synchronizes a long-running game without HTTP polling or losing application heartbeat", async () => {
@@ -467,7 +706,7 @@ describe("game session client", () => {
     expect(value.game.hasRetainedSession).toBe(false);
     expect(value.game.status!.records.map((record) => record.state)).toEqual(["failed", "failed"]);
     expect(value.records.analysisLocked).toBe(false);
-    expect(localStorage.getItem("shogihome-game-session")).toBeNull();
+    expect(storedReference()).toBeNull();
     value.settings.black = value.settings.white = { uri: "es://human", name: "Human" };
     value.settings.repeat = 1;
     value.settings.enableAutoSave = false;

@@ -4,7 +4,8 @@ import type { ExtendedWebSocket } from "@/server/engine/types";
 import { ALLOWED_ORIGINS } from "@/server/config";
 import { isValidHost } from "@/server/security";
 import type { GameSessionManager } from "@/server/game/manager";
-import { decodeGameClientFrame } from "@/common/game/protocol";
+import { decodeGameClientFrame, decodeGameConnection } from "@/common/game/protocol";
+import { HttpError } from "@/server/errors";
 
 interface WebSocketSession {
   attach(ws: ExtendedWebSocket): void;
@@ -105,6 +106,15 @@ export const createEngineWebSocketServer = (
           return;
         }
         const session = gameManager.get(url.pathname.substring("/ws/game-sessions/".length));
+        const epoch = url.searchParams.get("controllerEpoch");
+        const decodedConnection = decodeGameConnection({
+          connectionId: url.searchParams.get("connectionId"),
+          controllerEpoch: epoch && /^\d+$/.test(epoch) ? Number(epoch) : undefined,
+        });
+        if (!decodedConnection.ok) {
+          ws.close(1008, "Invalid game connection");
+          return;
+        }
         const connection = session.connect(
           url.searchParams.get("controllerId") ?? "",
           (frame) => {
@@ -116,6 +126,7 @@ export const createEngineWebSocketServer = (
             ws.send(JSON.stringify(frame));
           },
           (code = 4004) => ws.close(code, "Controller disconnected"),
+          decodedConnection.value,
         );
         let messages = 0;
         let windowStart = Date.now();
@@ -147,8 +158,11 @@ export const createEngineWebSocketServer = (
         });
         ws.on("close", () => connection.disconnect());
         ws.on("error", () => connection.disconnect());
-      } catch {
-        ws.close(4004, "Game unavailable");
+      } catch (error) {
+        ws.close(
+          error instanceof HttpError && error.status === 409 ? 4001 : 4004,
+          "Game unavailable",
+        );
       }
       return;
     }
