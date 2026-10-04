@@ -281,6 +281,7 @@ class Store {
       .on("beepShort", this.onBeepShort.bind(refs))
       .on("beepUnlimited", this.onBeepUnlimited.bind(refs))
       .on("stopBeep", stopBeep)
+      .on("resetMonitor", this.resetUSIMonitor.bind(refs))
       .on("error", (e) => {
         useErrorStore().add(e);
       })
@@ -841,6 +842,10 @@ class Store {
 
   clearUSISession(sessionID: number): void {
     this.usiMonitor.clearSession(sessionID);
+  }
+
+  private resetUSIMonitor(sessionID: number): void {
+    this.usiMonitor.removeSession(sessionID);
   }
 
   updateUSIInfo(

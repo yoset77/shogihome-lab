@@ -1,4 +1,4 @@
-import { Record, Move, importKIF } from "tsshogi";
+import { Record, Move, importKIF, Color } from "tsshogi";
 import { reactive, markRaw } from "vue";
 import { GameManager } from "@/renderer/store/game";
 import { RecordManager } from "@/renderer/store/record";
@@ -21,6 +21,12 @@ import { fakeGamePlayer } from "@/tests/server/helpers/game";
 import { useToastStore } from "@/renderer/store/toast";
 import { t } from "@/common/i18n";
 import api from "@/renderer/ipc/api";
+import { USIMonitor } from "@/renderer/store/usi";
+import {
+  setOnStartSearchHandler,
+  setOnUpdateUSIInfoHandler,
+  isInfoSessionActive,
+} from "@/renderer/players/usi_events";
 
 vi.mock("@/server/file/history", () => ({
   saveBackup: vi.fn().mockResolvedValue(undefined),
@@ -201,6 +207,8 @@ describe("game session client", () => {
     }
     vi.clearAllTimers();
     vi.useRealTimers();
+    setOnStartSearchHandler(() => {});
+    setOnUpdateUSIInfoHandler(() => {});
   });
   async function start(value: ReturnType<typeof setup>, ai = false) {
     if (ai) value.settings.white = { uri: "lan-engine:test", name: "AI" };
@@ -209,6 +217,97 @@ describe("game session client", () => {
     expect(value.error.mock.calls).toEqual([]);
     expect(value.game.canMove).toBe(true);
   }
+
+  async function gameWithBothEnginePVs(repeat = 1) {
+    const value = fixture();
+    const monitor = new USIMonitor();
+    setOnStartSearchHandler((id) => monitor.endIteration(id));
+    setOnUpdateUSIInfoHandler((id, position, name, info) => {
+      monitor.update(id, position, name, info, 100);
+    });
+    value.game.on("resetMonitor", (id) => monitor.removeSession(id));
+    value.settings.black = { uri: "lan-engine:black", name: "Black Engine" };
+    value.settings.white = { uri: "lan-engine:white", name: "White Engine" };
+    value.settings.repeat = repeat;
+    const emitPV = (name: string, pv: string[]) => {
+      const snapshot = value.session().snapshot();
+      const frame: GameFrame = {
+        type: "clock",
+        sessionId: snapshot.sessionId,
+        serverInstanceId: snapshot.serverInstanceId,
+        revision: snapshot.revision,
+        sampleId: snapshot.sampleId,
+        clocks: snapshot.clocks,
+        infos: [
+          {
+            color: value.records.record.position.color,
+            name,
+            position: value.records.record.usi,
+            searchId: snapshot.interactionId,
+            info: { depth: 8, scoreCP: 42, pv },
+          },
+        ],
+      };
+      value.sockets.at(-1)!.onmessage!({ data: JSON.stringify(frame) });
+    };
+    await value.game.start(value.settings);
+    await vi.advanceTimersByTimeAsync(1);
+    emitPV("Black Engine", ["7g7f", "3c3d"]);
+    await vi.advanceTimersByTimeAsync(500);
+    value.searches[0].handler.onMove(value.records.record.position.createMoveByUSI("7g7f")!);
+    await vi.advanceTimersByTimeAsync(0);
+    emitPV("White Engine", ["3c3d", "2g2f"]);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(monitor.sessions.map((session) => session.name)).toEqual([
+      "Black Engine",
+      "White Engine",
+    ]);
+    return { ...value, monitor, emitPV };
+  }
+
+  it.each([Color.BLACK, Color.WHITE])(
+    "clears previous engine PVs before starting a game with only the %s engine",
+    async (engineColor) => {
+      const value = await gameWithBothEnginePVs();
+      const ids = value.monitor.sessions.map((session) => session.sessionID);
+      value.searches[1].handler.onResign();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(value.game.isActive).toBe(false);
+      value.settings[engineColor === Color.BLACK ? Color.WHITE : Color.BLACK] = {
+        uri: "es://human",
+        name: "Human",
+      };
+      await value.game.start(value.settings);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(value.monitor.sessions).toEqual([]);
+      expect(isInfoSessionActive(ids[0])).toBe(engineColor === Color.BLACK);
+      expect(isInfoSessionActive(ids[1])).toBe(engineColor === Color.WHITE);
+      if (engineColor === Color.WHITE) {
+        await value.game.move(value.records.record.position.createMoveByUSI("7g7f")!);
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      const name = value.settings[engineColor].name;
+      const pv = engineColor === Color.BLACK ? ["2g2f", "8c8d"] : ["8c8d", "2g2f"];
+      value.emitPV(name, pv);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(value.monitor.sessions).toHaveLength(1);
+      expect(value.monitor.sessions[0].name).toBe(name);
+      expect(value.monitor.sessions[0].latestInfo[0].pv).toEqual(pv);
+      expect(value.monitor.sessions[0].latestInfo[0].color).toBe(engineColor);
+    },
+  );
+
+  it("clears engine PVs at the next round of repeated games even at the same position", async () => {
+    const value = await gameWithBothEnginePVs(2);
+    value.searches[1].handler.onResign();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.game.status?.gameNumber).toBe(2);
+    expect(value.monitor.sessions).toEqual([]);
+    value.emitPV("Black Engine", ["2g2f", "8c8d"]);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(value.monitor.sessions).toHaveLength(1);
+    expect(value.monitor.sessions[0].latestInfo[0].pv).toEqual(["2g2f", "8c8d"]);
+  });
 
   it("preserves the active game's recovery reference when a stale tab tries to start", async () => {
     const value = fixture();
