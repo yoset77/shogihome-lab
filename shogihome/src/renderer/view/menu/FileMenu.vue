@@ -8,25 +8,6 @@
         </button>
       </div>
       <div v-if="isMobileWebApp()" class="group">
-        <div v-if="store.gameReconnecting || store.gamePaused" role="status">
-          {{ store.gameReconnecting ? gameMessages.reconnecting : gameMessages.paused }}
-        </div>
-        <button
-          v-if="store.appState === AppState.NORMAL && store.hasRetainedGame"
-          @click="onRecoverGame"
-        >
-          <div class="label">{{ gameMessages.recoverAction }}</div>
-        </button>
-        <button
-          v-if="
-            store.appState === AppState.NORMAL &&
-            store.hasRetainedGame &&
-            store.hasUnsavedGameRecords
-          "
-          @click="gameRecordsVisible = true"
-        >
-          <div class="label">{{ gameMessages.retainedRecords }}</div>
-        </button>
         <button @click="onFlip">
           <Icon :icon="IconType.FLIP" />
           <div class="label">{{ t.flipBoard }}</div>
@@ -69,6 +50,22 @@
         <button v-if="states.stopResearch" class="close" @click="onStopResearch">
           <Icon :icon="IconType.END" />
           <div class="label">{{ t.endResearch }}</div>
+        </button>
+        <button v-if="states.analysis" @click="onAnalysis">
+          <Icon :icon="IconType.ANALYSIS" />
+          <div class="label">{{ t.recordAnalysis }}</div>
+        </button>
+        <button
+          v-if="states.stopAnalysis"
+          class="close"
+          :disabled="store.isAnalysisCancelling"
+          :aria-busy="store.isAnalysisCancelling"
+          @click="onStopAnalysis"
+        >
+          <Icon :icon="IconType.STOP" />
+          <div class="label">
+            {{ store.isAnalysisCancelling ? analysisMessages.cancelling : t.stopAnalysis }}
+          </div>
         </button>
         <button v-if="states.mateSearch" @click="onMateSearch">
           <Icon :icon="IconType.MATE_SEARCH" />
@@ -243,14 +240,12 @@
     </dialog>
     <MobileGameMenu v-if="isGameMenuVisible" @close="emit('close')" />
     <SpecialMoveMenu v-if="isSpecialMoveMenuVisible" @close="emit('close')" />
-    <GameRecordsDialog v-if="gameRecordsVisible" @close="gameRecordsVisible = false" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
-import { gameTexts } from "@/common/i18n/game";
-import GameRecordsDialog from "@/renderer/view/dialog/GameRecordsDialog.vue";
+import { analysisTexts } from "@/common/i18n/analysis";
 import { showModalDialog } from "@/renderer/helpers/dialog.js";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
@@ -276,12 +271,7 @@ const emit = defineEmits<{
 
 const store = useStore();
 const appSettings = useAppSettings();
-const gameMessages = computed(() => gameTexts(appSettings.language));
-const gameRecordsVisible = ref(false);
-const onRecoverGame = () => {
-  emit("close");
-  void store.restoreGame();
-};
+const analysisMessages = computed(() => analysisTexts(appSettings.language));
 const lanStore = useLanStore();
 const dialog = ref();
 const isGameMenuVisible = ref(false);
@@ -301,6 +291,11 @@ const onFlip = () => {
   emit("close");
 };
 const onGame = () => {
+  if (store.hasRetainedGame) {
+    store.showGameDialog();
+    emit("close");
+    return;
+  }
   isGameMenuVisible.value = true;
 };
 const onStopGame = () => {
@@ -384,6 +379,14 @@ const onResearchSettings = () => {
 };
 const onStopResearch = () => {
   store.stopResearch();
+  emit("close");
+};
+const onAnalysis = () => {
+  store.showAnalysisDialog();
+  emit("close");
+};
+const onStopAnalysis = () => {
+  store.stopAnalysis();
   emit("close");
 };
 const onPositionEditing = () => {
@@ -534,6 +537,8 @@ const states = computed(() => {
   return {
     game: store.appState === AppState.NORMAL,
     stopGame: store.appState === AppState.GAME,
+    analysis: store.appState === AppState.NORMAL,
+    stopAnalysis: store.appState === AppState.ANALYSIS,
     resign: store.appState === AppState.GAME && store.isMovableByUser,
     puzzle: isFileQuickActionEnabled(FileQuickAction.PUZZLE, store),
     research: store.appState === AppState.NORMAL && store.researchState === ResearchState.IDLE,

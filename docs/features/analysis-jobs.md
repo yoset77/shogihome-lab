@@ -20,6 +20,8 @@
 通常は `preparing → running → finishing → completed`、取消は `cancelling → cancelled` と進みます。失敗はengine cleanup後に `failed` になります。terminal状態になるまで次のjobを受け付けません。実行・入力・node・PV・結果容量・終了待ちには上限を設けます。上限と保持期限の正本は [`job.ts`](../../shogihome/src/server/analysis/job.ts)、[`jobManager.ts`](../../shogihome/src/server/analysis/jobManager.ts)、共有snapshot codecです。
 
 - Browser切断やpolling失敗は取消ではありません。
+- 通信断は既存の短い `connectionLostRetrying` トーストで一度だけ通知し、状態・結果の再同期後に `reconnected` へ置き換えます。再試行ごとには通知しません。ControlPaneには進捗・通信状態を表示せず、解析中断と取消待ちの操作feedbackのみを残します。
+- PCとmobileは同じ棋譜解析dialog・server jobを使用します。mobileのMenuに棋譜解析／解析中断を用意し、dialogは狭い画面と縦scrollに対応します。
 - 明示的取消は冪等で、進行中の探索を無効化して停止完了を待ちます。確認されるまでRendererも編集lockを保持します。
 - 取消・失敗時は有効な途中結果を残します。取消後の出力を採用せず、取消をきっかけとした新しい隣接局面コメントは作りません。
 - job不明・保持期限超過・Server再起動は410です。失われたjobを空の状態で再生成したり自動再実行したりしません。
@@ -53,6 +55,8 @@ commentと評価はnode IDごとの絶対値として適用し、同じ結果を
 
 復元時はServerの固定入力と完全結果を照合します。内容比較はsnapshotのobject key順に依存せず、node・分岐・PVなどの配列順は維持します。現在の棋譜が入力または最新結果と一致するときだけ自動反映し、それ以外は保持されている解析棋譜を開く確認を求めます。確認前にローカルな未保存内容を上書きしません。既存backupが失敗した場合も置き換えません。復元を断ってもjobを取り消さず、復元用linkageを保持します。
 
+Reload時は自動的に復元を試みます。復元を断った場合もPC／mobileの通常の解析操作から再度復元でき、独立した「解析結果を復元」ボタンは設けません。linkageが残っている間は新規jobの作成へ切り替えません。
+
 通常同期中も文書実体・内容を照合し、想定外の編集があれば注釈反映を停止します。閲覧位置の変更は内容変更と区別します。解析結果はunsaved扱いで、ファイルへの保存は従来どおりユーザーの操作です。
 
 ## Regression Coverage
@@ -64,4 +68,5 @@ commentと評価はnode IDごとの絶対値として適用し、同じ結果を
 - `tests/renderer/store/analysis.spec.ts`: 非重複同期・共有レート制限下の長時間同期、429待機・取消・再試行、応答喪失・reload復元、編集lock、手動閲覧、別文書の保護。
 - `tests/renderer/api/client.spec.ts`: `Retry-After` の秒数・HTTP date・欠落・不正値と既存エラーの互換性。
 - `tests/renderer/api/analysis_jobs.spec.ts`: 実RPC clientのroute・response decoder・復元・失効・取消。
+- production buildのmobile画面を320px幅で確認し、共通dialogの幅・scroll、解析開始／取消、短い切断／再接続トーストをRust Wrapperとfixture USI engine経由で検証しています。実engineの解析品質・性能や切断中のbatch完走を保証する検証ではありません。
 - 既存のrelay・engine state・対局・待ったテストは従来経路の退行を検出します。

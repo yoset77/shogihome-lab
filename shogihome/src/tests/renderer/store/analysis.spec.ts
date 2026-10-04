@@ -17,6 +17,8 @@ import { snapshotRecord, restoreRecord } from "@/common/record/snapshot";
 import { analysisSettings } from "@/tests/mock/analysis";
 import { loadRecordForWebApp } from "@/renderer/store/webapp";
 import api from "@/renderer/ipc/api";
+import { useToastStore } from "@/renderer/store/toast";
+import { t } from "@/common/i18n";
 
 vi.mock("@/renderer/ipc/api", () => ({
   isNative: () => false,
@@ -96,6 +98,7 @@ describe("analysis job client", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.useFakeTimers();
+    useToastStore().clear();
   });
   afterEach(async () => {
     for (const { manager, status } of fixtures.splice(0)) {
@@ -185,6 +188,26 @@ describe("analysis job client", () => {
     expect(client.cancel).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1000);
     expect(manager.reconnecting).toBe(false);
+  });
+
+  it("uses the existing short toast once per synchronization outage", async () => {
+    const { manager, client, result } = fixture();
+    await manager.start(settings);
+    expect(useToastStore().toasts).toHaveLength(0);
+    client.status.mockRejectedValueOnce(new TypeError("offline"));
+    client.result.mockRejectedValueOnce(new TypeError("offline"));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(useToastStore().toasts).toMatchObject([
+      { type: "warning", message: t.connectionLostRetrying, count: 1 },
+    ]);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(useToastStore().toasts).toMatchObject([{ type: "warning", count: 1 }]);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(useToastStore().toasts).toMatchObject([
+      { type: "success", message: t.reconnected, count: 1 },
+    ]);
+    expect(manager.reconnecting).toBe(false);
+    expect(result.revision).toBeGreaterThan(0);
   });
 
   it("honors the advertised interval after every successful synchronization", async () => {
@@ -490,6 +513,26 @@ describe("analysis job client", () => {
     expect(records.record.current.comment).toBe("analysis");
     expect(resumed.hasRetainedJob).toBe(false);
     expect(client.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("announces reconnection after replacing a confirmed different record during recovery", async () => {
+    const { manager, client } = fixture();
+    await manager.start(settings);
+    vi.clearAllTimers();
+    const records = new RecordManager();
+    records.updateComment("Different local work");
+    client.source.mockRejectedValueOnce(new TypeError("offline"));
+    const resumed = new AnalysisManager(records, client);
+    const confirm = vi.fn(async () => true);
+    await resumed.resume(confirm);
+    expect(useToastStore().toasts).toMatchObject([
+      { type: "warning", message: t.connectionLostRetrying },
+    ]);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(useToastStore().toasts).toMatchObject([{ type: "success", message: t.reconnected }]);
+    resumed.close();
+    await vi.advanceTimersByTimeAsync(0);
   });
 
   it("recovers an unchanged record through the source decoder without replacement confirmation", async () => {

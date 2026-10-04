@@ -40,9 +40,6 @@ export const createGameSessionRoutes = (manager: GameSessionManager = gameSessio
     .get("/by-request/:requestId", (c) =>
       c.json(manager.byRequest(id(c.req.param("requestId"))).snapshot()),
     )
-    .get("/:sessionId/records/:gameId", (c) =>
-      c.json(manager.get(id(c.req.param("sessionId"))).record(id(c.req.param("gameId")))),
-    )
     .post(
       "/:sessionId/commands",
       createBodyLimit(DEFAULT_JSON_BODY_LIMIT),

@@ -126,6 +126,8 @@ On-the-fly modeで読み込み中の定跡は、読み込み元のfileへの上�
 
 共有contractは [`src/common/file/history.ts`](../../shogihome/src/common/file/history.ts)、HTTP boundaryは [`routes/history.ts`](../../shogihome/src/server/routes/history.ts) が所有します。保存されたユーザーpathは履歴metadataであり、検証済みfilesystem capabilityではありません。
 
+対局sessionはBrowserの接続に依存せず、各局終了時に履歴書き込みをawaitします。自動保存成功時は `server://` file entry、自動保存なし／失敗時は既存KIF backup entryを登録します。履歴は直近20件で、全対局の保管には自動保存を使います。書き込み失敗は通知して次局へ進み、別の保管層や再保存UIは設けません。
+
 ## Analysis Job Snapshots and Recovery
 
 [`common/record/snapshot.ts`](../../shogihome/src/common/record/snapshot.ts) はversion付きの棋譜snapshotを所有します。tree・分岐順・選択経路・metadata・comment・bookmark・消費時間・既存評価を保存し、各nodeにはsnapshot内で安定したIDを割り当てます。指し手とPVはUSI文字列を含むJSON表現へ変換し、復元時に既存のSFEN／指し手decoderを通します。通常の棋譜ファイル形式や対局checkpointの代替ではありません。
@@ -140,7 +142,7 @@ Job結果の保持は棋譜ファイルの自動保存を意味しません。�
 
 ## Settings and Browser Storage
 
-対局sessionも共有snapshotを使用します。`server/game/` が棋譜とcheckpoint、凍結済み終局棋譜の有界保持を所有し、Rendererは安定node IDとrevisionで完全snapshotを反映します。自動保存は既存 `KIFU_DIR` path resolverとatomic writerを使用し、non-overwrite公開で同名棋譜を保護します。失敗棋譜は次局へ進む前に凍結し、再保存／取り出しが可能です。Server再起動時の永続復旧は行いません。
+対局sessionも共有snapshotを使用します。`server/game/` が棋譜とcheckpointを所有し、Rendererは安定node IDとrevisionで完全snapshotを反映します。終局棋譜は次局へ進む前に凍結して自動保存／既存の履歴へ引き渡します。自動保存は既存 `KIFU_DIR` path resolverとatomic writerを使用し、non-overwrite公開で同名棋譜を保護します。Server再起動時の進行中対局の復旧は行いません。
 
 Rendererは作成POST前に対局linkageと文書比較情報を保存し、未確認操作はrequest ID付きで保持します。別棋譜への復元には確認とbackupが必要です。完了棋譜をBrowser storageへflushするまでlinkageを解除しません。詳細は [Game Sessions](../features/game-sessions.md) を参照してください。
 

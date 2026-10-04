@@ -183,6 +183,40 @@ describe("store/index", () => {
     await useAppSettings().updateAppSettings(defaultAppSettings());
   });
 
+  it("uses the ordinary game action to reconnect instead of starting another game", async () => {
+    const retained = vi
+      .spyOn(GameManager.prototype, "hasRetainedSession", "get")
+      .mockReturnValue(true);
+    try {
+      mockGameManager.prototype.resume.mockResolvedValue(true);
+      const store = createStore();
+      store.showGameDialog();
+      await vi.waitFor(() => expect(useBusyState().isBusy).toBe(false));
+      expect(mockGameManager.prototype.resume).toHaveBeenCalledOnce();
+      expect(mockGameManager.prototype.start).not.toHaveBeenCalled();
+      expect(store.appState).not.toBe(AppState.GAME_DIALOG);
+    } finally {
+      retained.mockRestore();
+    }
+  });
+
+  it("uses the ordinary analysis action to recover existing work without a new POST", async () => {
+    const retained = vi
+      .spyOn(AnalysisManager.prototype, "hasRetainedJob", "get")
+      .mockReturnValue(true);
+    try {
+      mockAnalysisManager.prototype.resume.mockResolvedValue(true);
+      const store = createStore();
+      store.showAnalysisDialog();
+      await vi.waitFor(() => expect(useBusyState().isBusy).toBe(false));
+      expect(mockAnalysisManager.prototype.resume).toHaveBeenCalledOnce();
+      expect(mockAnalysisManager.prototype.start).not.toHaveBeenCalled();
+      expect(store.appState).not.toBe(AppState.ANALYSIS_DIALOG);
+    } finally {
+      retained.mockRestore();
+    }
+  });
+
   it("puzzle results, revealing the answer, and moving to another puzzle", async () => {
     const nextMoveSFEN = InitialPositionSFEN.STANDARD;
     const evaluationSFEN = nextMoveSFEN.replace(" b ", " w ");

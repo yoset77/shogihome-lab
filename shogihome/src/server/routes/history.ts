@@ -21,7 +21,7 @@ export const historyRoutes = new Hono<AppEnv>()
     if (typeof path !== "string" || !path) {
       return sendError(c, 400, "path is required");
     }
-    addHistory(path);
+    await addHistory(path);
     return c.text("ok");
   })
 

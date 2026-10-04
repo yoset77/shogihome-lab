@@ -147,18 +147,18 @@ Vision scan は Middle Server が管理する worker process で実行します�
 
 ## Data Ownership and Persistence
 
-| データ                  | 所有者                            | 性質                                                       |
-| ----------------------- | --------------------------------- | ---------------------------------------------------------- |
-| `KIFU_DIR`              | Middle Serverと外部ファイル管理者 | ユーザーが所有する棋譜・定跡・SFENの正本                   |
-| `data/analysis.db`      | Analysis DB module                | Engine解析結果の永続データ                                 |
-| `data/kifu_index.db`    | Kifu index module                 | `KIFU_DIR` から再構築可能な派生index                       |
-| record history / backup | History service                   | Server共有の履歴と復元データ                               |
-| Book session            | Book session manager              | 保存前の変更を含む有期限の作業状態                         |
-| Analysis job            | Analysis job manager              | 固定入力・進捗・結果・取消を持つ有期限の揮発性状態         |
-| Game session            | Game session manager              | 対局・時計・checkpoint・未保存棋譜を持つ有期限の揮発性状態 |
-| Browser storage         | Renderer                          | 端末・origin固有の設定、復元情報、接続識別子               |
+| データ                  | 所有者                            | 性質                                               |
+| ----------------------- | --------------------------------- | -------------------------------------------------- |
+| `KIFU_DIR`              | Middle Serverと外部ファイル管理者 | ユーザーが所有する棋譜・定跡・SFENの正本           |
+| `data/analysis.db`      | Analysis DB module                | Engine解析結果の永続データ                         |
+| `data/kifu_index.db`    | Kifu index module                 | `KIFU_DIR` から再構築可能な派生index               |
+| record history / backup | History service                   | Server共有の履歴と復元データ                       |
+| Book session            | Book session manager              | 保存前の変更を含む有期限の作業状態                 |
+| Analysis job            | Analysis job manager              | 固定入力・進捗・結果・取消を持つ有期限の揮発性状態 |
+| Game session            | Game session manager              | 対局・時計・checkpointを持つ有期限の揮発性状態     |
+| Browser storage         | Renderer                          | 端末・origin固有の設定、復元情報、接続識別子       |
 
-対局進行・時計・「待った」のcheckpoint・連続対局と保存はServerの `src/server/game/` が所有します。Rendererの `GameManager` はHTTP操作・専用WebSocket同期・復元・表示を担当し、対局中の文書編集をロックします。人間手番は切断検知時に停止し、AI手番は完了してから人間手番で停止します。AI同士はBrowserを閉じても継続します。未保存棋譜の保持は有界で、Server再起動からの対局復旧は行いません。詳細は [Game Sessions](docs/features/game-sessions.md) と [Takeback](docs/features/takeback.md) を参照してください。
+対局進行・時計・「待った」のcheckpoint・連続対局と保存はServerの `src/server/game/` が所有します。Rendererの `GameManager` はHTTP操作・専用WebSocket同期・復元・表示を担当し、対局中の文書編集をロックします。人間手番は切断検知時に停止し、AI手番は完了してから人間手番で停止します。AI同士はBrowserを閉じても継続します。各局終了時に自動保存済みファイルを履歴へ登録し、自動保存なし／失敗時は既存の履歴backupへ保存します。履歴は直近20件の復元用であり、専用の未保存棋譜保管層は設けません。Server再起動からの対局復旧は行いません。詳細は [Game Sessions](docs/features/game-sessions.md) と [Takeback](docs/features/takeback.md) を参照してください。
 
 棋譜解析の進行はServerの `src/server/analysis/` が所有し、Rendererの `AnalysisManager` はHTTPによる作成・同期・取消・復元と安全な注釈反映だけを担当します。入力棋譜のtreeと選択経路、設定は作成時に固定し、解析cursorと閲覧cursorを分離します。Browserを閉じても解析は継続しますが、Server再起動からのjob復旧や棋譜ファイルへの自動保存は行いません。詳細は [Analysis Jobs](docs/features/analysis-jobs.md) を参照してください。
 

@@ -1,12 +1,21 @@
-import { Record, SpecialMoveType } from "tsshogi";
-import { GameSession, MAX_RETAINED_GAME_RECORDS } from "@/server/game/session";
+import { Record, SpecialMoveType, importKIF } from "tsshogi";
+import { GameSession } from "@/server/game/session";
 import { GameSessionManager } from "@/server/game/manager";
 import { decodeGameSnapshot } from "@/common/game/protocol";
 import { restoreRecord, MAX_SNAPSHOT_PLY } from "@/common/record/snapshot";
 import { fakeGamePlayer, gameRequest, gameCommand } from "./helpers/game";
+import { saveBackup, addHistory } from "@/server/file/history";
+
+vi.mock("@/server/file/history", () => ({
+  saveBackup: vi.fn().mockResolvedValue(undefined),
+  addHistory: vi.fn().mockResolvedValue(undefined),
+}));
 
 describe("server game sessions", () => {
-  beforeEach(() => vi.useFakeTimers());
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+  });
   afterEach(() => {
     vi.clearAllTimers();
     vi.useRealTimers();
@@ -232,7 +241,7 @@ describe("server game sessions", () => {
     await session.close();
   });
 
-  async function repeated(repeat = 2, autoSave = true) {
+  async function repeated(repeat = 2, autoSave = true, saveFails = true) {
     const request = gameRequest();
     request.settings.black = { uri: "lan-engine:black", name: "Black" };
     request.settings.white = { uri: "lan-engine:white", name: "White" };
@@ -242,8 +251,9 @@ describe("server game sessions", () => {
     vi.mocked(fake.player.startSearch).mockImplementation(async (_p, _u, _t, handler) => {
       handler.onResign();
     });
-    const saveRecord = vi.fn(async () => {
-      throw new Error("Disk unavailable");
+    const saveRecord = vi.fn(async (): Promise<string> => {
+      if (saveFails) throw new Error("Disk unavailable");
+      return `saved-${vi.mocked(addHistory).mock.calls.length}.kifu`;
     });
     const session = new GameSession("repeated", request, {
       playerBuilder: fake.builder,
@@ -264,29 +274,62 @@ describe("server game sessions", () => {
       results: { total: 2 },
     });
     expect(saveRecord).toHaveBeenCalledTimes(2);
+    expect(saveBackup).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(saveBackup).mock.calls[0][0]).toContain("1/2");
+    expect(vi.mocked(saveBackup).mock.calls[1][0]).toContain("2/2");
     expect(session.snapshot().records.map((record) => record.state)).toEqual(["failed", "failed"]);
-    const first = session.record(session.snapshot().records[0].gameId);
-    expect(first.metadata.standard.find(([key]) => key === "title")?.[1]).toContain("1/2");
-    session.connect("controller", () => {});
-    saveRecord.mockImplementation(async () => "saved.kifu" as never);
-    await session.command(
-      gameCommand(session.snapshot(), "saveRetry", {
-        recordId: session.snapshot().records[0].gameId,
-      }),
-    );
-    expect(session.snapshot().records[0].state).toBe("saved");
-    expect(session.snapshot().records[1].state).toBe("failed");
+    const first = importKIF(vi.mocked(saveBackup).mock.calls[0][0]) as Record;
+    first.goto(first.length);
+    expect(first.current.move).toEqual({ type: SpecialMoveType.RESIGN });
+    expect(addHistory).not.toHaveBeenCalled();
     await session.close();
   });
 
-  it("stops safely at the retention limit instead of dropping unsaved games", async () => {
-    const { session } = await repeated(MAX_RETAINED_GAME_RECORDS + 1, false);
+  it("backs up each game without imposing a separate unsaved retention limit", async () => {
+    const { session, saveRecord } = await repeated(101, false);
     expect(session.snapshot()).toMatchObject({
-      state: "failed",
-      error: "capacity",
-      results: { total: MAX_RETAINED_GAME_RECORDS },
+      state: "completed",
+      results: { total: 101 },
     });
-    expect(session.snapshot().records).toHaveLength(MAX_RETAINED_GAME_RECORDS);
+    expect(session.snapshot().error).toBeUndefined();
+    expect(saveBackup).toHaveBeenCalledTimes(101);
+    expect(saveRecord).not.toHaveBeenCalled();
+    await session.close();
+  });
+
+  it("registers automatically saved files in history instead of duplicating backups", async () => {
+    const { session } = await repeated(2, true, false);
+    expect(addHistory).toHaveBeenNthCalledWith(1, "server://saved-0.kifu");
+    expect(addHistory).toHaveBeenNthCalledWith(2, "server://saved-1.kifu");
+    expect(saveBackup).not.toHaveBeenCalled();
+    expect(session.snapshot().records.map((record) => record.state)).toEqual(["saved", "saved"]);
+    await session.close();
+  });
+
+  it("reports history failures and continues without a third retention layer", async () => {
+    vi.mocked(saveBackup).mockRejectedValueOnce(new Error("History unavailable"));
+    const { session } = await repeated(2, false);
+    expect(session.snapshot()).toMatchObject({
+      state: "completed",
+      error: "save",
+      results: { total: 2 },
+    });
+    expect(saveBackup).toHaveBeenCalledTimes(2);
+    expect(session.snapshot().records.map((record) => record.state)).toEqual(["failed", "unsaved"]);
+    await session.close();
+  });
+
+  it("does not recreate a saved file when its history registration fails", async () => {
+    vi.mocked(addHistory).mockRejectedValueOnce(new Error("History unavailable"));
+    const { session, saveRecord } = await repeated(2, true, false);
+    expect(saveRecord).toHaveBeenCalledTimes(2);
+    expect(addHistory).toHaveBeenCalledTimes(2);
+    expect(saveBackup).not.toHaveBeenCalled();
+    expect(session.snapshot()).toMatchObject({
+      state: "completed",
+      error: "save",
+      results: { total: 2 },
+    });
     await session.close();
   });
 
@@ -331,7 +374,7 @@ describe("server game sessions", () => {
     await session.completion;
     expect(session.snapshot().state).toBe("failed");
     expect(fake.player.close).toHaveBeenCalledTimes(2);
-    expect(session.record(session.snapshot().records[0].gameId)).toBeDefined();
+    expect(saveBackup).toHaveBeenCalledOnce();
     await session.close();
   });
 

@@ -17,6 +17,13 @@ import { SearchInfoSenderType } from "@/common/record/types";
 import { defaultGameSettings } from "@/common/settings/game";
 import { loadRecordForWebApp } from "@/renderer/store/webapp";
 import { fakeGamePlayer } from "@/tests/server/helpers/game";
+import { useToastStore } from "@/renderer/store/toast";
+import { t } from "@/common/i18n";
+
+vi.mock("@/server/file/history", () => ({
+  saveBackup: vi.fn().mockResolvedValue(undefined),
+  addHistory: vi.fn().mockResolvedValue(undefined),
+}));
 
 vi.mock("@/renderer/ipc/api", () => ({
   isNative: () => false,
@@ -53,9 +60,6 @@ function setup() {
     snapshot: vi.fn(async (id: string) => asHttp(() => server.get(id).snapshot())),
     command: vi.fn(async (id: string, command: GameCommand) =>
       asHttp(() => server.get(id).command(command)),
-    ),
-    record: vi.fn(async (id: string, gameId: string) =>
-      asHttp(() => server.get(id).record(gameId)),
     ),
   } satisfies GameSessionsClient;
   const sockets: FakeSocket[] = [];
@@ -157,6 +161,7 @@ describe("game session client", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.useFakeTimers();
+    useToastStore().clear();
   });
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -228,6 +233,31 @@ describe("game session client", () => {
     expect(moves).toHaveLength(2);
     expect(moves[0][1].requestId).toBe(moves[1][1].requestId);
     expect(value.beat.mock.calls.length).toBeLessThanOrEqual(1);
+  });
+
+  it("notifies once per outage and only announces recovery after synchronization", async () => {
+    const value = fixture();
+    await start(value);
+    expect(useToastStore().toasts).toHaveLength(0);
+    value.sockets[0].close();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useToastStore().toasts).toMatchObject([
+      { type: "warning", message: t.connectionLostRetrying, count: 1 },
+    ]);
+    value.client.snapshot.mockRejectedValueOnce(new TypeError("offline"));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(useToastStore().toasts).toMatchObject([{ type: "warning", count: 1 }]);
+    value.delayConnections(20);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(useToastStore().toasts[0].type).toBe("warning");
+    await vi.advanceTimersByTimeAsync(20);
+    expect(value.game.canMove).toBe(true);
+    expect(useToastStore().toasts).toMatchObject([
+      { type: "success", message: t.reconnected, count: 1 },
+    ]);
+    value.game.dispose();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useToastStore().toasts[0].type).toBe("success");
   });
 
   it("retains an interrupt requested while creation recovery has not found the session yet", async () => {
@@ -423,7 +453,7 @@ describe("game session client", () => {
     ).toBe(true);
   });
 
-  it("retries frozen failed saves without overwriting an opened retained record", async () => {
+  it("releases finished-game linkage after failed saves so another game can start", async () => {
     const value = fixture();
     value.settings.black = value.settings.white = { uri: "lan-engine:test", name: "AI" };
     value.settings.repeat = 2;
@@ -434,17 +464,17 @@ describe("game session client", () => {
     await value.game.start(value.settings);
     await vi.advanceTimersByTimeAsync(10);
     expect(value.game.isActive).toBe(false);
-    expect(value.game.hasRetainedSession).toBe(true);
-    expect(value.game.hasUnsavedRecords).toBe(true);
-    await value.game.openRecord(value.game.status!.records[0].gameId);
-    value.records.updateComment("Exported first game");
-    value.delayConnections(20);
-    value.saveRecord.mockImplementation(async () => "saved.kifu" as never);
-    await value.game.retrySaving();
-    await vi.advanceTimersByTimeAsync(50);
-    expect(value.records.record.current.comment).toBe("Exported first game");
-    expect(value.game.hasUnsavedRecords).toBe(false);
     expect(value.game.hasRetainedSession).toBe(false);
+    expect(value.game.status!.records.map((record) => record.state)).toEqual(["failed", "failed"]);
+    expect(value.records.analysisLocked).toBe(false);
+    expect(localStorage.getItem("shogihome-game-session")).toBeNull();
+    value.settings.black = value.settings.white = { uri: "es://human", name: "Human" };
+    value.settings.repeat = 1;
+    value.settings.enableAutoSave = false;
+    await value.game.start(value.settings);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.client.create).toHaveBeenCalledTimes(2);
+    expect(value.game.canMove).toBe(true);
   });
 
   it("releases an initial edit lock when disposed before capabilities arrive", async () => {

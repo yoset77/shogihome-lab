@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Color, SpecialMoveType, type ImmutableNode } from "tsshogi";
+import { Color, SpecialMoveType, exportKIF, type ImmutableNode } from "tsshogi";
 import { GameRecord } from "@/common/game/record";
 import {
   type GameCommand,
@@ -31,11 +31,10 @@ import { GameController, type PlayerBuilder } from "./controller";
 import { GamePlayer, HumanPlayer } from "./player";
 import { GameBook } from "./book";
 import { loadGamePositions, saveGameRecord } from "./files";
+import { addHistory, saveBackup } from "@/server/file/history";
 
 export const GAME_HEARTBEAT_MS = 5000;
 export const GAME_CONTROLLER_TIMEOUT_MS = 30_000;
-export const MAX_RETAINED_GAME_RECORDS = 100;
-export const MAX_RETAINED_GAME_BYTES = 20 * 1024 * 1024;
 export const MAX_GAME_SNAPSHOT_BYTES = 16 * 1024 * 1024;
 
 export type GameDependencies = {
@@ -43,6 +42,8 @@ export type GameDependencies = {
   resolveEngine?: (id: string) => Promise<EngineConfig>;
   loadPositions?: (uri: string) => Promise<string[]>;
   saveRecord?: typeof saveGameRecord;
+  addHistory?: typeof addHistory;
+  saveBackup?: typeof saveBackup;
   playerBuilder?: PlayerBuilder;
   now?: () => number;
 };
@@ -77,10 +78,6 @@ export class GameSession {
   private error?: GameError;
   private lastResult?: SpecialMoveType;
   private terminal = false;
-  private retained = new Map<
-    string,
-    { source: RecordSnapshot; bytes: number; summary: GameRecordSummary; saving?: Promise<void> }
-  >();
   private summaries: GameRecordSummary[] = [];
   private commands = new Map<string, { hash: string; result: Promise<void> }>();
   private infos = new Map<
@@ -117,7 +114,7 @@ export class GameSession {
       .on("pieceBeat", () => {
         ++this.lastMoveId;
       })
-      .on("recordEnd", () => this.retainFinishedRecord())
+      .on("recordEnd", () => this.saveFinishedRecord())
       .on("gameEnd", (_results, result) => {
         this.lastResult = result;
         this.finish();
@@ -350,7 +347,7 @@ export class GameSession {
       if (command.controllerEpoch !== this.controller?.epoch)
         throw new HttpError(409, gameTexts().conflict);
       if (
-        !["saveRetry", "interrupt", "resume"].includes(command.action) &&
+        !["interrupt", "resume"].includes(command.action) &&
         (command.gameId !== this.gameId ||
           command.interactionId !== this.core.interactionId ||
           this.terminal)
@@ -386,9 +383,6 @@ export class GameSession {
         case "resume":
           this.core.setConnected(true);
           this.core.resume();
-          break;
-        case "saveRetry":
-          await this.retrySave(command.recordId!);
           break;
         case "annotate": {
           if (!this.annotate(command)) throw new HttpError(409, gameTexts().conflict);
@@ -434,54 +428,40 @@ export class GameSession {
     return true;
   }
 
-  private async retainFinishedRecord(): Promise<void> {
+  private async saveFinishedRecord(): Promise<void> {
     const source = this.source();
     const summary: GameRecordSummary = { gameId: this.gameId, state: "unsaved" };
-    for (const [id, entry] of this.retained)
-      if (entry.summary.state === "saved") this.retained.delete(id);
-    const entry = { source, bytes: Buffer.byteLength(JSON.stringify(source)), summary };
-    this.retained.set(this.gameId, entry);
     this.summaries.push(summary);
-    if (this.core.settings.enableAutoSave) await this.retrySave(this.gameId);
-    const unsaved = [...this.retained.values()].filter((entry) => entry.summary.state !== "saved");
-    if (
-      unsaved.length >= MAX_RETAINED_GAME_RECORDS ||
-      unsaved.reduce((sum, entry) => sum + entry.bytes, 0) >= MAX_RETAINED_GAME_BYTES
-    ) {
-      this.error = "capacity";
-      this.core.stop();
-    }
-    this.publish();
-  }
-  private async retrySave(id: string): Promise<void> {
-    const entry = this.retained.get(id);
-    if (!entry) throw new HttpError(410, gameTexts().expired);
-    if (entry.summary.state === "saved") return;
-    if (entry.saving) return entry.saving;
-    entry.saving = (async () => {
+    if (this.core.settings.enableAutoSave) {
       try {
-        entry.summary.path = await (this.deps.saveRecord ?? saveGameRecord)(
-          entry.source,
+        summary.path = await (this.deps.saveRecord ?? saveGameRecord)(
+          source,
           this.request.options.save,
-          id,
+          this.gameId,
         );
-        entry.summary.state = "saved";
-        if (!this.summaries.some((entry) => entry.state === "failed") && this.error === "save")
-          this.error = undefined;
+        summary.state = "saved";
       } catch (error) {
         console.error("Game save failed", error);
-        entry.summary.state = "failed";
+        summary.state = "failed";
         this.error ??= "save";
-      } finally {
-        entry.saving = undefined;
       }
-    })();
-    await entry.saving;
-  }
-  record(id: string): RecordSnapshot {
-    const entry = this.retained.get(id);
-    if (!entry) throw new HttpError(410, gameTexts().expired);
-    return structuredClone(entry.source);
+    }
+    try {
+      if (summary.state === "saved") {
+        await (this.deps.addHistory ?? addHistory)("server://" + summary.path);
+      } else {
+        await (this.deps.saveBackup ?? saveBackup)(
+          exportKIF(restoreRecord(source).record, {
+            returnCode: this.request.options.save.returnCode,
+          }),
+        );
+      }
+    } catch (error) {
+      console.error("Game history failed", error);
+      summary.state = "failed";
+      this.error ??= "save";
+    }
+    this.publish();
   }
   private fail(error: unknown, kind: GameError = "engine"): void {
     console.error(`Game ${this.id} failed`, error);

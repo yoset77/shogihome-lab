@@ -6,6 +6,7 @@ import { AppState, ResearchState } from "@/common/control/state";
 import { JishogiRule } from "@/common/settings/game";
 import ControlPane, { ControlGroup } from "@/renderer/view/main/ControlPane.vue";
 import GameActionMenu from "@/renderer/view/menu/GameActionMenu.vue";
+import { defaultAppSettings } from "@/common/settings/app";
 
 const { storeMock } = vi.hoisted(() => ({
   storeMock: {
@@ -15,6 +16,13 @@ const { storeMock } = vi.hoisted(() => ({
     canTakeback: true,
     isTakingBack: false,
     isMovableByUser: true,
+    hasRetainedGame: true,
+    hasUnsavedGameRecords: true,
+    hasRetainedAnalysis: true,
+    gameReconnecting: true,
+    gamePaused: true,
+    analysisReconnecting: true,
+    isAnalysisCancelling: false,
     gameSettings: { jishogiRule: "general27", repeat: 1 },
     takeback: vi.fn(),
     stopGame: vi.fn(),
@@ -28,7 +36,7 @@ const { storeMock } = vi.hoisted(() => ({
 const store = reactive(storeMock);
 
 vi.mock("@/renderer/store", () => ({ useStore: () => store }));
-vi.mock("@/renderer/store/settings", () => ({ useAppSettings: () => ({}) }));
+vi.mock("@/renderer/store/settings", () => ({ useAppSettings: () => defaultAppSettings() }));
 vi.mock("@/renderer/store/lan", () => ({ useLanStore: () => ({}) }));
 vi.mock("@/renderer/devices/hotkey", () => ({
   installHotKeyForMainWindow: vi.fn(),
@@ -46,6 +54,27 @@ describe("ControlPane game actions", () => {
     storeMock.gameSettings.jishogiRule = JishogiRule.GENERAL27;
     storeMock.gameSettings.repeat = 1;
   });
+
+  it.each(Object.values(ResearchState))(
+    "never adds recovery or status items with research %s",
+    (researchState) => {
+      for (const appState of [AppState.NORMAL, AppState.GAME, AppState.ANALYSIS]) {
+        store.appState = appState;
+        store.researchState = researchState;
+        store.supportsTakeback = appState === AppState.GAME;
+        const wrapper = shallowMount(ControlPane, { props: { group: ControlGroup.All } });
+        for (const box of wrapper.findAll(".control-box")) {
+          const visible = box
+            .findAll(".control-item")
+            .filter((item) => (item.element as HTMLElement).style.display !== "none");
+          expect(visible.length).toBeLessThanOrEqual(5);
+          expect(visible.every((item) => item.element.tagName === "BUTTON")).toBe(true);
+        }
+        expect(wrapper.find('[role="status"]').exists()).toBe(false);
+        wrapper.unmount();
+      }
+    },
+  );
 
   it("keeps five visible buttons during a human-versus-engine takeback game", async () => {
     const wrapper = shallowMount(ControlPane, {

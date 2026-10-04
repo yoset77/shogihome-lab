@@ -6,7 +6,6 @@ import {
   type GameSnapshot,
   type GameCapabilities,
 } from "@/common/game/protocol";
-import { decodeRecordSnapshot, type RecordSnapshot } from "@/common/record/snapshot";
 import type { DecodeResult } from "@/common/engine/relay_protocol";
 import { gameTexts } from "@/common/i18n/game";
 import { createApiRequestOptions, createHonoApiClient, parseJsonResponse } from "./client";
@@ -17,7 +16,6 @@ export interface GameSessionsClient {
   byRequest(id: string): Promise<GameSnapshot>;
   snapshot(id: string): Promise<GameSnapshot>;
   command(id: string, command: GameCommand): Promise<GameSnapshot>;
-  record(id: string, gameId: string): Promise<RecordSnapshot>;
 }
 async function decode<T>(
   response: Response,
@@ -50,11 +48,6 @@ export function createGameSessionsClient(): GameSessionsClient {
           createApiRequestOptions({ timeoutMs: 30_000 }),
         ),
         decodeGameSnapshot,
-      ),
-    record: async (id, gameId) =>
-      decode(
-        await client[":sessionId"].records[":gameId"].$get({ param: { sessionId: id, gameId } }),
-        decodeRecordSnapshot,
       ),
   };
 }
