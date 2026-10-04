@@ -69,10 +69,6 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
-  containsBasicEngines: {
-    type: Boolean,
-    default: false,
-  },
   containsLan: {
     type: Boolean,
     default: false,
@@ -175,15 +171,6 @@ const listItems = computed(() => {
 
   for (const engine of props.engines.engineList) {
     items.push({ label: engine.name, value: engine.uri, tags: engine.tags });
-  }
-  if (props.containsBasicEngines) {
-    for (const playerURI of uri.ES_BASIC_ENGINE_LIST) {
-      items.push({
-        label: uri.basicEngineName(playerURI),
-        value: playerURI,
-        tags: [tag],
-      });
-    }
   }
   return items;
 });

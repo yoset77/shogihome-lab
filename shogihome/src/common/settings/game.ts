@@ -78,16 +78,20 @@ export function normalizeGameSettings(settings: GameSettings): GameSettings {
       startPosition: "current",
     },
     ...settings,
-    black: {
-      ...defaultPlayerSettings(),
-      ...settings.black,
-      ...(settings.black.usi ? { usi: normalizeUSIEngine(settings.black.usi) } : {}),
-    },
-    white: {
-      ...defaultPlayerSettings(),
-      ...settings.white,
-      ...(settings.white.usi ? { usi: normalizeUSIEngine(settings.white.usi) } : {}),
-    },
+    black: settings.black.uri.startsWith("es://basic-engine/")
+      ? defaultPlayerSettings()
+      : {
+          ...defaultPlayerSettings(),
+          ...settings.black,
+          ...(settings.black.usi ? { usi: normalizeUSIEngine(settings.black.usi) } : {}),
+        },
+    white: settings.white.uri.startsWith("es://basic-engine/")
+      ? defaultPlayerSettings()
+      : {
+          ...defaultPlayerSettings(),
+          ...settings.white,
+          ...(settings.white.usi ? { usi: normalizeUSIEngine(settings.white.usi) } : {}),
+        },
     timeLimit: {
       ...defaultTimeLimitSettings(),
       ...settings.timeLimit,
