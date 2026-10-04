@@ -8,7 +8,6 @@
           <PlayerSelector
             v-model:player-uri="blackPlayerURI"
             :contains-human="true"
-            :contains-basic-engines="true"
             :engines="engines"
             :default-tag="getPredefinedUSIEngineTag('game')"
             :display-ponder-state="true"
@@ -40,7 +39,6 @@
             v-if="whitePlayerURI"
             v-model:player-uri="whitePlayerURI"
             :contains-human="true"
-            :contains-basic-engines="true"
             :engines="engines"
             :default-tag="getPredefinedUSIEngineTag('game')"
             :display-ponder-state="true"
@@ -463,7 +461,7 @@ const buildPlayerSettings = (
     };
   }
   return {
-    name: uri.isBasicEngine(playerURI) ? uri.basicEngineName(playerURI) : t.human,
+    name: t.human,
     uri: playerURI,
   };
 };

@@ -118,14 +118,6 @@ const playerItems = computed(() => {
         items.push({ value: `lan-engine:${info.id}`, label: info.name });
       });
   }
-  items.push({
-    value: uri.ES_BASIC_ENGINE_STATIC_ROOK_V1,
-    label: `${t.beginner} (${t.staticRook})`,
-  });
-  items.push({
-    value: uri.ES_BASIC_ENGINE_RANGING_ROOK_V1,
-    label: `${t.beginner} (${t.rangingRook})`,
-  });
   return items;
 });
 

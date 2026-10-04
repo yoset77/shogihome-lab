@@ -10,6 +10,24 @@ import * as uri from "@/common/uri";
 import { BookMoveSelectionRule } from "@/common/settings/usi";
 
 describe("settings/game", () => {
+  it("defaults both players to humans", () => {
+    const settings = defaultGameSettings();
+    expect(settings.black.uri).toBe(uri.ES_HUMAN);
+    expect(settings.white.uri).toBe(uri.ES_HUMAN);
+  });
+
+  it.each(["static_rook/v1", "ranging_rook/v1", "random"])(
+    "falls back to humans for retired built-in AI settings: %s",
+    (engine) => {
+      const settings = defaultGameSettings();
+      const legacy = { name: "Old AI", uri: `es://basic-engine/${engine}` };
+      const result = normalizeGameSettings({ ...settings, black: legacy, white: legacy });
+      expect(result.black).toEqual(settings.black);
+      expect(result.white).toEqual(settings.white);
+      expect(legacy.uri).toBe(`es://basic-engine/${engine}`);
+    },
+  );
+
   it("normalize", () => {
     const settings: GameSettings = {
       black: {

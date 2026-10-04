@@ -2,6 +2,11 @@ import { PlayerSettings, validatePlayerSettings } from "@/common/settings/player
 
 describe("settings/player", () => {
   describe("validate", () => {
+    it("rejects retired built-in AI players", () => {
+      expect(
+        validatePlayerSettings({ name: "Old AI", uri: "es://basic-engine/random" }),
+      ).toBeInstanceOf(Error);
+    });
     it("human/ok", () => {
       expect(
         validatePlayerSettings({

@@ -179,8 +179,8 @@ const initialized = ref(false);
 const settings = reactive({
   black: { uri: uri.ES_HUMAN, name: t.human, usi: undefined } as PlayerSettings,
   white: {
-    uri: uri.ES_BASIC_ENGINE_STATIC_ROOK_V1,
-    name: `${t.beginner} (${t.staticRook})`,
+    uri: uri.ES_HUMAN,
+    name: t.human,
     usi: undefined,
   } as PlayerSettings,
   blackTime: { timeSeconds: 600, byoyomi: 30, increment: 0 } as TimeLimitSettings,

@@ -2,7 +2,6 @@ import { PlayerSettings } from "@/common/settings/player";
 import { humanPlayer } from "./human.js";
 import { Player, SearchInfo } from "./player.js";
 import { USIPlayer } from "./usi.js";
-import { BasicPlayer } from "./basic.js";
 import * as uri from "@/common/uri";
 import { LanPlayer } from "./lan_player.js";
 
@@ -42,9 +41,6 @@ export function defaultPlayerBuilder(engineTimeoutSeconds?: number): PlayerBuild
         );
         await player.launch();
         return player;
-      }
-      if (uri.isBasicEngine(playerSettings.uri)) {
-        return new BasicPlayer(playerSettings.uri);
       }
       if (uri.isUSIEngine(playerSettings.uri) && playerSettings.usi) {
         const player = new USIPlayer(playerSettings.usi, engineTimeoutSeconds ?? 10, onSearchInfo);
