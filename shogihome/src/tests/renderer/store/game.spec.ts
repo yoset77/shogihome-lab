@@ -78,7 +78,7 @@ function setup() {
   } satisfies GameSessionsClient;
   const sockets: FakeSocket[] = [];
   let socketDelayMs = 0;
-  let dropNextFrames = false;
+  let dropNextFrames: "all" | "snapshot" | undefined;
   class FakeSocket {
     readyState = 0;
     onmessage?: (event: { data: string }) => void;
@@ -88,7 +88,7 @@ function setup() {
     constructor(url: string) {
       sockets.push(this);
       const dropFrames = dropNextFrames;
-      dropNextFrames = false;
+      dropNextFrames = undefined;
       const connect = () => {
         if (this.readyState === 3) return;
         this.readyState = 1;
@@ -103,7 +103,11 @@ function setup() {
             parsed.searchParams.get("controllerId")!,
             (frame: GameFrame) => {
               queueMicrotask(() => {
-                if (this.readyState === 1 && !dropFrames)
+                if (
+                  this.readyState === 1 &&
+                  dropFrames !== "all" &&
+                  (dropFrames !== "snapshot" || frame.type !== "snapshot")
+                )
                   this.onmessage?.({ data: JSON.stringify(frame) });
               });
             },
@@ -160,8 +164,8 @@ function setup() {
     delayConnections: (ms: number) => {
       socketDelayMs = ms;
     },
-    dropNextConnectionFrames: () => {
-      dropNextFrames = true;
+    dropNextConnectionFrames: (frames: "all" | "snapshot" = "all") => {
+      dropNextFrames = frames;
     },
     socketFactory,
     error,
@@ -502,6 +506,102 @@ describe("game session client", () => {
     expect(value.client.create).toHaveBeenCalledOnce();
     expect(localStorage.getItem("shogihome-game-session:rejected")).toBeNull();
     expect(error).not.toHaveBeenCalled();
+  });
+
+  it.each(["initial", "reconnect"] as const)(
+    "retries a silent %s socket before receiving its first snapshot",
+    async (phase) => {
+      const value = fixture();
+      if (phase === "reconnect") {
+        await start(value);
+        value.dropNextConnectionFrames();
+        value.sockets[0].close();
+        await vi.advanceTimersByTimeAsync(1000);
+      } else {
+        value.dropNextConnectionFrames();
+        await value.game.start(value.settings);
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      const socket = value.sockets.at(-1)!;
+      const send = vi.spyOn(socket, "send");
+      const lateFrame = socket.onmessage!;
+      const reference = JSON.parse(storedReference()!);
+      await vi.advanceTimersByTimeAsync(9999);
+      expect(socket.readyState).toBe(1);
+      expect(value.game.canMove).toBe(false);
+      expect(send).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(socket.readyState).toBe(3);
+      expect(value.game.isActive).toBe(true);
+      expect(value.records.analysisLocked).toBe(true);
+      expect(JSON.parse(storedReference()!).requestId).toBe(reference.requestId);
+      lateFrame({ data: JSON.stringify({ type: "snapshot", value: value.session().snapshot() }) });
+      expect(value.game.canMove).toBe(false);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(value.sockets).toHaveLength(phase === "initial" ? 2 : 3);
+      expect(value.game.canMove).toBe(true);
+      expect(value.client.create).toHaveBeenCalledOnce();
+      expect(value.error).not.toHaveBeenCalled();
+    },
+  );
+
+  it("times out the initial snapshot even when clock frames keep arriving", async () => {
+    const value = fixture();
+    value.dropNextConnectionFrames("snapshot");
+    await value.game.start(value.settings);
+    await vi.advanceTimersByTimeAsync(0);
+    const socket = value.sockets[0];
+    const send = vi.spyOn(socket, "send");
+    const receive = vi.spyOn(socket, "onmessage");
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(receive).toHaveBeenCalled();
+    expect(socket.readyState).toBe(1);
+    expect(value.game.canMove).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(socket.readyState).toBe(3);
+    expect(value.records.analysisLocked).toBe(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(value.sockets).toHaveLength(2);
+    expect(value.game.canMove).toBe(true);
+    expect(value.client.create).toHaveBeenCalledOnce();
+    expect(value.error).not.toHaveBeenCalled();
+  });
+
+  it("retries a socket whose opening handshake never completes", async () => {
+    const value = fixture();
+    value.delayConnections(60_000);
+    await value.game.start(value.settings);
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(value.sockets[0].readyState).toBe(0);
+    expect(value.game.canMove).toBe(false);
+    value.delayConnections(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.sockets[0].readyState).toBe(3);
+    expect(value.records.analysisLocked).toBe(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(value.sockets).toHaveLength(2);
+    expect(value.game.canMove).toBe(true);
+    await vi.advanceTimersByTimeAsync(50_000);
+    expect(value.sockets).toHaveLength(2);
+    expect(value.game.canMove).toBe(true);
+    expect(value.client.create).toHaveBeenCalledOnce();
+    expect(value.error).not.toHaveBeenCalled();
+  });
+
+  it("stops initial snapshot timeout monitoring when the client is disposed", async () => {
+    const value = fixture();
+    value.dropNextConnectionFrames();
+    await value.game.start(value.settings);
+    await vi.advanceTimersByTimeAsync(0);
+    value.game.dispose();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(value.game.isActive).toBe(false);
+    expect(value.records.analysisLocked).toBe(false);
+    expect(value.sockets).toHaveLength(1);
+    expect(value.client.capabilities).toHaveBeenCalledOnce();
+    expect(value.client.snapshot).not.toHaveBeenCalled();
+    expect(value.error).not.toHaveBeenCalled();
   });
 
   it("recovers a lost initial socket snapshot using the same connection identity", async () => {

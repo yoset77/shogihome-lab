@@ -444,6 +444,8 @@ export class GameManager {
     const generation = ++this.generation;
     this.lastFrameAt = Date.now();
     const socket = (this.socket = this.createSocket(url.href));
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = setInterval(() => this.heartbeat(), 5000);
     socket.onmessage = (event) => {
       if (generation !== this.generation || this.socket !== socket) return;
       try {
@@ -451,15 +453,14 @@ export class GameManager {
           throw new Error(gameTexts().invalid);
         const decoded = decodeGameFrame(JSON.parse(event.data));
         if (!decoded.ok) throw new Error(gameTexts().invalid);
-        this.lastFrameAt = Date.now();
+        // Clock frames cannot complete the initial controller handshake.
+        if (this.socketReady || decoded.value.type === "snapshot") this.lastFrameAt = Date.now();
         const initial = !this.socketReady;
         this.frame(decoded.value, initial);
         if (decoded.value.type === "snapshot" && initial && this.reference) {
           this.socketReady = true;
           this.retryMs = 1000;
           this.heartbeat();
-          clearInterval(this.heartbeatTimer);
-          this.heartbeatTimer = setInterval(() => this.heartbeat(), 5000);
           void this.resendPending()
             .then(() => {
               if (this.active && this.socketReady)
@@ -498,7 +499,7 @@ export class GameManager {
     };
   }
   private heartbeat(): void {
-    if (Date.now() - this.lastFrameAt > 10_000) {
+    if (Date.now() - this.lastFrameAt >= 10_000) {
       this.backoff(new TypeError("Game updates timed out"));
       this.blackClock.pause();
       this.whiteClock.pause();
@@ -506,7 +507,7 @@ export class GameManager {
       this.schedule();
       return;
     }
-    if (this.socket?.readyState === 1 && this._status)
+    if (this.socketReady && this.socket?.readyState === 1 && this._status)
       this.socket.send(
         JSON.stringify({ type: "heartbeat", controllerEpoch: this._status.controllerEpoch }),
       );
