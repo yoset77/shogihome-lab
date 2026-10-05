@@ -38,8 +38,10 @@ const deferred = <T>() => {
 vi.mock("@/server/book/index.js", () => {
   let sessionCounter = 100;
   const sessions = new Set<number>();
+  const allocateBookSessionId = vi.fn(() => sessionCounter++);
 
   return {
+    allocateBookSessionId,
     openBook: vi.fn(async (session: number) => {
       sessions.add(session);
       return "in-memory";
@@ -71,7 +73,7 @@ vi.mock("@/server/book/index.js", () => {
     }),
     isBookOnTheFly: vi.fn(() => false),
     openBookAsNewSession: vi.fn(async () => {
-      const session = sessionCounter++;
+      const session = allocateBookSessionId();
       sessions.add(session);
       return { session, mode: "in-memory" };
     }),

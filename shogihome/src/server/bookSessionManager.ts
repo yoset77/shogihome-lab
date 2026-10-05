@@ -1,4 +1,4 @@
-import { closeBookSession, initBookSession } from "@/server/book";
+import { allocateBookSessionId, closeBookSession, initBookSession } from "@/server/book";
 import { HttpError } from "@/server/errors";
 import AsyncLock from "async-lock";
 import { t } from "@/common/i18n";
@@ -16,7 +16,6 @@ class BookSessionManager {
     maxPending: BOOK_LOCK_MAX_PENDING,
     timeout: BOOK_LOCK_TIMEOUT_MS,
   });
-  private nextSessionId = 1;
   private readonly MAX_SESSIONS = 50;
 
   has(sessionId: string): boolean {
@@ -31,7 +30,7 @@ class BookSessionManager {
       if (this.sessions.size >= this.MAX_SESSIONS) {
         throw new HttpError(503, `Book session limit reached (${this.MAX_SESSIONS})`);
       }
-      const id = this.nextSessionId++;
+      const id = allocateBookSessionId();
       initBookSession(id);
       this.sessions.set(sessionId, id);
     }
