@@ -1,12 +1,12 @@
 import { USIInfoCommand } from "@/common/game/usi";
 import { USIPlayerMonitor } from "@/renderer/store/usi";
-import { bench } from "vitest";
+import { test } from "vitest";
 
 function pv(s: string): string[] {
   return s.split(" ");
 }
 
-describe("store/usi", () => {
+test("store/usi", async ({ bench }) => {
   const monitorUpdateTestCases: { sfen: string; update: USIInfoCommand }[] = [];
   for (let i = 0; i < 50; i++) {
     monitorUpdateTestCases.push({
@@ -66,13 +66,9 @@ describe("store/usi", () => {
   }
   const monitor = new USIPlayerMonitor(1, "name");
 
-  bench(
-    "USIPlayerMonitor",
-    () => {
-      for (const testCase of monitorUpdateTestCases) {
-        monitor.update(testCase.sfen, testCase.update, 100, undefined);
-      }
-    },
-    { time: 1000, throws: true },
-  );
+  await bench("USIPlayerMonitor", () => {
+    for (const testCase of monitorUpdateTestCases) {
+      monitor.update(testCase.sfen, testCase.update, 100, undefined);
+    }
+  }).run({ time: 1000, throws: true });
 });
