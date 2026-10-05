@@ -10,7 +10,7 @@
 //! the digest must be exactly 64 hex characters (either case); anything
 //! else fails closed.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
 
