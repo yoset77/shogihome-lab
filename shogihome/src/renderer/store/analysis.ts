@@ -170,6 +170,7 @@ export class AnalysisManager {
   }
 
   async start(settings: AnalysisSettings): Promise<void> {
+    if (!this.active) this.reference = loadReferences()[0];
     if (this.reference || this.active)
       throw new Error(analysisTexts(useAppSettings().language).capacity);
     if (
