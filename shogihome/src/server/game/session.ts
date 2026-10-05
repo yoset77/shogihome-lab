@@ -144,6 +144,7 @@ export class GameSession {
         this.disconnect(controller.epoch);
         controller.close(1013);
       } else {
+        this.pruneLiveInfos();
         if (this.annotationsDirty) this.publish();
         controller.send({
           type: "clock",
@@ -197,15 +198,25 @@ export class GameSession {
             onInfo,
             (position, info) => {
               if (!info || !this.core.isActive || this.records.record.usi !== position) return;
+              this.pruneLiveInfos();
               const color = this.records.record.position.color;
-              const key = `${color}:${info.multipv ?? 1}`;
+              const multipv = info.multipv ?? 1;
+              const key = `${color}:${multipv}`;
               if (!this.infos.has(key) && this.infos.size >= 32) return;
+              // Engines emit partial info lines; merge them per MultiPV like analysis jobs.
+              const merged = { ...this.infos.get(key)?.info, ...info, multipv };
+              if (info.scoreCP !== undefined || info.scoreMate !== undefined) {
+                merged.scoreCP = info.scoreCP;
+                merged.scoreMate = info.scoreMate;
+                merged.lowerbound = info.lowerbound;
+                merged.upperbound = info.upperbound;
+              }
               this.infos.set(key, {
                 color,
                 name: config.name,
                 position,
                 searchId: this.core.interactionId,
-                info,
+                info: merged,
               });
             },
           );
@@ -303,11 +314,18 @@ export class GameSession {
       records: structuredClone(this.summaries),
     };
   }
+  // Live infos belong to the current interaction; reset them on turn or game switches.
+  // Annotation updates must not clear them, so pruning is driven by the interaction ID.
+  private pruneLiveInfos(): void {
+    const interactionId = this.core.interactionId;
+    for (const [key, entry] of this.infos) {
+      if (entry.searchId !== interactionId) this.infos.delete(key);
+    }
+  }
   private publish(): void {
     this.annotationsDirty = false;
     ++this.revision;
     ++this.recordRevision;
-    this.infos.clear();
     try {
       const snapshot = this.snapshot();
       if (

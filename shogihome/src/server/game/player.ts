@@ -119,8 +119,14 @@ export class GamePlayer implements Player {
                 else if (move === "win") handler.onWin();
                 else {
                   const decoded = position.createMoveByUSI(move);
-                  if (decoded) handler.onMove(decoded, info);
-                  else handler.onError(new Error("Invalid engine bestmove"));
+                  if (!decoded) handler.onError(new Error("Invalid engine bestmove"));
+                  else if (info?.pv?.length && info.pv[0].equals(decoded)) {
+                    // The PV starts with the move being played; record it from the next node.
+                    handler.onMove(decoded, { ...info, pv: info.pv.slice(1) });
+                  } else {
+                    // A PV that disagrees with the bestmove is not reliable for the record.
+                    handler.onMove(decoded);
+                  }
                 }
               } catch (error) {
                 handler.onError(error);

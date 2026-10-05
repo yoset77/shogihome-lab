@@ -2,9 +2,11 @@ import { Record, SpecialMoveType, importKIF } from "tsshogi";
 import { GameSession } from "@/server/game/session";
 import { GameSessionManager } from "@/server/game/manager";
 import { decodeGameSnapshot } from "@/common/game/protocol";
+import type { GameFrame } from "@/common/game/protocol";
 import { restoreRecord, MAX_SNAPSHOT_PLY } from "@/common/record/snapshot";
 import { fakeGamePlayer, gameRequest, gameCommand } from "./helpers/game";
 import { saveBackup, addHistory } from "@/server/file/history";
+import type { GameEngine } from "@/server/engine/internal";
 
 vi.mock("@/server/config", async (original) => ({
   ...(await original<typeof import("@/server/config")>()),
@@ -407,6 +409,122 @@ describe("server game sessions", () => {
     await vi.advanceTimersByTimeAsync(0);
     await session.close();
   });
+
+  async function engineGame() {
+    let onOutput!: (line: string) => void;
+    const engine: GameEngine = {
+      launch: vi.fn(async () => {}),
+      readyNewGame: vi.fn(),
+      startResearch: vi.fn(),
+      startSearch: vi.fn(async (_position: string, _go: string, output: (line: string) => void) => {
+        onOutput = output;
+        return { finished: new Promise<void>(() => {}), stop: vi.fn(), cancel: vi.fn() };
+      }),
+      cancelAll: vi.fn(async () => {}),
+      gameover: vi.fn(),
+      close: vi.fn(async () => {}),
+    };
+    const request = gameRequest();
+    request.settings.white = { uri: "lan-engine:test", name: "AI" };
+    request.settings.startPosition = "current";
+    const session = new GameSession("session", request, {
+      resolveEngine: async () => ({ id: "test", name: "AI" }),
+      createEngine: () => engine,
+      now: () => Date.now(),
+    });
+    session.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const send = vi.fn();
+    session.connect("controller", send);
+    await session.command(gameCommand(session.snapshot(), "resume"));
+    await session.command(gameCommand(session.snapshot(), "move", { move: "7g7f" }));
+    const clockInfos = () =>
+      send.mock.calls
+        .map(([frame]) => frame as GameFrame)
+        .filter((frame) => frame.type === "clock")
+        .at(-1)?.infos ?? [];
+    return { session, send, engine, emit: (line: string) => onOutput(line), clockInfos };
+  }
+
+  it("merges partial info lines per MultiPV for live engine updates", async () => {
+    const { session, emit, clockInfos } = await engineGame();
+    emit("info depth 8 score cp 20 pv 3c3d 2g2f");
+    emit("info nodes 100 nps 200000");
+    await vi.advanceTimersByTimeAsync(1000);
+    const infos = clockInfos();
+    expect(infos).toHaveLength(1);
+    expect(infos[0].info).toMatchObject({ depth: 8, scoreCP: 20, nodes: 100, nps: 200000 });
+    expect(infos[0].info.pv).toEqual(["3c3d", "2g2f"]);
+    await session.command(gameCommand(session.snapshot(), "interrupt"));
+    await vi.advanceTimersByTimeAsync(0);
+    await session.close();
+  });
+
+  it("keeps live engine infos while research annotations keep arriving", async () => {
+    const { session, emit, clockInfos } = await engineGame();
+    emit("info depth 8 score cp 20 pv 3c3d 2g2f");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(clockInfos()).toHaveLength(1);
+    for (let i = 0; i < 2; i++) {
+      const snapshot = session.snapshot();
+      await session.command(
+        gameCommand(snapshot, "annotate", {
+          nodeId: snapshot.record.currentId,
+          annotation: {
+            slot: "researchInfo",
+            info: {
+              usi: restoreRecord(snapshot.record).record.usi,
+              depth: 8 + i,
+              score: 42,
+            },
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(clockInfos()).toHaveLength(1);
+      expect(clockInfos()[0].info.pv).toEqual(["3c3d", "2g2f"]);
+    }
+    // A turn switch must still initialize the live infos for the next interaction.
+    emit("bestmove 3c3d");
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(clockInfos()).toHaveLength(0);
+    await session.command(gameCommand(session.snapshot(), "interrupt"));
+    await vi.advanceTimersByTimeAsync(0);
+    await session.close();
+  });
+
+  it.each(["7g7f", "2g2f"])(
+    "does not merge stale live infos after takeback and replaying %s before the next tick",
+    async (move) => {
+      const { session, emit, clockInfos } = await engineGame();
+      try {
+        emit("info depth 8 score cp 20 pv 3c3d 2g2f");
+        emit("info multipv 2 depth 8 score cp 10 pv 8c8d 2g2f");
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(clockInfos()).toHaveLength(2);
+        const previous = session.snapshot();
+        await session.command(gameCommand(previous, "takeback"));
+        await session.command(gameCommand(session.snapshot(), "move", { move }));
+        const current = session.snapshot();
+        expect(current.interactionId).toBeGreaterThan(previous.interactionId);
+        expect(current.state).toBe("running");
+        emit("info nodes 100 nps 200000");
+        await vi.advanceTimersByTimeAsync(1000);
+        const infos = clockInfos();
+        expect(infos).toHaveLength(1);
+        expect(infos[0]).toMatchObject({
+          position: restoreRecord(current.record).record.usi,
+          searchId: current.interactionId,
+        });
+        expect(infos[0].info).toEqual({ multipv: 1, nodes: 100, nps: 200000 });
+      } finally {
+        await session.command(gameCommand(session.snapshot(), "interrupt"));
+        await vi.advanceTimersByTimeAsync(0);
+        await session.close();
+      }
+    },
+  );
 
   it("records each mover's elapsed time rather than the opponent's last turn", async () => {
     const { session } = await humanGame();
