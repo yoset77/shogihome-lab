@@ -17,6 +17,7 @@ type TestableEngineSession = {
   engineHandle: {
     write: Mock<(command: string) => void>;
     close: Mock<() => void>;
+    destroy?: Mock<() => void>;
     removeAllListeners: Mock<() => void>;
   } | null;
   postStopCommandQueue: string[];
@@ -91,6 +92,26 @@ describe("Engine State Regression Tests", () => {
 
     expect(tSession.engineState).toBe(EngineState.STOPPING_SEARCH);
     expect(tSession.engineHandle.write).toHaveBeenCalledWith("stop\n");
+  });
+
+  it("finishes termination when the browser disconnects before the transport closes", () => {
+    const engine = {
+      write: vi.fn(),
+      close: vi.fn(),
+      destroy: vi.fn(),
+      removeAllListeners: vi.fn(),
+    };
+    tSession.engineState = EngineState.READY;
+    tSession.engineHandle = engine;
+    tSession.handleMessage({ type: "stopEngine" });
+    expect(tSession.engineState).toBe(EngineState.TERMINATING);
+
+    tSession.handleDisconnect(mockWs);
+
+    expect(engine.close).toHaveBeenCalledOnce();
+    expect(engine.destroy).toHaveBeenCalledOnce();
+    expect(tSession.engineHandle).toBeNull();
+    expect(tSession.engineState).toBe(EngineState.STOPPED);
   });
 
   it("should include the active engine ID in state frames", () => {

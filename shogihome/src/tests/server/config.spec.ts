@@ -84,3 +84,28 @@ describe("book resource configuration", () => {
     },
   );
 });
+
+describe("detached game configuration", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.spyOn(process, "loadEnvFile").mockImplementation(() => {});
+    vi.stubEnv("GAME_DETACHED_TTL_MINUTES", undefined);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+  it.each([
+    [undefined, 30],
+    ["1", 1],
+    ["1440", 1440],
+    ["0", 30],
+    ["1441", 30],
+    ["invalid", 30],
+  ])("converts %s minutes to a bounded TTL", async (raw, expected) => {
+    vi.stubEnv("GAME_DETACHED_TTL_MINUTES", raw);
+    const { GAME_DETACHED_TTL_MS } = await import("@/server/config");
+    expect(GAME_DETACHED_TTL_MS).toBe(expected * 60_000);
+  });
+});

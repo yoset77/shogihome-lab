@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { Color, SpecialMoveType, exportKIF, type ImmutableNode } from "tsshogi";
 import { GameRecord } from "@/common/game/record";
 import {
@@ -33,6 +34,7 @@ import { GamePlayer, HumanPlayer } from "./player";
 import { GameBook } from "./book";
 import { loadGamePositions, saveGameRecord } from "./files";
 import { addHistory, saveBackup } from "@/server/file/history";
+import { GAME_DETACHED_TTL_MS } from "@/server/config";
 
 export const GAME_HEARTBEAT_MS = 5000;
 export const GAME_CONTROLLER_TIMEOUT_MS = 30_000;
@@ -61,6 +63,9 @@ export class GameSession {
   private readonly blackClock: Clock;
   private readonly whiteClock: Clock;
   private readonly core: GameController;
+  private readonly now: () => number;
+  private detachedSince?: number;
+  private closing?: Promise<void>;
   private readonly abort = new AbortController();
   private readonly nodeIds = new WeakMap<ImmutableNode, string>();
   private readonly issuedIds = new Set<string>();
@@ -99,6 +104,8 @@ export class GameSession {
     readonly request: GameSessionRequest,
     private readonly deps: GameDependencies = {},
   ) {
+    this.now = deps.now ?? (() => performance.now());
+    this.detachedSince = this.now();
     const restored = restoreRecord(request.source);
     this.records = new GameRecord(restored.record);
     for (const [id, node] of restored.nodes) {
@@ -130,6 +137,7 @@ export class GameSession {
 
   start(): void {
     this.timer = setInterval(() => {
+      this.expireDetached();
       const controller = this.controller;
       if (!controller) return;
       if (Date.now() - controller.lastSeen >= GAME_CONTROLLER_TIMEOUT_MS) {
@@ -152,6 +160,18 @@ export class GameSession {
     queueMicrotask(() => {
       void this.run();
     });
+  }
+
+  private expireDetached(): void {
+    if (
+      !this.controller &&
+      this.detachedSince !== undefined &&
+      this.core.isPaused &&
+      this.now() - this.detachedSince >= GAME_DETACHED_TTL_MS
+    ) {
+      this.abort.abort();
+      this.core.stop();
+    }
   }
 
   private async run(): Promise<void> {
@@ -319,12 +339,14 @@ export class GameSession {
           connection.connectionId !== this.controllerConnectionId))
     )
       throw new HttpError(409, gameTexts().conflict);
+    this.expireDetached();
     const previous = this.controller;
     this.controller = undefined;
     this.core.setConnected(false);
     const epoch = ++this.controllerEpoch;
     this.controllerConnectionId = connection?.connectionId;
     this.controller = { epoch, lastSeen: Date.now(), send, close };
+    this.detachedSince = undefined;
     previous?.close(4001);
     this.publish();
     return {
@@ -338,6 +360,7 @@ export class GameSession {
   private disconnect(epoch: number): void {
     if (this.controller?.epoch !== epoch) return;
     this.controller = undefined;
+    this.detachedSince = this.now();
     this.core.setConnected(false);
   }
 
@@ -494,13 +517,13 @@ export class GameSession {
     this.publish();
     this.complete();
   }
-  async close(): Promise<void> {
-    this.abort.abort();
-    this.core.stop();
-    await this.completion;
-    clearInterval(this.timer);
-    this.controller?.close();
-    this.controller = undefined;
+  close(): Promise<void> {
+    return (this.closing ??= (async () => {
+      this.abort.abort();
+      this.core.stop();
+      await this.completion;
+      this.dispose();
+    })());
   }
   dispose(): void {
     clearInterval(this.timer);

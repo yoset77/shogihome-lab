@@ -6,6 +6,11 @@ import { restoreRecord, MAX_SNAPSHOT_PLY } from "@/common/record/snapshot";
 import { fakeGamePlayer, gameRequest, gameCommand } from "./helpers/game";
 import { saveBackup, addHistory } from "@/server/file/history";
 
+vi.mock("@/server/config", async (original) => ({
+  ...(await original<typeof import("@/server/config")>()),
+  GAME_DETACHED_TTL_MS: 60_000,
+}));
+
 vi.mock("@/server/file/history", () => ({
   saveBackup: vi.fn().mockResolvedValue(undefined),
   addHistory: vi.fn().mockResolvedValue(undefined),
@@ -95,6 +100,161 @@ describe("server game sessions", () => {
     session.connect("controller", () => {});
     await session.command(gameCommand(session.snapshot(), "interrupt"));
     await vi.advanceTimersByTimeAsync(0);
+    await session.close();
+  });
+
+  it("interrupts detached human turns at the TTL and releases capacity after saving", async () => {
+    const fake = fakeGamePlayer();
+    const manager = new GameSessionManager({ playerBuilder: fake.builder, now: () => Date.now() });
+    const request = gameRequest();
+    request.serverInstanceId = manager.serverInstanceId;
+    request.settings.white = { uri: "lan-engine:test", name: "AI" };
+    const session = manager.create(request);
+    await vi.advanceTimersByTimeAsync(0);
+    const connection = session.connect("controller", () => {});
+    await session.command(gameCommand(session.snapshot(), "resume"));
+    connection.disconnect();
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(session.snapshot().state).toBe("paused");
+    expect(() => manager.create({ ...request, requestId: "other" })).toThrow();
+    await vi.advanceTimersByTimeAsync(1);
+    await session.completion;
+    expect(session.snapshot().lastResult).toBe(SpecialMoveType.INTERRUPT);
+    expect(fake.player.close).toHaveBeenCalledOnce();
+    const saved = importKIF(vi.mocked(saveBackup).mock.calls[0][0]) as Record;
+    saved.goto(saved.length);
+    expect(saved.current.move).toEqual({ type: SpecialMoveType.INTERRUPT });
+    const next = manager.create({ ...request, requestId: "other" });
+    await vi.advanceTimersByTimeAsync(0);
+    await manager.close();
+    await session.close();
+    expect(next.snapshot().state).toBe("completed");
+    expect(saveBackup).toHaveBeenCalledTimes(2);
+  });
+
+  it("expires sessions that never acquired a controller", async () => {
+    const session = new GameSession("unattached", gameRequest(), { now: () => Date.now() });
+    session.start();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(session.snapshot().state).toBe("completed");
+    expect(session.snapshot().lastResult).toBe(SpecialMoveType.INTERRUPT);
+    await session.close();
+  });
+
+  it("waits for an expired game's backup without saving twice on repeated close", async () => {
+    const { session, connection } = await humanGame();
+    const saved = Promise.withResolvers<void>();
+    vi.mocked(saveBackup).mockReturnValueOnce(saved.promise);
+    connection.disconnect();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(session.snapshot().state).toBe("finishing");
+    const close = session.close();
+    expect(session.close()).toBe(close);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(saveBackup).toHaveBeenCalledOnce();
+    expect(session.endedAt).toBeUndefined();
+    saved.resolve();
+    await close;
+    expect(session.snapshot().state).toBe("completed");
+  });
+
+  it("starts the detached TTL when the application heartbeat expires", async () => {
+    const { session } = await humanGame();
+    await vi.advanceTimersByTimeAsync(89_999);
+    expect(session.snapshot().state).toBe("paused");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(session.snapshot().lastResult).toBe(SpecialMoveType.INTERRUPT);
+    await session.close();
+  });
+
+  it("lets detached AI turns finish even after the TTL", async () => {
+    const { session, searches, connection } = await humanGame(true);
+    await session.command(gameCommand(session.snapshot(), "move", { move: "7g7f" }));
+    connection.disconnect();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(session.snapshot().state).toBe("running");
+    const position = restoreRecord(session.snapshot().record).record.position;
+    searches[0].handler.onMove(position.createMoveByUSI("3c3d")!);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(session.snapshot().lastResult).toBe(SpecialMoveType.INTERRUPT);
+    expect(restoreRecord(session.snapshot().record).record.current.prev?.ply).toBe(2);
+    await session.close();
+  });
+
+  it("preserves an AI timeout instead of replacing it with TTL interruption", async () => {
+    const request = gameRequest();
+    request.settings.white = { uri: "lan-engine:test", name: "AI" };
+    request.settings.enableEngineTimeout = true;
+    const session = new GameSession("timeout", request, {
+      playerBuilder: fakeGamePlayer().builder,
+      now: () => Date.now(),
+    });
+    session.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const connection = session.connect("controller", () => {});
+    await session.command(gameCommand(session.snapshot(), "resume"));
+    await session.command(gameCommand(session.snapshot(), "move", { move: "7g7f" }));
+    connection.disconnect();
+    await vi.advanceTimersByTimeAsync(130_000);
+    await session.completion;
+    expect(session.snapshot().lastResult).toBe(SpecialMoveType.TIMEOUT);
+    expect(saveBackup).toHaveBeenCalledOnce();
+    await session.close();
+  });
+
+  it("resets the TTL on reconnect and ignores replaced controller disconnects", async () => {
+    const { session, connection } = await humanGame();
+    connection.disconnect();
+    await vi.advanceTimersByTimeAsync(50_000);
+    const replacement = session.connect("controller", () => {});
+    connection.disconnect();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(session.snapshot().state).toBe("paused");
+    replacement.disconnect();
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(session.snapshot().state).toBe("paused");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(session.snapshot().lastResult).toBe(SpecialMoveType.INTERRUPT);
+    await session.close();
+  });
+
+  it("does not allow an expired reconnect to beat the interval tick", async () => {
+    const { session, connection } = await humanGame();
+    connection.disconnect();
+    vi.setSystemTime(Date.now() + 60_000);
+    session.connect("controller", () => {});
+    await session.command(gameCommand(session.snapshot(), "resume"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(session.snapshot().lastResult).toBe(SpecialMoveType.INTERRUPT);
+    await session.close();
+  });
+
+  it("measures detach time independently of wall clock changes", async () => {
+    let monotonic = 0;
+    const session = new GameSession("monotonic", gameRequest(), { now: () => monotonic });
+    session.start();
+    await vi.advanceTimersByTimeAsync(0);
+    vi.setSystemTime(Date.now() + 48 * 60 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(session.snapshot().state).toBe("paused");
+    monotonic = 60_000;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(session.snapshot().lastResult).toBe(SpecialMoveType.INTERRUPT);
+    await session.close();
+  });
+
+  it("does not expire AI-only sessions without a browser", async () => {
+    const request = gameRequest();
+    request.settings.black = request.settings.white = { uri: "lan-engine:test", name: "AI" };
+    const fake = fakeGamePlayer();
+    const session = new GameSession("ai-only", request, {
+      playerBuilder: fake.builder,
+      now: () => Date.now(),
+    });
+    session.start();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(session.snapshot().state).toBe("running");
+    expect(fake.player.close).not.toHaveBeenCalled();
     await session.close();
   });
 
