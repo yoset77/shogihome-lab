@@ -58,6 +58,73 @@ describe("server-owned engine sessions", () => {
     session.destroyInternal();
   });
 
+  it("isolates listener exceptions and delivers the same event to later listeners", () => {
+    const tasks: (() => void)[] = [];
+    const microtask = vi
+      .spyOn(globalThis, "queueMicrotask")
+      .mockImplementation((task) => tasks.push(task));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { session } = setup();
+    const failure = new Error("Listener failed");
+    session.subscribeInternal(() => {
+      throw failure;
+    });
+    const later = vi.fn();
+    session.subscribeInternal(later);
+    session.dispatchInternal({ type: "ping" });
+    try {
+      expect(() => tasks.shift()!()).not.toThrow();
+      expect(later).toHaveBeenCalledWith({ type: "notice", notice: "pong" });
+      expect(log).toHaveBeenCalledWith(expect.stringContaining("internal-test"), failure);
+    } finally {
+      session.destroyInternal();
+      microtask.mockRestore();
+      log.mockRestore();
+    }
+  });
+
+  it("keeps terminal waits working when an output listener fails", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { session, stream } = setup();
+    const client = new InternalEngine();
+    (client as unknown as { session: EngineSession }).session = session;
+    try {
+      const search = await client.startResearch(
+        "position startpos",
+        () => {
+          throw new Error("Output failed");
+        },
+        new AbortController().signal,
+      );
+      stream.write("bestmove 7g7f\n");
+      await search.finished;
+      expect(log).toHaveBeenCalledWith(
+        "Internal engine listener failed (internal-test)",
+        expect.objectContaining({ message: "Output failed" }),
+      );
+    } finally {
+      session.destroyInternal();
+      log.mockRestore();
+    }
+  });
+
+  it("snapshots listeners for each delivery when a listener unsubscribes another", async () => {
+    const { session } = setup();
+    const observed: string[] = [];
+    let unsubscribe = () => {};
+    session.subscribeInternal(() => {
+      observed.push("first");
+      unsubscribe();
+    });
+    unsubscribe = session.subscribeInternal(() => observed.push("second"));
+    session.dispatchInternal({ type: "ping" });
+    await Promise.resolve();
+    session.dispatchInternal({ type: "ping" });
+    await Promise.resolve();
+    expect(observed).toEqual(["first", "second", "first"]);
+    session.destroyInternal();
+  });
+
   it("keeps the stop deadline active without a browser", async () => {
     vi.useFakeTimers();
     const { session, engine } = setup();

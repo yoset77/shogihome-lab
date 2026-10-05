@@ -68,6 +68,9 @@ export const PORT = parseIntegerEnv("PORT", 8140, 1, 65535);
 // times out first and returns an error that resolves the client wait.
 export const ENGINE_STOP_TIMEOUT_MS = 10000;
 
+export const GAME_DETACHED_TTL_MS =
+  parseIntegerEnv("GAME_DETACHED_TTL_MINUTES", 30, 1, 1440) * 60_000;
+
 const DISABLE_AUTO_ALLOWED_ORIGINS = process.env.DISABLE_AUTO_ALLOWED_ORIGINS === "true";
 
 const rawAllowedOrigins = (process.env.ALLOWED_ORIGINS || "")

@@ -377,6 +377,8 @@ export class EngineSession {
       this.engineState = EngineState.TERMINATING;
       this.engineHandle.close();
     } else {
+      // A repeated termination must release the transport, not only its state.
+      this.engineHandle?.destroy?.();
       this.onEngineClose();
     }
     this.removeSession(this.sessionId);
@@ -385,7 +387,15 @@ export class EngineSession {
   private sendToClient(data: SessionRelayPayload, createdAt: number = Date.now()) {
     if (this.owner === "internal") {
       // Deliver only after the complete synchronous USI transition.
-      queueMicrotask(() => this.internalListeners.forEach((listener) => listener(data)));
+      queueMicrotask(() => {
+        for (const listener of [...this.internalListeners]) {
+          try {
+            listener(data);
+          } catch (error) {
+            console.error(`Internal engine listener failed (${this.sessionId})`, error);
+          }
+        }
+      });
       return;
     }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {

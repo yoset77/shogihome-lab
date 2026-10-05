@@ -4,6 +4,7 @@ services:
     image: shogihome-lab:latest
     build: .
     restart: unless-stopped
+    init: true
     ports:
       - "${HOST_PORT}:8140"
     volumes:
