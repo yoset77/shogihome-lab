@@ -247,6 +247,10 @@ function emptyBook(format: BookFormat = "yane2016"): BookHandle {
 const bookFiles = new Map<number, BookHandle>();
 let nextBookSession = 100;
 
+export function allocateBookSessionId(): number {
+  return nextBookSession++;
+}
+
 function getBook(session: number): BookHandle {
   const book = bookFiles.get(session);
   if (!book) {
@@ -445,7 +449,7 @@ export async function openBookAsNewSession(
   path: string,
   options?: BookLoadingOptions,
 ): Promise<{ session: number; mode: "in-memory" | "on-the-fly" }> {
-  const session = nextBookSession++;
+  const session = allocateBookSessionId();
   const mode = await openBook(session, path, options);
   return { session, mode };
 }
