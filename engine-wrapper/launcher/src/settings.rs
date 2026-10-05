@@ -519,11 +519,9 @@ pub fn settings_schema() -> serde_json::Value {
 
 /// URL-safe random token (≈32 chars), mirroring `secrets.token_urlsafe(24)`.
 pub fn generate_token() -> String {
-    use rand::Rng;
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut rng = rand::thread_rng();
     (0..32)
-        .map(|_| ALPHABET[rng.gen_range(0..ALPHABET.len())] as char)
+        .map(|_| ALPHABET[rand::random_range(0..ALPHABET.len())] as char)
         .collect()
 }
 
