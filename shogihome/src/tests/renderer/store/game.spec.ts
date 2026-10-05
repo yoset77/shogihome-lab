@@ -297,6 +297,22 @@ describe("game session client", () => {
     },
   );
 
+  it("beeps at the remaining-time thresholds while clocks stay synchronized", async () => {
+    const value = fixture();
+    value.settings.timeLimit = { timeSeconds: 15, byoyomi: 0, increment: 0 };
+    const beepShort = vi.fn();
+    const beepUnlimited = vi.fn();
+    value.game.on("beepShort", beepShort).on("beepUnlimited", beepUnlimited);
+    await value.game.start(value.settings);
+    await vi.advanceTimersByTimeAsync(1);
+    // 1-second clock frames count the remaining time down from 15 to 1.
+    for (let second = 1; second <= 14; second++) {
+      await vi.advanceTimersByTimeAsync(1000);
+    }
+    expect(beepShort).toHaveBeenCalledTimes(5);
+    expect(beepUnlimited).toHaveBeenCalledTimes(5);
+  });
+
   it("clears engine PVs at the next round of repeated games even at the same position", async () => {
     const value = await gameWithBothEnginePVs(2);
     value.searches[1].handler.onResign();

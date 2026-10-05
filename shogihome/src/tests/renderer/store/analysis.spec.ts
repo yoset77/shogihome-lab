@@ -627,9 +627,100 @@ describe("analysis job client", () => {
     expect(records.record.current.comment).toBe("analysis");
   });
 
-  it("keeps recovery linkage when browser record persistence fails", async () => {
-    const { manager, status, error } = fixture();
+  it("keeps another tab's recovery reference when a new start is rejected", async () => {
+    const { manager, client } = fixture();
+    // Another tab started its analysis before this tab was opened.
+    const other = {
+      requestId: "other",
+      serverInstanceId: "server",
+      jobId: "job-other",
+    };
+    localStorage.setItem("shogihome-analysis-job", JSON.stringify(other));
+    client.create.mockRejectedValueOnce(new ApiResponseError(503, "capacity"));
+    await expect(manager.start(settings)).rejects.toThrow("capacity");
+    expect(localStorage.getItem("shogihome-analysis-job")).toBe(JSON.stringify(other));
+    const requestId = client.create.mock.calls[0][0].requestId;
+    expect(localStorage.getItem(`shogihome-analysis-job:${requestId}`)).toBeNull();
+    expect(manager.hasRetainedJob).toBe(true);
+  });
+
+  it("keeps another tab's per-request recovery reference when a new start is rejected", async () => {
+    const { manager, client } = fixture();
+    const other = {
+      requestId: "other",
+      serverInstanceId: "server",
+      jobId: "job-other",
+    };
+    localStorage.setItem("shogihome-analysis-job:other", JSON.stringify(other));
+    client.create.mockRejectedValueOnce(new ApiResponseError(503, "capacity"));
+    await expect(manager.start(settings)).rejects.toThrow("capacity");
+    expect(localStorage.getItem("shogihome-analysis-job:other")).toBe(JSON.stringify(other));
+  });
+
+  it.each(["legacy", "per-request"] as const)(
+    "recovers another tab's %s reference after a rejected start without reloading",
+    async (storage) => {
+      const { manager, client, source, status } = fixture();
+      const records = new RecordManager(restoreRecord(source).record);
+      const resumed = new AnalysisManager(records, client);
+      await manager.start(settings);
+      vi.clearAllTimers();
+      const requestId = client.create.mock.calls[0][0].requestId;
+      const key = `shogihome-analysis-job:${requestId}`;
+      if (storage === "legacy") {
+        localStorage.setItem("shogihome-analysis-job", localStorage.getItem(key)!);
+        localStorage.removeItem(key);
+      }
+      client.create.mockRejectedValueOnce(new ApiResponseError(503, "capacity"));
+      try {
+        await expect(resumed.start(settings)).rejects.toThrow("capacity");
+        expect(resumed.isActive).toBe(false);
+        expect(resumed.hasRetainedJob).toBe(true);
+        const confirm = vi.fn(async () => true);
+        expect(await resumed.resume(confirm)).toBe(true);
+        expect(confirm).not.toHaveBeenCalled();
+        expect(resumed.isActive).toBe(true);
+        expect(records.analysisLocked).toBe(true);
+        expect(client.status).toHaveBeenCalledWith("job");
+        expect(client.result).toHaveBeenCalledWith("job", 0);
+        expect(client.create).toHaveBeenCalledTimes(2);
+        expect(client.cancel).not.toHaveBeenCalled();
+        records.changePly(1);
+        expect(records.record.current.comment).toBe("analysis");
+        status.state = "completed";
+        await vi.advanceTimersByTimeAsync(500);
+        expect(resumed.isActive).toBe(false);
+        expect(records.analysisLocked).toBe(false);
+        expect(resumed.hasRetainedJob).toBe(false);
+      } finally {
+        resumed.close();
+        await vi.advanceTimersByTimeAsync(0);
+      }
+    },
+  );
+
+  it("does not recover a cached reference removed by another tab", async () => {
+    const { manager, client, source } = fixture();
     await manager.start(settings);
+    vi.clearAllTimers();
+    const resumed = new AnalysisManager(new RecordManager(restoreRecord(source).record), client);
+    const requestId = client.create.mock.calls[0][0].requestId;
+    localStorage.removeItem(`shogihome-analysis-job:${requestId}`);
+    try {
+      expect(resumed.hasRetainedJob).toBe(false);
+      expect(await resumed.resume(async () => true)).toBe(false);
+      expect(resumed.isActive).toBe(false);
+      expect(client.status).not.toHaveBeenCalled();
+    } finally {
+      resumed.close();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+  });
+
+  it("keeps recovery linkage when browser record persistence fails", async () => {
+    const { manager, client, status, error } = fixture();
+    await manager.start(settings);
+    const requestId = client.create.mock.calls[0][0].requestId;
     status.state = "completed";
     const original = Storage.prototype.setItem;
     const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
@@ -644,7 +735,7 @@ describe("analysis job client", () => {
       await vi.advanceTimersByTimeAsync(500);
       expect(manager.isActive).toBe(false);
       expect(manager.hasRetainedJob).toBe(true);
-      expect(localStorage.getItem("shogihome-analysis-job")).not.toBeNull();
+      expect(localStorage.getItem(`shogihome-analysis-job:${requestId}`)).not.toBeNull();
       expect(error).toHaveBeenCalledOnce();
     } finally {
       write.mockRestore();

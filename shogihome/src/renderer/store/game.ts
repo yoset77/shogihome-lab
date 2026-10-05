@@ -168,6 +168,8 @@ export class GameManager {
   private sending = new Set<string>();
   private annotationTimes = new Map<string, number>();
   private warned = new Set<string>();
+  // Remaining seconds last notified per clock; the display value is interpolated.
+  private notifiedSeconds = new Map<GameClockDisplay, number>();
   private readonly connection = new ConnectionNotification("game-connection");
   private handlers: Handlers = {
     gameEnd: () => {},
@@ -288,6 +290,7 @@ export class GameManager {
     this.lastMoveId = 0;
     this.lastSampleId = 0;
     this.warned.clear();
+    this.notifiedSeconds.clear();
     this.resetMonitors();
     this.handlers.status(null);
     return source;
@@ -544,12 +547,19 @@ export class GameManager {
       : clocks.white.running
         ? this.whiteClock
         : undefined;
-    const old = active ? active.time || active.byoyomi : 0;
     this.blackClock.update(clocks.black);
     this.whiteClock.update(clocks.white);
-    const remaining = active ? active.time || active.byoyomi : 0;
-    if (!active) this.handlers.stopBeep();
-    if (!silent && active && remaining !== old && !(active.time && active.byoyomi)) {
+    if (!active) {
+      this.handlers.stopBeep();
+      return;
+    }
+    // The previous display value is already interpolated up to now, so it equals
+    // the new sample on synchronized updates. Compare with the last notified
+    // second instead to keep the remaining-time warnings working.
+    const remaining = active.time || active.byoyomi;
+    const last = this.notifiedSeconds.get(active);
+    this.notifiedSeconds.set(active, remaining);
+    if (!silent && remaining !== last && !(active.time && active.byoyomi)) {
       if (remaining <= 5) this.handlers.beepUnlimited();
       else if (remaining <= 10 || [20, 30, 60].includes(remaining)) this.handlers.beepShort();
     }

@@ -42,11 +42,10 @@ type FinishCallback = (status?: AnalysisJobStatus) => void;
 type ErrorCallback = (error: unknown) => void;
 type StatusCallback = (status: AnalysisJobStatus | null) => void;
 
-function loadReference(): Reference | undefined {
+function readReference(raw: string | null): Reference | undefined {
   try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    if (!data) return;
-    const value = object(JSON.parse(data));
+    if (!raw) return;
+    const value = object(JSON.parse(raw));
     return {
       requestId: identifier(value.requestId),
       serverInstanceId: identifier(value.serverInstanceId),
@@ -57,9 +56,42 @@ function loadReference(): Reference | undefined {
     return;
   }
 }
+function referenceKey(ref: Reference): string {
+  // Independent keys keep concurrent creation failures from erasing another job.
+  return `${STORAGE_KEY}:${ref.requestId}`;
+}
+function sameReference(a: Reference, b: Reference): boolean {
+  return a.requestId === b.requestId && a.serverInstanceId === b.serverInstanceId;
+}
+function loadReferences(): Reference[] {
+  try {
+    const keys = Object.keys(localStorage).filter((key) => key.startsWith(`${STORAGE_KEY}:`));
+    const references = new Map<string, Reference>();
+    for (const key of [...keys, STORAGE_KEY]) {
+      const ref = readReference(localStorage.getItem(key));
+      if (
+        ref &&
+        (key === STORAGE_KEY || key === referenceKey(ref)) &&
+        !references.has(ref.requestId)
+      )
+        references.set(ref.requestId, ref);
+    }
+    // Prefer references whose job has actually been created on the server.
+    return [...references.values()].sort((a, b) => Number(!!b.jobId) - Number(!!a.jobId));
+  } catch {
+    return [];
+  }
+}
+function forgetReference(ref: Reference): void {
+  // Delete only the keys that still reference our own job, never another tab's.
+  for (const key of [referenceKey(ref), STORAGE_KEY]) {
+    const stored = readReference(localStorage.getItem(key));
+    if (stored && sameReference(stored, ref)) localStorage.removeItem(key);
+  }
+}
 
 export class AnalysisManager {
-  private reference = loadReference();
+  private reference: Reference | undefined = loadReferences()[0];
   private pendingRequest?: AnalysisJobRequest;
   private active = false;
   private generation = 0;
@@ -107,15 +139,18 @@ export class AnalysisManager {
     return this._reconnecting;
   }
   get hasRetainedJob(): boolean {
-    return !!this.reference;
+    return this.active ? !!this.reference : loadReferences().length > 0;
   }
   get isCancelling(): boolean {
     return !!this.reference?.cancelRequested || this._status?.state === "cancelling";
   }
 
   private persist(): void {
-    if (this.reference) localStorage.setItem(STORAGE_KEY, JSON.stringify(this.reference));
-    else localStorage.removeItem(STORAGE_KEY);
+    const ref = this.reference;
+    if (!ref) return;
+    localStorage.setItem(referenceKey(ref), JSON.stringify(ref));
+    const legacy = readReference(localStorage.getItem(STORAGE_KEY));
+    if (legacy && sameReference(legacy, ref)) localStorage.removeItem(STORAGE_KEY);
   }
 
   private bind(token: string): RecordSnapshot {
@@ -201,8 +236,10 @@ export class AnalysisManager {
   }
 
   async resume(confirmRecovery: () => Promise<boolean>): Promise<boolean> {
+    if (this.active || this.recovering) return false;
+    this.reference = loadReferences()[0];
     const ref = this.reference;
-    if (!ref || this.active || this.recovering) return false;
+    if (!ref) return false;
     this.connection.reset();
     this.bind(ref.requestId);
     this.needsRecovery = true;
@@ -468,9 +505,10 @@ export class AnalysisManager {
     this.recordManager.endAnalysis(token);
     setInfoSessionActive(MONITOR_SESSION_ID, false);
     if (forget) {
+      const ref = this.reference;
+      if (ref && ref.requestId === token) forgetReference(ref);
       this.reference = undefined;
       this.pendingRequest = undefined;
-      this.persist();
     }
     this.onStatus(null);
   }
