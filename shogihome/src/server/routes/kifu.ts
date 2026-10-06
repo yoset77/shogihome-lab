@@ -107,6 +107,18 @@ function hasInvalidStrategy(query: RawKifuSearchQuery): boolean {
   );
 }
 
+function readSearchQuery(value: Record<string, unknown>) {
+  return {
+    sfen: getString(value.sfen),
+    keyword: getString(value.keyword),
+    player1: getString(value.player1),
+    player2: getString(value.player2),
+    isStrictTurn: value.isStrictTurn === "true",
+    startDate: getString(value.startDate),
+    strategy: getString(value.strategy),
+  };
+}
+
 function parseSearchQuery(value: unknown): KifuSearchQuery | null {
   if (!value || typeof value !== "object") return null;
   const query = value as Record<string, unknown>;
@@ -348,13 +360,7 @@ export const kifuRoutes = new Hono<AppEnv>()
   .get(
     "/search",
     validator("query", (value) => ({
-      sfen: getString(value.sfen),
-      keyword: getString(value.keyword),
-      player1: getString(value.player1),
-      player2: getString(value.player2),
-      isStrictTurn: value.isStrictTurn === "true",
-      startDate: getString(value.startDate),
-      strategy: getString(value.strategy),
+      ...readSearchQuery(value),
       limit: getOptionalInt(value.limit),
       offset: getOptionalInt(value.offset),
     })),
@@ -377,29 +383,27 @@ export const kifuRoutes = new Hono<AppEnv>()
     },
   )
 
-  .get(
-    "/search/count",
-    validator("query", (value) => ({
-      sfen: getString(value.sfen),
-      keyword: getString(value.keyword),
-      player1: getString(value.player1),
-      player2: getString(value.player2),
-      isStrictTurn: value.isStrictTurn === "true",
-      startDate: getString(value.startDate),
-      strategy: getString(value.strategy),
-    })),
-    (c) => {
-      if (!KIFU_DIR) {
-        return sendError(c, 404, "KIFU_DIR is not configured");
-      }
-      const query = c.req.valid("query");
-      const search = normalizeSearchQuery(query);
-      if (!search) {
-        return sendError(c, 400, hasInvalidStrategy(query) ? "Invalid strategy" : "Invalid sfen");
-      }
-      return c.json({ count: kifuIndexDB.getKifuSearchCount(search) });
-    },
-  )
+  .get("/search/count", validator("query", readSearchQuery), (c) => {
+    if (!KIFU_DIR) {
+      return sendError(c, 404, "KIFU_DIR is not configured");
+    }
+    const query = c.req.valid("query");
+    const search = normalizeSearchQuery(query);
+    if (!search) {
+      return sendError(c, 400, hasInvalidStrategy(query) ? "Invalid strategy" : "Invalid sfen");
+    }
+    return c.json({ count: kifuIndexDB.getKifuSearchCount(search) });
+  })
+
+  .get("/search/statistics", validator("query", readSearchQuery), (c) => {
+    if (!KIFU_DIR) return sendError(c, 404, "KIFU_DIR is not configured");
+    const query = c.req.valid("query");
+    const search = normalizeSearchQuery(query);
+    if (!search) {
+      return sendError(c, 400, hasInvalidStrategy(query) ? "Invalid strategy" : "Invalid sfen");
+    }
+    return c.json(kifuIndexDB.getKifuSearchStatistics(search));
+  })
 
   .post("/export/sfen", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
     if (!KIFU_DIR) {

@@ -2,7 +2,8 @@ import api, { API } from "@/renderer/ipc/api";
 import { exportKI2, ImmutablePosition, InitialPositionSFEN, Move, Position } from "tsshogi";
 import fs from "node:fs";
 import { createStore } from "@/renderer/store/index";
-import { RecordCustomData } from "@/renderer/store/record";
+import { RecordCustomData, RecordManager } from "@/renderer/store/record";
+import { normalizeSfen } from "@/common/usi/sfen";
 import * as audio from "@/renderer/devices/audio";
 import { gameSettings10m30s } from "@/tests/mock/game";
 import { GameManager } from "@/renderer/store/game";
@@ -986,6 +987,20 @@ describe("store/index", () => {
     expect(customData.researchInfo?.score).toBe(108);
     expect(useErrorStore().hasError).toBeFalsy();
     expect(store.isRecordFileUnsaved).toBeFalsy();
+  });
+
+  it("selects an explicitly matched initial position at ply zero", async () => {
+    mockAPI.openRecord.mockResolvedValue(new TextEncoder().encode(sampleKIF));
+    const select = vi.spyOn(RecordManager.prototype, "changePlyBySFEN");
+    try {
+      const store = createStore();
+      const sfen = normalizeSfen(InitialPositionSFEN.STANDARD);
+      await store.openRecord("server://sample.kif", { ply: 0, sfen });
+      expect(select).toHaveBeenCalledWith(0, sfen);
+      expect(store.record.current.ply).toBe(0);
+    } finally {
+      select.mockRestore();
+    }
   });
 
   it("openRecord/kifu/success", async () => {

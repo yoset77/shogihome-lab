@@ -17,6 +17,7 @@ import type {
   SfenExportRequest,
 } from "@/common/file/sfen_export";
 import { RecordFileHistory } from "@/common/file/history";
+import type { KifuSearchStatistics } from "@/common/file/kifu_statistics";
 import type {
   ServerDirectoryEntry,
   ServerDirectoryList,
@@ -154,6 +155,7 @@ export interface API {
     offset?: number;
   }): Promise<KifuSearchResult[]>;
   countServerKifu(params: KifuSearchQuery): Promise<number>;
+  getServerKifuStatistics(params: KifuSearchQuery): Promise<KifuSearchStatistics>;
   startServerKifuSfenExport(params: SfenExportRequest): Promise<SfenExportJobStatus>;
   getServerKifuSfenExport(jobId: string): Promise<SfenExportJobStatus>;
   cancelServerKifuSfenExport(jobId: string): Promise<void>;
@@ -353,6 +355,9 @@ const api: API = {
   },
   countServerKifu(params: KifuSearchQuery): Promise<number> {
     return bridge.countServerKifu(params);
+  },
+  getServerKifuStatistics(params: KifuSearchQuery): Promise<KifuSearchStatistics> {
+    return bridge.getServerKifuStatistics(params);
   },
   startServerKifuSfenExport(params: SfenExportRequest): Promise<SfenExportJobStatus> {
     return bridge.startServerKifuSfenExport(params);

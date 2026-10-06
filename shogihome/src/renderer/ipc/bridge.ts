@@ -2,6 +2,7 @@ import { BookLoadingMode } from "@/common/book";
 import { MenuEvent } from "@/common/control/menu";
 import { AppState, ResearchState } from "@/common/control/state";
 import { RecordFileFormat, KifuSearchResult, KifuListEntry } from "@/common/file/record";
+import type { KifuSearchStatistics } from "@/common/file/kifu_statistics";
 import { GameResult } from "@/common/game/result";
 import { LogLevel, LogType } from "@/common/log";
 import type {
@@ -129,6 +130,7 @@ export interface Bridge {
     params: KifuSearchQuery & { limit?: number; offset?: number },
   ): Promise<KifuSearchResult[]>;
   countServerKifu(params: KifuSearchQuery): Promise<number>;
+  getServerKifuStatistics(params: KifuSearchQuery): Promise<KifuSearchStatistics>;
   startServerKifuSfenExport(params: SfenExportRequest): Promise<SfenExportJobStatus>;
   getServerKifuSfenExport(jobId: string): Promise<SfenExportJobStatus>;
   cancelServerKifuSfenExport(jobId: string): Promise<void>;

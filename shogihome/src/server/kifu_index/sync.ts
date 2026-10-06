@@ -13,6 +13,7 @@ import {
   updateKifuFileStrategy,
   deleteKifuFile,
   getKifuCount,
+  KIFU_POSITION_INDEX_VERSION,
   cleanupOrphanedPositions,
 } from "@/server/database/kifu_index";
 import { parseAndIndexFile } from "./engine.js";
@@ -86,7 +87,10 @@ export async function syncKifuDirectory(kifuDir: string) {
 
       if (!existing || existing.mtime !== stats.mtimeMs || existing.size !== stats.size) {
         filesToIndex.push(relPath);
-      } else if (existing.strategy_index_version !== STRATEGY_INDEX_VERSION) {
+      } else if (
+        existing.strategy_index_version !== STRATEGY_INDEX_VERSION ||
+        existing.position_index_version !== KIFU_POSITION_INDEX_VERSION
+      ) {
         filesToIndex.push(relPath);
       }
 
@@ -115,7 +119,8 @@ export async function syncKifuDirectory(kifuDir: string) {
           if (
             existing &&
             existing.mtime === result.metadata.mtime &&
-            existing.size === result.metadata.size
+            existing.size === result.metadata.size &&
+            existing.position_index_version === KIFU_POSITION_INDEX_VERSION
           ) {
             updateKifuFileStrategy(result.metadata);
           } else {

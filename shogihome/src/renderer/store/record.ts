@@ -45,7 +45,7 @@ import {
   importRecordFromBuffer,
 } from "@/common/file/record";
 import { SCORE_MATE_INFINITE } from "@/common/game/usi";
-import { normalizeSfen } from "@/common/usi/sfen";
+import { findKifuPosition } from "@/common/kifu/position";
 import api from "@/renderer/ipc/api";
 import { LogLevel } from "@/common/log";
 import { secondsToMMSS } from "@/common/helpers/time";
@@ -547,13 +547,7 @@ export class RecordManager {
   }
 
   changePlyBySFEN(ply: number, sfen: string): boolean {
-    let target: ImmutableNode | null = null;
-    this._record.forEach((node) => {
-      const normalized = normalizeSfen(node.sfen);
-      if (node.ply === ply && normalized === sfen) {
-        target = node;
-      }
-    });
+    const target = findKifuPosition(this._record.first, ply, sfen);
     if (target) {
       return this._record.gotoNode(target);
     }

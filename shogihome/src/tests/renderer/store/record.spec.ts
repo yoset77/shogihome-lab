@@ -1,5 +1,6 @@
 import { CommentBehavior, SearchCommentFormat } from "@/common/settings/comment";
 import { normalizeSfen } from "@/common/usi/sfen";
+import { readFileSync } from "node:fs";
 import {
   Color,
   InitialPositionSFEN,
@@ -584,6 +585,20 @@ describe("store/record", () => {
   });
 
   describe("changePlyBySFEN", () => {
+    it("selects the first indexed occurrence when branches transpose at the same ply", () => {
+      const manager = new RecordManager();
+      const data = readFileSync("src/tests/testdata/kifu-search/transpositions.kif");
+      expect(
+        manager.importRecordFromBuffer(new Uint8Array(data), "transpositions.kif", {
+          autoDetect: true,
+        }),
+      ).toBeUndefined();
+      manager.changePly(4);
+      const representative = manager.record.current;
+      expect(manager.changePlyBySFEN(4, normalizeSfen(representative.sfen))).toBe(true);
+      expect(manager.record.current).toBe(representative);
+    });
+
     it("should jump to the correct position on the main line", () => {
       const recordManager = new RecordManager();
       recordManager.appendMove({

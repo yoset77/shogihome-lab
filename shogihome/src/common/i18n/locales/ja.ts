@@ -881,6 +881,34 @@ export const ja: Texts = {
   list: "一覧",
   kifuSearch: "棋譜検索",
   searchByPosition: "局面で検索",
+  showKifuStatistics: "統計表示",
+  kifuStatisticsTitle: "検索結果の統計",
+  kifuStatisticsConditions: "検索条件",
+  kifuStatisticsCollectedAt: "集計時刻",
+  kifuStatisticsTargetCount: (n: number) => `集計対象: ${n}棋譜`,
+  kifuStatisticsCount: "件数",
+  kifuStatisticsRatio: "構成比",
+  kifuStatisticsTotal: "合計",
+  kifuStatisticsRawStrategy: "標準分類なし・記載あり",
+  kifuStatisticsMissingPlayer: "名前未記載",
+  kifuStatisticsFileNote:
+    "検索条件に一致する全棋譜ファイルを集計します。同じ対局の重複ファイルも別件です。",
+  kifuStatisticsStrategyNote:
+    "棋譜全体の戦型分類です。検索局面自体の分類ではなく、自動判定を含みます。",
+  kifuStatisticsPlayerNote:
+    "合計は延べ登場件数です。表記ゆれは統合しません。同名が両側にある棋譜は2件と数えます。",
+  kifuStatisticsAbout: "この統計について",
+  kifuStatisticsCountChanged:
+    "検索時からインデックスが更新されたため、一覧と集計対象の件数が異なります。",
+  kifuStatisticsLoading: "集計中…",
+  kifuStatisticsFailed: "統計を取得できませんでした。再集計してください。",
+  recalculateKifuStatistics: "再集計",
+  kifuStatisticsPreviousPage: "前のページ",
+  kifuStatisticsNextPage: "次のページ",
+  kifuStatisticsPage: (page: number, total: number) => `${page} / ${total}ページ`,
+  kifuNoContinuation: "続きなし",
+  kifuNextMoveUnavailable: "未取得",
+  kifuVariation: "変化",
   keyword: "キーワード",
   nKifuFound(n: number) {
     return `${n} 件見つかりました。`;

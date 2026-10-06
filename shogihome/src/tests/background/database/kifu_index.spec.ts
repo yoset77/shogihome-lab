@@ -7,6 +7,7 @@ import {
   getKifuFileByPath,
   searchKifu,
   getKifuSearchCount,
+  getKifuSearchStatistics,
   getKifuSearchFilePaths,
   getKifuCount,
   updateKifuFileStrategy,
@@ -163,7 +164,7 @@ describe("background/database/kifu_index", () => {
         strategy_classifier_version: null,
         strategy_index_version: 0,
       });
-      expect(migratedDb.prepare("PRAGMA user_version").get()).toEqual({ user_version: 1 });
+      expect(migratedDb.prepare("PRAGMA user_version").get()).toEqual({ user_version: 2 });
     } finally {
       migratedDb.close();
     }
@@ -173,7 +174,7 @@ describe("background/database/kifu_index", () => {
     closeDatabase();
     fs.rmSync(path.join(testDataDir, "kifu_index.db"), { force: true });
     const futureDb = new DatabaseSync(path.join(testDataDir, "kifu_index.db"));
-    futureDb.exec("PRAGMA user_version = 2");
+    futureDb.exec("PRAGMA user_version = 3");
     futureDb.close();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
@@ -206,12 +207,12 @@ describe("background/database/kifu_index", () => {
     expect(searchKifu({ sfenHash: 100n, sfen: "pos1" })).toHaveLength(1);
   });
 
-  it("should return MIN(ply) when same position appears multiple times", () => {
+  it("keeps the first registered occurrence when the same position appears multiple times", () => {
     const positions = [
       { sfen_hash: 100n, sfen: "pos1", ply: 0 },
       { sfen_hash: 200n, sfen: "shared", ply: 10 },
       { sfen_hash: 300n, sfen: "pos3", ply: 15 },
-      { sfen_hash: 200n, sfen: "shared", ply: 30 },
+      { sfen_hash: 200n, sfen: "shared", ply: 2 },
       { sfen_hash: 200n, sfen: "shared", ply: 50 },
     ];
 
@@ -349,6 +350,120 @@ describe("background/database/kifu_index", () => {
     expect(filePaths).toHaveLength(125);
     expect(results.map((result) => result.file_path)).toEqual(filePaths.slice(0, 100));
     expect(new Set(filePaths).size).toBe(125);
+    const statistics = getKifuSearchStatistics({ ...params, limit: 1, offset: 100 });
+    expect(statistics.total).toBe(125);
+    expect(statistics.strategies).toEqual([{ strategy: "unclassified", count: 125 }]);
+    expect(statistics.players).toEqual([
+      { name: "Player A", black: 125, white: 0, total: 125 },
+      { name: "Player B", black: 0, white: 125, total: 125 },
+    ]);
+  });
+
+  it("aggregates strategies and player appearances without merging names or missing metadata", () => {
+    upsertKifuFile(
+      { ...makeMetadata("classified.kif"), strategy: "角換わり", black_name: "A", white_name: "A" },
+      [],
+    );
+    upsertKifuFile(
+      {
+        ...makeMetadata("other.kif"),
+        strategy: "その他",
+        black_name: "A 九段",
+        white_name: undefined,
+      },
+      [],
+    );
+    upsertKifuFile(
+      { ...makeMetadata("raw.kif"), strategy_raw: "未知の戦型", black_name: "", white_name: "A" },
+      [],
+    );
+    upsertKifuFile({ ...makeMetadata("unknown.kif"), black_name: " ", white_name: "B" }, []);
+    const statistics = getKifuSearchStatistics({});
+    expect(statistics.total).toBe(4);
+    expect(statistics.strategies).toEqual(
+      expect.arrayContaining([
+        { strategy: "角換わり", count: 1 },
+        { strategy: "その他", count: 1 },
+        { strategy: "raw-only", count: 1 },
+        { strategy: "unclassified", count: 1 },
+      ]),
+    );
+    expect(statistics.players).toEqual([
+      { name: null, black: 2, white: 1, total: 3 },
+      { name: "A", black: 1, white: 2, total: 3 },
+      { name: "A 九段", black: 1, white: 0, total: 1 },
+      { name: "B", black: 0, white: 1, total: 1 },
+    ]);
+    expect(getKifuSearchStatistics({ strategy: "unclassified" }).total).toBe(1);
+    expect(getKifuSearchStatistics({ keyword: "not found" })).toMatchObject({
+      total: 0,
+      strategies: [],
+      players: [],
+    });
+  });
+
+  it("uses all combined search filters and counts repeated positions only once", () => {
+    const metadata = {
+      ...makeMetadata("matching.kif"),
+      event: "Final",
+      strategy: "角換わり" as const,
+    };
+    const positions = [
+      { sfen_hash: 100n, sfen: "shared", ply: 4 },
+      { sfen_hash: 100n, sfen: "shared", ply: 8 },
+    ];
+    upsertKifuFile(metadata, positions);
+    upsertKifuFile({ ...metadata, file_path: "other.kif", white_name: "Other" }, positions);
+    const query = {
+      sfenHash: 100n,
+      sfen: "shared",
+      keyword: "Final",
+      player1: "Player A",
+      player2: "Player B",
+      isStrictTurn: true,
+      startDate: "2024/01",
+      strategy: "角換わり" as const,
+    };
+    expect(getKifuSearchStatistics(query).total).toBe(getKifuSearchCount(query));
+    expect(getKifuSearchStatistics(query)).toMatchObject({
+      total: 1,
+      strategies: [{ strategy: "角換わり", count: 1 }],
+    });
+  });
+
+  it("migrates version one without discarding strategies and distinguishes unavailable next moves", () => {
+    upsertKifuFile(
+      {
+        ...makeMetadata("legacy.kif"),
+        strategy: "角換わり",
+        strategy_raw: "角換わり",
+        strategy_index_version: 1,
+      },
+      [{ sfen_hash: 100n, sfen: "shared", ply: 4 }],
+    );
+    closeDatabase();
+    const legacy = new DatabaseSync(path.join(testDataDir, "kifu_index.db"));
+    legacy.exec(`
+      ALTER TABLE kifu_files DROP COLUMN position_index_version;
+      ALTER TABLE kifu_positions DROP COLUMN next_move;
+      ALTER TABLE kifu_positions DROP COLUMN is_variation;
+      PRAGMA user_version = 1;
+    `);
+    legacy.close();
+    initDatabase(testDataDir);
+    expect(getKifuFileByPath("legacy.kif")).toMatchObject({
+      strategy: "角換わり",
+      strategy_index_version: 1,
+      position_index_version: 0,
+    });
+    expect(searchKifu({ sfenHash: 100n, sfen: "shared" })[0].next_move).toBeNull();
+    upsertKifuFile(makeMetadata("ending.kif"), [
+      { sfen_hash: 100n, sfen: "shared", ply: 4, next_move: "" },
+    ]);
+    expect(
+      searchKifu({ sfenHash: 100n, sfen: "shared" }).find((row) => row.file_path === "ending.kif")
+        ?.next_move,
+    ).toBe("");
   });
 
   it("removes only positions orphaned by an upsert", () => {

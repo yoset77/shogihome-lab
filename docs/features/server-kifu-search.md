@@ -1,0 +1,39 @@
+# Server Kifu Search Intent
+
+この文書はサーバー棋譜検索の代表局面、次の指し手、検索統計における設計意図を記録します。具体的なschema、API field、表示件数はコードとテストを正本とします。
+
+## Goal
+
+棋譜を開かずに検索候補を比較できるようにしつつ、次手と棋譜を開いた際の局面の不一致や、一覧上限による統計の偏りを防ぎます。
+
+## Representative Position
+
+- 同じ棋譜file・正規化局面は1件として扱い、深さ優先走査で最初に現れた箇所を代表とします。最小手数の箇所を選ぶ規則ではありません。
+- Indexing、preview、openは共有の走査・選択規則を使い、同じ手数・局面に複数の変化手順が一致しても同じ代表箇所を参照します。
+- 次の指し手は代表箇所の先頭の継続です。Engineの推奨手や全出現箇所の候補集合ではありません。代表箇所が変化手順内の場合はその旨を示します。
+- 前の指し手に依存する「同」表記を避け、次手だけでも移動先が分かる表記にします。投了・中断などの特殊手も記録内容として表示します。
+- 継続が記録されていない状態と、再同期前などで次手情報を取得できていない状態は区別します。
+- 次手の表示条件は編集中の検索formではなく、実行済み検索に基づきます。
+
+## Statistics Population
+
+- 実行済み検索と同じ条件に一致する全棋譜fileを対象とします。一覧の表示上限や対局者表のpaginationで対象を縮小しません。
+- 集計単位はfileであり、同じ対局の重複fileも別件です。同じfile内の局面の再出現は件数を増やしません。
+- 集計時点のindexを使用します。検索後のfile更新で件数が変わる可能性を示し、集計時刻と再集計操作を提供します。自動更新や検索時点のsnapshot保存は行いません。
+- 集計はDBで実行し、全棋譜fileの読み直しや、元棋譜のBrowserへの一括転送を行いません。
+
+## Interpretation
+
+- 戦型は棋譜全体の標準分類です。自動判定を含み、検索局面自体の分類ではありません。標準分類できない記載と未判定を分け、どちらも「その他」へ吸収しません。
+- 戦型の構成比は対象file数を分母とします。端数処理により比率の合計が厳密に100%にならない場合があります。
+- 対局者は記録名単位で先手／下手側と後手／上手側を集計します。表記ゆれを自動統合せず、欠損名も対象に含めます。
+- 対局者の合計は延べ登場件数です。同名が両側に記録されているfileは2件と数え、全対局者の合計は対象file数の2倍になります。
+- 勝率、次手別頻度、棋戦・対局年、対局の重複排除は初期機能に含めません。
+
+## Sources of Truth
+
+- 代表箇所の走査・選択: `shogihome/src/common/kifu/position.ts`
+- Index生成と再同期: `shogihome/src/server/kifu_index/engine.ts` と `sync.ts`
+- 検索条件とDB集計: `shogihome/src/server/database/kifu_index.ts`
+- HTTP境界と共有統計contract: `shogihome/src/server/routes/kifu.ts` と `shogihome/src/common/file/kifu_statistics.ts`
+- 統計状態と表示: `shogihome/src/renderer/store/kifuStatistics.ts` と `shogihome/src/renderer/view/dialog/KifuStatisticsDialog.vue`

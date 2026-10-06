@@ -881,6 +881,34 @@ export const vi: Texts = {
   list: "Danh sách",
   kifuSearch: "Tìm kiếm kỳ phổ",
   searchByPosition: "Tìm theo cục diện",
+  showKifuStatistics: "Thống kê",
+  kifuStatisticsTitle: "Thống kê kết quả tìm kiếm",
+  kifuStatisticsConditions: "Điều kiện tìm kiếm",
+  kifuStatisticsCollectedAt: "Thời điểm thống kê",
+  kifuStatisticsTargetCount: (n: number) => `Số kỳ phổ: ${n}`,
+  kifuStatisticsCount: "Số lượng",
+  kifuStatisticsRatio: "Tỷ lệ",
+  kifuStatisticsTotal: "Tổng",
+  kifuStatisticsRawStrategy: "Có ghi nhưng chưa có phân loại chuẩn",
+  kifuStatisticsMissingPlayer: "Chưa ghi tên",
+  kifuStatisticsFileNote:
+    "Thống kê tất cả tệp kỳ phổ phù hợp. Các tệp trùng cùng ván được tính riêng.",
+  kifuStatisticsStrategyNote:
+    "Chiến thuật phân loại toàn bộ kỳ phổ, không phải thế cờ tìm kiếm, và bao gồm phân loại tự động.",
+  kifuStatisticsPlayerNote:
+    "Tổng là số lần xuất hiện. Không gộp các biến thể tên. Cùng tên ở hai bên được tính hai lần.",
+  kifuStatisticsAbout: "Về thống kê này",
+  kifuStatisticsCountChanged:
+    "Chỉ mục đã thay đổi sau khi tìm kiếm nên số lượng thống kê khác danh sách kết quả.",
+  kifuStatisticsLoading: "Đang thống kê…",
+  kifuStatisticsFailed: "Không thể lấy thống kê. Vui lòng tính lại.",
+  recalculateKifuStatistics: "Tính lại",
+  kifuStatisticsPreviousPage: "Trang trước",
+  kifuStatisticsNextPage: "Trang sau",
+  kifuStatisticsPage: (page: number, total: number) => `Trang ${page} / ${total}`,
+  kifuNoContinuation: "Không có nước tiếp theo",
+  kifuNextMoveUnavailable: "Chưa lập chỉ mục",
+  kifuVariation: "Biến thể",
   keyword: "Từ khóa",
   nKifuFound(n: number) {
     return `Đã tìm thấy ${n} kỳ phổ.`;
