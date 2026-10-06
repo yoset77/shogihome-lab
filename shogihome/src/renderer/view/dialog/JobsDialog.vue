@@ -1,28 +1,47 @@
 <template>
   <DialogFrame limited @cancel="store.closeJobsDialog()">
     <div class="root">
-      <div class="title">{{ messages.title }}</div>
-      <p v-if="list.error" role="alert">{{ errorMessage }}</p>
-      <p v-if="!list.error && !list.loading && !list.jobs.length">{{ messages.empty }}</p>
-      <ul>
-        <li v-for="job in list.jobs" :key="`${job.kind}:${job.serverInstanceId}:${job.id}`">
-          <strong>{{ job.kind === "analysis" ? messages.analysis : messages.game }}</strong>
-          <div>
-            <small>{{ job.id }}</small>
-          </div>
-          <div>{{ job.engines.join(" / ") }}</div>
-          <div>{{ messages.state }}: {{ messages.states[job.state] }}</div>
-          <div>{{ messages.progress }}: {{ job.completed }} / {{ job.total }}</div>
-          <div>{{ job.attachment.attached ? messages.attached : messages.detached }}</div>
-          <button :disabled="!store.canAttachJob" @click="store.attachJob(job)">
-            {{ terminal(job) ? messages.results : messages.attach }}
-          </button>
-        </li>
-      </ul>
-      <p>{{ messages.retention }}</p>
+      <div class="title">{{ t.jobsTitle }}</div>
+      <p v-if="list.error" class="note" role="alert">{{ errorMessage }}</p>
+      <div class="form-group scroll">
+        <p v-if="!list.error && !list.loading && !list.jobs.length" class="note">
+          {{ t.jobsEmpty }}
+        </p>
+        <ul>
+          <li
+            v-for="(job, index) in list.jobs"
+            :key="`${job.kind}:${job.serverInstanceId}:${job.id}`"
+          >
+            <hr v-if="index !== 0" />
+            <div class="header">
+              <strong>{{ job.kind === "analysis" ? t.jobsAnalysis : t.jobsGame }}</strong>
+              <span class="actions">
+                <button :disabled="!store.canAttachJob" @click="onAttach(job)">
+                  {{ terminal(job) ? t.jobsOpenResults : t.jobsAttach }}
+                </button>
+                <button v-if="job.attachment.attached && store.canDetachJob" @click="onDetach">
+                  {{ t.jobsDetach }}
+                </button>
+              </span>
+            </div>
+            <div class="form-item">
+              <span class="form-item-label">{{ t.jobsState }}</span>
+              <span>{{ states[job.state] }}</span>
+            </div>
+            <div class="form-item">
+              <span class="form-item-label">{{ t.jobsProgress }}</span>
+              <span>{{ job.completed }} / {{ job.total }}</span>
+            </div>
+            <div>{{ job.engines.join(" / ") }}</div>
+            <div>{{ job.attachment.attached ? t.jobsAttached : t.jobsDetached }}</div>
+          </li>
+        </ul>
+      </div>
+      <p v-if="list.jobs.length" class="note">{{ t.jobsRetention }}</p>
       <div class="main-buttons">
-        <button v-if="store.canDetachJob" @click="store.detachJob()">{{ messages.detach }}</button>
-        <button :disabled="list.loading" @click="list.refresh()">{{ messages.refresh }}</button>
+        <button :disabled="list.loading" :aria-busy="list.loading" @click="list.refresh()">
+          {{ t.jobsRefresh }}
+        </button>
         <button data-hotkey="Escape" @click="store.closeJobsDialog()">{{ t.close }}</button>
       </div>
     </div>
@@ -32,20 +51,36 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, reactive } from "vue";
 import { t } from "@/common/i18n";
-import { jobTexts } from "@/common/i18n/jobs";
 import type { JobSummary } from "@/common/jobs/types";
 import { useStore } from "@/renderer/store";
-import { useAppSettings } from "@/renderer/store/settings";
 import { JobListManager } from "@/renderer/store/jobs";
 import DialogFrame from "./DialogFrame.vue";
 
 const store = useStore();
-const messages = computed(() => jobTexts(useAppSettings().language));
 const list = reactive(new JobListManager());
+const states: Record<JobSummary["state"], string> = {
+  preparing: t.jobsStatePreparing,
+  running: t.jobsStateRunning,
+  paused: t.jobsStatePaused,
+  takingBack: t.jobsStateTakingBack,
+  finishing: t.jobsStateFinishing,
+  cancelling: t.jobsStateCancelling,
+  completed: t.jobsStateCompleted,
+  cancelled: t.jobsStateCancelled,
+  failed: t.jobsStateFailed,
+};
 const errorMessage = computed(() =>
-  list.error instanceof Error ? list.error.message : messages.value.invalid,
+  list.error instanceof Error ? list.error.message : t.jobsInvalid,
 );
 const terminal = (job: JobSummary) => ["completed", "cancelled", "failed"].includes(job.state);
+const onAttach = async (job: JobSummary) => {
+  await store.attachJob(job);
+  void list.refresh();
+};
+const onDetach = () => {
+  store.detachJob();
+  void list.refresh();
+};
 onMounted(() => list.start());
 onBeforeUnmount(() => list.stop());
 </script>
@@ -54,9 +89,11 @@ onBeforeUnmount(() => list.stop());
 .root {
   width: min(540px, calc(95vw - 32px));
   max-width: 100%;
-  min-height: 0;
-  overflow-y: auto;
   overflow-wrap: anywhere;
+}
+.form-group {
+  max-height: clamp(160px, calc(100dvh - 240px), 800px);
+  box-sizing: border-box;
 }
 ul {
   padding: 0;
@@ -64,9 +101,25 @@ ul {
 }
 li {
   padding: 12px 0;
-  border-bottom: 1px solid var(--text-separator-color);
 }
-li button {
-  margin-top: 8px;
+li:first-child {
+  padding-top: 0;
+}
+li hr {
+  margin-top: 0;
+}
+li .form-item {
+  margin: 5px 0;
+}
+.header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.actions {
+  display: flex;
+  flex-direction: row;
 }
 </style>

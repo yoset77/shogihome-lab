@@ -17,7 +17,7 @@
           />
           <div v-if="isBlackEngine" class="form-item extra-book">
             <div class="row center">
-              <div class="form-item-label">{{ gameMessages.externalBook }}</div>
+              <div class="form-item-label">{{ t.book }}</div>
               <ToggleButton v-model:value="blackExtraBook.enabled" />
             </div>
             <div v-if="blackExtraBook.enabled" class="form-item additional book-file-row">
@@ -48,7 +48,7 @@
           />
           <div v-if="isWhiteEngine" class="form-item extra-book">
             <div class="row center">
-              <div class="form-item-label">{{ gameMessages.externalBook }}</div>
+              <div class="form-item-label">{{ t.book }}</div>
               <ToggleButton v-model:value="whiteExtraBook.enabled" />
             </div>
             <div v-if="whiteExtraBook.enabled" class="form-item additional book-file-row">
@@ -267,13 +267,13 @@
               :label="t.adjustBoardToHumanPlayer"
             />
           </div>
+          <div v-if="!isNative() && isBlackEngine && isWhiteEngine" class="form-item">
+            <ToggleButton v-model:value="background" :label="t.jobsBackground" />
+          </div>
         </div>
       </div>
     </div>
     <div class="main-buttons">
-      <label v-if="!isNative() && isBlackEngine && isWhiteEngine">
-        <input v-model="background" type="checkbox" />{{ jobMessages.background }}
-      </label>
       <button data-hotkey="Enter" autofocus @click="onStart()">
         {{ t.startGame }}
       </button>
@@ -298,9 +298,6 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
-import { gameTexts } from "@/common/i18n/game";
-import { jobTexts } from "@/common/i18n/jobs";
-import { useAppSettings } from "@/renderer/store/settings";
 import {
   USIEngine,
   USIEngines,
@@ -310,7 +307,7 @@ import {
   emptyUSIEngineExtraBookConfig,
   normalizeUSIEngineExtraBookConfig,
 } from "@/common/settings/usi";
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, computed, watch } from "vue";
 import api, { isNative } from "@/renderer/ipc/api";
 import { useStore } from "@/renderer/store";
 import {
@@ -336,8 +333,6 @@ import ExtraBookSettingsDialog from "./ExtraBookSettingsDialog.vue";
 
 const store = useStore();
 const background = ref(false);
-const jobMessages = computed(() => jobTexts(useAppSettings().language));
-const gameMessages = computed(() => gameTexts(useAppSettings().language));
 const busyState = useBusyState();
 const hours = ref(0);
 const minutes = ref(0);
@@ -366,6 +361,12 @@ const isBlackEngine = computed(
 );
 const isWhiteEngine = computed(
   () => uri.isUSIEngine(whitePlayerURI.value) || whitePlayerURI.value.startsWith("lan-engine"),
+);
+watch(
+  () => isBlackEngine.value && isWhiteEngine.value,
+  (available) => {
+    if (!available) background.value = false;
+  },
 );
 const sfenFileList = ref<{ label: string; value: string }[]>([]);
 const bookFileList = ref<{ label: string; value: string }[]>([]);

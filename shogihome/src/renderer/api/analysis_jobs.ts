@@ -9,7 +9,7 @@ import {
 } from "@/common/analysis/types";
 import { decodeRecordSnapshot, type RecordSnapshot } from "@/common/record/snapshot";
 import type { DecodeResult } from "@/common/engine/relay_protocol";
-import { analysisTexts } from "@/common/i18n/analysis";
+import { t } from "@/common/i18n/index";
 import { createApiRequestOptions, createHonoApiClient, parseJsonResponse } from "./client";
 import {
   decodeJobBinding,
@@ -40,7 +40,7 @@ async function decode<T>(
   decoder: (value: unknown) => DecodeResult<T>,
 ): Promise<T> {
   const result = decoder(await parseJsonResponse<unknown>(response));
-  if (!result.ok) throw new Error(analysisTexts().invalid);
+  if (!result.ok) throw new Error(t.analysisJobInvalid);
   return result.value;
 }
 

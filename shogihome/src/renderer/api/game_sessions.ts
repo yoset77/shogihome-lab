@@ -7,7 +7,7 @@ import {
   type GameCapabilities,
 } from "@/common/game/protocol";
 import type { DecodeResult } from "@/common/engine/relay_protocol";
-import { gameTexts } from "@/common/i18n/game";
+import { t } from "@/common/i18n/index";
 import { createApiRequestOptions, createHonoApiClient, parseJsonResponse } from "./client";
 import {
   decodeJobList,
@@ -34,7 +34,7 @@ async function decode<T>(
   decoder: (value: unknown) => DecodeResult<T>,
 ): Promise<T> {
   const result = decoder(await parseJsonResponse<unknown>(response));
-  if (!result.ok) throw new Error(gameTexts().invalid);
+  if (!result.ok) throw new Error(t.gameInvalid);
   return result.value;
 }
 export function createGameSessionsClient(): GameSessionsClient {

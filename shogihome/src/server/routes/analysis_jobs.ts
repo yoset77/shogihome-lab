@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { validator } from "hono/validator";
 import { decodeAnalysisJobRequest } from "@/common/analysis/types";
 import { identifier, counter } from "@/common/analysis/validation";
-import { analysisTexts } from "@/common/i18n/analysis";
+import { t } from "@/common/i18n";
 import { AnalysisJobManager, analysisJobManager } from "@/server/analysis/jobManager";
 import { HttpError } from "@/server/errors";
 import {
@@ -13,20 +13,19 @@ import {
 } from "@/server/hono";
 import { parseJsonObject } from "./body";
 import { readJobAttachRequest, readJobBinding } from "@/common/jobs/types";
-import { jobTexts } from "@/common/i18n/jobs";
 
 const attachInput = validator("json", (value) => {
   try {
     return readJobAttachRequest(parseJsonObject(value));
   } catch {
-    throw new HttpError(400, jobTexts().invalid);
+    throw new HttpError(400, t.jobsInvalid);
   }
 });
 const bindingInput = validator("json", (value) => {
   try {
     return readJobBinding(parseJsonObject(value));
   } catch {
-    throw new HttpError(400, jobTexts().invalid);
+    throw new HttpError(400, t.jobsInvalid);
   }
 });
 const cancelInput = validator("json", (value) => {
@@ -37,7 +36,7 @@ const cancelInput = validator("json", (value) => {
       ...(input.requestId === undefined ? {} : { requestId: identifier(input.requestId) }),
     };
   } catch {
-    throw new HttpError(400, jobTexts().invalid);
+    throw new HttpError(400, t.jobsInvalid);
   }
 });
 
@@ -45,7 +44,7 @@ function id(value: string): string {
   try {
     return identifier(value);
   } catch {
-    throw new HttpError(400, analysisTexts().invalid);
+    throw new HttpError(400, t.analysisJobInvalid);
   }
 }
 
@@ -65,7 +64,7 @@ export const createAnalysisJobRoutes = (manager: AnalysisJobManager = analysisJo
       createBodyLimit(LARGE_BODY_LIMIT),
       validator("json", (value) => {
         const decoded = decodeAnalysisJobRequest(parseJsonObject(value));
-        if (!decoded.ok) throw new HttpError(400, analysisTexts().invalid);
+        if (!decoded.ok) throw new HttpError(400, t.analysisJobInvalid);
         return decoded.value;
       }),
       (c) => c.json(manager.create(c.req.valid("json")).status(), 202),
@@ -107,7 +106,7 @@ export const createAnalysisJobRoutes = (manager: AnalysisJobManager = analysisJo
       validator("query", (value) => {
         const raw = value.afterRevision;
         if (raw !== undefined && (typeof raw !== "string" || !/^\d+$/.test(raw)))
-          throw new HttpError(400, analysisTexts().invalid);
+          throw new HttpError(400, t.analysisJobInvalid);
         try {
           const epoch = value.epoch;
           if (epoch !== undefined && (typeof epoch !== "string" || !/^\d+$/.test(epoch)))
@@ -133,7 +132,7 @@ export const createAnalysisJobRoutes = (manager: AnalysisJobManager = analysisJo
               : {}),
           };
         } catch {
-          throw new HttpError(400, analysisTexts().invalid);
+          throw new HttpError(400, t.analysisJobInvalid);
         }
       }),
       (c) => {
@@ -147,13 +146,13 @@ export const createAnalysisJobRoutes = (manager: AnalysisJobManager = analysisJo
             recoveryId: query.recoveryId,
           });
         const after = c.req.valid("query").afterRevision;
-        if (after > job.status().resultRevision) throw new HttpError(409, analysisTexts().invalid);
+        if (after > job.status().resultRevision) throw new HttpError(409, t.analysisJobInvalid);
         return c.json(job.result(after));
       },
     )
     .post("/:jobId/cancel", (c) => {
       const job = manager.get(id(c.req.param("jobId")));
-      if (job.attachment.status().epoch > 0) throw new HttpError(409, jobTexts().transferred);
+      if (job.attachment.status().epoch > 0) throw new HttpError(409, t.jobsTransferred);
       job.cancel();
       return c.json(job.status(), 202);
     })

@@ -64,7 +64,7 @@
         >
           <Icon :icon="IconType.STOP" />
           <div class="label">
-            {{ store.isAnalysisCancelling ? analysisMessages.cancelling : t.stopAnalysis }}
+            {{ store.isAnalysisCancelling ? t.analysisCancelling : t.stopAnalysis }}
           </div>
         </button>
         <button v-if="states.mateSearch" @click="onMateSearch">
@@ -81,14 +81,6 @@
         </button>
       </div>
       <div class="group">
-        <button v-if="!isNative()" @click="onJobs">
-          <Icon :icon="IconType.BATCH" />
-          <div class="label">{{ jobMessages.title }}</div>
-        </button>
-        <button v-if="store.canDetachJob" @click="onDetach">
-          <Icon :icon="IconType.END" />
-          <div class="label">{{ jobMessages.detach }}</div>
-        </button>
         <button :disabled="!states.newFile" @click="onNewFile">
           <Icon :icon="IconType.FILE" />
           <div class="label">{{ t.clear }}</div>
@@ -182,6 +174,14 @@
           <Icon :icon="IconType.OPEN_FOLDER" />
           <div class="label">{{ t.openAutoSaveDirectory }}</div>
         </button>
+        <button v-if="!isNative()" @click="onJobs">
+          <Icon :icon="IconType.MONITOR" />
+          <div class="label">{{ t.jobsTitle }}</div>
+        </button>
+        <button v-if="store.canDetachJob" @click="onDetach">
+          <Icon :icon="IconType.END" />
+          <div class="label">{{ t.jobsDetach }}</div>
+        </button>
       </div>
       <div class="group">
         <button @click="onCopyKIF">
@@ -253,8 +253,6 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
-import { analysisTexts } from "@/common/i18n/analysis";
-import { jobTexts } from "@/common/i18n/jobs";
 import { showModalDialog } from "@/renderer/helpers/dialog.js";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
@@ -280,8 +278,6 @@ const emit = defineEmits<{
 
 const store = useStore();
 const appSettings = useAppSettings();
-const analysisMessages = computed(() => analysisTexts(appSettings.language));
-const jobMessages = computed(() => jobTexts(appSettings.language));
 const lanStore = useLanStore();
 const dialog = ref();
 const isGameMenuVisible = ref(false);

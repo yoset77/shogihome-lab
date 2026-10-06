@@ -2,10 +2,10 @@ import { Color, Move, type Node, type Record as ShogiRecord } from "tsshogi";
 import { parseUSIPV, type USIInfoCommand } from "@/common/game/usi";
 import { getMoveAccuracyText } from "@/common/game/score";
 import { getTranslationTable } from "@/common/i18n/translation_table";
+import { t } from "@/common/i18n";
 import { applyComment, buildSearchComment } from "@/common/record/search_comment";
 import { JobAttachment } from "@/server/jobs/attachment";
 import { HttpError } from "@/server/errors";
-import { analysisTexts } from "@/common/i18n/analysis";
 import type { JobBinding } from "@/common/jobs/types";
 import {
   SearchInfoSenderType,
@@ -37,11 +37,12 @@ export class AnalysisJob {
   cancelOwned(binding: JobBinding, requestId?: string): void {
     this.attachment.authorizeOperation(binding);
     if (requestId && !this.cancellations.has(requestId) && this.cancellations.size >= 10_000)
-      throw new HttpError(503, analysisTexts().capacity);
+      throw new HttpError(503, t.analysisJobCapacity);
     this.cancel();
     if (requestId) this.cancellations.add(requestId);
   }
   readonly attachment = new JobAttachment();
+  readonly createdAt = Date.now();
   private state: AnalysisJobState = "preparing";
   private error?: AnalysisJobError;
   private record: ShogiRecord;

@@ -39,7 +39,7 @@ export class JobListManager {
     try {
       const [analysis, games] = await Promise.all([this.analysis.list(), this.games.list()]);
       if (generation !== this.generation) return;
-      this.jobs = [...analysis, ...games];
+      this.jobs = [...analysis, ...games].sort((a, b) => b.createdAt - a.createdAt);
       this.error = undefined;
       this.retryMs = 5000;
       this.retryNotBefore = 0;

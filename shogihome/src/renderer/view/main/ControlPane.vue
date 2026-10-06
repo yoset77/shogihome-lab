@@ -98,7 +98,7 @@
         >
           <Icon :icon="IconType.STOP" />
           <span :class="{ tooltip: compact }">{{
-            store.isAnalysisCancelling ? analysisMessages.cancelling : t.stopAnalysis
+            store.isAnalysisCancelling ? t.analysisCancelling : t.stopAnalysis
           }}</span>
         </button>
         <!-- 詰み探索 -->
@@ -199,7 +199,6 @@ export enum ControlGroup {
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
-import { analysisTexts } from "@/common/i18n/analysis";
 import { useStore } from "@/renderer/store";
 import { computed, onBeforeUnmount, onMounted, PropType, ref, watch } from "vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
@@ -235,7 +234,6 @@ defineProps({
 
 const store = useStore();
 const appSettings = useAppSettings();
-const analysisMessages = computed(() => analysisTexts(appSettings.language));
 const quickAction = computed(() => getFileQuickAction(appSettings.fileQuickAction));
 const root = ref();
 const isFileMenuVisible = ref(false);

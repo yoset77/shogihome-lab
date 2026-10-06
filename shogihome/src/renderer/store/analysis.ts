@@ -3,11 +3,12 @@ import {
   DEFAULT_ANALYSIS_POLL_MS,
   decodeAnalysisJobRequest,
   isAnalysisTerminal,
+  type AnalysisJobError,
   type AnalysisJobRequest,
   type AnalysisJobStatus,
 } from "@/common/analysis/types";
 import { identifier, object } from "@/common/analysis/validation";
-import { analysisTexts } from "@/common/i18n/analysis";
+import { t } from "@/common/i18n/index";
 import { snapshotRecord, indexRecordNodes, type RecordSnapshot } from "@/common/record/snapshot";
 import type { AnalysisSettings } from "@/common/settings/analysis";
 import { normalizeSfen } from "@/common/usi/sfen";
@@ -32,10 +33,25 @@ import {
   type JobBinding,
   type JobSummary,
 } from "@/common/jobs/types";
-import { jobTexts } from "@/common/i18n/jobs";
 import { ConnectionNotification } from "@/renderer/helpers/connection_notification";
 
 const STORAGE_KEY = "shogihome-analysis-job";
+
+function analysisJobErrorMessage(error: AnalysisJobError): string {
+  switch (error) {
+    case "engine":
+      return t.analysisEngineError;
+    case "expired":
+      return t.analysisJobExpired;
+    case "capacity":
+      return t.analysisJobCapacity;
+    case "deadline":
+      return t.analysisJobDeadline;
+    default:
+      return t.analysisJobInvalid;
+  }
+}
+
 const MONITOR_SESSION_ID = 200100;
 const MAX_TIMER_MS = 2 ** 31 - 1;
 const SCREEN_ID = generateSessionId();
@@ -293,13 +309,12 @@ export class AnalysisManager {
 
   async start(settings: AnalysisSettings, background = false): Promise<void> {
     if (!this.active) this.reference = loadReferences()[0];
-    if (this.reference || this.active)
-      throw new Error(analysisTexts(useAppSettings().language).capacity);
+    if (this.reference || this.active) throw new Error(t.analysisJobCapacity);
     if (
       !settings.usi ||
       (settings.usi.uri !== "lan-engine" && !settings.usi.uri.startsWith("lan-engine:"))
     )
-      throw new Error(analysisTexts(useAppSettings().language).invalid);
+      throw new Error(t.analysisJobInvalid);
     const requestId = generateSessionId();
     this.background = background;
     this.connection.reset();
@@ -332,13 +347,13 @@ export class AnalysisManager {
         },
       };
       const decoded = decodeAnalysisJobRequest(JSON.parse(JSON.stringify(input)));
-      if (!decoded.ok) throw new Error(analysisTexts(app.language).invalid);
+      if (!decoded.ok) throw new Error(t.analysisJobInvalid);
       const request = decoded.value;
       const capabilities = await this.client.capabilities();
       if (generation !== this.generation) return;
       request.serverInstanceId = capabilities.serverInstanceId;
       if (new TextEncoder().encode(JSON.stringify(request)).length > capabilities.maxInputBytes)
-        throw new Error(analysisTexts(app.language).capacity);
+        throw new Error(t.analysisJobCapacity);
       this.reference = {
         requestId,
         serverInstanceId: capabilities.serverInstanceId,
@@ -408,7 +423,7 @@ export class AnalysisManager {
       const capabilities = await this.client.capabilities();
       if (generation !== this.generation) return false;
       if (capabilities.serverInstanceId !== ref.serverInstanceId)
-        throw new ApiResponseError(410, analysisTexts(useAppSettings().language).expired);
+        throw new ApiResponseError(410, t.analysisJobExpired);
       this.pollMs = capabilities.pollMs;
       if (!this._reconnecting) this.retryMs = this.pollMs;
       let status = ref.jobId
@@ -425,12 +440,11 @@ export class AnalysisManager {
       const result = await this.client.result(status.jobId, 0);
       if (generation !== this.generation) return false;
       this.checkResult(result.jobId, result.serverInstanceId, status.jobId, result.attachment);
-      if (result.revision < status.resultRevision)
-        throw new Error(analysisTexts(useAppSettings().language).invalid);
+      if (result.revision < status.resultRevision) throw new Error(t.analysisJobInvalid);
       const projected = structuredClone(source);
       for (const update of result.nodes) {
         const node = projected.nodes.find((node) => node.id === update.id);
-        if (!node) throw new Error(analysisTexts(useAppSettings().language).invalid);
+        if (!node) throw new Error(t.analysisJobInvalid);
         node.comment = update.comment;
         if (update.researchInfo)
           node.customData = { ...node.customData, researchInfo: update.researchInfo };
@@ -467,7 +481,7 @@ export class AnalysisManager {
         this.persist();
       }
       if (!this.recordManager.applyAnalysisResults(ref.requestId, result.nodes))
-        throw new Error(analysisTexts(useAppSettings().language).invalid);
+        throw new Error(t.analysisJobInvalid);
       this.revision = result.revision;
       ref.content = recordContent(snapshotRecord(this.recordManager.record));
       this.needsRecovery = false;
@@ -586,7 +600,7 @@ export class AnalysisManager {
       const projected = structuredClone(source);
       for (const update of result.nodes) {
         const node = projected.nodes.find((node) => node.id === update.id);
-        if (!node) throw new Error(analysisTexts().invalid);
+        if (!node) throw new Error(t.analysisJobInvalid);
         node.comment = update.comment;
       }
       const local = recordContent(snapshotRecord(this.recordManager.record));
@@ -656,14 +670,14 @@ export class AnalysisManager {
       (status.attachment.epoch !== binding.epoch ||
         (status.attachment.ownerId && status.attachment.ownerId !== binding.ownerId))
     )
-      throw new ApiResponseError(409, jobTexts(useAppSettings().language).transferred);
+      throw new ApiResponseError(409, t.jobsTransferred);
     if (
       !this.reference ||
       status.serverInstanceId !== this.reference.serverInstanceId ||
       status.requestId !== this.reference.requestId ||
       (this.reference.jobId && status.jobId !== this.reference.jobId)
     )
-      throw new Error(analysisTexts(useAppSettings().language).invalid);
+      throw new Error(t.analysisJobInvalid);
   }
 
   private checkResult(
@@ -679,13 +693,13 @@ export class AnalysisManager {
       attachment &&
       (binding.epoch !== attachment.epoch || binding.ownerId !== attachment.ownerId)
     )
-      throw new ApiResponseError(409, jobTexts(useAppSettings().language).transferred);
+      throw new ApiResponseError(409, t.jobsTransferred);
     if (
       !this.reference ||
       serverInstanceId !== this.reference.serverInstanceId ||
       jobId !== expectedJobId
     ) {
-      throw new Error(analysisTexts(useAppSettings().language).invalid);
+      throw new Error(t.analysisJobInvalid);
     }
   }
 
@@ -703,7 +717,7 @@ export class AnalysisManager {
       this.following = false;
     const node = this.nodeIndex.get(current.nodeId);
     if (!node || normalizeSfen(node.sfen) !== normalizeSfen(record.position.sfen))
-      throw new Error(analysisTexts(useAppSettings().language).invalid);
+      throw new Error(t.analysisJobInvalid);
     if (this.following) {
       this.recordManager.changeNode(node);
       this.lastNavigationRevision = this.recordManager.navigationRevision;
@@ -818,7 +832,7 @@ export class AnalysisManager {
           result.revision < this.revision ||
           !this.recordManager.applyAnalysisResults(ref.requestId, result.nodes)
         )
-          throw new Error(analysisTexts(useAppSettings().language).invalid);
+          throw new Error(t.analysisJobInvalid);
         this.revision = result.revision;
         ref.content = recordContent(snapshotRecord(this.recordManager.record));
         this.persist();
@@ -836,9 +850,9 @@ export class AnalysisManager {
         this.release(ref.requestId, error instanceof ApiResponseError && error.status === 410);
         this.onError(
           error instanceof ApiResponseError && error.status === 410
-            ? new Error(analysisTexts(useAppSettings().language).expired)
+            ? new Error(t.analysisJobExpired)
             : error instanceof ApiResponseError && error.status === 409
-              ? new Error(jobTexts(useAppSettings().language).transferred)
+              ? new Error(t.jobsTransferred)
               : error,
         );
       }
@@ -872,8 +886,7 @@ export class AnalysisManager {
         this.onError(error);
       }
     }
-    if (status.error)
-      this.onError(new Error(analysisTexts(useAppSettings().language)[status.error]));
+    if (status.error) this.onError(new Error(analysisJobErrorMessage(status.error)));
     this.onFinish(status);
   }
 

@@ -4,7 +4,7 @@ import {
   DEFAULT_ANALYSIS_POLL_MS,
   isAnalysisTerminal,
 } from "@/common/analysis/types";
-import { analysisTexts } from "@/common/i18n/analysis";
+import { t } from "@/common/i18n";
 import { MAX_SNAPSHOT_NODES } from "@/common/record/snapshot";
 import { HttpError } from "@/server/errors";
 import { LARGE_BODY_LIMIT } from "@/server/hono";
@@ -47,18 +47,18 @@ export class AnalysisJobManager {
   create(request: AnalysisJobRequest): AnalysisJob {
     this.cleanup();
     if (request.serverInstanceId !== this.serverInstanceId)
-      throw new HttpError(410, analysisTexts().expired);
+      throw new HttpError(410, t.analysisJobExpired);
     const hash = createHash("sha256").update(JSON.stringify(request)).digest("hex");
     const accepted = this.requests.get(request.requestId);
     if (accepted) {
-      if (accepted.hash !== hash) throw new HttpError(409, analysisTexts().invalid);
+      if (accepted.hash !== hash) throw new HttpError(409, t.analysisJobInvalid);
       return this.get(accepted.jobId);
     }
     if (
       [...this.jobs.values()].some((job) => !isAnalysisTerminal(job.status().state)) ||
       this.requests.size >= MAX_REQUEST_LEDGER
     ) {
-      throw new HttpError(503, analysisTexts().capacity);
+      throw new HttpError(503, t.analysisJobCapacity);
     }
     const job = new AnalysisJob(
       randomUUID(),
@@ -76,7 +76,7 @@ export class AnalysisJobManager {
   get(id: string): AnalysisJob {
     this.cleanup();
     const job = this.jobs.get(id);
-    if (!job) throw new HttpError(410, analysisTexts().expired);
+    if (!job) throw new HttpError(410, t.analysisJobExpired);
     return job;
   }
 
@@ -89,6 +89,7 @@ export class AnalysisJobManager {
         id: job.id,
         requestId: status.requestId,
         serverInstanceId: this.serverInstanceId,
+        createdAt: job.createdAt,
         state: status.state,
         engines: [status.engineName || job.request.options.engineId],
         completed: status.completedPositions,
@@ -100,7 +101,7 @@ export class AnalysisJobManager {
 
   byRequest(requestId: string): AnalysisJob {
     const request = this.requests.get(requestId);
-    if (!request) throw new HttpError(410, analysisTexts().expired);
+    if (!request) throw new HttpError(410, t.analysisJobExpired);
     return this.get(request.jobId);
   }
 
