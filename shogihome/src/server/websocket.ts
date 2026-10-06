@@ -109,6 +109,7 @@ export const createEngineWebSocketServer = (
         const epoch = url.searchParams.get("controllerEpoch");
         const decodedConnection = decodeGameConnection({
           connectionId: url.searchParams.get("connectionId"),
+          screenId: url.searchParams.get("screenId"),
           controllerEpoch: epoch && /^\d+$/.test(epoch) ? Number(epoch) : undefined,
         });
         if (!decodedConnection.ok) {
@@ -160,7 +161,11 @@ export const createEngineWebSocketServer = (
         ws.on("error", () => connection.disconnect());
       } catch (error) {
         ws.close(
-          error instanceof HttpError && error.status === 409 ? 4001 : 4004,
+          error instanceof HttpError && error.status === 423
+            ? 1013
+            : error instanceof HttpError && error.status === 409
+              ? 4001
+              : 4004,
           "Game unavailable",
         );
       }

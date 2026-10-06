@@ -4,17 +4,18 @@
 
 ## Storage Map
 
-| Store                   | Owner                             | Durability and Authority                                        |
-| ----------------------- | --------------------------------- | --------------------------------------------------------------- |
-| `KIFU_DIR`              | Middle Serverと外部ファイル管理者 | ユーザー管理の棋譜、定跡、SFENの永続的な正本                    |
-| `data/analysis.db`      | Analysis DB module                | Engine解析結果の永続データ。`KIFU_DIR` の派生物ではありません。 |
-| `data/kifu_index.db`    | Kifu index module                 | `KIFU_DIR` から再構築可能な派生index                            |
-| record history / backup | History service                   | Serverで共有する履歴と復元データ                                |
-| Book sessions           | Book session manager              | 保存前の変更を含む揮発性の作業状態                              |
-| Analysis jobs           | Analysis job manager              | 固定入力・結果・進捗を持つ有期限の揮発性状態                    |
-| Game sessions           | Game session manager              | 棋譜・時計・checkpoint を持つ有期限の揮発性状態                 |
-| Browser `localStorage`  | Renderer                          | Originと端末に限定された設定、復元情報、接続識別子              |
-| Process内cacheとjob map | 各module                          | Process終了時に失われる揮発性状態                               |
+| Store                    | Owner                             | Durability and Authority                                                              |
+| ------------------------ | --------------------------------- | ------------------------------------------------------------------------------------- |
+| `KIFU_DIR`               | Middle Serverと外部ファイル管理者 | ユーザー管理の棋譜、定跡、SFENの永続的な正本                                          |
+| `data/analysis.db`       | Analysis DB module                | Engine解析結果の永続データ。`KIFU_DIR` の派生物ではありません。                       |
+| `data/kifu_index.db`     | Kifu index module                 | `KIFU_DIR` から再構築可能な派生index                                                  |
+| record history / backup  | History service                   | Serverで共有する履歴と復元データ                                                      |
+| Book sessions            | Book session manager              | 保存前の変更を含む揮発性の作業状態                                                    |
+| Analysis jobs            | Analysis job manager              | 固定入力・結果・進捗を持つ有期限の揮発性状態                                          |
+| Game sessions            | Game session manager              | 棋譜・時計・checkpoint を持つ有期限の揮発性状態                                       |
+| Browser `localStorage`   | Renderer                          | Originと端末に限定された設定、通常の棋譜復元、未確認要求台帳、公開 relay の接続識別子 |
+| Browser `sessionStorage` | Renderer                          | タブ固有のジョブへのアタッチ・復帰意図と棋譜内容の照合情報                            |
+| Process内cacheとjob map  | 各module                          | Process終了時に失われる揮発性状態                                                     |
 
 Server data rootは [`src/node/proc/path.ts`](../../shogihome/src/node/proc/path.ts)、`KIFU_DIR` の解決は [`src/server/config.ts`](../../shogihome/src/server/config.ts) が所有します。
 
@@ -138,6 +139,8 @@ Game sessionとAnalysis jobはこのcodecを共有しますが、進行状態は
 ## Settings and Browser Storage
 
 Rendererの設定、record recovery、remote engine session ID、feature preferenceなどはBrowser originのstorageへ保存されます。これは端末固有の状態であり、Server共有の正本ではありません。
+
+ジョブの復帰意図と未確認要求台帳は [`renderer/store/job_storage.ts`](../../shogihome/src/renderer/store/job_storage.ts) が分離して管理します。台帳は要求の照合にだけ使い、ジョブの選択や自動アタッチの根拠にはしません。通常の棋譜復元は従来の共有 localStorage に残り、アタッチ情報をタブ別にしても別棋譜を置き換える際の確認は省略しません。詳細な同期・移譲契約は上記の subsystem 文書を参照してください。
 
 [`server/settings.ts`](../../shogihome/src/server/settings.ts) が読むServer側設定ファイルは、Browser設定とは別のsourceです。両者が常に同期すると仮定しません。
 

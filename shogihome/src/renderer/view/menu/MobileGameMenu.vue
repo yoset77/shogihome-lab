@@ -129,6 +129,9 @@
               <div class="form-item-label">{{ t.saveRecordAutomatically }}</div>
               <ToggleButton v-model:value="settings.enableAutoSave" />
             </div>
+            <label v-if="canStartInBackground" class="form-item">
+              <input v-model="background" type="checkbox" />{{ jobMessages.background }}
+            </label>
           </div>
         </div>
       </div>
@@ -147,6 +150,8 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
+import { jobTexts } from "@/common/i18n/jobs";
+import { useAppSettings } from "@/renderer/store/settings";
 import { TimeLimitSettings, JishogiRule, validateGameSettingsForWeb } from "@/common/settings/game";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
@@ -175,6 +180,8 @@ const store = useStore();
 const dialog = ref();
 const lanStore = useLanStore();
 const initialized = ref(false);
+const background = ref(false);
+const jobMessages = computed(() => jobTexts(useAppSettings().language));
 
 const settings = reactive({
   black: { uri: uri.ES_HUMAN, name: t.human, usi: undefined } as PlayerSettings,
@@ -198,6 +205,9 @@ const settings = reactive({
 });
 
 const blackExtraBook = ref<USIEngineExtraBookConfig>(emptyUSIEngineExtraBookConfig());
+const canStartInBackground = computed(
+  () => settings.black.uri.startsWith("lan-engine") && settings.white.uri.startsWith("lan-engine"),
+);
 const whiteExtraBook = ref<USIEngineExtraBookConfig>(emptyUSIEngineExtraBookConfig());
 const sfenFileList = ref<{ label: string; value: string }[]>([]);
 const bookFileList = ref<{ label: string; value: string }[]>([]);
@@ -343,11 +353,11 @@ const onStart = async () => {
 
   try {
     await api.saveGameSettings(newSettings);
-    store.startGame(newSettings);
+    store.startGame(newSettings, background.value && canStartInBackground.value);
     emit("close");
   } catch (e) {
     console.error("Failed to save game settings:", e);
-    store.startGame(newSettings);
+    store.startGame(newSettings, background.value && canStartInBackground.value);
     emit("close");
   }
 };

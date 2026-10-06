@@ -12,6 +12,7 @@ import { InternalEngine, type ResearchEngine } from "@/server/engine/internal";
 import { fetchEngineConfigs, toLanEngineInfo } from "@/server/engine/list";
 import type { EngineConfig } from "@/server/engine/types";
 import { AnalysisJob } from "./job";
+import type { JobSummary } from "@/common/jobs/types";
 
 const RETENTION_MS = 24 * 60 * 60 * 1000;
 const MAX_TERMINAL_JOBS = 10;
@@ -77,6 +78,24 @@ export class AnalysisJobManager {
     const job = this.jobs.get(id);
     if (!job) throw new HttpError(410, analysisTexts().expired);
     return job;
+  }
+
+  list(): JobSummary[] {
+    this.cleanup();
+    return [...this.jobs.values()].reverse().map((job) => {
+      const status = job.status();
+      return {
+        kind: "analysis",
+        id: job.id,
+        requestId: status.requestId,
+        serverInstanceId: this.serverInstanceId,
+        state: status.state,
+        engines: [status.engineName || job.request.options.engineId],
+        completed: status.completedPositions,
+        total: status.totalPositions,
+        attachment: job.attachment.status(),
+      };
+    });
   }
 
   byRequest(requestId: string): AnalysisJob {

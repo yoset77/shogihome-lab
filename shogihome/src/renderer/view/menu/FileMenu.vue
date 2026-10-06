@@ -81,6 +81,14 @@
         </button>
       </div>
       <div class="group">
+        <button v-if="!isNative()" @click="onJobs">
+          <Icon :icon="IconType.BATCH" />
+          <div class="label">{{ jobMessages.title }}</div>
+        </button>
+        <button v-if="store.canDetachJob" @click="onDetach">
+          <Icon :icon="IconType.END" />
+          <div class="label">{{ jobMessages.detach }}</div>
+        </button>
         <button :disabled="!states.newFile" @click="onNewFile">
           <Icon :icon="IconType.FILE" />
           <div class="label">{{ t.clear }}</div>
@@ -246,6 +254,7 @@
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import { analysisTexts } from "@/common/i18n/analysis";
+import { jobTexts } from "@/common/i18n/jobs";
 import { showModalDialog } from "@/renderer/helpers/dialog.js";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
@@ -272,6 +281,7 @@ const emit = defineEmits<{
 const store = useStore();
 const appSettings = useAppSettings();
 const analysisMessages = computed(() => analysisTexts(appSettings.language));
+const jobMessages = computed(() => jobTexts(appSettings.language));
 const lanStore = useLanStore();
 const dialog = ref();
 const isGameMenuVisible = ref(false);
@@ -387,6 +397,14 @@ const onAnalysis = () => {
 };
 const onStopAnalysis = () => {
   store.stopAnalysis();
+  emit("close");
+};
+const onJobs = () => {
+  store.showJobsDialog();
+  emit("close");
+};
+const onDetach = () => {
+  store.detachJob();
   emit("close");
 };
 const onPositionEditing = () => {

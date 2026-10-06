@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { Color, SpecialMoveType, exportKIF, type ImmutableNode } from "tsshogi";
 import { GameRecord } from "@/common/game/record";
@@ -35,6 +35,12 @@ import { GameBook } from "./book";
 import { loadGamePositions, saveGameRecord } from "./files";
 import { addHistory, saveBackup } from "@/server/file/history";
 import { GAME_DETACHED_TTL_MS } from "@/server/config";
+import type {
+  JobAttachRequest,
+  JobAttachmentState,
+  JobBinding,
+  JobSummary,
+} from "@/common/jobs/types";
 
 export const GAME_HEARTBEAT_MS = 5000;
 export const GAME_CONTROLLER_TIMEOUT_MS = 30_000;
@@ -75,6 +81,11 @@ export class GameSession {
   private sampleId = 0;
   private lastMoveId = 0;
   private controllerEpoch = 0;
+  private controllerRecoveryId = randomUUID();
+  private acquisitionEpoch?: number;
+  private screenId?: string;
+  private controllerId: string;
+  private claimedAt = 0;
   private controllerConnectionId?: string;
   private controller?: {
     epoch: number;
@@ -86,7 +97,10 @@ export class GameSession {
   private lastResult?: SpecialMoveType;
   private terminal = false;
   private summaries: GameRecordSummary[] = [];
-  private commands = new Map<string, { hash: string; result: Promise<void> }>();
+  private commands = new Map<
+    string,
+    { hash: string; result: Promise<void>; state: "pending" | "accepted" | "rejected" }
+  >();
   private infos = new Map<
     string,
     { color: Color; name: string; position: string; searchId: number; info: USIInfoCommand }
@@ -105,6 +119,7 @@ export class GameSession {
     private readonly deps: GameDependencies = {},
   ) {
     this.now = deps.now ?? (() => performance.now());
+    this.controllerId = request.controllerId;
     this.detachedSince = this.now();
     const restored = restoreRecord(request.source);
     this.records = new GameRecord(restored.record);
@@ -273,8 +288,42 @@ export class GameSession {
     };
     return { black: read(this.blackClock), white: read(this.whiteClock) };
   }
+  private state(): GameSnapshot["state"] {
+    return this.terminal
+      ? this.error && this.error !== "save"
+        ? "failed"
+        : "completed"
+      : this.core.isPaused
+        ? "paused"
+        : this.core.isTakingBack
+          ? "takingBack"
+          : this.core.isActive
+            ? "running"
+            : this.core.phase === "busy"
+              ? "finishing"
+              : "preparing";
+  }
+  summary(): JobSummary {
+    const settings = this.core.gameNumber ? this.core.settings : this.request.settings;
+    return {
+      kind: "game",
+      id: this.id,
+      requestId: this.request.requestId,
+      serverInstanceId: this.request.serverInstanceId,
+      state:
+        this.terminal && this.lastResult === SpecialMoveType.INTERRUPT && !this.error
+          ? "cancelled"
+          : this.state(),
+      engines: [settings.black.name, settings.white.name],
+      completed: this.terminal ? this.core.gameNumber : Math.max(0, this.core.gameNumber - 1),
+      total: this.request.settings.repeat,
+      attachment: this.attachment(),
+    };
+  }
   snapshot(): GameSnapshot {
     return {
+      controllerRecoveryId: this.controllerRecoveryId,
+      controllerOwnerId: this.controllerId,
       sessionId: this.id,
       requestId: this.request.requestId,
       serverInstanceId: this.request.serverInstanceId,
@@ -288,19 +337,7 @@ export class GameSession {
       gameId: this.gameId,
       gameNumber: this.core.gameNumber,
       interactionId: this.core.interactionId,
-      state: this.terminal
-        ? this.error && this.error !== "save"
-          ? "failed"
-          : "completed"
-        : this.core.isPaused
-          ? "paused"
-          : this.core.isTakingBack
-            ? "takingBack"
-            : this.core.isActive
-              ? "running"
-              : this.core.phase === "busy"
-                ? "finishing"
-                : "preparing",
+      state: this.state(),
       settings: structuredClone(this.core.gameNumber ? this.core.settings : this.request.settings),
       record: this.source(),
       clocks: this.clocks(),
@@ -348,7 +385,9 @@ export class GameSession {
     close: (code?: number) => void = () => {},
     connection?: GameConnection,
   ): { epoch: number; heartbeat: () => void; disconnect: () => void } {
-    if (controllerId !== this.request.controllerId) throw new HttpError(403, gameTexts().invalid);
+    if (controllerId !== this.controllerId) throw new HttpError(409, gameTexts().conflict);
+    if (this.controller && this.screenId && connection?.screenId !== this.screenId)
+      throw new HttpError(423, gameTexts().conflict);
     // A retry may have missed the epoch assigned to its own previous connection.
     if (
       connection &&
@@ -363,6 +402,7 @@ export class GameSession {
     this.core.setConnected(false);
     const epoch = ++this.controllerEpoch;
     this.controllerConnectionId = connection?.connectionId;
+    this.screenId = connection?.screenId;
     this.controller = { epoch, lastSeen: Date.now(), send, close };
     this.detachedSince = undefined;
     previous?.close(4001);
@@ -382,25 +422,83 @@ export class GameSession {
     this.core.setConnected(false);
   }
 
+  attachment(): JobAttachmentState {
+    return {
+      epoch: this.controllerEpoch,
+      attached: !!this.controller || Date.now() - this.claimedAt < GAME_CONTROLLER_TIMEOUT_MS,
+    };
+  }
+
+  attach(request: JobAttachRequest): GameSnapshot {
+    if (
+      this.request.settings.black.uri === ES_HUMAN ||
+      this.request.settings.white.uri === ES_HUMAN
+    )
+      throw new HttpError(400, gameTexts().invalid);
+    if (
+      request.ownerId === this.controllerId &&
+      (request.epoch === this.controllerEpoch || request.epoch === this.acquisitionEpoch)
+    )
+      return this.snapshot();
+    if (request.epoch !== this.controllerEpoch || (this.attachment().attached && !request.takeover))
+      throw new HttpError(409, gameTexts().conflict);
+    const previous = this.controller;
+    this.controller = undefined;
+    this.core.setConnected(false);
+    this.controllerId = request.ownerId;
+    this.controllerRecoveryId = randomUUID();
+    this.acquisitionEpoch = request.epoch;
+    ++this.controllerEpoch;
+    this.controllerConnectionId = undefined;
+    this.claimedAt = Date.now();
+    this.detachedSince = this.now();
+    previous?.close(4001);
+    return this.snapshot();
+  }
+  detach(binding: JobBinding): void {
+    if (
+      this.request.settings.black.uri === ES_HUMAN ||
+      this.request.settings.white.uri === ES_HUMAN
+    )
+      throw new HttpError(400, gameTexts().invalid);
+    if (binding.ownerId !== this.controllerId || binding.epoch !== this.controllerEpoch) return;
+    const previous = this.controller;
+    if (previous) this.disconnect(previous.epoch);
+    this.claimedAt = 0;
+    this.controllerId = randomUUID();
+    this.controllerRecoveryId = randomUUID();
+    ++this.controllerEpoch;
+    previous?.close(4001);
+  }
+
   command(command: GameCommand): Promise<GameSnapshot> {
     if (command.serverInstanceId !== this.request.serverInstanceId)
       throw new HttpError(410, gameTexts().expired);
-    if (
-      command.controllerId !== this.request.controllerId ||
-      command.controllerEpoch !== this.controller?.epoch
-    )
-      throw new HttpError(409, gameTexts().conflict);
-    const hash = createHash("sha256")
-      .update(JSON.stringify({ ...command, controllerEpoch: 0 }))
-      .digest("hex");
+    if (command.controllerId !== this.controllerId) throw new HttpError(409, gameTexts().conflict);
+    const hash = createHash("sha256").update(JSON.stringify(command)).digest("hex");
     const previous = this.commands.get(command.requestId);
     if (previous) {
       if (previous.hash !== hash) throw new HttpError(409, gameTexts().conflict);
       return previous.result.then(() => this.snapshot());
     }
+    if (
+      !this.controller ||
+      (command.recoveryId === undefined
+        ? command.controllerEpoch !== this.controller.epoch
+        : command.recoveryId !== this.controllerRecoveryId ||
+          command.controllerEpoch > this.controller.epoch)
+    )
+      throw new HttpError(409, gameTexts().conflict);
     if (this.commands.size >= 10_000) throw new HttpError(503, gameTexts().capacity);
     const result = Promise.resolve().then(async () => {
-      if (command.controllerEpoch !== this.controller?.epoch)
+      if (
+        !this.controller ||
+        command.controllerId !== this.controllerId ||
+        (command.recoveryId === undefined
+          ? command.controllerEpoch !== this.controller.epoch
+          : command.recoveryId !== this.controllerRecoveryId ||
+            command.controllerEpoch > this.controller.epoch)
+      )
         throw new HttpError(409, gameTexts().conflict);
       if (
         !["interrupt", "resume"].includes(command.action) &&
@@ -448,8 +546,23 @@ export class GameSession {
       this.publish();
     });
     void result.catch(() => {});
-    this.commands.set(command.requestId, { hash, result });
+    const entry = { hash, result, state: "pending" as "pending" | "accepted" | "rejected" };
+    this.commands.set(command.requestId, entry);
+    void result.then(
+      () => {
+        entry.state = "accepted";
+      },
+      () => {
+        entry.state = "rejected";
+      },
+    );
     return result.then(() => this.snapshot());
+  }
+
+  commandOutcome(id: string): { state: "unknown" | "pending" | "accepted" | "rejected" } {
+    const command = this.commands.get(id);
+    if (!command) return { state: "unknown" };
+    return { state: command.state };
   }
 
   annotate(command: GameCommand): boolean {
@@ -458,7 +571,7 @@ export class GameSession {
       command.action !== "annotate" ||
       !annotation ||
       command.serverInstanceId !== this.request.serverInstanceId ||
-      command.controllerId !== this.request.controllerId ||
+      command.controllerId !== this.controllerId ||
       command.controllerEpoch !== this.controller?.epoch ||
       command.gameId !== this.gameId ||
       command.interactionId !== this.core.interactionId ||

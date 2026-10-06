@@ -3,6 +3,10 @@ import { parseUSIPV, type USIInfoCommand } from "@/common/game/usi";
 import { getMoveAccuracyText } from "@/common/game/score";
 import { getTranslationTable } from "@/common/i18n/translation_table";
 import { applyComment, buildSearchComment } from "@/common/record/search_comment";
+import { JobAttachment } from "@/server/jobs/attachment";
+import { HttpError } from "@/server/errors";
+import { analysisTexts } from "@/common/i18n/analysis";
+import type { JobBinding } from "@/common/jobs/types";
 import {
   SearchInfoSenderType,
   type RecordCustomData,
@@ -26,6 +30,18 @@ export const ANALYSIS_MAX_RUNTIME_MS = 24 * 60 * 60 * 1000;
 const MAX_RESULT_BYTES = 20 * 1024 * 1024;
 
 export class AnalysisJob {
+  private readonly cancellations = new Set<string>();
+  cancelOutcome(requestId: string): { state: "accepted" | "unknown" } {
+    return { state: this.cancellations.has(requestId) ? "accepted" : "unknown" };
+  }
+  cancelOwned(binding: JobBinding, requestId?: string): void {
+    this.attachment.authorizeOperation(binding);
+    if (requestId && !this.cancellations.has(requestId) && this.cancellations.size >= 10_000)
+      throw new HttpError(503, analysisTexts().capacity);
+    this.cancel();
+    if (requestId) this.cancellations.add(requestId);
+  }
+  readonly attachment = new JobAttachment();
   private state: AnalysisJobState = "preparing";
   private error?: AnalysisJobError;
   private record: ShogiRecord;
@@ -90,6 +106,7 @@ export class AnalysisJob {
       completedPositions: this.completedPositions,
       totalPositions: this.targets.length,
       resultRevision: this.resultRevision,
+      attachment: this.attachment.status(),
       current: this.current && { ...this.current, infos: [...this.infos.values()] },
       ...(this.error ? { error: this.error } : {}),
     };
@@ -97,6 +114,7 @@ export class AnalysisJob {
 
   result(afterRevision = 0): AnalysisJobResult {
     return {
+      attachment: this.attachment.status(),
       jobId: this.id,
       serverInstanceId: this.request.serverInstanceId,
       revision: this.resultRevision,

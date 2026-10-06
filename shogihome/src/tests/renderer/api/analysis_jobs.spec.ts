@@ -65,4 +65,36 @@ describe("typed analysis HTTP client", () => {
     );
     await expect(createAnalysisJobsClient().status("job")).rejects.toThrow();
   });
+
+  it("lists retained jobs and transfers attachment without granting old owners cancellation", async () => {
+    const { client, manager } = setup();
+    const request = requestFor();
+    request.serverInstanceId = manager.serverInstanceId;
+    const status = await client.create(request);
+    expect(await client.list()).toMatchObject([
+      { id: status.jobId, kind: "analysis", attachment: { attached: false } },
+    ]);
+    const first = await client.attach(status.jobId, {
+      ownerId: "first",
+      epoch: 0,
+      takeover: false,
+    });
+    await expect(
+      client.attach(status.jobId, { ownerId: "second", epoch: first.epoch, takeover: false }),
+    ).rejects.toMatchObject({ status: 409 });
+    const second = await client.attach(status.jobId, {
+      ownerId: "second",
+      epoch: first.epoch,
+      takeover: true,
+    });
+    await expect(client.status(status.jobId, first)).rejects.toMatchObject({ status: 409 });
+    await expect(client.result(status.jobId, 0, first)).rejects.toMatchObject({ status: 409 });
+    await expect(client.cancel(status.jobId, first)).rejects.toMatchObject({ status: 409 });
+    await expect(client.cancel(status.jobId)).rejects.toMatchObject({ status: 409 });
+    await client.detach(status.jobId, first);
+    expect((await client.status(status.jobId, second)).attachment?.ownerId).toBe("second");
+    await client.cancel(status.jobId, second);
+    await vi.advanceTimersByTimeAsync(0);
+    expect((await client.list())[0].state).toBe("cancelled");
+  });
 });

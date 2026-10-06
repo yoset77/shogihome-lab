@@ -19,6 +19,7 @@ import {
   type SearchInfoSnapshot,
 } from "@/common/record/snapshot";
 import * as v from "./validation";
+import { readJobAttachment, type JobAttachmentState } from "@/common/jobs/types";
 
 export const DEFAULT_ANALYSIS_POLL_MS = 1000;
 
@@ -60,6 +61,7 @@ export type AnalysisCapabilities = {
   maxNodes: number;
 };
 export type AnalysisJobStatus = {
+  attachment?: JobAttachmentState;
   jobId: string;
   requestId: string;
   serverInstanceId: string;
@@ -78,6 +80,7 @@ export type AnalysisNodeResult = {
   researchInfo?: SearchInfoSnapshot;
 };
 export type AnalysisJobResult = {
+  attachment?: JobAttachmentState;
   jobId: string;
   serverInstanceId: string;
   revision: number;
@@ -244,6 +247,9 @@ export function decodeAnalysisStatus(value: unknown): DecodeResult<AnalysisJobSt
       totalPositions,
       completedPositions: v.counter(input.completedPositions, totalPositions),
       resultRevision: v.counter(input.resultRevision),
+      ...(input.attachment === undefined
+        ? {}
+        : { attachment: readJobAttachment(input.attachment) }),
       current,
       ...(input.error === undefined
         ? {}
@@ -258,6 +264,9 @@ export function decodeAnalysisResult(value: unknown): DecodeResult<AnalysisJobRe
     const revision = v.counter(input.revision);
     const ids = new Set<string>();
     return {
+      ...(input.attachment === undefined
+        ? {}
+        : { attachment: readJobAttachment(input.attachment) }),
       jobId: v.identifier(input.jobId),
       serverInstanceId: v.identifier(input.serverInstanceId),
       revision,

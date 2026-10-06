@@ -271,6 +271,9 @@
       </div>
     </div>
     <div class="main-buttons">
+      <label v-if="!isNative() && isBlackEngine && isWhiteEngine">
+        <input v-model="background" type="checkbox" />{{ jobMessages.background }}
+      </label>
       <button data-hotkey="Enter" autofocus @click="onStart()">
         {{ t.startGame }}
       </button>
@@ -296,6 +299,7 @@
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import { gameTexts } from "@/common/i18n/game";
+import { jobTexts } from "@/common/i18n/jobs";
 import { useAppSettings } from "@/renderer/store/settings";
 import {
   USIEngine,
@@ -331,6 +335,8 @@ import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
 import ExtraBookSettingsDialog from "./ExtraBookSettingsDialog.vue";
 
 const store = useStore();
+const background = ref(false);
+const jobMessages = computed(() => jobTexts(useAppSettings().language));
 const gameMessages = computed(() => gameTexts(useAppSettings().language));
 const busyState = useBusyState();
 const hours = ref(0);
@@ -499,7 +505,7 @@ const onStart = () => {
   if (error) {
     useErrorStore().add(error);
   } else {
-    store.startGame(newSettings);
+    store.startGame(newSettings, background.value && isBlackEngine.value && isWhiteEngine.value);
   }
 };
 

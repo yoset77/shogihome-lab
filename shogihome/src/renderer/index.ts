@@ -37,6 +37,11 @@ import { UIMode } from "@/common/settings/app";
 import { registerSW } from "virtual:pwa-register";
 
 api.log(LogLevel.INFO, `start renderer process: APP_VERSION=${appInfo.appVersion}`);
+useStore().prepareJobNavigation();
+window.addEventListener("pagehide", () => useStore().suspendJobs());
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) window.location.reload();
+});
 
 registerSW({
   onNeedRefresh() {
@@ -164,5 +169,5 @@ Promise.allSettled([
 
   api.log(LogLevel.INFO, "mount app");
   createApp(App).mount("#app");
-  void store.restoreGame().then(() => store.restoreAnalysis());
+  void store.initializeJobs();
 });

@@ -12,6 +12,7 @@ import {
   type AppEnv,
 } from "@/server/hono";
 import { parseJsonObject } from "./body";
+import { readJobAttachRequest, readJobBinding } from "@/common/jobs/types";
 
 function id(value: string): string {
   try {
@@ -27,6 +28,42 @@ export const createGameSessionRoutes = (manager: GameSessionManager = gameSessio
       await next();
     })
     .get("/capabilities", (c) => c.json(manager.capabilities()))
+    .get("/", (c) => c.json(manager.list()))
+    .get("/:sessionId/commands/:requestId", async (c) =>
+      c.json(
+        await manager
+          .get(id(c.req.param("sessionId")))
+          .commandOutcome(id(c.req.param("requestId"))),
+      ),
+    )
+    .post(
+      "/:sessionId/attach",
+      createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
+      validator("json", (value) => {
+        try {
+          return readJobAttachRequest(parseJsonObject(value));
+        } catch {
+          throw new HttpError(400, gameTexts().invalid);
+        }
+      }),
+      (c) => c.json(manager.get(id(c.req.param("sessionId"))).attach(c.req.valid("json"))),
+    )
+    .post(
+      "/:sessionId/detach",
+      createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
+      validator("json", (value) => {
+        try {
+          return readJobBinding(parseJsonObject(value));
+        } catch {
+          throw new HttpError(400, gameTexts().invalid);
+        }
+      }),
+      (c) => {
+        const session = manager.get(id(c.req.param("sessionId")));
+        session.detach(c.req.valid("json"));
+        return c.json(session.snapshot());
+      },
+    )
     .post(
       "/",
       createBodyLimit(LARGE_BODY_LIMIT),
