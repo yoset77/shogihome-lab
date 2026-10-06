@@ -4,7 +4,6 @@ import { nextTick, reactive } from "vue";
 import { AppState, ResearchState } from "@/common/control/state";
 import { t } from "@/common/i18n";
 import FileMenu from "@/renderer/view/menu/FileMenu.vue";
-import { analysisTexts } from "@/common/i18n/analysis";
 import MobileGameMenu from "@/renderer/view/menu/MobileGameMenu.vue";
 
 const { useStore, isMobileWebApp } = vi.hoisted(() => ({
@@ -121,7 +120,7 @@ describe("FileMenu mate search", () => {
     await nextTick();
     expect(button.attributes("disabled")).toBeDefined();
     expect(button.attributes("aria-busy")).toBe("true");
-    expect(button.text()).toBe(analysisTexts().cancelling);
+    expect(button.text()).toBe(t.analysisCancelling);
   });
 
   it.each([AppState.GAME, AppState.MATE_SEARCH, AppState.ANALYSIS_DIALOG])(

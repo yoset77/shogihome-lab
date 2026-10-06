@@ -1,7 +1,9 @@
 import { flushPromises, shallowMount } from "@vue/test-utils";
 import MobileGameMenu from "@/renderer/view/menu/MobileGameMenu.vue";
 import MobilePlayerSetting from "@/renderer/view/menu/MobilePlayerSetting.vue";
+import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import { defaultGameSettings } from "@/common/settings/game";
+import { t } from "@/common/i18n";
 import { Language } from "@/common/i18n/languages";
 import { ref } from "vue";
 
@@ -27,6 +29,9 @@ vi.mock("@/renderer/ipc/api", () => ({
 }));
 
 describe("mobile game background start", () => {
+  const backgroundItem = (wrapper: ReturnType<typeof shallowMount>) =>
+    wrapper.findAll(".form-item").find((item) => item.text().includes(t.jobsBackground));
+
   beforeEach(() => {
     vi.clearAllMocks();
     const settings = defaultGameSettings();
@@ -40,7 +45,7 @@ describe("mobile game background start", () => {
   it("starts engine games in the background only when explicitly selected", async () => {
     const wrapper = shallowMount(MobileGameMenu);
     await flushPromises();
-    await wrapper.find('input[type="checkbox"]').setValue(true);
+    backgroundItem(wrapper)!.findComponent(ToggleButton).vm.$emit("update:value", true);
     await wrapper.find("button.start").trigger("click");
     await flushPromises();
     expect(mocks.start).toHaveBeenCalledWith(
@@ -54,10 +59,10 @@ describe("mobile game background start", () => {
   it("hides and ignores background selection when a human participates", async () => {
     const wrapper = shallowMount(MobileGameMenu);
     await flushPromises();
-    await wrapper.find('input[type="checkbox"]').setValue(true);
+    backgroundItem(wrapper)!.findComponent(ToggleButton).vm.$emit("update:value", true);
     wrapper.findAllComponents(MobilePlayerSetting)[0].vm.$emit("update:playerUri", "es://human");
     await flushPromises();
-    expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false);
+    expect(backgroundItem(wrapper)).toBeUndefined();
     await wrapper.find("button.start").trigger("click");
     await flushPromises();
     expect(mocks.start).toHaveBeenCalledWith(expect.anything(), false);

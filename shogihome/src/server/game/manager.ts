@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { decodeGameRequest, isGameTerminal, type GameSessionRequest } from "@/common/game/protocol";
 import { LARGE_BODY_LIMIT } from "@/server/hono";
-import { gameTexts } from "@/common/i18n/game";
+import { t } from "@/common/i18n";
 import { HttpError } from "@/server/errors";
 import { GameSession, GAME_HEARTBEAT_MS, type GameDependencies } from "./session";
 import { validateGameSaveDirectory } from "./files";
@@ -22,14 +22,14 @@ export class GameSessionManager {
   }
   create(input: GameSessionRequest): GameSession {
     const decoded = decodeGameRequest(input);
-    if (!decoded.ok) throw new HttpError(400, gameTexts().invalid);
+    if (!decoded.ok) throw new HttpError(400, t.gameInvalid);
     const request = decoded.value;
     if (request.serverInstanceId !== this.serverInstanceId)
-      throw new HttpError(410, gameTexts().expired);
+      throw new HttpError(410, t.gameSessionExpired);
     const hash = createHash("sha256").update(JSON.stringify(request)).digest("hex");
     const existing = this.requests.get(request.requestId);
     if (existing) {
-      if (hash !== existing.hash) throw new HttpError(409, gameTexts().conflict);
+      if (hash !== existing.hash) throw new HttpError(409, t.gameConflict);
       return this.get(existing.sessionId);
     }
     this.cleanup();
@@ -37,7 +37,7 @@ export class GameSessionManager {
       this.requests.size >= 10_000 ||
       [...this.sessions.values()].some((session) => !isGameTerminal(session.snapshot().state))
     )
-      throw new HttpError(503, gameTexts().capacity);
+      throw new HttpError(503, t.gameCapacity);
     if (request.settings.enableAutoSave && !this.dependencies.saveRecord)
       validateGameSaveDirectory(request.options.save);
     const session = new GameSession(randomUUID(), structuredClone(request), this.dependencies);
@@ -49,7 +49,7 @@ export class GameSessionManager {
   get(id: string): GameSession {
     this.cleanup();
     const session = this.sessions.get(id);
-    if (!session) throw new HttpError(410, gameTexts().expired);
+    if (!session) throw new HttpError(410, t.gameSessionExpired);
     return session;
   }
   list(): JobSummary[] {
@@ -65,7 +65,7 @@ export class GameSessionManager {
   }
   byRequest(id: string): GameSession {
     const request = this.requests.get(id);
-    if (!request) throw new HttpError(410, gameTexts().expired);
+    if (!request) throw new HttpError(410, t.gameSessionExpired);
     return this.get(request.sessionId);
   }
   cleanup(): void {

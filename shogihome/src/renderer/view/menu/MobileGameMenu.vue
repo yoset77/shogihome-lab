@@ -129,9 +129,10 @@
               <div class="form-item-label">{{ t.saveRecordAutomatically }}</div>
               <ToggleButton v-model:value="settings.enableAutoSave" />
             </div>
-            <label v-if="canStartInBackground" class="form-item">
-              <input v-model="background" type="checkbox" />{{ jobMessages.background }}
-            </label>
+            <div v-if="canStartInBackground" class="form-item">
+              <div class="form-item-label">{{ t.jobsBackground }}</div>
+              <ToggleButton v-model:value="background" />
+            </div>
           </div>
         </div>
       </div>
@@ -150,8 +151,6 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
-import { jobTexts } from "@/common/i18n/jobs";
-import { useAppSettings } from "@/renderer/store/settings";
 import { TimeLimitSettings, JishogiRule, validateGameSettingsForWeb } from "@/common/settings/game";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
@@ -160,7 +159,7 @@ import { installHotKeyForDialog, uninstallHotKeyForDialog } from "@/renderer/dev
 import { showModalDialog } from "@/renderer/helpers/dialog";
 import { useStore } from "@/renderer/store";
 import { InitialPositionType } from "tsshogi";
-import { onBeforeUnmount, onMounted, ref, reactive, computed } from "vue";
+import { onBeforeUnmount, onMounted, ref, reactive, computed, watch } from "vue";
 import { useLanStore } from "@/renderer/store/lan";
 import { useErrorStore } from "@/renderer/store/error";
 import MobilePlayerSetting from "./MobilePlayerSetting.vue";
@@ -181,7 +180,6 @@ const dialog = ref();
 const lanStore = useLanStore();
 const initialized = ref(false);
 const background = ref(false);
-const jobMessages = computed(() => jobTexts(useAppSettings().language));
 
 const settings = reactive({
   black: { uri: uri.ES_HUMAN, name: t.human, usi: undefined } as PlayerSettings,
@@ -205,9 +203,14 @@ const settings = reactive({
 });
 
 const blackExtraBook = ref<USIEngineExtraBookConfig>(emptyUSIEngineExtraBookConfig());
+const isEnginePlayer = (playerURI: string) =>
+  uri.isUSIEngine(playerURI) || playerURI.startsWith("lan-engine");
 const canStartInBackground = computed(
-  () => settings.black.uri.startsWith("lan-engine") && settings.white.uri.startsWith("lan-engine"),
+  () => isEnginePlayer(settings.black.uri) && isEnginePlayer(settings.white.uri),
 );
+watch(canStartInBackground, (available) => {
+  if (!available) background.value = false;
+});
 const whiteExtraBook = ref<USIEngineExtraBookConfig>(emptyUSIEngineExtraBookConfig());
 const sfenFileList = ref<{ label: string; value: string }[]>([]);
 const bookFileList = ref<{ label: string; value: string }[]>([]);

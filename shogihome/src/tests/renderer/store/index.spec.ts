@@ -622,6 +622,20 @@ describe("store/index", () => {
     expect(store.appState).toBe(AppState.ANALYSIS_DIALOG);
   });
 
+  it("startGame/backgroundNotifiesWithToast", async () => {
+    mockAPI.saveGameSettings.mockResolvedValue();
+    mockGameManager.prototype.start.mockResolvedValue();
+    const store = createStore();
+    store.showGameDialog();
+    store.startGame(gameSettings10m30s, true);
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(useBusyState().isBusy).toBeFalsy();
+    expect(store.appState).toBe(AppState.NORMAL);
+    expect(useToastStore().toasts).toMatchObject([
+      { type: "success", message: t.gameStartedInBackground },
+    ]);
+  });
+
   it("startResearch/success", async () => {
     mockAPI.saveResearchSettings.mockResolvedValue();
     const store = createStore();
@@ -698,6 +712,34 @@ describe("store/index", () => {
     store.startAnalysis(analysisSettings);
     expect(useBusyState().isBusy).toBeFalsy();
     expect(store.appState).toBe(AppState.NORMAL);
+  });
+
+  it("startAnalysis/backgroundNotifiesWithToast", async () => {
+    mockAPI.saveAnalysisSettings.mockResolvedValue();
+    mockAnalysisManager.prototype.start.mockResolvedValue();
+    const store = createStore();
+    store.showAnalysisDialog();
+    store.startAnalysis(analysisSettings, true);
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(useBusyState().isBusy).toBeFalsy();
+    expect(store.appState).toBe(AppState.NORMAL);
+    expect(useToastStore().toasts).toMatchObject([
+      { type: "success", message: t.analysisStartedInBackground },
+    ]);
+  });
+
+  it("detachJob/movesToBackgroundWithToast", () => {
+    const active = vi.spyOn(AnalysisManager.prototype, "isActive", "get").mockReturnValue(true);
+    try {
+      const store = createStore();
+      store.detachJob();
+      expect(mockAnalysisManager.prototype.detach).toHaveBeenCalledOnce();
+      expect(useToastStore().toasts).toMatchObject([
+        { type: "success", message: t.jobMovedToBackground },
+      ]);
+    } finally {
+      active.mockRestore();
+    }
   });
 
   it("startMateSearch/success", async () => {

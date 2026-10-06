@@ -20,7 +20,7 @@ import {
   type RecordSnapshot,
 } from "@/common/record/snapshot";
 import { ES_HUMAN } from "@/common/uri";
-import { gameTexts } from "@/common/i18n/game";
+import { t } from "@/common/i18n";
 import { fetchEngineConfigs, toLanEngineInfo } from "@/server/engine/list";
 import { InternalEngine, type GameEngine } from "@/server/engine/internal";
 import type { EngineConfig } from "@/server/engine/types";
@@ -70,6 +70,7 @@ export class GameSession {
   private readonly whiteClock: Clock;
   private readonly core: GameController;
   private readonly now: () => number;
+  readonly createdAt = Date.now();
   private detachedSince?: number;
   private closing?: Promise<void>;
   private readonly abort = new AbortController();
@@ -310,6 +311,7 @@ export class GameSession {
       id: this.id,
       requestId: this.request.requestId,
       serverInstanceId: this.request.serverInstanceId,
+      createdAt: this.createdAt,
       state:
         this.terminal && this.lastResult === SpecialMoveType.INTERRUPT && !this.error
           ? "cancelled"
@@ -385,9 +387,9 @@ export class GameSession {
     close: (code?: number) => void = () => {},
     connection?: GameConnection,
   ): { epoch: number; heartbeat: () => void; disconnect: () => void } {
-    if (controllerId !== this.controllerId) throw new HttpError(409, gameTexts().conflict);
+    if (controllerId !== this.controllerId) throw new HttpError(409, t.gameConflict);
     if (this.controller && this.screenId && connection?.screenId !== this.screenId)
-      throw new HttpError(423, gameTexts().conflict);
+      throw new HttpError(423, t.gameConflict);
     // A retry may have missed the epoch assigned to its own previous connection.
     if (
       connection &&
@@ -395,7 +397,7 @@ export class GameSession {
         (connection.controllerEpoch !== this.controllerEpoch &&
           connection.connectionId !== this.controllerConnectionId))
     )
-      throw new HttpError(409, gameTexts().conflict);
+      throw new HttpError(409, t.gameConflict);
     this.expireDetached();
     const previous = this.controller;
     this.controller = undefined;
@@ -434,14 +436,14 @@ export class GameSession {
       this.request.settings.black.uri === ES_HUMAN ||
       this.request.settings.white.uri === ES_HUMAN
     )
-      throw new HttpError(400, gameTexts().invalid);
+      throw new HttpError(400, t.gameInvalid);
     if (
       request.ownerId === this.controllerId &&
       (request.epoch === this.controllerEpoch || request.epoch === this.acquisitionEpoch)
     )
       return this.snapshot();
     if (request.epoch !== this.controllerEpoch || (this.attachment().attached && !request.takeover))
-      throw new HttpError(409, gameTexts().conflict);
+      throw new HttpError(409, t.gameConflict);
     const previous = this.controller;
     this.controller = undefined;
     this.core.setConnected(false);
@@ -460,7 +462,7 @@ export class GameSession {
       this.request.settings.black.uri === ES_HUMAN ||
       this.request.settings.white.uri === ES_HUMAN
     )
-      throw new HttpError(400, gameTexts().invalid);
+      throw new HttpError(400, t.gameInvalid);
     if (binding.ownerId !== this.controllerId || binding.epoch !== this.controllerEpoch) return;
     const previous = this.controller;
     if (previous) this.disconnect(previous.epoch);
@@ -473,12 +475,12 @@ export class GameSession {
 
   command(command: GameCommand): Promise<GameSnapshot> {
     if (command.serverInstanceId !== this.request.serverInstanceId)
-      throw new HttpError(410, gameTexts().expired);
-    if (command.controllerId !== this.controllerId) throw new HttpError(409, gameTexts().conflict);
+      throw new HttpError(410, t.gameSessionExpired);
+    if (command.controllerId !== this.controllerId) throw new HttpError(409, t.gameConflict);
     const hash = createHash("sha256").update(JSON.stringify(command)).digest("hex");
     const previous = this.commands.get(command.requestId);
     if (previous) {
-      if (previous.hash !== hash) throw new HttpError(409, gameTexts().conflict);
+      if (previous.hash !== hash) throw new HttpError(409, t.gameConflict);
       return previous.result.then(() => this.snapshot());
     }
     if (
@@ -488,8 +490,8 @@ export class GameSession {
         : command.recoveryId !== this.controllerRecoveryId ||
           command.controllerEpoch > this.controller.epoch)
     )
-      throw new HttpError(409, gameTexts().conflict);
-    if (this.commands.size >= 10_000) throw new HttpError(503, gameTexts().capacity);
+      throw new HttpError(409, t.gameConflict);
+    if (this.commands.size >= 10_000) throw new HttpError(503, t.gameCapacity);
     const result = Promise.resolve().then(async () => {
       if (
         !this.controller ||
@@ -499,25 +501,25 @@ export class GameSession {
           : command.recoveryId !== this.controllerRecoveryId ||
             command.controllerEpoch > this.controller.epoch)
       )
-        throw new HttpError(409, gameTexts().conflict);
+        throw new HttpError(409, t.gameConflict);
       if (
         !["interrupt", "resume"].includes(command.action) &&
         (command.gameId !== this.gameId ||
           command.interactionId !== this.core.interactionId ||
           this.terminal)
       )
-        throw new HttpError(409, gameTexts().conflict);
+        throw new HttpError(409, t.gameConflict);
       if (
         ["move", "resign", "declare"].includes(command.action) &&
         (!this.core.isHumanTurn || !this.core.isActive)
       )
-        throw new HttpError(409, gameTexts().conflict);
+        throw new HttpError(409, t.gameConflict);
       switch (command.action) {
         case "move":
           try {
             this.core.humanMove(command.move!);
           } catch {
-            throw new HttpError(400, gameTexts().invalid);
+            throw new HttpError(400, t.gameInvalid);
           }
           break;
         case "resign":
@@ -527,7 +529,7 @@ export class GameSession {
           this.core.declareWin();
           break;
         case "takeback":
-          if (!this.core.canTakeback) throw new HttpError(409, gameTexts().conflict);
+          if (!this.core.canTakeback) throw new HttpError(409, t.gameConflict);
           await this.core.takeback();
           break;
         case "interrupt":
@@ -539,7 +541,7 @@ export class GameSession {
           this.core.resume();
           break;
         case "annotate": {
-          if (!this.annotate(command)) throw new HttpError(409, gameTexts().conflict);
+          if (!this.annotate(command)) throw new HttpError(409, t.gameConflict);
           break;
         }
       }

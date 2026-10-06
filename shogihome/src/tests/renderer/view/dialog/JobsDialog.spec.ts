@@ -29,6 +29,7 @@ const job: JobSummary = {
   id: "job",
   requestId: "request",
   serverInstanceId: "server",
+  createdAt: 1000,
   state: "running",
   engines: ["Engine"],
   completed: 1,
@@ -74,6 +75,7 @@ describe("JobsDialog", () => {
   it("offers detachment but disables new attachments while the screen is occupied", async () => {
     mocks.store.canAttachJob = false;
     mocks.store.canDetachJob = true;
+    mocks.analysis.mockResolvedValue([{ ...job, attachment: { attached: true, epoch: 1 } }]);
     const wrapper = mountDialog();
     await flushPromises();
     expect(wrapper.find("li button").attributes("disabled")).toBeDefined();
@@ -82,6 +84,68 @@ describe("JobsDialog", () => {
       .find((button) => button.text() === "デタッチ")!
       .trigger("click");
     expect(mocks.store.detachJob).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  });
+
+  it("offers the detach action only on the attached job row", async () => {
+    mocks.store.canAttachJob = false;
+    mocks.store.canDetachJob = true;
+    const detached: JobSummary = { ...job, id: "detached" };
+    const attached: JobSummary = {
+      ...job,
+      id: "attached",
+      attachment: { attached: true, epoch: 1 },
+    };
+    mocks.analysis.mockResolvedValue([detached, attached]);
+    mocks.games.mockResolvedValue([]);
+    const wrapper = mountDialog();
+    await flushPromises();
+    const rows = wrapper.findAll("li");
+    expect(rows).toHaveLength(2);
+    const detachButtons = rows.map((row) =>
+      row.findAll("button").filter((button) => button.text() === "デタッチ"),
+    );
+    expect(detachButtons[0]).toHaveLength(0);
+    expect(detachButtons[1]).toHaveLength(1);
+    await rows[1]
+      .findAll("button")
+      .find((button) => button.text() === "デタッチ")!
+      .trigger("click");
+    expect(mocks.store.detachJob).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  });
+
+  it("orders jobs by creation time across kinds", async () => {
+    const oldAnalysis: JobSummary = { ...job, id: "old-analysis", createdAt: 1000 };
+    const newGame: JobSummary = {
+      ...job,
+      kind: "game",
+      id: "new-game",
+      createdAt: 2000,
+    };
+    mocks.analysis.mockResolvedValue([oldAnalysis]);
+    mocks.games.mockResolvedValue([newGame]);
+    const wrapper = mountDialog();
+    await flushPromises();
+    const rows = wrapper.findAll("li");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].text()).toContain("エンジン対局");
+    expect(rows[1].text()).toContain("棋譜解析");
+    wrapper.unmount();
+  });
+
+  it("keeps the action buttons outside the scrollable job list", async () => {
+    const wrapper = mountDialog();
+    await flushPromises();
+    const scroll = wrapper.find(".scroll");
+    const buttons = wrapper.find(".main-buttons");
+    expect(scroll.exists()).toBe(true);
+    expect(buttons.exists()).toBe(true);
+    // The list scrolls inside the frame, so the buttons must not scroll away with it.
+    expect(scroll.element.contains(buttons.element)).toBe(false);
+    expect(
+      scroll.element.compareDocumentPosition(buttons.element) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     wrapper.unmount();
   });
 

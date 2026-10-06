@@ -104,6 +104,7 @@ function setup() {
       id: "job",
       requestId: request!.requestId,
       serverInstanceId: "server",
+      createdAt: 1000,
       state: status.state,
       engines: ["test"],
       completed: 1,

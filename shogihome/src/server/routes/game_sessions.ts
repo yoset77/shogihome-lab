@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { validator } from "hono/validator";
 import { decodeGameRequest, decodeGameCommand } from "@/common/game/protocol";
 import { identifier } from "@/common/analysis/validation";
-import { gameTexts } from "@/common/i18n/game";
+import { t } from "@/common/i18n";
 import { GameSessionManager, gameSessionManager } from "@/server/game/manager";
 import { HttpError } from "@/server/errors";
 import {
@@ -18,7 +18,7 @@ function id(value: string): string {
   try {
     return identifier(value);
   } catch {
-    throw new HttpError(400, gameTexts().invalid);
+    throw new HttpError(400, t.gameInvalid);
   }
 }
 export const createGameSessionRoutes = (manager: GameSessionManager = gameSessionManager) =>
@@ -43,7 +43,7 @@ export const createGameSessionRoutes = (manager: GameSessionManager = gameSessio
         try {
           return readJobAttachRequest(parseJsonObject(value));
         } catch {
-          throw new HttpError(400, gameTexts().invalid);
+          throw new HttpError(400, t.gameInvalid);
         }
       }),
       (c) => c.json(manager.get(id(c.req.param("sessionId"))).attach(c.req.valid("json"))),
@@ -55,7 +55,7 @@ export const createGameSessionRoutes = (manager: GameSessionManager = gameSessio
         try {
           return readJobBinding(parseJsonObject(value));
         } catch {
-          throw new HttpError(400, gameTexts().invalid);
+          throw new HttpError(400, t.gameInvalid);
         }
       }),
       (c) => {
@@ -69,7 +69,7 @@ export const createGameSessionRoutes = (manager: GameSessionManager = gameSessio
       createBodyLimit(LARGE_BODY_LIMIT),
       validator("json", (value) => {
         const decoded = decodeGameRequest(parseJsonObject(value));
-        if (!decoded.ok) throw new HttpError(400, gameTexts().invalid);
+        if (!decoded.ok) throw new HttpError(400, t.gameInvalid);
         return decoded.value;
       }),
       (c) => c.json(manager.create(c.req.valid("json")).snapshot(), 202),
@@ -82,7 +82,7 @@ export const createGameSessionRoutes = (manager: GameSessionManager = gameSessio
       createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
       validator("json", (value) => {
         const decoded = decodeGameCommand(parseJsonObject(value));
-        if (!decoded.ok) throw new HttpError(400, gameTexts().invalid);
+        if (!decoded.ok) throw new HttpError(400, t.gameInvalid);
         return decoded.value;
       }),
       async (c) =>

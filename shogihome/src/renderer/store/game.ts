@@ -11,11 +11,12 @@ import {
   type GameCommand,
   type GameCommandAction,
   type GameFrame,
+  type GameError,
 } from "@/common/game/protocol";
 import { snapshotRecord, type RecordSnapshot } from "@/common/record/snapshot";
 import { jobRecordContent as durableContent } from "./job_record";
 import { object, identifier, text, counter } from "@/common/analysis/validation";
-import { gameTexts } from "@/common/i18n/game";
+import { t } from "@/common/i18n/index";
 import { createGameSessionsClient, type GameSessionsClient } from "@/renderer/api/game_sessions";
 import { ApiResponseError, isRequestTimeoutError } from "@/renderer/api/client";
 import { generateSessionId } from "@/renderer/helpers/unique";
@@ -37,7 +38,6 @@ import {
   type JobAttachRequest,
   type JobSummary,
 } from "@/common/jobs/types";
-import { jobTexts } from "@/common/i18n/jobs";
 import { useAppSettings } from "./settings";
 import { clearURLParams, flushRecordForWebApp } from "./webapp";
 import { ConnectionNotification } from "@/renderer/helpers/connection_notification";
@@ -48,6 +48,17 @@ export type { GameResults, GameStatistics } from "@/common/game/results";
 const STORAGE_KEY = "shogihome-game-session";
 const MONITOR_IDS = { [Color.BLACK]: 200200, [Color.WHITE]: 200201 };
 const SCREEN_ID = generateSessionId();
+
+function gameErrorMessage(error: GameError): string {
+  switch (error) {
+    case "engine":
+      return t.gameEngineError;
+    case "capacity":
+      return t.gameCapacity;
+    default:
+      return t.gameSaveFailed;
+  }
+}
 type Reference = {
   requestId: string;
   serverInstanceId: string;
@@ -378,10 +389,9 @@ export class GameManager {
     }
   }
   async start(settings: GameSettings, background = false): Promise<void> {
-    if (this.active || this.hasRetainedSession)
-      throw new Error(gameTexts(useAppSettings().language).capacity);
+    if (this.active || this.hasRetainedSession) throw new Error(t.gameCapacity);
     if (background && [settings.black.uri, settings.white.uri].includes("es://human"))
-      throw new Error(gameTexts(useAppSettings().language).invalid);
+      throw new Error(t.gameInvalid);
     this.background = background;
     const requestId = generateSessionId();
     const source = this.bind(requestId);
@@ -412,12 +422,12 @@ export class GameManager {
         },
       };
       const decoded = decodeGameRequest(JSON.parse(JSON.stringify(input)));
-      if (!decoded.ok) throw new Error(gameTexts(app.language).invalid);
+      if (!decoded.ok) throw new Error(t.gameInvalid);
       if (new TextEncoder().encode(JSON.stringify(decoded.value)).length > caps.maxInputBytes)
-        throw new Error(gameTexts(app.language).capacity);
+        throw new Error(t.gameCapacity);
       await this.recordManager.saveBackup();
       if (lifecycle !== this.lifecycle) return;
-      if (loadReferences().length) throw new Error(gameTexts(app.language).capacity);
+      if (loadReferences().length) throw new Error(t.gameCapacity);
       this.reference = {
         requestId,
         serverInstanceId: caps.serverInstanceId,
@@ -469,7 +479,7 @@ export class GameManager {
       if (local !== ref.content && !(await confirmRecovery())) return false;
       await this.recordManager.saveBackup();
       if (durableContent(snapshotRecord(this.recordManager.record)) !== local)
-        throw new Error(gameTexts().conflict);
+        throw new Error(t.gameConflict);
       this.reference = ref;
       this.bind(ref.requestId);
       this.controllerEpoch = ref.controllerEpoch;
@@ -492,7 +502,7 @@ export class GameManager {
       const caps = await this.client.capabilities();
       if (lifecycle !== this.lifecycle || this.reference !== ref) return;
       if (caps.serverInstanceId !== ref.serverInstanceId)
-        throw new ApiResponseError(410, gameTexts().expired);
+        throw new ApiResponseError(410, t.gameSessionExpired);
       let snapshot: GameSnapshot;
       try {
         snapshot = ref.sessionId
@@ -527,7 +537,7 @@ export class GameManager {
           snapshot.controllerEpoch > ref.controllerEpoch &&
           snapshot.controllerConnectionId !== ref.connectionId)
       )
-        throw new ApiResponseError(409, jobTexts(useAppSettings().language).transferred);
+        throw new ApiResponseError(409, t.jobsTransferred);
       this.controllerEpoch = snapshot.controllerEpoch;
       this.accept(snapshot, true);
       this.retryMs = 1000;
@@ -589,7 +599,7 @@ export class GameManager {
     const caps = await this.client.capabilities();
     if (lifecycle !== this.lifecycle) return false;
     if (caps.serverInstanceId !== job.serverInstanceId)
-      throw new ApiResponseError(410, gameTexts().expired);
+      throw new ApiResponseError(410, t.gameSessionExpired);
     const preview = await this.client.snapshot(job.id);
     if (lifecycle !== this.lifecycle) return false;
     const local = durableContent(snapshotRecord(this.recordManager.record));
@@ -597,7 +607,7 @@ export class GameManager {
     await this.recordManager.saveBackup();
     if (lifecycle !== this.lifecycle) return false;
     if (durableContent(snapshotRecord(this.recordManager.record)) !== local)
-      throw new Error(gameTexts().conflict);
+      throw new Error(t.gameConflict);
     this.background = false;
     const controllerId = generateSessionId();
     this.reference = {
@@ -668,9 +678,9 @@ export class GameManager {
       if (generation !== this.generation || this.socket !== socket) return;
       try {
         if (typeof event.data !== "string" || event.data.length > 32 * 1024 * 1024)
-          throw new Error(gameTexts().invalid);
+          throw new Error(t.gameInvalid);
         const decoded = decodeGameFrame(JSON.parse(event.data));
-        if (!decoded.ok) throw new Error(gameTexts().invalid);
+        if (!decoded.ok) throw new Error(t.gameInvalid);
         // Clock frames cannot complete the initial controller handshake.
         if (this.socketReady || decoded.value.type === "snapshot") this.lastFrameAt = Date.now();
         const initial = !this.socketReady;
@@ -707,10 +717,10 @@ export class GameManager {
       if (event.code === 4001) {
         storage.detach(ref);
         this.release(ref.requestId, false);
-        this.handlers.error(new Error(jobTexts(useAppSettings().language).transferred));
+        this.handlers.error(new Error(t.jobsTransferred));
       } else if (event.code === 4004) {
         this.release(ref.requestId, true);
-        this.handlers.error(new Error(gameTexts().expired));
+        this.handlers.error(new Error(t.gameSessionExpired));
       } else {
         this.connection.lost();
         this.schedule();
@@ -742,7 +752,7 @@ export class GameManager {
       frame.sessionId !== status.sessionId ||
       frame.serverInstanceId !== status.serverInstanceId
     )
-      throw new Error(gameTexts().invalid);
+      throw new Error(t.gameInvalid);
     if (frame.revision > status.revision) {
       void this.synchronize();
       return;
@@ -792,7 +802,7 @@ export class GameManager {
       snapshot.serverInstanceId !== ref.serverInstanceId ||
       (ref.sessionId && ref.sessionId !== snapshot.sessionId)
     )
-      throw new Error(gameTexts().invalid);
+      throw new Error(t.gameInvalid);
     if (
       (snapshot.controllerOwnerId !== undefined &&
         snapshot.controllerOwnerId !== ref.controllerId) ||
@@ -801,7 +811,7 @@ export class GameManager {
         snapshot.controllerEpoch > this.controllerEpoch &&
         snapshot.controllerConnectionId !== this.connectionId)
     )
-      throw new ApiResponseError(409, gameTexts().conflict);
+      throw new ApiResponseError(409, t.gameConflict);
     if (
       this._status &&
       (snapshot.revision < this._status.revision ||
@@ -819,7 +829,7 @@ export class GameManager {
     if (this._status?.interactionId !== snapshot.interactionId) this.annotationTimes.clear();
     if (this.active && (!this._status || snapshot.recordRevision !== this._status.recordRevision)) {
       if (!this.recordManager.applyGameSnapshot(ref.requestId, snapshot.record))
-        throw new Error(gameTexts().conflict);
+        throw new Error(t.gameConflict);
       clearURLParams();
       flushRecordForWebApp(this.recordManager.record);
       ref.content = durableContent(snapshotRecord(this.recordManager.record));
@@ -858,7 +868,7 @@ export class GameManager {
     for (const record of snapshot.records)
       if (record.state === "failed" && !this.warned.has(record.gameId)) {
         this.warned.add(record.gameId);
-        this.handlers.error(new Error(gameTexts(useAppSettings().language).save));
+        this.handlers.error(new Error(t.gameSaveFailed));
       }
     if (isGameTerminal(snapshot.state)) {
       this.finish(snapshot);
@@ -903,7 +913,7 @@ export class GameManager {
         }
       }
       if (snapshot.error && snapshot.error !== "save")
-        this.handlers.error(new Error(gameTexts(useAppSettings().language)[snapshot.error]));
+        this.handlers.error(new Error(gameErrorMessage(snapshot.error)));
       this.handlers.gameEnd(snapshot.results, snapshot.lastResult ?? SpecialMoveType.INTERRUPT);
     } finally {
       this.finishing = false;
@@ -992,7 +1002,7 @@ export class GameManager {
     const ref = this.reference,
       status = this._status;
     if (!ref || !status) return;
-    if (ref.pending.length >= 8) throw new Error(gameTexts().capacity);
+    if (ref.pending.length >= 8) throw new Error(t.gameCapacity);
     const command: GameCommand = {
       requestId: generateSessionId(),
       serverInstanceId: ref.serverInstanceId,

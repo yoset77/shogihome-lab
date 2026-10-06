@@ -54,7 +54,6 @@ import {
   type RecordSnapshot,
 } from "@/common/record/snapshot";
 import type { AnalysisNodeResult } from "@/common/analysis/types";
-import { analysisTexts } from "@/common/i18n/analysis";
 
 type replaceRecordOption = {
   path?: string;
@@ -190,7 +189,7 @@ export class RecordManager {
   }
 
   beginGame(token: string): RecordSnapshot {
-    if (this.analysisLocked) throw new Error(analysisTexts().capacity);
+    if (this.analysisLocked) throw new Error(t.analysisJobCapacity);
     const source = snapshotRecord(this.record);
     this.gameBinding = { token, record: this._record, content: recordContent(source) };
     return source;
@@ -229,7 +228,7 @@ export class RecordManager {
   }
 
   beginAnalysis(token: string): RecordSnapshot {
-    if (this.analysisLocked) throw new Error(analysisTexts().capacity);
+    if (this.analysisLocked) throw new Error(t.analysisJobCapacity);
     const source = snapshotRecord(this.record);
     this.analysisBinding = {
       token,
@@ -282,13 +281,13 @@ export class RecordManager {
     await this.openSnapshot(source, isCurrent);
   }
   async openSnapshot(source: RecordSnapshot, isCurrent: () => boolean = () => true): Promise<void> {
-    if (this.analysisLocked) throw new Error(analysisTexts().invalid);
+    if (this.analysisLocked) throw new Error(t.analysisJobInvalid);
     const record = this._record;
     const content = recordContent(snapshotRecord(record));
     await this.saveBackup();
     if (!isCurrent()) return;
     if (record !== this._record || content !== recordContent(snapshotRecord(this.record)))
-      throw new Error(analysisTexts().invalid);
+      throw new Error(t.analysisJobInvalid);
     this.replaceRecord(restoreRecord(source).record, { preserveCustomData: true });
   }
 
@@ -352,7 +351,7 @@ export class RecordManager {
   }
 
   private clearRecord(position?: ImmutablePosition): void {
-    if (this.analysisLocked) throw new Error(analysisTexts().invalid);
+    if (this.analysisLocked) throw new Error(t.analysisJobInvalid);
     this.saveBackupOnBackground();
     this._record.clear(position);
     this._unsaved = false;
@@ -364,7 +363,7 @@ export class RecordManager {
   }
 
   private replaceRecord(record: Record, option?: replaceRecordOption): void {
-    if (this.analysisLocked) throw new Error(analysisTexts().invalid);
+    if (this.analysisLocked) throw new Error(t.analysisJobInvalid);
     this.saveBackupOnBackground();
     this._record = record;
     this.resetPositionCounts();
@@ -758,7 +757,7 @@ export class RecordManager {
   }
 
   mergeRecord(record: ImmutableRecord): Error | undefined {
-    if (this.analysisLocked) return new Error(analysisTexts().invalid);
+    if (this.analysisLocked) return new Error(t.analysisJobInvalid);
     if (this._record.initialPosition.sfen !== record.initialPosition.sfen) {
       return new Error(t.failedToMergeRecordWithDifferentInitialPosition);
     }
@@ -769,7 +768,7 @@ export class RecordManager {
   }
 
   mergeRecordIntoCurrent(record: ImmutableRecord): Error | undefined {
-    if (this.analysisLocked) return new Error(analysisTexts().invalid);
+    if (this.analysisLocked) return new Error(t.analysisJobInvalid);
     if (this._record.position.color !== record.initialPosition.color) {
       return new Error(t.failedToMergeRecordWithDifferentTurn);
     }

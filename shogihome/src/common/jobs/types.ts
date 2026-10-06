@@ -28,6 +28,7 @@ export type JobSummary = {
   id: string;
   requestId: string;
   serverInstanceId: string;
+  createdAt: number;
   state:
     | "preparing"
     | "running"
@@ -86,6 +87,7 @@ export function decodeJobList(value: unknown): DecodeResult<JobSummary[]> {
           id: v.identifier(input.id),
           requestId: v.identifier(input.requestId),
           serverInstanceId: v.identifier(input.serverInstanceId),
+          createdAt: v.counter(input.createdAt),
           state: v.enumeration(input.state, [
             "preparing",
             "running",

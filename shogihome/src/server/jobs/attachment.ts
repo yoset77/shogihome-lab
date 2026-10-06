@@ -1,5 +1,5 @@
 import type { JobAttachRequest, JobAttachmentState, JobBinding } from "@/common/jobs/types";
-import { jobTexts } from "@/common/i18n/jobs";
+import { t } from "@/common/i18n";
 import { HttpError } from "@/server/errors";
 import { randomUUID } from "node:crypto";
 
@@ -27,7 +27,7 @@ export class JobAttachment {
       (request.recoveryId === undefined || request.recoveryId === this.recoveryId)
     ) {
       if (this.screenId !== undefined && request.screenId !== this.screenId) {
-        if (current.attached) throw new HttpError(423, jobTexts().occupied);
+        if (current.attached) throw new HttpError(423, t.jobsOccupied);
         this.acquisitionEpoch = request.epoch;
         ++this.epoch;
         this.screenId = request.screenId;
@@ -41,7 +41,7 @@ export class JobAttachment {
       };
     }
     if (request.epoch !== this.epoch || (current.attached && !request.takeover))
-      throw new HttpError(409, jobTexts().transferred);
+      throw new HttpError(409, t.jobsTransferred);
     this.ownerId = request.ownerId;
     this.acquisitionEpoch = request.epoch;
     this.recoveryId = randomUUID();
@@ -63,7 +63,7 @@ export class JobAttachment {
       binding.screenId !== this.screenId ||
       (binding.recoveryId !== undefined && binding.recoveryId !== this.recoveryId)
     )
-      throw new HttpError(409, jobTexts().transferred);
+      throw new HttpError(409, t.jobsTransferred);
     this.lastSeen = Date.now();
   }
   authorizeOperation(binding: JobBinding): void {

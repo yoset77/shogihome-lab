@@ -15,7 +15,7 @@ import {
 } from "@/server/helpers/kifu";
 import { writeStreamAtomic } from "@/server/file/atomic_stream";
 import { HttpError } from "@/server/errors";
-import { gameTexts } from "@/common/i18n/game";
+import { t } from "@/common/i18n";
 
 export async function loadGamePositions(uri: string): Promise<string[]> {
   const file =
@@ -40,7 +40,7 @@ export function validateGameSaveDirectory(options: GameSaveOptions): string {
     ? options.directory.substring(9)
     : options.directory;
   if (!KIFU_DIR || !resolveKifuDirectory(KIFU_DIR, directory))
-    throw new HttpError(400, gameTexts().invalid);
+    throw new HttpError(400, t.gameInvalid);
   return directory;
 }
 

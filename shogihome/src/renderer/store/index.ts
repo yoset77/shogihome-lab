@@ -45,12 +45,10 @@ import { useMessageStore } from "./message.js";
 import { useToastStore } from "./toast.js";
 import { AnalysisManager } from "./analysis.js";
 import type { AnalysisJobStatus } from "@/common/analysis/types";
-import { analysisTexts } from "@/common/i18n/analysis";
 import { AnalysisSettings } from "@/common/settings/analysis";
 import { MateSearchSettings } from "@/common/settings/mate";
 import { LogLevel } from "@/common/log";
 import { GameClockDisplay } from "./game_clock.js";
-import { gameTexts } from "@/common/i18n/game";
 import type { GameSnapshot } from "@/common/game/protocol";
 import { type USIInfoCommand } from "@/common/game/usi";
 import { ResearchManager } from "./research.js";
@@ -75,7 +73,6 @@ import { CommentBehavior } from "@/common/settings/comment";
 import { Attachment, ListItem } from "@/common/message";
 import type { VisionEditSession } from "@/renderer/vision/types";
 import type { JobSummary } from "@/common/jobs/types";
-import { jobTexts } from "@/common/i18n/jobs";
 import { isReloadNavigation } from "./job_storage";
 import { guardJobRecovery, releaseJobTab } from "./job_tab_guard";
 
@@ -899,8 +896,10 @@ class Store {
       .saveGameSettings(settings)
       .then(() => this.gameManager.start(settings, background))
       .then(() => {
-        if (background) this._appState = AppState.NORMAL;
-        else if (!this.gameManager.status || this.gameManager.isActive)
+        if (background) {
+          this._appState = AppState.NORMAL;
+          useToastStore().success(t.gameStartedInBackground);
+        } else if (!this.gameManager.status || this.gameManager.isActive)
           this._appState = AppState.GAME;
       })
       .catch((e) => {
@@ -947,9 +946,11 @@ class Store {
     return this.analysisManager.isActive || this.gameManager.canDetach;
   }
   detachJob(): void {
+    const detachable = this.canDetachJob;
     try {
       if (this.analysisManager.isActive) this.analysisManager.detach();
       else this.gameManager.detachJob();
+      if (detachable) useToastStore().success(t.jobMovedToBackground);
     } catch (error) {
       useErrorStore().add(error);
     }
@@ -966,19 +967,18 @@ class Store {
   async attachJob(job: JobSummary): Promise<void> {
     if (!this.canAttachJob) return;
     useBusyState().retain();
-    const language = useAppSettings().language;
     try {
       const attached =
         job.kind === "analysis"
           ? await this.analysisManager.attach(
               job,
-              () => this.confirmJob(analysisTexts(language).recover),
-              () => this.confirmJob(jobTexts(language).takeover),
+              () => this.confirmJob(t.analysisRecover),
+              () => this.confirmJob(t.jobsTakeover),
             )
           : await this.gameManager.attach(
               job,
-              () => this.confirmJob(gameTexts(language).recover),
-              () => this.confirmJob(jobTexts(language).takeover),
+              () => this.confirmJob(t.gameRecover),
+              () => this.confirmJob(t.jobsTakeover),
             );
       if (attached) this.closeJobsDialog();
     } catch (error) {
@@ -1033,7 +1033,7 @@ class Store {
         () =>
           new Promise<boolean>((resolve) => {
             useConfirmationStore().show({
-              message: gameTexts(useAppSettings().language).recover,
+              message: t.gameRecover,
               onOk: () => resolve(true),
               onCancel: () => resolve(false),
             });
@@ -1507,6 +1507,7 @@ class Store {
       .then(() => this.analysisManager.start(analysisSettings, background))
       .then(() => {
         this._appState = background ? AppState.NORMAL : AppState.ANALYSIS;
+        if (background) useToastStore().success(t.analysisStartedInBackground);
       })
       .catch((e) => {
         useErrorStore().add(e);
@@ -1547,7 +1548,7 @@ class Store {
         () =>
           new Promise<boolean>((resolve) => {
             useConfirmationStore().show({
-              message: analysisTexts(useAppSettings().language).recover,
+              message: t.analysisRecover,
               onOk: () => resolve(true),
               onCancel: () => resolve(false),
             });
