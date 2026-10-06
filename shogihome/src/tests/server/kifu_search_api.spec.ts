@@ -16,6 +16,12 @@ const kifuIndexMock = vi.hoisted(() => ({
   getKifuCount: vi.fn(() => 0),
   searchKifu: vi.fn(() => [] as unknown[]),
   getKifuSearchCount: vi.fn(() => 0),
+  getKifuSearchStatistics: vi.fn(() => ({
+    total: 0,
+    generatedAt: 100,
+    strategies: [],
+    players: [],
+  })),
 }));
 
 const exportJobMock = vi.hoisted(() => ({
@@ -159,6 +165,39 @@ describe("Kifu search API", () => {
     expect(kifuIndexMock.getKifuSearchCount).toHaveBeenCalledWith(
       expect.objectContaining({ keyword: "title" }),
     );
+  });
+
+  it("uses normalized combined filters for statistics without applying result pagination", async () => {
+    sfenMock.getNormalizedSfenAndHash.mockReturnValue({ sfen: "normalized sfen", hash: 123n });
+    const response = await requestApp(
+      app,
+      "GET",
+      "/api/kifu/search/statistics?sfen=startpos&keyword=Final&player1=A&player2=B&isStrictTurn=true&startDate=2024&strategy=unclassified&limit=1&offset=100",
+      { host },
+    );
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ total: 0, generatedAt: 100, strategies: [], players: [] });
+    expect(kifuIndexMock.getKifuSearchStatistics).toHaveBeenCalledWith({
+      sfen: "normalized sfen",
+      sfenHash: 123n,
+      keyword: "Final",
+      player1: "A",
+      player2: "B",
+      isStrictTurn: true,
+      startDate: "2024",
+      strategy: "unclassified",
+    });
+  });
+
+  it("rejects invalid statistics queries before querying the index", async () => {
+    sfenMock.getNormalizedSfenAndHash.mockReturnValue(null);
+    for (const query of ["sfen=invalid", "strategy=unsupported"]) {
+      const response = await requestApp(app, "GET", `/api/kifu/search/statistics?${query}`, {
+        host,
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(kifuIndexMock.getKifuSearchStatistics).not.toHaveBeenCalled();
   });
 
   it("passes an allowed strategy filter to the database search", async () => {

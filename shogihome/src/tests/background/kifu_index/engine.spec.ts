@@ -7,6 +7,8 @@ import {
   closeDatabase,
   upsertKifuFile,
   searchKifu,
+  getKifuFileByPath,
+  KIFU_POSITION_INDEX_VERSION,
 } from "@/server/database/kifu_index";
 import { encodeText } from "@/common/helpers/encode";
 import fs from "node:fs";
@@ -98,6 +100,63 @@ describe("background/kifu_index/engine", () => {
 
     expect(result.metadata.black_name).toBe("下手太郎");
     expect(result.metadata.white_name).toBe("上手次郎");
+  });
+
+  it("indexes one representative continuation and preserves variation and ending states", async () => {
+    fs.copyFileSync(
+      "src/tests/testdata/kifu-search/transpositions.kif",
+      path.join(tempDir, "transpositions.kif"),
+    );
+    const result = await parseAndIndexFile(tempDir, "transpositions.kif");
+    if (!result) throw new Error("Failed to parse fixture");
+    const matches = result.positions.filter((row) => row.ply === 4);
+    expect(matches[0].sfen).toBe(matches[1].sfen);
+    expect(matches[0]).toMatchObject({ next_move: "☗２五歩", is_variation: false });
+    expect(matches[1]).toMatchObject({ next_move: "☗５六歩", is_variation: true });
+    expect(result.positions[0]).toMatchObject({ ply: 0, next_move: "☗７六歩" });
+    const ply5 = result.positions.filter((row) => row.ply === 5);
+    expect(ply5[0].next_move).toBe("投了");
+    expect(ply5[1].next_move).toBe("");
+    upsertKifuFile(result.metadata, result.positions);
+    expect(searchKifu({ sfenHash: matches[0].sfen_hash, sfen: matches[0].sfen })).toEqual([
+      expect.objectContaining({
+        matched_ply: 4,
+        next_move: "☗２五歩",
+        matched_is_variation: false,
+      }),
+    ]);
+    expect(searchKifu({ sfenHash: ply5[1].sfen_hash, sfen: ply5[1].sfen })[0]).toMatchObject({
+      next_move: "",
+      matched_is_variation: true,
+    });
+  });
+
+  it("formats a continuation independently of the previous move's destination", async () => {
+    fs.writeFileSync(
+      path.join(tempDir, "same.kif"),
+      "戦型：角換わり\n手合割：平手\n手数----指手----\n1 ７六歩(77)\n2 ３四歩(33)\n3 ２二角成(88)\n4 同銀(31)\n",
+    );
+    const result = await parseAndIndexFile(tempDir, "same.kif");
+    expect(result?.positions.find((row) => row.ply === 3)?.next_move).toBe("☖２二銀");
+  });
+
+  it("backfills next moves for unchanged files instead of updating only strategy metadata", async () => {
+    const name = "legacy.kif";
+    fs.writeFileSync(
+      path.join(tempDir, name),
+      "戦型：角換わり\n手合割：平手\n手数----指手----\n1 ７六歩(77)\n",
+    );
+    const parsed = await parseAndIndexFile(tempDir, name);
+    if (!parsed) throw new Error("Failed to parse fixture");
+    upsertKifuFile(
+      { ...parsed.metadata, position_index_version: 0 },
+      parsed.positions.map((row) => ({ sfen_hash: row.sfen_hash, sfen: row.sfen, ply: row.ply })),
+    );
+    const query = { sfenHash: parsed.positions[0].sfen_hash, sfen: parsed.positions[0].sfen };
+    expect(searchKifu(query)[0].next_move).toBeNull();
+    await syncKifuDirectory(tempDir);
+    expect(searchKifu(query)[0].next_move).toBe("☗７六歩");
+    expect(getKifuFileByPath(name)?.position_index_version).toBe(KIFU_POSITION_INDEX_VERSION);
   });
 
   it("preserves an unsearchable manual strategy without automatic classification", async () => {

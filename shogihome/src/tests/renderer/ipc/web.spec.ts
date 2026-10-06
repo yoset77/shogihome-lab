@@ -9,6 +9,45 @@ vi.mock("html-to-image", () => ({
 }));
 
 describe("renderer/ipc/web", () => {
+  it("retrieves and validates server-side statistics using the complete query", async () => {
+    const statistics = { total: 0, generatedAt: 100, strategies: [], players: [] };
+    const response = new Response(JSON.stringify(statistics), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+    const request = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", request);
+    try {
+      await expect(
+        webAPI.getServerKifuStatistics({
+          keyword: "Final",
+          player1: "A",
+          player2: "B",
+          isStrictTurn: true,
+          startDate: "2024",
+          sfen: "startpos",
+          strategy: "unclassified",
+        }),
+      ).resolves.toEqual(statistics);
+      const url = new URL(request.mock.calls[0][0] as string);
+      expect(url.pathname).toBe("/api/kifu/search/statistics");
+      expect(Object.fromEntries(url.searchParams)).toMatchObject({
+        keyword: "Final",
+        player1: "A",
+        player2: "B",
+        isStrictTurn: "true",
+        startDate: "2024",
+        sfen: "startpos",
+        strategy: "unclassified",
+      });
+      request.mockResolvedValue(
+        new Response(JSON.stringify({ ...statistics, total: 1 }), { status: 200 }),
+      );
+      await expect(webAPI.getServerKifuStatistics({})).rejects.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it.each(["book", "record"])(
     "returns cancellation without retrying a %s overwrite",
     async (kind) => {

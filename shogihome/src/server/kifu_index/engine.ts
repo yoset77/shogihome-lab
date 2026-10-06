@@ -1,9 +1,22 @@
 import fs from "node:fs";
 import { resolveIndexableKifuPath } from "@/server/helpers/kifu";
-import { RecordMetadataKey, ImmutableNode, getBlackPlayerName, getWhitePlayerName } from "tsshogi";
+import {
+  RecordMetadataKey,
+  Move,
+  Position,
+  formatMove,
+  formatSpecialMove,
+  getBlackPlayerName,
+  getWhitePlayerName,
+} from "tsshogi";
 import { importRecordFromBuffer, detectRecordFileFormatByPath } from "@/common/file/record";
 import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
-import { KifuFileMetadata, KifuPositionData } from "@/server/database/kifu_index";
+import {
+  KifuFileMetadata,
+  KifuPositionData,
+  KIFU_POSITION_INDEX_VERSION,
+} from "@/server/database/kifu_index";
+import { iterateKifuNodes } from "@/common/kifu/position";
 import { getRecordTitleFromMetadata } from "@/common/helpers/metadata";
 import { normalizeManualStrategy } from "@/common/kifu/strategy_taxonomy";
 import {
@@ -109,32 +122,26 @@ export async function parseAndIndexFile(
     strategy_score: inferredStrategy?.score,
     strategy_classifier_version: ruleStrategy?.ruleVersion || inferredStrategy?.modelVersion,
     strategy_index_version: strategyIndexVersion,
+    position_index_version: KIFU_POSITION_INDEX_VERSION,
   };
 
   const positions: KifuPositionData[] = [];
-  const visitedNodes = new Set<ImmutableNode>();
-
-  function traverse(node: ImmutableNode) {
-    if (visitedNodes.has(node)) {
-      return;
-    }
-    visitedNodes.add(node);
-
+  for (const { node, isVariation } of iterateKifuNodes(record.first)) {
     const normalized = getNormalizedSfenAndHash(node.sfen);
     if (normalized) {
       positions.push({
         sfen: normalized.sfen,
         sfen_hash: normalized.hash,
         ply: node.ply,
+        next_move: !node.next
+          ? ""
+          : node.next.move instanceof Move
+            ? formatMove(Position.newBySFEN(node.sfen)!, node.next.move)
+            : formatSpecialMove(node.next.move, node.nextColor),
+        is_variation: isVariation,
       });
     }
-
-    for (let child = node.next; child; child = child.branch) {
-      traverse(child);
-    }
   }
-
-  traverse(record.first);
 
   return { metadata, positions };
 }

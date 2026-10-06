@@ -1754,9 +1754,9 @@ class Store {
       if (e) {
         throw e;
       }
-      if (opt?.sfen && opt?.ply) {
+      if (opt?.sfen && opt.ply != null) {
         this.recordManager.changePlyBySFEN(opt.ply, opt.sfen);
-      } else if (opt?.ply) {
+      } else if (opt?.ply != null) {
         this.recordManager.changePly(opt.ply);
       }
     } catch (e) {

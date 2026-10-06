@@ -155,6 +155,9 @@ export interface KifuSearchResult {
   indexed_at: number;
   matched_ply?: number;
   matched_sfen?: string;
+  // null/undefined: not indexed yet; empty string: no continuation.
+  next_move?: string | null;
+  matched_is_variation?: boolean;
 }
 
 export interface KifuPreviewRequest {

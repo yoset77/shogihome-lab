@@ -21,6 +21,10 @@ import * as uri from "@/common/uri";
 import { normalizePath } from "@/common/helpers/path";
 import { KifuSearchResult, KifuListEntry } from "@/common/file/record";
 import {
+  decodeKifuSearchStatistics,
+  type KifuSearchStatistics,
+} from "@/common/file/kifu_statistics";
+import {
   SERVER_UPLOAD_TIMEOUT_MS,
   type ServerDirectoryEntry,
   type ServerDirectoryList,
@@ -755,6 +759,14 @@ export const webAPI: Bridge = {
       query: toKifuSearchQuery(params),
     });
     return (await parseJsonResponse<{ count: number }>(response)).count;
+  },
+  async getServerKifuStatistics(params: KifuSearchQuery): Promise<KifuSearchStatistics> {
+    const response = await apiClient.api.kifu.search.statistics.$get({
+      query: toKifuSearchQuery(params),
+    });
+    const statistics = decodeKifuSearchStatistics(await parseJsonResponse<unknown>(response));
+    if (!statistics) throw new Error(t.kifuStatisticsFailed);
+    return statistics;
   },
   async startServerKifuSfenExport(params: SfenExportRequest): Promise<SfenExportJobStatus> {
     return await parseJsonResponse(await apiClient.api.kifu.export.sfen.$post({ json: params }));

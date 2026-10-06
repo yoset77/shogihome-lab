@@ -892,6 +892,34 @@ export const en: Texts = {
   list: "List",
   kifuSearch: "Kifu Search",
   searchByPosition: "Search by Position",
+  showKifuStatistics: "Statistics",
+  kifuStatisticsTitle: "Search Result Statistics",
+  kifuStatisticsConditions: "Search Conditions",
+  kifuStatisticsCollectedAt: "Collected At",
+  kifuStatisticsTargetCount: (n: number) => `Records included: ${n}`,
+  kifuStatisticsCount: "Count",
+  kifuStatisticsRatio: "Share",
+  kifuStatisticsTotal: "Total",
+  kifuStatisticsRawStrategy: "Recorded, without a standard classification",
+  kifuStatisticsMissingPlayer: "Name not recorded",
+  kifuStatisticsFileNote:
+    "All matching record files are included. Duplicate files of the same game are counted separately.",
+  kifuStatisticsStrategyNote:
+    "Strategies describe the whole record, not the searched position, and include automatic classifications.",
+  kifuStatisticsPlayerNote:
+    "Totals count appearances. Name variants are not merged. The same name on both sides counts twice.",
+  kifuStatisticsAbout: "About These Statistics",
+  kifuStatisticsCountChanged:
+    "The index has changed since the search, so the statistics count differs from the result list.",
+  kifuStatisticsLoading: "Calculating…",
+  kifuStatisticsFailed: "Could not retrieve statistics. Please recalculate.",
+  recalculateKifuStatistics: "Recalculate",
+  kifuStatisticsPreviousPage: "Previous Page",
+  kifuStatisticsNextPage: "Next Page",
+  kifuStatisticsPage: (page: number, total: number) => `Page ${page} / ${total}`,
+  kifuNoContinuation: "No continuation",
+  kifuNextMoveUnavailable: "Not indexed yet",
+  kifuVariation: "Variation",
   keyword: "Keyword",
   nKifuFound(n: number) {
     return `${n} kifu found.`;

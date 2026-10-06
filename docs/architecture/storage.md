@@ -38,8 +38,12 @@ Server data rootは [`src/node/proc/path.ts`](../../shogihome/src/node/proc/path
 - 全件同期と監視eventの双方で既存のpath boundaryを通し、設定したroot自体を除くsymlinkや対象外fileを読み込みません。削除・symlinkへの置換などで対象外になったfileは、既存の検索indexも削除します。監視対象directoryの削除時は配下の派生indexも削除します。
 - Watcherはconfigured rootをreal pathへ解決して監視し、そのrootを基準に相対pathを通知します。配下のsymlinkは追跡しません。Dotfileとatomic writerの予約名は監視から除外しますが、判定はroot基準の相対pathに対して行うため、実パスにhidden segmentを含むroot自体は除外されません。lock directoryの作成・削除で一覧cacheを無効化したりindexの全path取得を実行したりしません。Directory削除は専用eventで通知し、indexの全path取得はdirectory削除を含むbatchごとに1回だけ行います。同じbatchのfile再追加・変更はdirectory削除より優先し、event batch同士とFull syncは実行状態を共有して直列化するため、大量の削除・更新処理中もevent loopへyieldしつつ、処理中に到着した再追加のindexを古い削除処理が消すことはありません。
 - Indexのschemaやclassifier versionが変わった場合は、元ファイルから再同期できます。
+- 局面関連は同一file・正規化SFENを1件にまとめ、共有の深さ優先走査で最初の箇所を代表とします。その箇所の先頭の継続手と変化手順内かどうかも保持します。Previewとopenも同じ共有選択規則を使います。継続手の未取得と、取得済みだが継続がない状態は区別します。
+- 局面関連の派生情報は戦型判定とは別の版で追跡します。Fileが未変更でも局面情報の版が古い場合は関連全体を再構築し、戦型だけのbackfillでは更新済みとみなしません。
+- 検索統計は検索・件数取得と同じSQL条件から全一致fileを集計します。一覧のpaginationは集計対象に影響せず、戦型と対局者の集計を同一read transactionで取得します。集計時点のindexを対象とし、過去の検索結果を固定保存する機能ではありません。
 
 戦型自動判定の設計意図は [Strategy Inference Intent](../features/strategy-inference.md) を参照してください。
+棋譜検索の代表局面と集計単位の設計意図は [Server Kifu Search](../features/server-kifu-search.md) を参照してください。
 
 ## KIFU_DIR Boundary
 

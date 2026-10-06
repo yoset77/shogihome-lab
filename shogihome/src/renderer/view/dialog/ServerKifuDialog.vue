@@ -234,9 +234,18 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
               {{ t.showingFirstKifu(searchResults.length) }}
             </span>
           </div>
-          <button v-if="searchResultCount > 0" class="thin" @click="showSfenExportDialog = true">
-            {{ isSfenExportRunning ? t.convertingToSfen : t.exportSearchResultsAsSfen }}
-          </button>
+          <div class="results-tools row">
+            <button
+              class="thin"
+              :disabled="!lastExecutedSearch || searchResultCount === 0"
+              @click="showStatisticsDialog = true"
+            >
+              {{ t.showKifuStatistics }}
+            </button>
+            <button v-if="searchResultCount > 0" class="thin" @click="showSfenExportDialog = true">
+              {{ isSfenExportRunning ? t.convertingToSfen : t.exportSearchResultsAsSfen }}
+            </button>
+          </div>
         </div>
         <div class="form-group search-results-container">
           <div
@@ -271,6 +280,15 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
                   {{ t.strategy }}: {{ entry.strategy_raw }}
                 </span>
                 <span v-else class="metadata-item"> {{ t.strategy }}: {{ t.unclassified }} </span>
+                <span v-if="lastExecutedSearch?.sfen" class="metadata-item next-move">
+                  {{ t.nextMoves }}:
+                  {{
+                    entry.next_move == null
+                      ? t.kifuNextMoveUnavailable
+                      : entry.next_move || t.kifuNoContinuation
+                  }}
+                  <template v-if="entry.matched_is_variation">({{ t.kifuVariation }})</template>
+                </span>
               </div>
             </div>
             <div class="result-actions row align-center">
@@ -312,6 +330,12 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
     @close="showSfenExportDialog = false"
     @completed="updateList(true)"
   />
+  <KifuStatisticsDialog
+    v-if="showStatisticsDialog && lastExecutedSearch"
+    :search="lastExecutedSearch"
+    :search-result-count="searchResultCount"
+    @close="showStatisticsDialog = false"
+  />
 </template>
 
 <script setup lang="ts">
@@ -341,6 +365,7 @@ import {
 } from "@/common/kifu/strategy";
 import type { KifuSearchQuery } from "@/common/file/sfen_export";
 import SfenExportDialog from "./SfenExportDialog.vue";
+import KifuStatisticsDialog from "./KifuStatisticsDialog.vue";
 
 const store = useStore();
 const dialogFrame = ref<InstanceType<typeof DialogFrame>>();
@@ -370,6 +395,7 @@ const appSettings = useAppSettings();
 const busyState = useBusyState();
 const list = ref<KifuListEntry[]>([]);
 const showSfenExportDialog = ref(false);
+const showStatisticsDialog = ref(false);
 const isSfenExportRunning = computed(() =>
   sfenExportJob.value ? ["queued", "running"].includes(sfenExportJob.value.state) : false,
 );
@@ -790,6 +816,15 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   flex-shrink: 0;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.results-tools {
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.next-move {
+  color: var(--text-color);
 }
 .results-count {
   font-size: 0.85em;

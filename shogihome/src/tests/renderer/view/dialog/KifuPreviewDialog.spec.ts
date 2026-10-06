@@ -1,6 +1,8 @@
 import { flushPromises, shallowMount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Color, ImmutablePosition, PieceType, Record } from "tsshogi";
+import { Color, ImmutablePosition, PieceType, Record, importKIF } from "tsshogi";
+import { readFileSync } from "node:fs";
+import { normalizeSfen } from "@/common/usi/sfen";
 import { computed, PropType } from "vue";
 import KifuPreviewDialog from "@/renderer/view/dialog/KifuPreviewDialog.vue";
 
@@ -109,6 +111,28 @@ describe("KifuPreviewDialog", () => {
     expect(openRecord).toHaveBeenCalledWith("server://games/example.kif");
     expect(parsedRecord.current.ply).toBe(1);
     expect(wrapper.find(".board-view-stub").exists()).toBe(true);
+  });
+
+  it("previews the first indexed occurrence when branches transpose at the same ply", async () => {
+    const record = importKIF(
+      readFileSync("src/tests/testdata/kifu-search/transpositions.kif", "utf8"),
+    );
+    if (record instanceof Error) throw record;
+    parsedRecord = record;
+    record.goto(4);
+    const representative = record.current;
+    const wrapper = mountDialog({ matchedPly: 4, matchedSfen: normalizeSfen(representative.sfen) });
+    await flushPromises();
+    expect(record.current).toBe(representative);
+    wrapper.unmount();
+  });
+
+  it("selects the initial position when the matched ply is zero", async () => {
+    const first = parsedRecord.first;
+    const wrapper = mountDialog({ matchedPly: 0, matchedSfen: normalizeSfen(first.sfen) });
+    await flushPromises();
+    expect(parsedRecord.current).toBe(first);
+    wrapper.unmount();
   });
 
   it("reloads the preview when the selected target changes", async () => {

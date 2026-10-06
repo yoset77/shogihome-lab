@@ -269,7 +269,7 @@ import { install, uninstall } from "@github/hotkey";
 import { t } from "@/common/i18n";
 import { BoardLayoutType } from "@/common/settings/layout";
 import { TextDecodingRule, getPieceImageURLTemplate } from "@/common/settings/app";
-import { normalizeSfen } from "@/common/usi/sfen";
+import { findKifuPosition } from "@/common/kifu/position";
 import {
   detectRecordFileFormatByPath,
   importRecordFromBuffer,
@@ -381,13 +381,7 @@ function updateSize() {
 function findMatchedNode(target: Record): ImmutableNode | undefined {
   if (props.matchedPly == null) return undefined;
 
-  let matchedNode: ImmutableNode | undefined;
-  target.forEach((node) => {
-    if (node.ply !== props.matchedPly) return;
-    if (props.matchedSfen && normalizeSfen(node.sfen) !== props.matchedSfen) return;
-    matchedNode = node;
-  });
-  return matchedNode;
+  return findKifuPosition(target.first, props.matchedPly, props.matchedSfen);
 }
 
 function selectInitialPosition(target: Record) {
