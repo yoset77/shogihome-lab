@@ -5,6 +5,8 @@ import { gameTexts } from "@/common/i18n/game";
 import { HttpError } from "@/server/errors";
 import { GameSession, GAME_HEARTBEAT_MS, type GameDependencies } from "./session";
 import { validateGameSaveDirectory } from "./files";
+import type { JobSummary } from "@/common/jobs/types";
+import { ES_HUMAN } from "@/common/uri";
 
 export class GameSessionManager {
   readonly serverInstanceId = randomUUID();
@@ -49,6 +51,17 @@ export class GameSessionManager {
     const session = this.sessions.get(id);
     if (!session) throw new HttpError(410, gameTexts().expired);
     return session;
+  }
+  list(): JobSummary[] {
+    this.cleanup();
+    return [...this.sessions.values()]
+      .reverse()
+      .filter(
+        (session) =>
+          session.request.settings.black.uri !== ES_HUMAN &&
+          session.request.settings.white.uri !== ES_HUMAN,
+      )
+      .map((session) => session.summary());
   }
   byRequest(id: string): GameSession {
     const request = this.requests.get(id);

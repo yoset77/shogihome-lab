@@ -8,12 +8,7 @@ import {
 } from "@/common/analysis/types";
 import { identifier, object } from "@/common/analysis/validation";
 import { analysisTexts } from "@/common/i18n/analysis";
-import {
-  recordContent,
-  snapshotRecord,
-  indexRecordNodes,
-  type RecordSnapshot,
-} from "@/common/record/snapshot";
+import { snapshotRecord, indexRecordNodes, type RecordSnapshot } from "@/common/record/snapshot";
 import type { AnalysisSettings } from "@/common/settings/analysis";
 import { normalizeSfen } from "@/common/usi/sfen";
 import { createAnalysisJobsClient, type AnalysisJobsClient } from "@/renderer/api/analysis_jobs";
@@ -27,16 +22,35 @@ import {
 import { RecordManager } from "./record";
 import { useAppSettings } from "./settings";
 import { clearURLParams, flushRecordForWebApp } from "./webapp";
+import { JobStorage } from "./job_storage";
+import { jobRecordContent as recordContent } from "./job_record";
+import {
+  readJobBinding,
+  readJobAttachRequest,
+  type JobAttachmentState,
+  type JobAttachRequest,
+  type JobBinding,
+  type JobSummary,
+} from "@/common/jobs/types";
+import { jobTexts } from "@/common/i18n/jobs";
 import { ConnectionNotification } from "@/renderer/helpers/connection_notification";
 
 const STORAGE_KEY = "shogihome-analysis-job";
 const MONITOR_SESSION_ID = 200100;
 const MAX_TIMER_MS = 2 ** 31 - 1;
+const SCREEN_ID = generateSessionId();
 type Reference = {
   requestId: string;
   serverInstanceId: string;
   jobId?: string;
   cancelRequested?: boolean;
+  ownerId?: string;
+  binding?: JobBinding;
+  content?: string;
+  pendingAttach?: JobAttachRequest;
+  cancelRequestId?: string;
+  cancelBinding?: JobBinding;
+  pendingDetach?: JobBinding;
 };
 type FinishCallback = (status?: AnalysisJobStatus) => void;
 type ErrorCallback = (error: unknown) => void;
@@ -51,47 +65,105 @@ function readReference(raw: string | null): Reference | undefined {
       serverInstanceId: identifier(value.serverInstanceId),
       ...(value.jobId === undefined ? {} : { jobId: identifier(value.jobId) }),
       cancelRequested: value.cancelRequested === true,
+      ...(value.cancelRequestId === undefined
+        ? {}
+        : { cancelRequestId: identifier(value.cancelRequestId) }),
+      ...(value.cancelBinding === undefined
+        ? {}
+        : { cancelBinding: readJobBinding(value.cancelBinding) }),
+      ...(value.pendingDetach === undefined
+        ? {}
+        : { pendingDetach: readJobBinding(value.pendingDetach) }),
+      ...(value.ownerId === undefined ? {} : { ownerId: identifier(value.ownerId) }),
+      ...(value.binding === undefined ? {} : { binding: readJobBinding(value.binding) }),
+      ...(typeof value.content === "string" ? { content: value.content } : {}),
+      ...(value.pendingAttach === undefined
+        ? {}
+        : { pendingAttach: readJobAttachRequest(value.pendingAttach) }),
     };
   } catch {
     return;
   }
 }
-function referenceKey(ref: Reference): string {
-  // Independent keys keep concurrent creation failures from erasing another job.
-  return `${STORAGE_KEY}:${ref.requestId}`;
-}
-function sameReference(a: Reference, b: Reference): boolean {
-  return a.requestId === b.requestId && a.serverInstanceId === b.serverInstanceId;
-}
+const storage = new JobStorage(
+  "analysis",
+  STORAGE_KEY,
+  readReference,
+  (ref) => ({ ...ref, content: undefined }),
+  (ref) => [
+    ...(!ref.jobId
+      ? [
+          {
+            id: "creation",
+            reference: {
+              ...ref,
+              cancelRequested: undefined,
+              cancelRequestId: undefined,
+              cancelBinding: undefined,
+              pendingAttach: undefined,
+            },
+          },
+        ]
+      : []),
+    ...(ref.pendingAttach
+      ? [
+          {
+            id: "attachment",
+            reference: {
+              ...ref,
+              cancelRequested: undefined,
+              cancelRequestId: undefined,
+              cancelBinding: undefined,
+            },
+          },
+        ]
+      : []),
+    ...(ref.cancelRequested
+      ? [{ id: ref.cancelRequestId ?? "cancel", reference: { ...ref, pendingAttach: undefined } }]
+      : []),
+    ...(ref.pendingDetach
+      ? [
+          {
+            id: "detach",
+            reference: { ...ref, pendingAttach: undefined, cancelRequested: undefined },
+          },
+        ]
+      : []),
+    ...(ref.jobId && !ref.pendingAttach && !ref.cancelRequested
+      ? [{ id: "creation", reference: ref }]
+      : []),
+  ],
+);
 function loadReferences(): Reference[] {
-  try {
-    const keys = Object.keys(localStorage).filter((key) => key.startsWith(`${STORAGE_KEY}:`));
-    const references = new Map<string, Reference>();
-    for (const key of [...keys, STORAGE_KEY]) {
-      const ref = readReference(localStorage.getItem(key));
-      if (
-        ref &&
-        (key === STORAGE_KEY || key === referenceKey(ref)) &&
-        !references.has(ref.requestId)
-      )
-        references.set(ref.requestId, ref);
-    }
-    // Prefer references whose job has actually been created on the server.
-    return [...references.values()].sort((a, b) => Number(!!b.jobId) - Number(!!a.jobId));
-  } catch {
-    return [];
-  }
+  const ref = storage.load();
+  if (!ref) return [];
+  const pending = storage
+    .journal()
+    .filter(
+      (value) =>
+        value.requestId === ref.requestId &&
+        value.serverInstanceId === ref.serverInstanceId &&
+        value.ownerId === ref.ownerId,
+    );
+  const cancel = pending.find((value) => value.cancelRequested);
+  return [
+    {
+      ...ref,
+      cancelRequested: cancel?.cancelRequested,
+      cancelRequestId: cancel?.cancelRequestId,
+      cancelBinding: cancel?.cancelBinding,
+      pendingAttach: pending.find((value) => value.pendingAttach)?.pendingAttach,
+    },
+  ];
 }
 function forgetReference(ref: Reference): void {
-  // Delete only the keys that still reference our own job, never another tab's.
-  for (const key of [referenceKey(ref), STORAGE_KEY]) {
-    const stored = readReference(localStorage.getItem(key));
-    if (stored && sameReference(stored, ref)) localStorage.removeItem(key);
-  }
+  storage.detach(ref);
+  storage.forgetJournal(ref);
 }
 
 export class AnalysisManager {
-  private reference: Reference | undefined = loadReferences()[0];
+  private reference?: Reference;
+  private background = false;
   private pendingRequest?: AnalysisJobRequest;
   private active = false;
   private generation = 0;
@@ -145,12 +217,62 @@ export class AnalysisManager {
     return !!this.reference?.cancelRequested || this._status?.state === "cancelling";
   }
 
+  async reconcilePending(): Promise<void> {
+    for (const ref of storage.journal()) {
+      try {
+        const capabilities = await this.client.capabilities();
+        if (capabilities.serverInstanceId !== ref.serverInstanceId) {
+          storage.forgetJournal(ref);
+          continue;
+        }
+        const status = ref.jobId
+          ? await this.client.status(ref.jobId)
+          : await this.client.byRequest(ref.requestId);
+        storage.forgetOperation(ref, "creation");
+        if (
+          ref.pendingDetach &&
+          status.attachment &&
+          (status.attachment.epoch !== ref.pendingDetach.epoch ||
+            status.attachment.ownerId !== ref.pendingDetach.ownerId)
+        )
+          storage.forgetOperation(ref, "detach");
+        if (ref.cancelRequested) {
+          const resolved = ref.cancelRequestId
+            ? (await this.client.cancelOutcome(status.jobId, ref.cancelRequestId)).state ===
+              "accepted"
+            : false;
+          if (
+            resolved ||
+            isAnalysisTerminal(status.state) ||
+            (ref.cancelBinding &&
+              (ref.cancelBinding.recoveryId
+                ? status.attachment?.ownerId !== ref.cancelBinding.ownerId
+                : status.attachment?.epoch !== ref.cancelBinding.epoch))
+          )
+            storage.forgetOperation(ref, ref.cancelRequestId ?? "cancel");
+        }
+        if (
+          ref.pendingAttach &&
+          status.attachment &&
+          status.attachment.ownerId !== ref.ownerId &&
+          status.attachment.epoch > ref.pendingAttach.epoch
+        )
+          storage.forgetOperation(ref, "attachment");
+      } catch (error) {
+        if (error instanceof ApiResponseError && error.status === 410) storage.forgetJournal(ref);
+        else if (!this.isTransient(error)) throw error;
+      }
+    }
+  }
+
   private persist(): void {
     const ref = this.reference;
     if (!ref) return;
-    localStorage.setItem(referenceKey(ref), JSON.stringify(ref));
-    const legacy = readReference(localStorage.getItem(STORAGE_KEY));
-    if (legacy && sameReference(legacy, ref)) localStorage.removeItem(STORAGE_KEY);
+    if (!ref.jobId || ref.cancelRequested || ref.pendingAttach)
+      storage.writeJournal({ ...ref, content: undefined });
+    else storage.forgetJournal(ref);
+    if (!this.background)
+      storage.save({ ...ref, cancelRequested: undefined, pendingAttach: undefined });
   }
 
   private bind(token: string): RecordSnapshot {
@@ -169,7 +291,7 @@ export class AnalysisManager {
     return source;
   }
 
-  async start(settings: AnalysisSettings): Promise<void> {
+  async start(settings: AnalysisSettings, background = false): Promise<void> {
     if (!this.active) this.reference = loadReferences()[0];
     if (this.reference || this.active)
       throw new Error(analysisTexts(useAppSettings().language).capacity);
@@ -179,8 +301,10 @@ export class AnalysisManager {
     )
       throw new Error(analysisTexts(useAppSettings().language).invalid);
     const requestId = generateSessionId();
+    this.background = background;
     this.connection.reset();
     const source = this.bind(requestId);
+    const generation = this.generation;
     try {
       const app = useAppSettings();
       const options = { ...settings };
@@ -211,24 +335,47 @@ export class AnalysisManager {
       if (!decoded.ok) throw new Error(analysisTexts(app.language).invalid);
       const request = decoded.value;
       const capabilities = await this.client.capabilities();
+      if (generation !== this.generation) return;
       request.serverInstanceId = capabilities.serverInstanceId;
       if (new TextEncoder().encode(JSON.stringify(request)).length > capabilities.maxInputBytes)
         throw new Error(analysisTexts(app.language).capacity);
-      this.reference = { requestId, serverInstanceId: capabilities.serverInstanceId };
+      this.reference = {
+        requestId,
+        serverInstanceId: capabilities.serverInstanceId,
+        ownerId: generateSessionId(),
+        content: recordContent(source),
+      };
       this.pendingRequest = request;
       this.persist();
       this.pollMs = capabilities.pollMs;
       this.resetRetry();
       try {
-        this.acceptStatus(await this.client.create(request));
+        const status = await this.client.create(request);
+        if (generation !== this.generation) return;
+        if (background) {
+          this.checkStatus(status);
+          this.reference.jobId = status.jobId;
+          this.persist();
+        } else this.acceptStatus(status);
         this.pendingRequest = undefined;
+        if (!background) await this.claim(status);
       } catch (error) {
+        if (generation !== this.generation) return;
         if (!this.isTransient(error) || (error instanceof ApiResponseError && error.status === 503))
           throw error;
         this.backoff(error);
       }
+      if (generation !== this.generation) return;
+      if (background) {
+        this.recordManager.endAnalysis(requestId);
+        this.active = false;
+        setInfoSessionActive(MONITOR_SESSION_ID, false);
+        this.onStatus(null);
+        if (this.reference?.jobId) this.reference = undefined;
+      }
       this.schedule();
     } catch (error) {
+      if (generation !== this.generation) return;
       const rejected =
         error instanceof ApiResponseError && [400, 409, 410, 413, 503].includes(error.status);
       this.release(requestId, !this.reference || rejected);
@@ -239,6 +386,7 @@ export class AnalysisManager {
   async resume(confirmRecovery: () => Promise<boolean>): Promise<boolean> {
     if (this.active || this.recovering) return false;
     this.reference = loadReferences()[0];
+    this.background = false;
     const ref = this.reference;
     if (!ref) return false;
     this.connection.reset();
@@ -255,8 +403,10 @@ export class AnalysisManager {
       return false;
     }
     this.recovering = true;
+    let generation = this.generation;
     try {
       const capabilities = await this.client.capabilities();
+      if (generation !== this.generation) return false;
       if (capabilities.serverInstanceId !== ref.serverInstanceId)
         throw new ApiResponseError(410, analysisTexts(useAppSettings().language).expired);
       this.pollMs = capabilities.pollMs;
@@ -264,16 +414,17 @@ export class AnalysisManager {
       let status = ref.jobId
         ? await this.client.status(ref.jobId)
         : await this.client.byRequest(ref.requestId);
+      if (generation !== this.generation) return false;
       this.checkStatus(status);
       ref.jobId = status.jobId;
       this.persist();
-      if (ref.cancelRequested && !isAnalysisTerminal(status.state))
-        status = await this.client.cancel(status.jobId);
       this.checkStatus(status);
       this.onStatus(status);
       const source = await this.client.source(status.jobId);
+      if (generation !== this.generation) return false;
       const result = await this.client.result(status.jobId, 0);
-      this.checkResult(result.jobId, result.serverInstanceId, status.jobId);
+      if (generation !== this.generation) return false;
+      this.checkResult(result.jobId, result.serverInstanceId, status.jobId, result.attachment);
       if (result.revision < status.resultRevision)
         throw new Error(analysisTexts(useAppSettings().language).invalid);
       const projected = structuredClone(source);
@@ -285,18 +436,40 @@ export class AnalysisManager {
           node.customData = { ...node.customData, researchInfo: update.researchInfo };
       }
       const local = recordContent(snapshotRecord(this.recordManager.record));
-      if (local !== recordContent(source) && local !== recordContent(projected)) {
-        if (!(await confirmRecovery())) {
+      if (
+        local !== ref.content &&
+        local !== recordContent(source) &&
+        local !== recordContent(projected)
+      ) {
+        const confirmed = await confirmRecovery();
+        if (generation !== this.generation) return false;
+        if (!confirmed) {
           this.release(ref.requestId, false);
           return false;
         }
         this.recordManager.endAnalysis(ref.requestId);
-        await this.recordManager.openAnalysisSnapshot(source);
+        await this.recordManager.openAnalysisSnapshot(source, () => generation === this.generation);
+        if (generation !== this.generation) return false;
         this.bind(ref.requestId);
+        generation = this.generation;
+      }
+      if (ref.pendingAttach || !isAnalysisTerminal(status.state)) await this.claim(status);
+      if (generation !== this.generation) return false;
+      if (ref.cancelRequested && !isAnalysisTerminal(status.state)) {
+        status = await this.client.cancel(
+          status.jobId,
+          ref.cancelBinding ?? ref.binding,
+          ref.cancelRequestId,
+        );
+        if (generation !== this.generation) return false;
+        ref.cancelRequested = undefined;
+        storage.forgetOperation(ref, ref.cancelRequestId ?? "cancel");
+        this.persist();
       }
       if (!this.recordManager.applyAnalysisResults(ref.requestId, result.nodes))
         throw new Error(analysisTexts(useAppSettings().language).invalid);
       this.revision = result.revision;
+      ref.content = recordContent(snapshotRecord(this.recordManager.record));
       this.needsRecovery = false;
       this.resetRetry();
       this.acceptStatus(status);
@@ -305,23 +478,34 @@ export class AnalysisManager {
       else this.schedule();
       return true;
     } catch (error) {
+      if (generation !== this.generation) return false;
       if (this.isTransient(error)) {
         this.backoff(error);
         this.scheduleRecovery(confirmRecovery);
         return false;
       } else {
+        if (error instanceof ApiResponseError && error.status === 409) storage.detach(ref);
         this.release(ref.requestId, error instanceof ApiResponseError && error.status === 410);
       }
       throw error;
     } finally {
-      this.recovering = false;
+      if (generation === this.generation || this.reference === ref) this.recovering = false;
     }
   }
 
   close(): void {
     if (!this.active || !this.reference) return;
+    const previous = this.reference.cancelRequested;
     this.reference.cancelRequested = true;
-    this.persist();
+    this.reference.cancelRequestId ??= generateSessionId();
+    this.reference.cancelBinding ??= this.reference.binding;
+    try {
+      storage.writeJournal(this.reference);
+    } catch (error) {
+      this.reference.cancelRequested = previous;
+      this.onError(error);
+      return;
+    }
     if (
       !this.polling &&
       !this.recovering &&
@@ -332,8 +516,147 @@ export class AnalysisManager {
       void this.synchronize();
     }
   }
+  suspend(): void {
+    const ref = this.reference;
+    if (!ref) return;
+    this.release(ref.requestId, false);
+    if (ref.jobId && ref.binding && navigator.sendBeacon)
+      navigator.sendBeacon(
+        `/api/analysis-jobs/${ref.jobId}/suspend`,
+        new Blob([JSON.stringify(ref.binding)], { type: "application/json" }),
+      );
+  }
+
+  private async claim(status: AnalysisJobStatus): Promise<void> {
+    const ref = this.reference!;
+    ref.ownerId ??= generateSessionId();
+    ref.pendingAttach ??= {
+      ownerId: ref.ownerId,
+      epoch: ref.binding?.epoch ?? 0,
+      recoveryId: ref.binding?.recoveryId,
+      screenId: SCREEN_ID,
+      takeover: false,
+    };
+    ref.pendingAttach.screenId = SCREEN_ID;
+    this.persist();
+    const binding = await this.client.attach(status.jobId, ref.pendingAttach);
+    if (this.reference !== ref || !this.active) {
+      void this.client.detach(status.jobId, binding).catch(() => {});
+      return;
+    }
+    ref.binding = binding;
+    ref.pendingAttach = undefined;
+    storage.forgetOperation(ref, "attachment");
+    status.attachment = { ...binding, attached: true };
+    this.persist();
+  }
+
+  async attach(
+    job: JobSummary,
+    confirmRecovery: () => Promise<boolean>,
+    confirmTakeover: () => Promise<boolean>,
+  ): Promise<boolean> {
+    if (this.active || this.recovering) return false;
+    if (job.attachment.attached && !(await confirmTakeover())) return false;
+    this.background = false;
+    this.reference = {
+      requestId: job.requestId,
+      serverInstanceId: job.serverInstanceId,
+      jobId: job.id,
+      ownerId: generateSessionId(),
+    };
+    this.reference.pendingAttach = {
+      ownerId: this.reference.ownerId!,
+      epoch: job.attachment.epoch,
+      takeover: job.attachment.attached,
+      screenId: SCREEN_ID,
+    };
+    this.connection.reset();
+    this.bind(job.requestId);
+    this.needsRecovery = true;
+    let generation = this.generation;
+    try {
+      // Confirmation and backup must precede acquiring another screen's attachment.
+      const [source, result] = await Promise.all([
+        this.client.source(job.id),
+        this.client.result(job.id, 0),
+      ]);
+      if (generation !== this.generation) return false;
+      this.checkResult(result.jobId, result.serverInstanceId, job.id);
+      const projected = structuredClone(source);
+      for (const update of result.nodes) {
+        const node = projected.nodes.find((node) => node.id === update.id);
+        if (!node) throw new Error(analysisTexts().invalid);
+        node.comment = update.comment;
+      }
+      const local = recordContent(snapshotRecord(this.recordManager.record));
+      if (local !== recordContent(source) && local !== recordContent(projected)) {
+        const confirmed = await confirmRecovery();
+        if (generation !== this.generation) return false;
+        if (!confirmed) {
+          this.release(job.requestId, true);
+          return false;
+        }
+        this.recordManager.endAnalysis(job.requestId);
+        await this.recordManager.openAnalysisSnapshot(source, () => generation === this.generation);
+        if (generation !== this.generation) return false;
+        this.bind(job.requestId);
+        generation = this.generation;
+      }
+      const status = await this.client.status(job.id);
+      if (generation !== this.generation) return false;
+      await this.claim(status);
+      if (generation !== this.generation) return false;
+      return this.recover(confirmRecovery);
+    } catch (error) {
+      if (generation !== this.generation) return false;
+      if (this.isTransient(error)) {
+        this.persist();
+        this.backoff(error);
+        this.scheduleRecovery(confirmRecovery);
+        return true;
+      }
+      const binding = this.reference?.binding;
+      this.release(job.requestId, true);
+      if (binding) void this.client.detach(job.id, binding).catch(() => {});
+      throw error;
+    }
+  }
+
+  detach(): void {
+    const ref = this.reference;
+    if (!ref) return;
+    const binding =
+      ref.binding ??
+      (ref.pendingAttach
+        ? {
+            ownerId: ref.pendingAttach.ownerId,
+            epoch: ref.pendingAttach.epoch + 1,
+            screenId: SCREEN_ID,
+          }
+        : undefined);
+    if (ref.jobId && binding) storage.writeJournal({ ...ref, pendingDetach: binding });
+    storage.detach(ref);
+    this.release(ref.requestId, false);
+    this.reference = undefined;
+    this.pendingRequest = undefined;
+    if (ref.jobId && binding)
+      void this.client
+        .detach(ref.jobId, binding)
+        .then(() => storage.forgetOperation(ref, "detach"))
+        .catch((error) => this.onError(error));
+  }
 
   private checkStatus(status: AnalysisJobStatus): void {
+    const binding = this.reference?.binding;
+    if (
+      binding &&
+      !this.reference?.pendingAttach &&
+      status.attachment &&
+      (status.attachment.epoch !== binding.epoch ||
+        (status.attachment.ownerId && status.attachment.ownerId !== binding.ownerId))
+    )
+      throw new ApiResponseError(409, jobTexts(useAppSettings().language).transferred);
     if (
       !this.reference ||
       status.serverInstanceId !== this.reference.serverInstanceId ||
@@ -347,7 +670,16 @@ export class AnalysisManager {
     jobId: string,
     serverInstanceId: string,
     expectedJobId = this.reference?.jobId,
+    attachment?: JobAttachmentState,
   ): void {
+    const binding = this.reference?.binding;
+    if (
+      binding &&
+      !this.reference?.pendingAttach &&
+      attachment &&
+      (binding.epoch !== attachment.epoch || binding.ownerId !== attachment.ownerId)
+    )
+      throw new ApiResponseError(409, jobTexts(useAppSettings().language).transferred);
     if (
       !this.reference ||
       serverInstanceId !== this.reference.serverInstanceId ||
@@ -385,7 +717,7 @@ export class AnalysisManager {
   }
 
   private schedule(): void {
-    if (!this.active) return;
+    if (!this.active && !(this.background && this.reference)) return;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       void this.synchronize();
@@ -421,13 +753,21 @@ export class AnalysisManager {
     return (
       error instanceof TypeError ||
       isRequestTimeoutError(error) ||
-      (error instanceof ApiResponseError && (error.status === 429 || error.status >= 500))
+      (error instanceof ApiResponseError &&
+        (error.status === 423 || error.status === 429 || error.status >= 500))
     );
   }
 
   private async synchronize(): Promise<void> {
     const ref = this.reference;
-    if (!ref || !this.active || this.polling || this.recovering || this.needsRecovery) return;
+    if (
+      !ref ||
+      (!this.active && !this.background) ||
+      this.polling ||
+      this.recovering ||
+      this.needsRecovery
+    )
+      return;
     if (Date.now() < this.retryNotBefore) {
       this.schedule();
       return;
@@ -438,9 +778,10 @@ export class AnalysisManager {
       let status: AnalysisJobStatus;
       try {
         status = ref.jobId
-          ? await this.client.status(ref.jobId)
+          ? await this.client.status(ref.jobId, ref.binding)
           : await this.client.byRequest(ref.requestId);
       } catch (error) {
+        if (generation !== this.generation) return;
         if (!(error instanceof ApiResponseError && error.status === 410 && this.pendingRequest))
           throw error;
         status = await this.client.create(this.pendingRequest);
@@ -449,14 +790,29 @@ export class AnalysisManager {
       this.checkStatus(status);
       ref.jobId = status.jobId;
       this.pendingRequest = undefined;
-      if (ref.cancelRequested && !isAnalysisTerminal(status.state))
-        status = await this.client.cancel(status.jobId);
+      this.persist();
+      if (this.background) {
+        this.reference = undefined;
+        return;
+      }
+      if (!ref.binding && !isAnalysisTerminal(status.state)) await this.claim(status);
+      if (ref.cancelRequested && !isAnalysisTerminal(status.state)) {
+        status = await this.client.cancel(
+          status.jobId,
+          ref.cancelBinding ?? ref.binding,
+          ref.cancelRequestId,
+        );
+        if (generation !== this.generation) return;
+        ref.cancelRequested = undefined;
+        storage.forgetOperation(ref, ref.cancelRequestId ?? "cancel");
+        this.persist();
+      }
       if (generation !== this.generation) return;
       this.checkStatus(status);
       if (status.resultRevision > this.revision) {
-        const result = await this.client.result(status.jobId, this.revision);
+        const result = await this.client.result(status.jobId, this.revision, ref.binding);
         if (generation !== this.generation) return;
-        this.checkResult(result.jobId, result.serverInstanceId);
+        this.checkResult(result.jobId, result.serverInstanceId, status.jobId, result.attachment);
         if (
           result.revision < status.resultRevision ||
           result.revision < this.revision ||
@@ -464,6 +820,8 @@ export class AnalysisManager {
         )
           throw new Error(analysisTexts(useAppSettings().language).invalid);
         this.revision = result.revision;
+        ref.content = recordContent(snapshotRecord(this.recordManager.record));
+        this.persist();
       }
       this.resetRetry();
       this.acceptStatus(status);
@@ -474,16 +832,21 @@ export class AnalysisManager {
       if (this.isTransient(error)) {
         this.backoff(error);
       } else {
+        if (error instanceof ApiResponseError && error.status === 409) storage.detach(ref);
         this.release(ref.requestId, error instanceof ApiResponseError && error.status === 410);
         this.onError(
           error instanceof ApiResponseError && error.status === 410
             ? new Error(analysisTexts(useAppSettings().language).expired)
-            : error,
+            : error instanceof ApiResponseError && error.status === 409
+              ? new Error(jobTexts(useAppSettings().language).transferred)
+              : error,
         );
       }
     } finally {
-      this.polling = false;
-      this.schedule();
+      if (generation === this.generation) {
+        this.polling = false;
+        this.schedule();
+      }
     }
   }
 
@@ -491,23 +854,41 @@ export class AnalysisManager {
     // Keep the job linkage if browser record persistence fails.
     if (this.revision > 0) clearURLParams();
     flushRecordForWebApp(this.recordManager.record);
+    const ref = this.reference;
     this.release(status.requestId, true);
+    if (ref?.binding) {
+      try {
+        storage.writeJournal({
+          ...ref,
+          cancelRequested: undefined,
+          pendingAttach: undefined,
+          pendingDetach: ref.binding,
+        });
+        void this.client
+          .detach(status.jobId, ref.binding)
+          .then(() => storage.forgetOperation(ref, "detach"))
+          .catch((error) => this.onError(error));
+      } catch (error) {
+        this.onError(error);
+      }
+    }
     if (status.error)
       this.onError(new Error(analysisTexts(useAppSettings().language)[status.error]));
     this.onFinish(status);
   }
 
   private release(token: string, forget: boolean): void {
+    if (forget && this.reference?.requestId === token) forgetReference(this.reference);
     ++this.generation;
     clearTimeout(this.timer);
     this.active = false;
+    this.polling = false;
+    this.recovering = false;
     this.connection.reset();
     this.needsRecovery = false;
     this.recordManager.endAnalysis(token);
     setInfoSessionActive(MONITOR_SESSION_ID, false);
     if (forget) {
-      const ref = this.reference;
-      if (ref && ref.requestId === token) forgetReference(ref);
       this.reference = undefined;
       this.pendingRequest = undefined;
     }

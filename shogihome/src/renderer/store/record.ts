@@ -275,12 +275,20 @@ export class RecordManager {
     return true;
   }
 
-  async openAnalysisSnapshot(source: RecordSnapshot): Promise<void> {
-    await this.openSnapshot(source);
+  async openAnalysisSnapshot(
+    source: RecordSnapshot,
+    isCurrent: () => boolean = () => true,
+  ): Promise<void> {
+    await this.openSnapshot(source, isCurrent);
   }
-  async openSnapshot(source: RecordSnapshot): Promise<void> {
+  async openSnapshot(source: RecordSnapshot, isCurrent: () => boolean = () => true): Promise<void> {
     if (this.analysisLocked) throw new Error(analysisTexts().invalid);
+    const record = this._record;
+    const content = recordContent(snapshotRecord(record));
     await this.saveBackup();
+    if (!isCurrent()) return;
+    if (record !== this._record || content !== recordContent(snapshotRecord(this.record)))
+      throw new Error(analysisTexts().invalid);
     this.replaceRecord(restoreRecord(source).record, { preserveCustomData: true });
   }
 

@@ -17,6 +17,7 @@
     <ConfirmDialog v-if="confirmation.message" />
     <GameDialog v-if="store.appState === AppState.GAME_DIALOG" />
     <AnalysisDialog v-if="store.appState === AppState.ANALYSIS_DIALOG" />
+    <JobsDialog v-if="store.isJobsDialogVisible" />
     <MateSearchDialog v-if="store.appState === AppState.MATE_SEARCH_DIALOG" />
     <USIEngineManagementDialog v-if="store.appState === AppState.USI_ENGINES_DIALOG" />
     <RecordFileHistoryDialog v-if="store.appState === AppState.RECORD_FILE_HISTORY_DIALOG" />
@@ -122,6 +123,7 @@ import ErrorMessage from "@/renderer/view/dialog/ErrorMessage.vue";
 import { useStore } from "@/renderer/store";
 import { AppState, ResearchState } from "@/common/control/state.js";
 import AnalysisDialog from "@/renderer/view/dialog/AnalysisDialog.vue";
+import JobsDialog from "@/renderer/view/dialog/JobsDialog.vue";
 import { useAppSettings } from "./store/settings";
 import { BackgroundImageType, Thema } from "@/common/settings/app";
 import MateSearchDialog from "./view/dialog/MateSearchDialog.vue";

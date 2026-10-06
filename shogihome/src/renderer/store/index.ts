@@ -74,6 +74,10 @@ import { useBookStore } from "./book.js";
 import { CommentBehavior } from "@/common/settings/comment";
 import { Attachment, ListItem } from "@/common/message";
 import type { VisionEditSession } from "@/renderer/vision/types";
+import type { JobSummary } from "@/common/jobs/types";
+import { jobTexts } from "@/common/i18n/jobs";
+import { isReloadNavigation } from "./job_storage";
+import { guardJobRecovery, releaseJobTab } from "./job_tab_guard";
 
 const puzzleHistoryKey = "shogihome-puzzle-history";
 const puzzleHistoryExpirationDays = 28;
@@ -215,6 +219,7 @@ function getMessageAttachmentsByGameResults(results: GameResults): Attachment[] 
 }
 
 class Store {
+  isJobsDialogVisible = false;
   private recordManager = new RecordManager(loadRecordForWebApp());
   private _appState = AppState.NORMAL;
   private _lastAppState = AppState.NORMAL;
@@ -882,7 +887,7 @@ class Store {
     return this.whiteClock.byoyomi;
   }
 
-  startGame(settings: GameSettings): void {
+  startGame(settings: GameSettings, background = false): void {
     if (useBusyState().isBusy) {
       return;
     }
@@ -892,9 +897,11 @@ class Store {
     useBusyState().retain();
     api
       .saveGameSettings(settings)
-      .then(() => this.gameManager.start(settings))
+      .then(() => this.gameManager.start(settings, background))
       .then(() => {
-        if (!this.gameManager.status || this.gameManager.isActive) this._appState = AppState.GAME;
+        if (background) this._appState = AppState.NORMAL;
+        else if (!this.gameManager.status || this.gameManager.isActive)
+          this._appState = AppState.GAME;
       })
       .catch((e) => {
         useErrorStore().add(e);
@@ -927,6 +934,89 @@ class Store {
   get hasRetainedGame(): boolean {
     return this.gameManager.hasRetainedSession;
   }
+  showJobsDialog(): void {
+    this.isJobsDialogVisible = true;
+  }
+  closeJobsDialog(): void {
+    this.isJobsDialogVisible = false;
+  }
+  get canAttachJob(): boolean {
+    return this.appState === AppState.NORMAL && !useBusyState().isBusy;
+  }
+  get canDetachJob(): boolean {
+    return this.analysisManager.isActive || this.gameManager.canDetach;
+  }
+  detachJob(): void {
+    try {
+      if (this.analysisManager.isActive) this.analysisManager.detach();
+      else this.gameManager.detachJob();
+    } catch (error) {
+      useErrorStore().add(error);
+    }
+  }
+  private confirmJob(message: string): Promise<boolean> {
+    return new Promise((resolve) =>
+      useConfirmationStore().show({
+        message,
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      }),
+    );
+  }
+  async attachJob(job: JobSummary): Promise<void> {
+    if (!this.canAttachJob) return;
+    useBusyState().retain();
+    const language = useAppSettings().language;
+    try {
+      const attached =
+        job.kind === "analysis"
+          ? await this.analysisManager.attach(
+              job,
+              () => this.confirmJob(analysisTexts(language).recover),
+              () => this.confirmJob(jobTexts(language).takeover),
+            )
+          : await this.gameManager.attach(
+              job,
+              () => this.confirmJob(gameTexts(language).recover),
+              () => this.confirmJob(jobTexts(language).takeover),
+            );
+      if (attached) this.closeJobsDialog();
+    } catch (error) {
+      useErrorStore().add(error);
+    } finally {
+      useBusyState().release();
+    }
+  }
+  prepareJobNavigation(): void {
+    try {
+      if (!isReloadNavigation()) {
+        sessionStorage.removeItem("shogihome-job-attachment:analysis");
+        sessionStorage.removeItem("shogihome-job-attachment:game");
+      }
+    } catch (error) {
+      useErrorStore().add(error);
+    }
+  }
+  suspendJobs(): void {
+    this.analysisManager.suspend();
+    this.gameManager.dispose();
+    releaseJobTab("analysis");
+    releaseJobTab("game");
+  }
+  async initializeJobs(): Promise<void> {
+    try {
+      if (isReloadNavigation()) {
+        await this.restoreGame();
+        await this.restoreAnalysis();
+      }
+      await Promise.all([
+        this.analysisManager.reconcilePending(),
+        this.gameManager.reconcilePending(),
+      ]);
+    } catch (error) {
+      useErrorStore().add(error);
+    }
+  }
   private onGameStatus(): void {
     if (this.gameManager.isActive) this._appState = AppState.GAME;
     else if (this.appState === AppState.GAME) this._appState = AppState.NORMAL;
@@ -935,6 +1025,10 @@ class Store {
     if (this.appState !== AppState.NORMAL || useBusyState().isBusy) return;
     useBusyState().retain();
     try {
+      if (!(await guardJobRecovery("game"))) {
+        sessionStorage.removeItem("shogihome-job-attachment:game");
+        return;
+      }
       await this.gameManager.resume(
         () =>
           new Promise<boolean>((resolve) => {
@@ -1403,16 +1497,16 @@ class Store {
     else this.recordManager.updateSearchInfo(type, info);
   }
 
-  startAnalysis(analysisSettings: AnalysisSettings): void {
+  startAnalysis(analysisSettings: AnalysisSettings, background = false): void {
     if (this.appState !== AppState.ANALYSIS_DIALOG || useBusyState().isBusy) {
       return;
     }
     useBusyState().retain();
     api
       .saveAnalysisSettings(analysisSettings)
-      .then(() => this.analysisManager.start(analysisSettings))
+      .then(() => this.analysisManager.start(analysisSettings, background))
       .then(() => {
-        this._appState = AppState.ANALYSIS;
+        this._appState = background ? AppState.NORMAL : AppState.ANALYSIS;
       })
       .catch((e) => {
         useErrorStore().add(e);
@@ -1445,6 +1539,10 @@ class Store {
     if (this.appState !== AppState.NORMAL || useBusyState().isBusy) return;
     useBusyState().retain();
     try {
+      if (!(await guardJobRecovery("analysis"))) {
+        sessionStorage.removeItem("shogihome-job-attachment:analysis");
+        return;
+      }
       await this.analysisManager.resume(
         () =>
           new Promise<boolean>((resolve) => {

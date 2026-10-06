@@ -15,10 +15,12 @@ import type {
 } from "@/common/analysis/types";
 import { snapshotRecord, restoreRecord } from "@/common/record/snapshot";
 import { analysisSettings } from "@/tests/mock/analysis";
-import { loadRecordForWebApp } from "@/renderer/store/webapp";
+import { loadRecordForWebApp, flushRecordForWebApp } from "@/renderer/store/webapp";
 import api from "@/renderer/ipc/api";
 import { useToastStore } from "@/renderer/store/toast";
 import { t } from "@/common/i18n";
+import { JobAttachment } from "@/server/jobs/attachment";
+import type { JobSummary } from "@/common/jobs/types";
 
 vi.mock("@/renderer/ipc/api", () => ({
   isNative: () => false,
@@ -33,6 +35,7 @@ function setup() {
   const records = new RecordManager(record);
   const source = snapshotRecord(record);
   let request: AnalysisJobRequest | undefined;
+  let attachment = new JobAttachment();
   const status: AnalysisJobStatus = {
     jobId: "job",
     requestId: "",
@@ -52,6 +55,18 @@ function setup() {
   };
   const response = () => ({ ...status, requestId: request!.requestId });
   const client = {
+    cancelOutcome: vi.fn<AnalysisJobsClient["cancelOutcome"]>(async () => ({ state: "unknown" })),
+    list: vi.fn(async () => []),
+    attach: vi.fn<AnalysisJobsClient["attach"]>(async (_id, binding) => {
+      const result = attachment.claim(binding);
+      status.attachment = attachment.status();
+      return result;
+    }),
+    detach: vi.fn<AnalysisJobsClient["detach"]>(async (_id, binding) => {
+      attachment.release(binding);
+      status.attachment = attachment.status();
+      return response();
+    }),
     capabilities: vi.fn(async () => ({
       serverInstanceId: "server",
       pollMs: 500,
@@ -60,6 +75,8 @@ function setup() {
     })),
     create: vi.fn<AnalysisJobsClient["create"]>(async (input) => {
       request = input;
+      attachment = new JobAttachment();
+      status.attachment = attachment.status();
       return { ...response(), state: "preparing" as const, resultRevision: 0, current: null };
     }),
     byRequest: vi.fn(async () => response()),
@@ -82,6 +99,17 @@ function setup() {
     status,
     result,
     response,
+    summary: (): JobSummary => ({
+      kind: "analysis",
+      id: "job",
+      requestId: request!.requestId,
+      serverInstanceId: "server",
+      state: status.state,
+      engines: ["test"],
+      completed: 1,
+      total: 3,
+      attachment: attachment.status(),
+    }),
     acceptRequest: (input: AnalysisJobRequest) => {
       request = input;
     },
@@ -97,6 +125,7 @@ describe("analysis job client", () => {
   };
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     vi.useFakeTimers();
     useToastStore().clear();
   });
@@ -128,6 +157,183 @@ describe("analysis job client", () => {
     expect(records.record.current.comment).toBe("analysis");
     expect(client.result).toHaveBeenCalledTimes(1);
     expect(records.unsaved).toBe(true);
+  });
+
+  it("starts in the background without attachment intent or result application", async () => {
+    const { manager, records, client } = fixture();
+    const original = snapshotRecord(records.record);
+    await manager.start(settings, true);
+    expect(manager.isActive).toBe(false);
+    expect(records.analysisLocked).toBe(false);
+    expect(sessionStorage.getItem("shogihome-job-attachment:analysis")).toBeNull();
+    expect(client.attach).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(client.result).not.toHaveBeenCalled();
+    expect(snapshotRecord(records.record)).toEqual(original);
+  });
+
+  it("detaches without cancelling and ignores an in-flight result", async () => {
+    const { manager, records, client, result } = fixture();
+    await manager.start(settings);
+    let respond!: () => void;
+    client.result.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          respond = () => resolve(result);
+        }),
+    );
+    await vi.advanceTimersByTimeAsync(500);
+    manager.detach();
+    records.updateComment("Local work after detaching");
+    respond();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(records.record.current.comment).toBe("Local work after detaching");
+    expect(records.analysisLocked).toBe(false);
+    expect(client.cancel).not.toHaveBeenCalled();
+    expect(manager.hasRetainedJob).toBe(false);
+    const resumed = new AnalysisManager(records, client);
+    expect(await resumed.resume(async () => true)).toBe(false);
+  });
+
+  it("opens a detached job on a device without browser linkage", async () => {
+    const value = fixture();
+    await value.manager.start(settings, true);
+    sessionStorage.clear();
+    localStorage.clear();
+    const records = new RecordManager();
+    records.updateComment("Unsaved work");
+    const other = new AnalysisManager(records, value.client);
+    const confirm = vi.fn(async () => true);
+    expect(await other.attach(value.summary(), confirm, async () => true)).toBe(true);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(records.analysisLocked).toBe(true);
+    records.changePly(1);
+    expect(records.record.current.comment).toBe("analysis");
+    other.detach();
+  });
+
+  it("retrieves completed background results without any starting-device storage", async () => {
+    const value = fixture();
+    await value.manager.start(settings, true);
+    value.status.state = "completed";
+    localStorage.clear();
+    sessionStorage.clear();
+    const records = new RecordManager();
+    const other = new AnalysisManager(records, value.client);
+    expect(
+      await other.attach(
+        value.summary(),
+        async () => true,
+        async () => true,
+      ),
+    ).toBe(true);
+    expect(other.isActive).toBe(false);
+    expect(records.analysisLocked).toBe(false);
+    records.changePly(1);
+    expect(records.record.current.comment).toBe("analysis");
+    expect(value.client.create).toHaveBeenCalledOnce();
+    expect(sessionStorage.getItem("shogihome-job-attachment:analysis")).toBeNull();
+  });
+
+  it("retries a delivered attachment with the same owner after its response is lost", async () => {
+    const value = fixture();
+    await value.manager.start(settings, true);
+    const claim = value.client.attach.getMockImplementation()!;
+    value.client.attach.mockImplementationOnce(async (id, request) => {
+      await claim(id, request);
+      throw new TypeError("Attachment response lost");
+    });
+    expect(
+      await value.manager.attach(
+        value.summary(),
+        async () => true,
+        async () => true,
+      ),
+    ).toBe(true);
+    expect(value.manager.isActive).toBe(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(value.client.attach).toHaveBeenCalledTimes(2);
+    expect(value.client.attach.mock.calls[0][1]).toEqual(value.client.attach.mock.calls[1][1]);
+    expect(value.manager.reconnecting).toBe(false);
+    value.records.changePly(1);
+    expect(value.records.record.current.comment).toBe("analysis");
+  });
+
+  it("does not steal attachment when record replacement is declined", async () => {
+    const value = fixture();
+    await value.manager.start(settings);
+    const records = new RecordManager();
+    records.updateComment("Keep this record");
+    const other = new AnalysisManager(records, value.client);
+    const claims = value.client.attach.mock.calls.length;
+    expect(
+      await other.attach(
+        value.summary(),
+        async () => false,
+        async () => true,
+      ),
+    ).toBe(false);
+    expect(value.client.attach).toHaveBeenCalledTimes(claims);
+    expect(value.manager.isActive).toBe(true);
+    expect(records.record.current.comment).toBe("Keep this record");
+    expect(records.analysisLocked).toBe(false);
+  });
+
+  it("clears automatic recovery after ownership transfer without reclaiming it", async () => {
+    const value = fixture();
+    await value.manager.start(settings);
+    await value.client.attach("job", {
+      ownerId: "another-device",
+      epoch: value.summary().attachment.epoch,
+      takeover: true,
+    });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(value.manager.isActive).toBe(false);
+    expect(value.records.analysisLocked).toBe(false);
+    expect(sessionStorage.getItem("shogihome-job-attachment:analysis")).toBeNull();
+    const claims = value.client.attach.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(value.client.attach).toHaveBeenCalledTimes(claims);
+  });
+
+  it("releases the edit lock when explicit attachment fails to load its source", async () => {
+    const value = fixture();
+    await value.manager.start(settings, true);
+    value.client.source.mockRejectedValueOnce(new Error("Source unavailable"));
+    await expect(
+      value.manager.attach(
+        value.summary(),
+        async () => true,
+        async () => true,
+      ),
+    ).rejects.toThrow("Source unavailable");
+    expect(value.records.analysisLocked).toBe(false);
+    expect(value.manager.isActive).toBe(false);
+  });
+
+  it("does not replace local work after detaching during attachment backup", async () => {
+    const value = fixture();
+    await value.manager.start(settings, true);
+    value.records.updateComment("Unsaved work");
+    let complete!: () => void;
+    vi.mocked(api.saveRecordFileBackup).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = () => resolve(undefined);
+        }),
+    );
+    const attaching = value.manager.attach(
+      value.summary(),
+      async () => true,
+      async () => true,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    value.manager.detach();
+    value.records.updateComment("New local work");
+    complete();
+    expect(await attaching).toBe(false);
+    expect(value.records.record.current.comment).toBe("New local work");
+    expect(value.client.attach).not.toHaveBeenCalled();
   });
 
   it("waits for final result application before finishing and unlocking", async () => {
@@ -163,6 +369,41 @@ describe("analysis job client", () => {
     status.state = "cancelled";
     await vi.advanceTimersByTimeAsync(500);
     expect(records.analysisLocked).toBe(false);
+  });
+
+  it("does not cancel later when durable cancellation recording fails", async () => {
+    const value = fixture();
+    await value.manager.start(settings);
+    const original = Storage.prototype.setItem;
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      key,
+      content,
+    ) {
+      if (this === localStorage && key.startsWith("shogihome-job-journal:"))
+        throw new Error("Storage full");
+      original.call(this, key, content);
+    });
+    value.manager.close();
+    write.mockRestore();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(value.client.cancel).not.toHaveBeenCalled();
+    expect(value.error).toHaveBeenCalledOnce();
+    expect(value.manager.isCancelling).toBe(false);
+  });
+
+  it("resumes the same-tab record after partial analysis without a routine dialog", async () => {
+    const value = fixture();
+    await value.manager.start(settings);
+    await vi.advanceTimersByTimeAsync(500);
+    flushRecordForWebApp(value.records.record);
+    value.manager.suspend();
+    const records = new RecordManager(loadRecordForWebApp());
+    const reloaded = new AnalysisManager(records, value.client);
+    const confirm = vi.fn(async () => true);
+    expect(await reloaded.resume(confirm)).toBe(true);
+    expect(confirm).not.toHaveBeenCalled();
+    reloaded.detach();
   });
 
   it("recovers a lost creation response by request ID without a second job", async () => {
@@ -286,7 +527,7 @@ describe("analysis job client", () => {
     expect(records.analysisLocked).toBe(true);
     await vi.advanceTimersByTimeAsync(1000);
     expect(records.record.current.comment).toBe("updated");
-    expect(client.result.mock.calls).toEqual([
+    expect(client.result.mock.calls.map(([id, revision]) => [id, revision])).toEqual([
       ["job", 0],
       ["job", 1],
       ["job", 1],
@@ -643,7 +884,7 @@ describe("analysis job client", () => {
     expect(localStorage.getItem("shogihome-analysis-job")).toBe(JSON.stringify(other));
     const requestId = client.create.mock.calls[0][0].requestId;
     expect(localStorage.getItem(`shogihome-analysis-job:${requestId}`)).toBeNull();
-    expect(manager.hasRetainedJob).toBe(true);
+    expect(manager.hasRetainedJob).toBe(false);
   });
 
   it("keeps another tab's per-request recovery reference when a new start is rejected", async () => {
@@ -662,91 +903,65 @@ describe("analysis job client", () => {
   });
 
   it.each(["legacy", "per-request"] as const)(
-    "recovers another tab's %s reference after a rejected start without reloading",
-    async (storage) => {
-      const { manager, client, source, status } = fixture();
-      const records = new RecordManager(restoreRecord(source).record);
-      const resumed = new AnalysisManager(records, client);
-      await manager.start(settings);
-      vi.clearAllTimers();
-      const requestId = client.create.mock.calls[0][0].requestId;
-      const key = `shogihome-analysis-job:${requestId}`;
-      if (storage === "legacy") {
-        localStorage.setItem("shogihome-analysis-job", localStorage.getItem(key)!);
-        localStorage.removeItem(key);
-      }
-      try {
-        await expect(resumed.start(settings)).rejects.toThrow();
-        expect(resumed.isActive).toBe(false);
-        expect(resumed.hasRetainedJob).toBe(true);
-        expect(records.analysisLocked).toBe(false);
-        expect(client.create).toHaveBeenCalledOnce();
-        const confirm = vi.fn(async () => true);
-        expect(await resumed.resume(confirm)).toBe(true);
-        expect(confirm).not.toHaveBeenCalled();
-        expect(resumed.isActive).toBe(true);
-        expect(records.analysisLocked).toBe(true);
-        expect(client.status).toHaveBeenCalledWith("job");
-        expect(client.result).toHaveBeenCalledWith("job", 0);
-        expect(client.create).toHaveBeenCalledOnce();
-        expect(client.cancel).not.toHaveBeenCalled();
-        records.changePly(1);
-        expect(records.record.current.comment).toBe("analysis");
-        status.state = "completed";
-        await vi.advanceTimersByTimeAsync(500);
-        expect(resumed.isActive).toBe(false);
-        expect(records.analysisLocked).toBe(false);
-        expect(resumed.hasRetainedJob).toBe(false);
-      } finally {
-        resumed.close();
-        await vi.advanceTimersByTimeAsync(0);
-      }
+    "migrates a %s reference without turning it into attachment intent",
+    async (format) => {
+      const value = fixture();
+      await value.manager.start(settings, true);
+      const reference = {
+        requestId: value.response().requestId,
+        serverInstanceId: "server",
+        jobId: "job",
+      };
+      const key =
+        format === "legacy"
+          ? "shogihome-analysis-job"
+          : `shogihome-analysis-job:${reference.requestId}`;
+      localStorage.setItem(key, JSON.stringify(reference));
+      const records = new RecordManager();
+      records.updateComment("Local work");
+      const other = new AnalysisManager(records, value.client);
+      expect(await other.resume(async () => true)).toBe(false);
+      await other.reconcilePending();
+      expect(localStorage.getItem(key)).toBeNull();
+      expect(other.hasRetainedJob).toBe(false);
+      expect(value.client.attach).not.toHaveBeenCalled();
+      expect(value.client.cancel).not.toHaveBeenCalled();
+      expect(records.record.current.comment).toBe("Local work");
     },
   );
 
   it.each(["legacy", "per-request"] as const)(
-    "starts a new analysis after another tab completes a declined %s recovery",
-    async (storage) => {
-      const { manager, client, source, status } = fixture();
-      await manager.start(settings);
-      const requestId = client.create.mock.calls[0][0].requestId;
-      const key = `shogihome-analysis-job:${requestId}`;
-      if (storage === "legacy") {
-        localStorage.setItem("shogihome-analysis-job", localStorage.getItem(key)!);
-        localStorage.removeItem(key);
-      }
-      const records = new RecordManager(restoreRecord(source).record);
-      records.updateComment("local work");
-      const other = new AnalysisManager(records, client);
-      try {
-        expect(await other.resume(async () => false)).toBe(false);
-        expect(other.hasRetainedJob).toBe(true);
-        expect(records.analysisLocked).toBe(false);
-        status.state = "completed";
-        await vi.advanceTimersByTimeAsync(500);
-        expect(manager.isActive).toBe(false);
-        expect(other.hasRetainedJob).toBe(false);
-        expect(records.record.current.comment).toBe("local work");
-
-        await expect(other.start(settings)).resolves.toBeUndefined();
-        expect(other.isActive).toBe(true);
-        expect(records.analysisLocked).toBe(true);
-        expect(client.create).toHaveBeenCalledTimes(2);
-        expect(client.create.mock.calls[1][0].requestId).not.toBe(requestId);
-      } finally {
-        other.close();
-        await vi.advanceTimersByTimeAsync(0);
-      }
+    "does not automatically replay a %s cancellation from another owner",
+    async (format) => {
+      const value = fixture();
+      await value.manager.start(settings, true);
+      const reference = {
+        requestId: value.response().requestId,
+        serverInstanceId: "server",
+        jobId: "job",
+        cancelRequested: true,
+      };
+      const key =
+        format === "legacy"
+          ? "shogihome-analysis-job"
+          : `shogihome-analysis-job:${reference.requestId}`;
+      localStorage.setItem(key, JSON.stringify(reference));
+      const other = new AnalysisManager(new RecordManager(), value.client);
+      await other.reconcilePending();
+      expect(await other.resume(async () => true)).toBe(false);
+      expect(value.client.cancel).not.toHaveBeenCalled();
+      expect(
+        Object.keys(localStorage).some((key) => key.startsWith("shogihome-job-journal:analysis:")),
+      ).toBe(true);
     },
   );
 
-  it("does not recover a cached reference removed by another tab", async () => {
+  it("does not recover after this tab's attachment intent is removed", async () => {
     const { manager, client, source } = fixture();
     await manager.start(settings);
     vi.clearAllTimers();
     const resumed = new AnalysisManager(new RecordManager(restoreRecord(source).record), client);
-    const requestId = client.create.mock.calls[0][0].requestId;
-    localStorage.removeItem(`shogihome-analysis-job:${requestId}`);
+    sessionStorage.removeItem("shogihome-job-attachment:analysis");
     try {
       expect(resumed.hasRetainedJob).toBe(false);
       expect(await resumed.resume(async () => true)).toBe(false);
@@ -759,9 +974,8 @@ describe("analysis job client", () => {
   });
 
   it("keeps recovery linkage when browser record persistence fails", async () => {
-    const { manager, client, status, error } = fixture();
+    const { manager, status, error } = fixture();
     await manager.start(settings);
-    const requestId = client.create.mock.calls[0][0].requestId;
     status.state = "completed";
     const original = Storage.prototype.setItem;
     const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
@@ -776,11 +990,32 @@ describe("analysis job client", () => {
       await vi.advanceTimersByTimeAsync(500);
       expect(manager.isActive).toBe(false);
       expect(manager.hasRetainedJob).toBe(true);
-      expect(localStorage.getItem(`shogihome-analysis-job:${requestId}`)).not.toBeNull();
+      expect(sessionStorage.getItem("shogihome-job-attachment:analysis")).not.toBeNull();
       expect(error).toHaveBeenCalledOnce();
     } finally {
       write.mockRestore();
     }
+  });
+
+  it("reports attachment cleanup storage failures instead of silently completing", async () => {
+    const value = fixture();
+    await value.manager.start(settings);
+    value.status.state = "completed";
+    const original = Storage.prototype.removeItem;
+    const remove = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function (
+      this: Storage,
+      key,
+    ) {
+      if (this === sessionStorage && key === "shogihome-job-attachment:analysis")
+        throw new Error("Storage unavailable");
+      original.call(this, key);
+    });
+    await vi.advanceTimersByTimeAsync(500);
+    remove.mockRestore();
+    expect(value.error).toHaveBeenCalledOnce();
+    expect(value.finish).not.toHaveBeenCalled();
+    expect(value.records.analysisLocked).toBe(false);
+    expect(sessionStorage.getItem("shogihome-job-attachment:analysis")).not.toBeNull();
   });
 
   it("does not replace an unsaved record if its backup fails", async () => {

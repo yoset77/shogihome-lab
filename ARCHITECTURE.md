@@ -104,22 +104,23 @@ flowchart LR
 - USI state machine は Middle Server の `shogihome/src/server/engine/session.ts` が一元管理します。Wrapper は process/TCP bridge に留め、探索の競合や停止順序を独自に管理しません。
 - 古い探索結果、置換済み接続、取消済み操作は現在の状態を更新しません。Transport の再接続と論理 session の新規作成を区別します。
 - 通常対局と棋譜解析の進行・engine resource は Server が所有します。Browser は操作・同期・表示を担当し、接続の寿命を実行状態の寿命と同一視しません。
+- 棋譜解析とエンジン同士の対局は、実行を継続したまま画面をデタッチできます。ジョブの発見とアタッチの制御権は Server が所有し、別端末への移譲や Browser の保存情報を実行の再作成と同一視しません。
 - 棋譜と時計の巻き戻しは対局 module が一括で確定します。Engine の取消完了を確認せずに巻き戻しを公開しません。
 - Process を起動した所有者が終了・失敗時の cleanup を担当し、親 process の終了だけで子孫を回収済みとみなしません。
 - Vision は USI session から独立した worker 境界です。Scan 結果は確認用の一時状態であり、ユーザーの確定前に現在の棋譜を変更しません。
 
 ## Data Ownership and Persistence
 
-| データ                  | 所有者                            | 性質                                               |
-| ----------------------- | --------------------------------- | -------------------------------------------------- |
-| `KIFU_DIR`              | Middle Serverと外部ファイル管理者 | ユーザーが所有する棋譜・定跡・SFENの正本           |
-| `data/analysis.db`      | Analysis DB module                | Engine解析結果の永続データ                         |
-| `data/kifu_index.db`    | Kifu index module                 | `KIFU_DIR` から再構築可能な派生index               |
-| record history / backup | History service                   | Server共有の履歴と復元データ                       |
-| Book session            | Book session manager              | 保存前の変更を含む有期限の作業状態                 |
-| Analysis job            | Analysis job manager              | 固定入力・進捗・結果・取消を持つ有期限の揮発性状態 |
-| Game session            | Game session manager              | 対局・時計・checkpointを持つ有期限の揮発性状態     |
-| Browser storage         | Renderer                          | 端末・origin固有の設定、復元情報、接続識別子       |
+| データ                  | 所有者                            | 性質                                                                         |
+| ----------------------- | --------------------------------- | ---------------------------------------------------------------------------- |
+| `KIFU_DIR`              | Middle Serverと外部ファイル管理者 | ユーザーが所有する棋譜・定跡・SFENの正本                                     |
+| `data/analysis.db`      | Analysis DB module                | Engine解析結果の永続データ                                                   |
+| `data/kifu_index.db`    | Kifu index module                 | `KIFU_DIR` から再構築可能な派生index                                         |
+| record history / backup | History service                   | Server共有の履歴と復元データ                                                 |
+| Book session            | Book session manager              | 保存前の変更を含む有期限の作業状態                                           |
+| Analysis job            | Analysis job manager              | 固定入力・進捗・結果・取消を持つ有期限の揮発性状態                           |
+| Game session            | Game session manager              | 対局・時計・checkpointを持つ有期限の揮発性状態                               |
+| Browser storage         | Renderer                          | タブ固有のアタッチ復帰情報、端末・origin固有の設定・棋譜復元・未確認要求台帳 |
 
 Database、filesystem、browser storage は互いに代替可能な正本ではありません。特に kifu index は派生データであり、ユーザーファイルの正本として扱いません。
 

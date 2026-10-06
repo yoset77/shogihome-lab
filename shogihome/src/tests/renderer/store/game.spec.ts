@@ -40,8 +40,7 @@ vi.mock("@/renderer/ipc/api", () => ({
 }));
 
 function storedReference(): string | null {
-  const key = Object.keys(localStorage).find((key) => key.startsWith("shogihome-game-session:"));
-  return localStorage.getItem(key ?? "shogihome-game-session");
+  return sessionStorage.getItem("shogihome-job-attachment:game");
 }
 
 function setup() {
@@ -64,6 +63,19 @@ function setup() {
   };
   let request: GameSessionRequest | undefined;
   const client = {
+    commandOutcome: vi.fn<GameSessionsClient["commandOutcome"]>(async (id, requestId) =>
+      asHttp(() => server.get(id).commandOutcome(requestId)),
+    ),
+    list: vi.fn(async () => server.list()),
+    attach: vi.fn<GameSessionsClient["attach"]>(async (id, input) =>
+      asHttp(() => server.get(id).attach(input)),
+    ),
+    detach: vi.fn<GameSessionsClient["detach"]>(async (id, binding) =>
+      asHttp(() => {
+        server.get(id).detach(binding);
+        return server.get(id).snapshot();
+      }),
+    ),
     capabilities: vi.fn(async () => server.capabilities()),
     create: vi.fn(async (input: GameSessionRequest) => {
       const session = await asHttp(() => server.create(input));
@@ -196,6 +208,7 @@ describe("game session client", () => {
   };
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     vi.useFakeTimers();
     vi.mocked(api.saveRecordFileBackup).mockReset().mockResolvedValue(undefined);
     useToastStore().clear();
@@ -315,6 +328,87 @@ describe("game session client", () => {
     }
     expect(beepShort).toHaveBeenCalledTimes(5);
     expect(beepUnlimited).toHaveBeenCalledTimes(5);
+  });
+
+  it("starts an engine game in the background without replacing the displayed record", async () => {
+    const value = fixture();
+    value.settings.black = { uri: "lan-engine:black", name: "Black" };
+    value.settings.white = { uri: "lan-engine:white", name: "White" };
+    value.records.updateComment("Current local record");
+    await value.game.start(value.settings, true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.game.isActive).toBe(false);
+    expect(value.records.analysisLocked).toBe(false);
+    expect(value.records.record.current.comment).toBe("Current local record");
+    expect(storedReference()).toBeNull();
+    expect(value.sockets).toHaveLength(0);
+    expect(value.server.list()).toHaveLength(1);
+    expect(value.searches).toHaveLength(1);
+  });
+
+  it("detaches engine games without stopping and attaches from another device", async () => {
+    const value = fixture();
+    value.settings.black = { uri: "lan-engine:black", name: "Black" };
+    value.settings.white = { uri: "lan-engine:white", name: "White" };
+    await value.game.start(value.settings);
+    await vi.advanceTimersByTimeAsync(1);
+    value.game.detachJob();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.game.isActive).toBe(false);
+    expect(storedReference()).toBeNull();
+    expect(value.session().snapshot().state).toBe("running");
+    value.records.updateComment("Detached local work");
+    value.searches[0].handler.onMove(value.records.record.position.createMoveByUSI("7g7f")!);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.records.record.current.comment).toBe("Detached local work");
+    localStorage.clear();
+    sessionStorage.clear();
+    const other = value.reload();
+    extraClients.push(other);
+    expect(
+      await other.attach(
+        value.server.list()[0],
+        async () => true,
+        async () => true,
+      ),
+    ).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(other.isActive).toBe(true);
+    expect(other.status?.record.nodes).toHaveLength(2);
+  });
+
+  it("never offers human-game detachment or background execution", async () => {
+    const value = fixture();
+    await expect(value.game.start(value.settings, true)).rejects.toThrow();
+    await start(value);
+    expect(value.game.canDetach).toBe(false);
+    value.game.detachJob();
+    expect(value.game.isActive).toBe(true);
+    expect(value.server.list()).toEqual([]);
+  });
+
+  it("recovers a delivered attachment with its original owner and takeover decision", async () => {
+    const value = fixture();
+    value.settings.black = { uri: "lan-engine:black", name: "Black" };
+    value.settings.white = { uri: "lan-engine:white", name: "White" };
+    await value.game.start(value.settings, true);
+    const claim = value.client.attach.getMockImplementation()!;
+    value.client.attach.mockImplementationOnce(async (id, request) => {
+      await claim(id, request);
+      throw new TypeError("Attachment response lost");
+    });
+    expect(
+      await value.game.attach(
+        value.server.list()[0],
+        async () => true,
+        async () => true,
+      ),
+    ).toBe(true);
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(value.game.isActive).toBe(true);
+    expect(value.game.status?.sessionId).toBe(value.session().id);
+    expect(value.client.attach).toHaveBeenCalledTimes(2);
+    expect(value.client.attach.mock.calls[0][1]).toEqual(value.client.attach.mock.calls[1][1]);
   });
 
   it("clears engine PVs at the next round of repeated games even at the same position", async () => {
@@ -453,30 +547,31 @@ describe("game session client", () => {
       throw new ApiResponseError(503, "Another game is running");
     });
     await expect(value.game.start(value.settings)).rejects.toMatchObject({ status: 503 });
-    expect(storedReference()).toBe(other);
-    expect(value.game.hasRetainedSession).toBe(true);
+    expect(localStorage.getItem("shogihome-game-session:other-request")).toBe(other);
+    expect(storedReference()).toBeNull();
+    expect(value.game.hasRetainedSession).toBe(false);
     expect(value.records.analysisLocked).toBe(false);
   });
 
-  it("migrates legacy recovery linkage without creating another game", async () => {
+  it("migrates legacy linkage into a journal without creating attachment intent", async () => {
     const value = fixture();
     await start(value);
     value.game.dispose();
     const reference = storedReference()!;
-    const key = Object.keys(localStorage).find((key) => key.startsWith("shogihome-game-session:"))!;
     localStorage.setItem("shogihome-game-session", reference);
-    localStorage.removeItem(key);
+    sessionStorage.clear();
     const recovered = value.reload();
     extraClients.push(recovered);
-    await recovered.resume(async () => true);
+    expect(await recovered.resume(async () => true)).toBe(false);
+    await recovered.reconcilePending();
     await vi.advanceTimersByTimeAsync(0);
-    expect(recovered.canMove).toBe(true);
+    expect(recovered.canMove).toBe(false);
     expect(value.client.create).toHaveBeenCalledOnce();
     expect(localStorage.getItem("shogihome-game-session")).toBeNull();
-    expect(localStorage.getItem(key)).not.toBeNull();
+    expect(storedReference()).toBeNull();
   });
 
-  it("skips an unconfirmed rejected creation when recovering a concurrently delivered request", async () => {
+  it("only reconciles a lost creation journal when the tab has no attachment intent", async () => {
     const value = fixture();
     const original = value.client.create.getMockImplementation()!;
     value.client.create.mockImplementationOnce(async (request) => {
@@ -484,27 +579,20 @@ describe("game session client", () => {
       throw new TypeError("Response lost");
     });
     await value.game.start(value.settings);
-    const reference = storedReference()!;
-    const key = Object.keys(localStorage).find((key) => key.startsWith("shogihome-game-session:"))!;
-    localStorage.removeItem(key);
-    localStorage.setItem(
-      "shogihome-game-session:rejected",
-      JSON.stringify({
-        ...JSON.parse(reference),
-        requestId: "rejected",
-      }),
-    );
-    localStorage.setItem(key, reference);
     value.game.dispose();
+    sessionStorage.clear();
     const recovered = value.reload();
     extraClients.push(recovered);
     const error = vi.fn();
     recovered.on("error", error);
-    await recovered.resume(async () => true);
+    expect(await recovered.resume(async () => true)).toBe(false);
+    await recovered.reconcilePending();
     await vi.advanceTimersByTimeAsync(0);
-    expect(recovered.canMove).toBe(true);
+    expect(recovered.canMove).toBe(false);
     expect(value.client.create).toHaveBeenCalledOnce();
-    expect(localStorage.getItem("shogihome-game-session:rejected")).toBeNull();
+    expect(
+      Object.keys(localStorage).some((key) => key.startsWith("shogihome-job-journal:game:")),
+    ).toBe(false);
     expect(error).not.toHaveBeenCalled();
   });
 
@@ -689,6 +777,21 @@ describe("game session client", () => {
     expect(value.beat.mock.calls.length).toBeLessThanOrEqual(1);
   });
 
+  it("never rewrites an undelivered move after reconnect changes the turn generation", async () => {
+    const value = fixture();
+    await start(value);
+    value.client.command.mockRejectedValueOnce(new TypeError("Move not delivered"));
+    await value.game.move(value.records.record.position.createMoveByUSI("7g7f")!);
+    await vi.advanceTimersByTimeAsync(1100);
+    const attempts = value.client.command.mock.calls.filter(
+      ([, command]) => command.action === "move",
+    );
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0][1]).toEqual(attempts[1][1]);
+    expect(value.records.record.current.ply).toBe(0);
+    expect(value.session().snapshot().record.nodes).toHaveLength(1);
+  });
+
   it("notifies once per outage and only announces recovery after synchronization", async () => {
     const value = fixture();
     await start(value);
@@ -723,7 +826,11 @@ describe("game session client", () => {
     });
     await value.game.start(value.settings);
     value.game.stop();
-    expect(JSON.parse(storedReference()!).stopRequested).toBe(true);
+    const key = Object.keys(localStorage).find(
+      (key) => key.startsWith("shogihome-job-journal:game:") && key.endsWith(":stop"),
+    )!;
+    expect(JSON.parse(localStorage.getItem(key)!).stopRequested).toBe(true);
+    expect(JSON.parse(storedReference()!).stopRequested).toBeUndefined();
     await vi.advanceTimersByTimeAsync(1100);
     expect(value.game.isActive).toBe(false);
     expect(value.session().snapshot().state).toBe("completed");
@@ -743,6 +850,30 @@ describe("game session client", () => {
     expect(value.game.isActive).toBe(true);
     await vi.advanceTimersByTimeAsync(101);
     expect(value.game.isActive).toBe(false);
+  });
+
+  it("does not replay an interrupt that could not be durably recorded", async () => {
+    const value = fixture();
+    await start(value);
+    const original = Storage.prototype.setItem;
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      key,
+      content,
+    ) {
+      if (this === localStorage && key.startsWith("shogihome-job-journal:"))
+        throw new Error("Storage full");
+      original.call(this, key, content);
+    });
+    value.game.stop();
+    write.mockRestore();
+    value.sockets[0].close();
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(
+      value.client.command.mock.calls.filter(([, command]) => command.action === "interrupt"),
+    ).toEqual([]);
+    expect(value.game.isActive).toBe(true);
+    expect(value.error).toHaveBeenCalledOnce();
   });
 
   it("recovers through reload without replaying old move sounds", async () => {

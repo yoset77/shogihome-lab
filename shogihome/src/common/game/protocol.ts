@@ -69,6 +69,8 @@ export type GameRecordSummary = {
   path?: string;
 };
 export type GameSnapshot = {
+  controllerRecoveryId?: string;
+  controllerOwnerId?: string;
   sessionId: string;
   requestId: string;
   serverInstanceId: string;
@@ -96,6 +98,7 @@ export type GameSnapshot = {
 export type GameCommandAction =
   "move" | "resign" | "declare" | "takeback" | "interrupt" | "resume" | "annotate";
 export type GameCommand = {
+  recoveryId?: string;
   requestId: string;
   serverInstanceId: string;
   controllerId: string;
@@ -128,7 +131,7 @@ export type GameFrame =
       }[];
     };
 export type GameHeartbeat = { type: "heartbeat"; controllerEpoch: number };
-export type GameConnection = { connectionId: string; controllerEpoch: number };
+export type GameConnection = { connectionId: string; controllerEpoch: number; screenId?: string };
 export type GameClientFrame = GameHeartbeat | { type: "annotation"; value: GameCommand };
 export type GameCapabilities = {
   serverInstanceId: string;
@@ -272,6 +275,7 @@ export function decodeGameCommand(value: unknown): DecodeResult<GameCommand> {
   return decoded(() => {
     const input = v.object(value);
     const result: GameCommand = {
+      ...(input.recoveryId === undefined ? {} : { recoveryId: v.identifier(input.recoveryId) }),
       requestId: v.identifier(input.requestId),
       serverInstanceId: v.identifier(input.serverInstanceId),
       controllerId: v.identifier(input.controllerId),
@@ -337,6 +341,12 @@ export function decodeGameSnapshot(value: unknown): DecodeResult<GameSnapshot> {
       };
     };
     return {
+      ...(input.controllerRecoveryId === undefined
+        ? {}
+        : { controllerRecoveryId: v.identifier(input.controllerRecoveryId) }),
+      ...(input.controllerOwnerId === undefined
+        ? {}
+        : { controllerOwnerId: v.identifier(input.controllerOwnerId) }),
       sessionId: v.identifier(input.sessionId),
       requestId: v.identifier(input.requestId),
       serverInstanceId: v.identifier(input.serverInstanceId),
@@ -422,6 +432,9 @@ export function decodeGameConnection(value: unknown): DecodeResult<GameConnectio
   return decoded(() => {
     const input = v.object(value);
     return {
+      ...(input.screenId === undefined || input.screenId === null
+        ? {}
+        : { screenId: v.identifier(input.screenId) }),
       connectionId: v.identifier(input.connectionId),
       controllerEpoch: v.counter(input.controllerEpoch),
     };

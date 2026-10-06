@@ -77,6 +77,7 @@
         </div>
       </div>
       <div class="main-buttons">
+        <label><input v-model="background" type="checkbox" />{{ jobMessages.background }}</label>
         <button data-hotkey="Enter" autofocus @click="onStart()">
           {{ t.analyze }}
         </button>
@@ -90,12 +91,14 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
+import { jobTexts } from "@/common/i18n/jobs";
+import { useAppSettings } from "@/renderer/store/settings";
 import api from "@/renderer/ipc/api";
 import { defaultAnalysisSettings, validateAnalysisSettings } from "@/common/settings/analysis";
 import { CommentBehavior } from "@/common/settings/comment";
 import { getPredefinedUSIEngineTag, USIEngines, USIEngine } from "@/common/settings/usi";
 import { useStore } from "@/renderer/store";
-import { onMounted, ref } from "vue";
+import { onMounted, ref, computed } from "vue";
 import PlayerSelector from "@/renderer/view/dialog/PlayerSelector.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
@@ -105,6 +108,8 @@ import DialogFrame from "./DialogFrame.vue";
 import { useLanStore } from "@/renderer/store/lan";
 
 const store = useStore();
+const background = ref(false);
+const jobMessages = computed(() => jobTexts(useAppSettings().language));
 const busyState = useBusyState();
 const settings = ref(defaultAnalysisSettings());
 const engines = ref(new USIEngines());
@@ -175,7 +180,7 @@ const onStart = () => {
     useErrorStore().add(error);
     return;
   }
-  store.startAnalysis(newSettings);
+  store.startAnalysis(newSettings, background.value);
 };
 
 const onCancel = () => {

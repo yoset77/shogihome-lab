@@ -12,7 +12,8 @@ import {
   type GameCommandAction,
   type GameFrame,
 } from "@/common/game/protocol";
-import { recordContent, snapshotRecord, type RecordSnapshot } from "@/common/record/snapshot";
+import { snapshotRecord, type RecordSnapshot } from "@/common/record/snapshot";
+import { jobRecordContent as durableContent } from "./job_record";
 import { object, identifier, text, counter } from "@/common/analysis/validation";
 import { gameTexts } from "@/common/i18n/game";
 import { createGameSessionsClient, type GameSessionsClient } from "@/renderer/api/game_sessions";
@@ -28,6 +29,15 @@ import { SearchInfoSenderType } from "@/common/record/types";
 import { encodeSearchInfo } from "@/common/record/snapshot";
 import { RecordManager } from "./record";
 import { GameClockDisplay } from "./game_clock";
+import { JobStorage } from "./job_storage";
+import {
+  readJobAttachRequest,
+  readJobBinding,
+  type JobBinding,
+  type JobAttachRequest,
+  type JobSummary,
+} from "@/common/jobs/types";
+import { jobTexts } from "@/common/i18n/jobs";
 import { useAppSettings } from "./settings";
 import { clearURLParams, flushRecordForWebApp } from "./webapp";
 import { ConnectionNotification } from "@/renderer/helpers/connection_notification";
@@ -37,16 +47,20 @@ export { calculateGameStatistics } from "@/common/game/results";
 export type { GameResults, GameStatistics } from "@/common/game/results";
 const STORAGE_KEY = "shogihome-game-session";
 const MONITOR_IDS = { [Color.BLACK]: 200200, [Color.WHITE]: 200201 };
+const SCREEN_ID = generateSessionId();
 type Reference = {
   requestId: string;
   serverInstanceId: string;
   controllerId: string;
   connectionId?: string;
   controllerEpoch?: number;
+  recoveryId?: string;
   sessionId?: string;
   content: string;
   pending: GameCommand[];
   stopRequested?: boolean;
+  pendingAttach?: JobAttachRequest;
+  pendingDetach?: JobBinding;
 };
 type Handlers = {
   gameEnd: (results: GameResults, result: SpecialMoveType) => void;
@@ -60,17 +74,6 @@ type Handlers = {
   status: (status: GameSnapshot | null) => void;
 };
 
-// Browser record storage does not persist runtime search objects.
-function durableContent(source: RecordSnapshot): string {
-  return recordContent({
-    ...source,
-    nodes: source.nodes.map((node) => ({
-      ...node,
-      elapsedMs: Math.floor(node.elapsedMs / 1000) * 1000,
-      customData: null,
-    })),
-  });
-}
 function readReference(raw: string | null): Reference | undefined {
   try {
     if (!raw) return;
@@ -87,6 +90,7 @@ function readReference(raw: string | null): Reference | undefined {
       requestId: identifier(input.requestId),
       serverInstanceId: identifier(input.serverInstanceId),
       controllerId: identifier(input.controllerId),
+      ...(input.recoveryId === undefined ? {} : { recoveryId: identifier(input.recoveryId) }),
       ...(input.connectionId === undefined ? {} : { connectionId: identifier(input.connectionId) }),
       ...(input.controllerEpoch === undefined
         ? {}
@@ -95,54 +99,79 @@ function readReference(raw: string | null): Reference | undefined {
       content: text(input.content, 20 * 1024 * 1024),
       pending,
       stopRequested: input.stopRequested === true,
+      ...(input.pendingAttach === undefined
+        ? {}
+        : { pendingAttach: readJobAttachRequest(input.pendingAttach) }),
+      ...(input.pendingDetach === undefined
+        ? {}
+        : { pendingDetach: readJobBinding(input.pendingDetach) }),
     };
   } catch {
     return;
   }
 }
-function referenceKey(ref: Reference): string {
-  // Independent keys keep concurrent creation failures from erasing another game.
-  return `${STORAGE_KEY}:${ref.requestId}`;
-}
-function sameReference(a: Reference, b: Reference): boolean {
-  return (
-    a.requestId === b.requestId &&
-    a.serverInstanceId === b.serverInstanceId &&
-    a.controllerId === b.controllerId
-  );
-}
+const storage = new JobStorage(
+  "game",
+  STORAGE_KEY,
+  readReference,
+  (ref) => ({ ...ref, content: "" }),
+  (ref) => [
+    ...(!ref.sessionId
+      ? [
+          {
+            id: "creation",
+            reference: { ...ref, pending: [], stopRequested: undefined, pendingAttach: undefined },
+          },
+        ]
+      : []),
+    ...(ref.pendingAttach
+      ? [{ id: "attachment", reference: { ...ref, pending: [], stopRequested: undefined } }]
+      : []),
+    ...(ref.stopRequested
+      ? [{ id: "stop", reference: { ...ref, pending: [], pendingAttach: undefined } }]
+      : []),
+    ...(ref.pendingDetach
+      ? [
+          {
+            id: "detach",
+            reference: { ...ref, pending: [], pendingAttach: undefined, stopRequested: undefined },
+          },
+        ]
+      : []),
+    ...ref.pending.map((command) => ({
+      id: command.requestId,
+      reference: { ...ref, pending: [command], stopRequested: undefined, pendingAttach: undefined },
+    })),
+  ],
+);
 function loadReferences(): Reference[] {
-  try {
-    const keys = Object.keys(localStorage).filter((key) => key.startsWith(`${STORAGE_KEY}:`));
-    const references = new Map<string, Reference>();
-    for (const key of [...keys, STORAGE_KEY]) {
-      const ref = readReference(localStorage.getItem(key));
-      if (
-        ref &&
-        (key === STORAGE_KEY || key === referenceKey(ref)) &&
-        !references.has(ref.requestId)
-      )
-        references.set(ref.requestId, ref);
-    }
-    return [...references.values()].sort((a, b) => Number(!!b.sessionId) - Number(!!a.sessionId));
-  } catch {
-    return [];
-  }
+  const ref = storage.load();
+  if (!ref) return [];
+  const pending = storage
+    .journal()
+    .filter(
+      (value) =>
+        value.requestId === ref.requestId &&
+        value.serverInstanceId === ref.serverInstanceId &&
+        value.controllerId === ref.controllerId,
+    );
+  return [
+    {
+      ...ref,
+      pending: pending.flatMap((value) => value.pending),
+      stopRequested: pending.some((value) => value.stopRequested),
+      pendingAttach: pending.find((value) => value.pendingAttach)?.pendingAttach,
+    },
+  ];
 }
 function forgetReference(ref: Reference): void {
-  for (const key of [referenceKey(ref), STORAGE_KEY]) {
-    const stored = readReference(localStorage.getItem(key));
-    if (
-      stored &&
-      sameReference(stored, ref) &&
-      (stored.controllerEpoch ?? 0) <= (ref.controllerEpoch ?? 0)
-    )
-      localStorage.removeItem(key);
-  }
+  storage.detach(ref);
+  storage.forgetJournal(ref);
 }
 
 export class GameManager {
-  private reference?: Reference = loadReferences()[0];
+  private reference?: Reference;
+  private background = false;
   private pendingRequest?: GameSessionRequest;
   private _status?: GameSnapshot;
   private active = false;
@@ -240,18 +269,64 @@ export class GameManager {
   get interactionId(): number {
     return this._status?.interactionId ?? 0;
   }
+  async reconcilePending(): Promise<void> {
+    for (const ref of storage.journal()) {
+      try {
+        const caps = await this.client.capabilities();
+        if (caps.serverInstanceId !== ref.serverInstanceId) {
+          storage.forgetJournal(ref);
+          continue;
+        }
+        const status = ref.sessionId
+          ? await this.client.snapshot(ref.sessionId)
+          : await this.client.byRequest(ref.requestId);
+        storage.forgetOperation(ref, "creation");
+        if (
+          ref.pendingDetach &&
+          (status.controllerEpoch !== ref.pendingDetach.epoch ||
+            status.controllerOwnerId !== ref.pendingDetach.ownerId)
+        )
+          storage.forgetOperation(ref, "detach");
+        if (
+          ref.pendingAttach &&
+          ((status.controllerOwnerId !== ref.controllerId &&
+            status.controllerEpoch > ref.pendingAttach.epoch) ||
+            isGameTerminal(status.state))
+        )
+          storage.forgetOperation(ref, "attachment");
+        if (
+          ref.stopRequested &&
+          (isGameTerminal(status.state) ||
+            (ref.recoveryId
+              ? status.controllerRecoveryId !== ref.recoveryId
+              : ref.controllerEpoch !== undefined && status.controllerEpoch > ref.controllerEpoch))
+        )
+          storage.forgetOperation(ref, "stop");
+        for (const command of ref.pending) {
+          const outcome = await this.client.commandOutcome(status.sessionId, command.requestId);
+          if (
+            ["accepted", "rejected"].includes(outcome.state) ||
+            isGameTerminal(status.state) ||
+            (command.recoveryId
+              ? status.controllerRecoveryId !== command.recoveryId
+              : status.controllerEpoch > command.controllerEpoch)
+          )
+            storage.forgetOperation(ref, command.requestId);
+        }
+      } catch (error) {
+        if (error instanceof ApiResponseError && error.status === 410) storage.forgetJournal(ref);
+        else if (!this.transient(error)) throw error;
+      }
+    }
+  }
   private persist(): void {
     const ref = this.reference;
     if (!ref) return;
-    const stored = readReference(localStorage.getItem(referenceKey(ref)));
-    if (
-      stored &&
-      (!sameReference(stored, ref) || (stored.controllerEpoch ?? 0) > (ref.controllerEpoch ?? 0))
-    )
-      throw new ApiResponseError(409, gameTexts().conflict);
-    localStorage.setItem(referenceKey(ref), JSON.stringify(ref));
-    const legacy = readReference(localStorage.getItem(STORAGE_KEY));
-    if (legacy && sameReference(legacy, ref)) localStorage.removeItem(STORAGE_KEY);
+    if (!ref.sessionId || ref.pending.length || ref.stopRequested || ref.pendingAttach)
+      storage.writeJournal(ref);
+    else storage.forgetJournal(ref);
+    if (!this.background)
+      storage.save({ ...ref, pending: [], stopRequested: undefined, pendingAttach: undefined });
   }
   private transient(error: unknown): boolean {
     return (
@@ -302,9 +377,12 @@ export class GameManager {
       this.handlers.resetMonitor(id);
     }
   }
-  async start(settings: GameSettings): Promise<void> {
+  async start(settings: GameSettings, background = false): Promise<void> {
     if (this.active || this.hasRetainedSession)
       throw new Error(gameTexts(useAppSettings().language).capacity);
+    if (background && [settings.black.uri, settings.white.uri].includes("es://human"))
+      throw new Error(gameTexts(useAppSettings().language).invalid);
+    this.background = background;
     const requestId = generateSessionId();
     const source = this.bind(requestId);
     const lifecycle = this.lifecycle;
@@ -353,15 +431,25 @@ export class GameManager {
       try {
         const snapshot = await this.client.create(decoded.value);
         if (lifecycle !== this.lifecycle) return;
-        this.accept(snapshot, true);
+        if (background) {
+          this.reference.sessionId = snapshot.sessionId;
+          this.persist();
+        } else this.accept(snapshot, true);
         this.pendingRequest = undefined;
-        this.connect();
+        if (!background) this.connect();
       } catch (error) {
         if (lifecycle !== this.lifecycle) return;
         if (!this.transient(error) || (error instanceof ApiResponseError && error.status === 503))
           throw error;
         this.backoff(error);
         this.schedule();
+      }
+      if (background) {
+        this.recordManager.endGame(requestId);
+        this.bindingToken = undefined;
+        this.active = false;
+        this.handlers.status(null);
+        if (this.reference?.sessionId) this.reference = undefined;
       }
     } catch (error) {
       if (lifecycle !== this.lifecycle) return;
@@ -374,13 +462,17 @@ export class GameManager {
   async resume(confirmRecovery: () => Promise<boolean>): Promise<boolean> {
     if (this.active) return false;
     const references = loadReferences();
+    this.background = false;
     this.reference = references[0];
     for (const [index, ref] of references.entries()) {
       const local = durableContent(snapshotRecord(this.recordManager.record));
       if (local !== ref.content && !(await confirmRecovery())) return false;
       await this.recordManager.saveBackup();
+      if (durableContent(snapshotRecord(this.recordManager.record)) !== local)
+        throw new Error(gameTexts().conflict);
       this.reference = ref;
       this.bind(ref.requestId);
+      this.controllerEpoch = ref.controllerEpoch;
       await this.synchronize(!ref.sessionId && index < references.length - 1);
       if (this.active || this.finished) return true;
       if (this.reference) return false;
@@ -404,15 +496,39 @@ export class GameManager {
       let snapshot: GameSnapshot;
       try {
         snapshot = ref.sessionId
-          ? await this.client.snapshot(ref.sessionId)
+          ? ref.pendingAttach
+            ? await this.client.attach(ref.sessionId, ref.pendingAttach)
+            : await this.client.snapshot(ref.sessionId)
           : await this.client.byRequest(ref.requestId);
       } catch (error) {
+        if (lifecycle !== this.lifecycle || this.reference !== ref) return;
         if (!(error instanceof ApiResponseError && error.status === 410 && this.pendingRequest))
           throw error;
         snapshot = await this.client.create(this.pendingRequest);
       }
       this.pendingRequest = undefined;
       if (lifecycle !== this.lifecycle || this.reference !== ref) return;
+      if (ref.pendingAttach) {
+        ref.pendingAttach = undefined;
+        ref.controllerEpoch = snapshot.controllerEpoch;
+        ref.recoveryId = snapshot.controllerRecoveryId;
+        storage.forgetOperation(ref, "attachment");
+        this.persist();
+      }
+      if (this.background) {
+        ref.sessionId = snapshot.sessionId;
+        this.persist();
+        this.reference = undefined;
+        return;
+      }
+      if (
+        (ref.recoveryId !== undefined && snapshot.controllerRecoveryId !== ref.recoveryId) ||
+        (ref.controllerEpoch !== undefined &&
+          snapshot.controllerEpoch > ref.controllerEpoch &&
+          snapshot.controllerConnectionId !== ref.connectionId)
+      )
+        throw new ApiResponseError(409, jobTexts(useAppSettings().language).transferred);
+      this.controllerEpoch = snapshot.controllerEpoch;
       this.accept(snapshot, true);
       this.retryMs = 1000;
       this.retryNotBefore = 0;
@@ -423,6 +539,7 @@ export class GameManager {
         this.backoff(error);
         this.schedule();
       } else {
+        if (error instanceof ApiResponseError && error.status === 409) storage.detach(ref);
         this.release(ref.requestId, error instanceof ApiResponseError && error.status === 410);
         if (!(skipMissingRequest && error instanceof ApiResponseError && error.status === 410))
           this.handlers.error(error);
@@ -431,6 +548,106 @@ export class GameManager {
       this.synchronizing = false;
     }
   }
+  get canDetach(): boolean {
+    return (
+      this.active &&
+      (!!this.reference?.pendingAttach ||
+        (!!this._status &&
+          ![this._status.settings.black.uri, this._status.settings.white.uri].includes(
+            "es://human",
+          )))
+    );
+  }
+
+  detachJob(): void {
+    const ref = this.reference;
+    const status = this._status;
+    if (!ref || !this.canDetach) return;
+    const epoch =
+      status?.controllerEpoch ?? (ref.pendingAttach ? ref.pendingAttach.epoch + 1 : undefined);
+    if (ref.sessionId && epoch !== undefined)
+      storage.writeJournal({ ...ref, pendingDetach: { ownerId: ref.controllerId, epoch } });
+    storage.detach(ref);
+    this.release(ref.requestId, false);
+    this.reference = undefined;
+    this.pendingRequest = undefined;
+    if (ref.sessionId && epoch !== undefined)
+      void this.client
+        .detach(ref.sessionId, { ownerId: ref.controllerId, epoch })
+        .then(() => storage.forgetOperation(ref, "detach"))
+        .catch((error) => this.handlers.error(error));
+  }
+
+  async attach(
+    job: JobSummary,
+    confirmRecovery: () => Promise<boolean>,
+    confirmTakeover: () => Promise<boolean>,
+  ): Promise<boolean> {
+    if (this.active) return false;
+    let lifecycle = this.lifecycle;
+    if (job.attachment.attached && !(await confirmTakeover())) return false;
+    const caps = await this.client.capabilities();
+    if (lifecycle !== this.lifecycle) return false;
+    if (caps.serverInstanceId !== job.serverInstanceId)
+      throw new ApiResponseError(410, gameTexts().expired);
+    const preview = await this.client.snapshot(job.id);
+    if (lifecycle !== this.lifecycle) return false;
+    const local = durableContent(snapshotRecord(this.recordManager.record));
+    if (local !== durableContent(preview.record) && !(await confirmRecovery())) return false;
+    await this.recordManager.saveBackup();
+    if (lifecycle !== this.lifecycle) return false;
+    if (durableContent(snapshotRecord(this.recordManager.record)) !== local)
+      throw new Error(gameTexts().conflict);
+    this.background = false;
+    const controllerId = generateSessionId();
+    this.reference = {
+      requestId: job.requestId,
+      serverInstanceId: job.serverInstanceId,
+      sessionId: job.id,
+      controllerId,
+      content: durableContent(snapshotRecord(this.recordManager.record)),
+      pending: [],
+      pendingAttach: {
+        ownerId: controllerId,
+        epoch: job.attachment.epoch,
+        takeover: job.attachment.attached,
+      },
+    };
+    let snapshot: GameSnapshot | undefined;
+    try {
+      this.bind(job.requestId);
+      lifecycle = this.lifecycle;
+      this.persist();
+      snapshot = await this.client.attach(job.id, this.reference.pendingAttach!);
+      if (lifecycle !== this.lifecycle) {
+        void this.client
+          .detach(job.id, { ownerId: controllerId, epoch: snapshot.controllerEpoch })
+          .catch(() => {});
+        return false;
+      }
+      this.reference.pendingAttach = undefined;
+      this.reference.controllerEpoch = snapshot.controllerEpoch;
+      this.reference.recoveryId = snapshot.controllerRecoveryId;
+      storage.forgetOperation(this.reference, "attachment");
+      this.accept(snapshot, true);
+      if (this.active) this.connect();
+      return true;
+    } catch (error) {
+      if (lifecycle !== this.lifecycle) return false;
+      if (this.transient(error)) {
+        this.backoff(error);
+        this.schedule();
+        return true;
+      }
+      this.release(job.requestId, true);
+      if (snapshot)
+        void this.client
+          .detach(job.id, { ownerId: controllerId, epoch: snapshot.controllerEpoch })
+          .catch(() => {});
+      throw error;
+    }
+  }
+
   private connect(): void {
     const ref = this.reference;
     if (!ref?.sessionId || this.socket) return;
@@ -440,6 +657,7 @@ export class GameManager {
     url.searchParams.set("controllerId", ref.controllerId);
     this.controllerEpoch ??= this._status!.controllerEpoch;
     url.searchParams.set("connectionId", this.connectionId);
+    url.searchParams.set("screenId", SCREEN_ID);
     url.searchParams.set("controllerEpoch", String(this.controllerEpoch));
     const generation = ++this.generation;
     this.lastFrameAt = Date.now();
@@ -487,8 +705,9 @@ export class GameManager {
       this.handlers.stopBeep();
       clearInterval(this.heartbeatTimer);
       if (event.code === 4001) {
+        storage.detach(ref);
         this.release(ref.requestId, false);
-        this.handlers.error(new Error(gameTexts().conflict));
+        this.handlers.error(new Error(jobTexts(useAppSettings().language).transferred));
       } else if (event.code === 4004) {
         this.release(ref.requestId, true);
         this.handlers.error(new Error(gameTexts().expired));
@@ -575,9 +794,12 @@ export class GameManager {
     )
       throw new Error(gameTexts().invalid);
     if (
-      this.controllerEpoch !== undefined &&
-      snapshot.controllerEpoch > this.controllerEpoch &&
-      snapshot.controllerConnectionId !== this.connectionId
+      (snapshot.controllerOwnerId !== undefined &&
+        snapshot.controllerOwnerId !== ref.controllerId) ||
+      (ref.recoveryId !== undefined && snapshot.controllerRecoveryId !== ref.recoveryId) ||
+      (this.controllerEpoch !== undefined &&
+        snapshot.controllerEpoch > this.controllerEpoch &&
+        snapshot.controllerConnectionId !== this.connectionId)
     )
       throw new ApiResponseError(409, gameTexts().conflict);
     if (
@@ -603,6 +825,7 @@ export class GameManager {
       ref.content = durableContent(snapshotRecord(this.recordManager.record));
     }
     ref.sessionId = snapshot.sessionId;
+    ref.recoveryId = snapshot.controllerRecoveryId;
     if (snapshot.controllerConnectionId === this.connectionId) {
       this.controllerEpoch = snapshot.controllerEpoch;
       ref.connectionId = this.connectionId;
@@ -646,6 +869,8 @@ export class GameManager {
     this.finishing = true;
     try {
       flushRecordForWebApp(this.recordManager.record);
+      const ref = this.reference;
+      if (ref) forgetReference(ref);
       this.recordManager.endGame(snapshot.requestId);
       this.bindingToken = undefined;
       this.active = false;
@@ -653,10 +878,30 @@ export class GameManager {
       this.handlers.stopBeep();
       for (const id of Object.values(MONITOR_IDS)) setInfoSessionActive(id, false);
       this.connection.restored();
-      if (this.reference) forgetReference(this.reference);
       this.reference = undefined;
       this.pendingRequest = undefined;
       this.detach();
+      if (
+        ref?.sessionId &&
+        ![snapshot.settings.black.uri, snapshot.settings.white.uri].includes("es://human")
+      ) {
+        try {
+          const binding = { ownerId: ref.controllerId, epoch: snapshot.controllerEpoch };
+          storage.writeJournal({
+            ...ref,
+            pending: [],
+            stopRequested: undefined,
+            pendingAttach: undefined,
+            pendingDetach: binding,
+          });
+          void this.client
+            .detach(ref.sessionId, binding)
+            .then(() => storage.forgetOperation(ref, "detach"))
+            .catch((error) => this.handlers.error(error));
+        } catch (error) {
+          this.handlers.error(error);
+        }
+      }
       if (snapshot.error && snapshot.error !== "save")
         this.handlers.error(new Error(gameTexts(useAppSettings().language)[snapshot.error]));
       this.handlers.gameEnd(snapshot.results, snapshot.lastResult ?? SpecialMoveType.INTERRUPT);
@@ -673,6 +918,14 @@ export class GameManager {
     this.socketReady = false;
   }
   private release(token: string, clear: boolean): void {
+    if (clear && this.reference?.requestId === token) {
+      try {
+        forgetReference(this.reference);
+      } catch (error) {
+        clear = false;
+        this.handlers.error(error);
+      }
+    }
     ++this.lifecycle;
     this.detach();
     this.recordManager.endGame(token);
@@ -684,7 +937,6 @@ export class GameManager {
     this.handlers.stopBeep();
     for (const id of Object.values(MONITOR_IDS)) setInfoSessionActive(id, false);
     if (clear) {
-      if (this.reference?.requestId === token) forgetReference(this.reference);
       this.reference = undefined;
       this.pendingRequest = undefined;
     }
@@ -695,7 +947,6 @@ export class GameManager {
       status = this._status;
     if (!ref?.sessionId || !status || !this.socketReady || this.sending.has(command.requestId))
       return;
-    command.controllerEpoch = status.controllerEpoch;
     this.persist();
     this.sending.add(command.requestId);
     const lifecycle = this.lifecycle;
@@ -704,6 +955,8 @@ export class GameManager {
       if (this.reference !== ref || lifecycle !== this.lifecycle) return;
       ref.pending = ref.pending.filter((item) => item.requestId !== command.requestId);
       if (command.action === "interrupt") ref.stopRequested = false;
+      storage.forgetOperation(ref, command.requestId);
+      if (command.action === "interrupt") storage.forgetOperation(ref, "stop");
       this.persist();
       this.accept(response);
     } catch (error) {
@@ -713,6 +966,11 @@ export class GameManager {
         this.schedule();
       } else {
         ref.pending = ref.pending.filter((item) => item.requestId !== command.requestId);
+        storage.forgetOperation(ref, command.requestId);
+        if (command.action === "interrupt") {
+          ref.stopRequested = false;
+          storage.forgetOperation(ref, "stop");
+        }
         this.persist();
         if (error instanceof ApiResponseError && error.status === 409) {
           await this.synchronize();
@@ -740,6 +998,7 @@ export class GameManager {
       serverInstanceId: ref.serverInstanceId,
       controllerId: ref.controllerId,
       controllerEpoch: status.controllerEpoch,
+      recoveryId: status.controllerRecoveryId,
       gameId: status.gameId,
       interactionId: status.interactionId,
       action,
@@ -768,15 +1027,21 @@ export class GameManager {
   }
   stop(): void {
     if (!this.reference) return;
+    const previous = this.reference.stopRequested;
     this.reference.stopRequested = true;
     try {
-      this.persist();
+      storage.writeJournal(this.reference);
     } catch (error) {
+      this.reference.stopRequested = previous;
       this.handlers.error(error);
       return;
     }
-    if (this._status && this.socketReady)
-      void this.request("interrupt").catch((error) => this.handlers.error(error));
+    if (this._status)
+      void this.request("interrupt")
+        .then(() => {
+          if (!this.socketReady) this.schedule();
+        })
+        .catch((error) => this.handlers.error(error));
     else this.schedule();
   }
   dispose(): void {
