@@ -1,6 +1,7 @@
 import { flushPromises, shallowMount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { KifuSearchStatistics } from "@/common/file/kifu_statistics";
+import type { KifuSearchQuery } from "@/common/file/sfen_export";
 import { t } from "@/common/i18n";
 import KifuStatisticsDialog from "@/renderer/view/dialog/KifuStatisticsDialog.vue";
 import { useKifuStatistics } from "@/renderer/store/kifuStatistics";
@@ -19,7 +20,7 @@ const result = (total = 125): KifuSearchStatistics => ({
       ]
     : [],
 });
-const mountDialog = (search = { keyword: "executed" }, searchResultCount = 125) =>
+const mountDialog = (search: KifuSearchQuery = { keyword: "executed" }, searchResultCount = 125) =>
   shallowMount(KifuStatisticsDialog, {
     props: { search, searchResultCount },
     global: { stubs: { DialogFrame: { template: "<div><slot /></div>" } } },
@@ -45,6 +46,39 @@ describe("KifuStatisticsDialog", () => {
     await flushPromises();
     expect(getStatistics).toHaveBeenLastCalledWith({ keyword: "executed" });
     wrapper.unmount();
+  });
+
+  it("aggregates next moves for position search and keeps missing states apart", async () => {
+    getStatistics.mockResolvedValue({
+      ...result(3),
+      nextMoves: [
+        { move: "☗２五歩", count: 1 },
+        { move: "", count: 1 },
+        { move: null, count: 1 },
+      ],
+    });
+    const wrapper = mountDialog({ sfen: "position sfen" }, 3);
+    await flushPromises();
+    expect(wrapper.text()).toContain(t.nextMoves);
+    expect(wrapper.text()).toContain("☗２五歩");
+    expect(wrapper.text()).toContain(t.kifuNoContinuation);
+    expect(wrapper.text()).toContain(t.kifuNextMoveUnavailable);
+    expect(wrapper.text()).toContain("33.3%");
+    wrapper.unmount();
+  });
+
+  it("hides next moves outside position search or when they are missing", async () => {
+    getStatistics.mockResolvedValue({ ...result(), nextMoves: [{ move: "☗２五歩", count: 125 }] });
+    const wrapper = mountDialog();
+    await flushPromises();
+    expect(wrapper.text()).not.toContain(t.nextMoves);
+    wrapper.unmount();
+
+    getStatistics.mockResolvedValue(result());
+    const positionWrapper = mountDialog({ sfen: "position sfen" });
+    await flushPromises();
+    expect(positionWrapper.text()).not.toContain(t.nextMoves);
+    positionWrapper.unmount();
   });
 
   it("shows loading and keeps close available while the request is pending", async () => {

@@ -2,17 +2,29 @@ import { searchableStrategies, type SearchableStrategy } from "@/common/kifu/str
 
 export type KifuStatisticsStrategy = SearchableStrategy | "raw-only" | "unclassified";
 
+// move is the recorded continuation of the representative position: an empty
+// string means no continuation, and null means the next move is not indexed yet.
+export interface KifuStatisticsNextMove {
+  move: string | null;
+  count: number;
+}
+
 export interface KifuSearchStatistics {
   total: number;
   generatedAt: number;
   strategies: { strategy: KifuStatisticsStrategy; count: number }[];
   players: { name: string | null; black: number; white: number; total: number }[];
+  nextMoves?: KifuStatisticsNextMove[];
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+const isNextMove = (value: unknown): value is KifuStatisticsNextMove =>
+  isObject(value) &&
+  (typeof value.move === "string" || value.move === null) &&
+  isCount(value.count);
 
 export function decodeKifuSearchStatistics(value: unknown): KifuSearchStatistics | null {
   if (
@@ -44,10 +56,21 @@ export function decodeKifuSearchStatistics(value: unknown): KifuSearchStatistics
     )
   )
     return null;
+  if (value.nextMoves !== undefined) {
+    const nextMoves = value.nextMoves;
+    if (
+      !Array.isArray(nextMoves) ||
+      !nextMoves.every(isNextMove) ||
+      new Set(nextMoves.map((row: KifuStatisticsNextMove) => row.move)).size !== nextMoves.length
+    )
+      return null;
+  }
   const statistics = value as unknown as KifuSearchStatistics;
   if (
     statistics.strategies.reduce((sum, row) => sum + row.count, 0) !== statistics.total ||
-    statistics.players.reduce((sum, row) => sum + row.total, 0) !== statistics.total * 2
+    statistics.players.reduce((sum, row) => sum + row.total, 0) !== statistics.total * 2 ||
+    (statistics.nextMoves !== undefined &&
+      statistics.nextMoves.reduce((sum, row) => sum + row.count, 0) !== statistics.total)
   )
     return null;
   return statistics;
