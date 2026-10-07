@@ -10,7 +10,13 @@ vi.mock("html-to-image", () => ({
 
 describe("renderer/ipc/web", () => {
   it("retrieves and validates server-side statistics using the complete query", async () => {
-    const statistics = { total: 0, generatedAt: 100, strategies: [], players: [] };
+    const statistics = {
+      total: 1,
+      generatedAt: 100,
+      strategies: [{ strategy: "角換わり", count: 1 }],
+      players: [{ name: "A", black: 1, white: 1, total: 2 }],
+      nextMoves: [{ move: "☗２五歩", count: 1 }],
+    };
     const response = new Response(JSON.stringify(statistics), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -41,7 +47,12 @@ describe("renderer/ipc/web", () => {
         strategy: "unclassified",
       });
       request.mockResolvedValue(
-        new Response(JSON.stringify({ ...statistics, total: 1 }), { status: 200 }),
+        new Response(
+          JSON.stringify({ ...statistics, nextMoves: [{ move: "☗２五歩", count: 2 }] }),
+          {
+            status: 200,
+          },
+        ),
       );
       await expect(webAPI.getServerKifuStatistics({})).rejects.toThrow();
     } finally {

@@ -17,10 +17,11 @@ const kifuIndexMock = vi.hoisted(() => ({
   searchKifu: vi.fn(() => [] as unknown[]),
   getKifuSearchCount: vi.fn(() => 0),
   getKifuSearchStatistics: vi.fn(() => ({
-    total: 0,
+    total: 1,
     generatedAt: 100,
-    strategies: [],
-    players: [],
+    strategies: [{ strategy: "unclassified", count: 1 }],
+    players: [{ name: "A", black: 1, white: 1, total: 2 }],
+    nextMoves: [{ move: "☗２五歩", count: 1 }],
   })),
 }));
 
@@ -176,7 +177,13 @@ describe("Kifu search API", () => {
       { host },
     );
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ total: 0, generatedAt: 100, strategies: [], players: [] });
+    expect(response.body).toEqual({
+      total: 1,
+      generatedAt: 100,
+      strategies: [{ strategy: "unclassified", count: 1 }],
+      players: [{ name: "A", black: 1, white: 1, total: 2 }],
+      nextMoves: [{ move: "☗２五歩", count: 1 }],
+    });
     expect(kifuIndexMock.getKifuSearchStatistics).toHaveBeenCalledWith({
       sfen: "normalized sfen",
       sfenHash: 123n,

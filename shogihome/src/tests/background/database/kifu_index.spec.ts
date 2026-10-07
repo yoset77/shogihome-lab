@@ -431,6 +431,35 @@ describe("background/database/kifu_index", () => {
     });
   });
 
+  it("aggregates the representative next move per file for position search", () => {
+    upsertKifuFile(makeMetadata("mainline.kif"), [
+      { sfen_hash: 100n, sfen: "shared", ply: 4, next_move: "☗２五歩" },
+      // A repeated position does not add another next move for the same file.
+      { sfen_hash: 100n, sfen: "shared", ply: 8, next_move: "☗２四歩" },
+    ]);
+    // Variation representatives are counted by move only.
+    upsertKifuFile(makeMetadata("variation.kif"), [
+      { sfen_hash: 100n, sfen: "shared", ply: 2, next_move: "☗２五歩", is_variation: true },
+    ]);
+    upsertKifuFile(makeMetadata("finished.kif"), [
+      { sfen_hash: 100n, sfen: "shared", ply: 6, next_move: "" },
+    ]);
+    upsertKifuFile(makeMetadata("unavailable.kif"), [{ sfen_hash: 100n, sfen: "shared", ply: 1 }]);
+    upsertKifuFile(makeMetadata("other.kif"), [
+      { sfen_hash: 200n, sfen: "other", ply: 3, next_move: "☗５六歩" },
+    ]);
+
+    const statistics = getKifuSearchStatistics({ sfenHash: 100n, sfen: "shared" });
+    expect(statistics.total).toBe(4);
+    expect(statistics.nextMoves).toEqual([
+      { move: "☗２五歩", count: 2 },
+      { move: "", count: 1 },
+      { move: null, count: 1 },
+    ]);
+    expect(statistics.nextMoves?.reduce((sum, row) => sum + row.count, 0)).toBe(statistics.total);
+    expect(getKifuSearchStatistics({}).nextMoves).toBeUndefined();
+  });
+
   it("migrates version one without discarding strategies and distinguishes unavailable next moves", () => {
     upsertKifuFile(
       {

@@ -61,5 +61,14 @@ export function useKifuStatistics(search: KifuSearchQuery, searchResultCount: nu
             : "—",
         })) ?? [],
     ),
+    nextMoves: computed(
+      () =>
+        statistics.value?.nextMoves?.map((row) => ({
+          ...row,
+          percentage: statistics.value!.total
+            ? ((row.count * 100) / statistics.value!.total).toFixed(1)
+            : "—",
+        })) ?? [],
+    ),
   };
 }

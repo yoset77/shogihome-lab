@@ -571,8 +571,13 @@ export function getKifuSearchCount(params: KifuSearchParams): number {
 export function getKifuSearchStatistics(params: KifuSearchParams): KifuSearchStatistics {
   if (!db) throw new Error("Kifu index is unavailable");
   const search = buildKifuSearchSql(params);
+  // For position search, each matched file contributes exactly one representative
+  // row (PRIMARY KEY (kifu_id, position_id)), so next_move partitions every file.
+  const matchedColumns = `f.id, f.strategy, f.strategy_raw, f.black_name, f.white_name${
+    search.isPositionSearch ? ", kp.next_move" : ""
+  }`;
   const matched = `WITH matched AS (
-    SELECT DISTINCT f.id, f.strategy, f.strategy_raw, f.black_name, f.white_name
+    SELECT DISTINCT ${matchedColumns}
     ${search.from}${search.where}
   )`;
   db.exec("BEGIN");
@@ -600,12 +605,24 @@ export function getKifuSearchStatistics(params: KifuSearchParams): KifuSearchSta
     `,
       )
       .all(...search.args) as unknown as KifuSearchStatistics["players"];
+    const nextMoves = search.isPositionSearch
+      ? (db
+          .prepare(
+            `${matched}
+      SELECT next_move AS move, COUNT(*) AS count
+      FROM matched GROUP BY next_move
+      ORDER BY count DESC, next_move IS NULL, next_move ASC
+    `,
+          )
+          .all(...search.args) as unknown as NonNullable<KifuSearchStatistics["nextMoves"]>)
+      : undefined;
     db.exec("COMMIT");
     return {
       total: strategies.reduce((sum, row) => sum + row.count, 0),
       generatedAt: Date.now(),
       strategies,
       players,
+      ...(nextMoves ? { nextMoves } : {}),
     };
   } catch (error) {
     db.exec("ROLLBACK");

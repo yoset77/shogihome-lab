@@ -55,6 +55,28 @@
                 </tbody>
               </table>
             </section>
+            <section v-if="query.sfen && nextMoves.length > 0">
+              <h3>{{ t.nextMoves }}</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>{{ t.nextMoves }}</th>
+                    <th>{{ t.kifuStatisticsCount }}</th>
+                    <th>{{ t.kifuStatisticsRatio }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="row in nextMoves"
+                    :key="row.move === null ? 'unavailable' : `move:${row.move}`"
+                  >
+                    <td>{{ nextMoveName(row.move) }}</td>
+                    <td>{{ row.count }}</td>
+                    <td>{{ row.percentage }}%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
             <section>
               <h3>{{ t.playerName }}</h3>
               <table class="players">
@@ -128,6 +150,7 @@ const {
   pageCount,
   players,
   strategies,
+  nextMoves,
   countChanged,
   reload,
   dispose,
@@ -137,6 +160,11 @@ function strategyName(strategy: string): string {
   if (strategy === "raw-only") return t.kifuStatisticsRawStrategy;
   if (strategy === "unclassified") return t.unclassified;
   return getStrategyName(strategy);
+}
+
+function nextMoveName(move: string | null): string {
+  if (move === null) return t.kifuNextMoveUnavailable;
+  return move || t.kifuNoContinuation;
 }
 
 onMounted(reload);
