@@ -182,6 +182,7 @@ export class AnalysisManager {
   private background = false;
   private pendingRequest?: AnalysisJobRequest;
   private active = false;
+  private starting = false;
   private generation = 0;
   private timer?: ReturnType<typeof setTimeout>;
   private polling = false;
@@ -219,6 +220,9 @@ export class AnalysisManager {
 
   get isActive(): boolean {
     return this.active;
+  }
+  get isStarting(): boolean {
+    return this.starting;
   }
   get status(): AnalysisJobStatus | undefined {
     return this._status;
@@ -300,6 +304,7 @@ export class AnalysisManager {
     this.lastSearchId = 0;
     this.revision = 0;
     this.active = true;
+    this.starting = false;
     this._status = undefined;
     this._reconnecting = false;
     setInfoSessionActive(MONITOR_SESSION_ID, true);
@@ -319,6 +324,7 @@ export class AnalysisManager {
     this.background = background;
     this.connection.reset();
     const source = this.bind(requestId);
+    this.starting = !background;
     const generation = this.generation;
     try {
       const app = useAppSettings();
@@ -520,6 +526,7 @@ export class AnalysisManager {
       this.onError(error);
       return;
     }
+    this.starting = false;
     if (
       !this.polling &&
       !this.recovering &&
@@ -710,7 +717,10 @@ export class AnalysisManager {
     this._status = status;
     this.onStatus(status);
     const current = status.current;
-    if (!current) return;
+    if (!current) {
+      if (status.state !== "preparing" && status.state !== "running") this.starting = false;
+      return;
+    }
     const record = ShogiRecord.newByUSI(current.position);
     if (record instanceof Error) throw record;
     if (this.recordManager.navigationRevision !== this.lastNavigationRevision)
@@ -728,6 +738,7 @@ export class AnalysisManager {
     }
     for (const info of current.infos)
       dispatchUSIInfoUpdate(MONITOR_SESSION_ID, record.position, status.engineName, info);
+    if (status.state !== "preparing") this.starting = false;
   }
 
   private schedule(): void {
@@ -752,6 +763,7 @@ export class AnalysisManager {
   }
 
   private backoff(error: unknown): void {
+    this.starting = false;
     this.connection.lost();
     this._reconnecting = true;
     this.retryMs = Math.min(Math.max(this.retryMs, this.pollMs) * 2, Math.max(this.pollMs, 10_000));
@@ -891,6 +903,7 @@ export class AnalysisManager {
   }
 
   private release(token: string, forget: boolean): void {
+    this.starting = false;
     if (forget && this.reference?.requestId === token) forgetReference(this.reference);
     ++this.generation;
     clearTimeout(this.timer);

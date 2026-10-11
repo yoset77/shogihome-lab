@@ -156,7 +156,7 @@ export class AnalysisJob {
   private onOutput(id: string, searchId: number, line: string): void {
     if (
       this.controller.signal.aborted ||
-      this.state !== "running" ||
+      (this.state !== "running" && this.state !== "preparing") ||
       this.current?.searchId !== searchId
     )
       return;
@@ -267,7 +267,6 @@ export class AnalysisJob {
       );
       if (this.controller.signal.aborted) throw new Error("Analysis cancelled");
       this.engine.readyNewGame();
-      this.state = "running";
       for (let index = 0; index < this.targets.length; index++) {
         if (this.controller.signal.aborted) throw new Error("Analysis cancelled");
         const id = this.targets[index];
@@ -283,6 +282,8 @@ export class AnalysisJob {
           (line) => this.onOutput(id, searchId, line),
           this.controller.signal,
         );
+        if (this.controller.signal.aborted) throw new Error("Analysis cancelled");
+        this.state = "running";
         await this.waitForBudget(this.search);
         await this.search.stop();
         if (this.controller.signal.aborted) throw new Error("Analysis cancelled");
