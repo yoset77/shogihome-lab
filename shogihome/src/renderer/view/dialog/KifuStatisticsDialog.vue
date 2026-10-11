@@ -79,6 +79,7 @@
             </section>
             <section>
               <h3>{{ t.playerName }}</h3>
+              <p class="note">{{ t.kifuStatisticsTopPlayers(KIFU_STATISTICS_PLAYER_LIMIT) }}</p>
               <table class="players">
                 <thead>
                   <tr>
@@ -96,24 +97,15 @@
                     <td>{{ row.total }}</td>
                   </tr>
                 </tbody>
+                <tfoot v-if="otherPlayers && otherPlayers.total > 0">
+                  <tr>
+                    <td>{{ t.kifuStatisticsOtherPlayers }}</td>
+                    <td>{{ otherPlayers.black }}</td>
+                    <td>{{ otherPlayers.white }}</td>
+                    <td>{{ otherPlayers.total }}</td>
+                  </tr>
+                </tfoot>
               </table>
-              <div v-if="pageCount > 1" class="pagination row align-center">
-                <button
-                  :disabled="page === 0"
-                  :aria-label="t.kifuStatisticsPreviousPage"
-                  @click="page--"
-                >
-                  ‹
-                </button>
-                <span>{{ t.kifuStatisticsPage(page + 1, pageCount) }}</span>
-                <button
-                  :disabled="page + 1 >= pageCount"
-                  :aria-label="t.kifuStatisticsNextPage"
-                  @click="page++"
-                >
-                  ›
-                </button>
-              </div>
             </section>
             <details class="notes">
               <summary>{{ t.kifuStatisticsAbout }}</summary>
@@ -134,6 +126,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from "vue";
 import { t } from "@/common/i18n";
+import { KIFU_STATISTICS_PLAYER_LIMIT } from "@/common/file/kifu_statistics";
 import type { KifuSearchQuery } from "@/common/file/sfen_export";
 import { getStrategyName } from "@/common/kifu/strategy";
 import { useKifuStatistics } from "@/renderer/store/kifuStatistics";
@@ -146,9 +139,8 @@ const {
   statistics,
   loading,
   error,
-  page,
-  pageCount,
   players,
+  otherPlayers,
   strategies,
   nextMoves,
   countChanged,
@@ -246,12 +238,6 @@ td:first-child {
 .players th:first-child,
 .players td:first-child {
   width: 40%;
-}
-.pagination {
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
 }
 @media (max-width: 600px) {
   .root {

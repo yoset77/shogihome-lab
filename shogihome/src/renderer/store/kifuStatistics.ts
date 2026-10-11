@@ -4,13 +4,12 @@ import type { KifuSearchStatistics } from "@/common/file/kifu_statistics";
 import { t } from "@/common/i18n";
 import api from "@/renderer/ipc/api";
 
-export function useKifuStatistics(search: KifuSearchQuery, searchResultCount: number) {
+export function useKifuStatistics(search: KifuSearchQuery, initialSearchResultCount: number) {
+  // Snapshot the executed query and count for this dialog's lifetime.
   const query = { ...search };
   const statistics = ref<KifuSearchStatistics>();
   const loading = ref(false);
   const error = ref("");
-  const page = ref(0);
-  const pageSize = 50;
   let requestVersion = 0;
 
   async function reload() {
@@ -22,7 +21,6 @@ export function useKifuStatistics(search: KifuSearchQuery, searchResultCount: nu
       const result = await api.getServerKifuStatistics(query);
       if (version !== requestVersion) return;
       statistics.value = result;
-      page.value = 0;
     } catch (e) {
       if (version !== requestVersion) return;
       console.warn(e);
@@ -37,21 +35,15 @@ export function useKifuStatistics(search: KifuSearchQuery, searchResultCount: nu
     statistics,
     loading,
     error,
-    page,
     reload,
     dispose: () => {
       requestVersion++;
     },
     countChanged: computed(
-      () => statistics.value !== undefined && statistics.value.total !== searchResultCount,
+      () => statistics.value !== undefined && statistics.value.total !== initialSearchResultCount,
     ),
-    pageCount: computed(() =>
-      Math.max(1, Math.ceil((statistics.value?.players.length ?? 0) / pageSize)),
-    ),
-    players: computed(
-      () =>
-        statistics.value?.players.slice(page.value * pageSize, (page.value + 1) * pageSize) ?? [],
-    ),
+    players: computed(() => statistics.value?.players ?? []),
+    otherPlayers: computed(() => statistics.value?.otherPlayers),
     strategies: computed(
       () =>
         statistics.value?.strategies.map((row) => ({

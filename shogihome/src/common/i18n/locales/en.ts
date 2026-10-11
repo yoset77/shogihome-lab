@@ -914,9 +914,9 @@ export const en: Texts = {
   kifuStatisticsLoading: "Calculating…",
   kifuStatisticsFailed: "Could not retrieve statistics. Please recalculate.",
   recalculateKifuStatistics: "Recalculate",
-  kifuStatisticsPreviousPage: "Previous Page",
-  kifuStatisticsNextPage: "Next Page",
-  kifuStatisticsPage: (page: number, total: number) => `Page ${page} / ${total}`,
+  kifuStatisticsTopPlayers: (limit: number) =>
+    `Showing up to ${limit} players by number of appearances.`,
+  kifuStatisticsOtherPlayers: "Other players",
   kifuNoContinuation: "No continuation",
   kifuNextMoveUnavailable: "Not indexed yet",
   kifuVariation: "Variation",

@@ -2,7 +2,10 @@ import { DatabaseSync, type StatementSync } from "node:sqlite";
 import path from "node:path";
 import fs from "node:fs";
 import type { KifuSearchResult } from "@/common/file/record";
-import type { KifuSearchStatistics } from "@/common/file/kifu_statistics";
+import {
+  KIFU_STATISTICS_PLAYER_LIMIT,
+  type KifuSearchStatistics,
+} from "@/common/file/kifu_statistics";
 import {
   UNCLASSIFIED_STRATEGY,
   type SearchableStrategy,
@@ -526,18 +529,12 @@ export function searchKifu(params: KifuSearchParams) {
   const offset = params.offset ?? 0;
   const searchSql = buildKifuSearchSql(params);
 
-  let query = `SELECT f.id, f.file_path, f.mtime, f.size, f.black_name, f.white_name, f.start_date,
+  const query = `SELECT f.id, f.file_path, f.mtime, f.size, f.black_name, f.white_name, f.start_date,
     f.event, f.strategy, f.strategy_raw, f.strategy_source, f.indexed_at${
       searchSql.isPositionSearch
         ? ", kp.ply as matched_ply, p.sfen as matched_sfen, kp.next_move, kp.is_variation as matched_is_variation"
         : ""
-    }${searchSql.from}${searchSql.where}`;
-
-  if (searchSql.isPositionSearch) {
-    query += " GROUP BY f.id";
-  }
-
-  query += KIFU_SEARCH_ORDER + " LIMIT ? OFFSET ?";
+    }${searchSql.from}${searchSql.where}${KIFU_SEARCH_ORDER} LIMIT ? OFFSET ?`;
 
   try {
     const stmt = db.prepare(query);
@@ -577,7 +574,7 @@ export function getKifuSearchStatistics(params: KifuSearchParams): KifuSearchSta
     search.isPositionSearch ? ", kp.next_move" : ""
   }`;
   const matched = `WITH matched AS (
-    SELECT DISTINCT ${matchedColumns}
+    SELECT ${matchedColumns}
     ${search.from}${search.where}
   )`;
   db.exec("BEGIN");
@@ -592,6 +589,7 @@ export function getKifuSearchStatistics(params: KifuSearchParams): KifuSearchSta
     `,
       )
       .all(...search.args) as unknown as KifuSearchStatistics["strategies"];
+    const total = strategies.reduce((sum, row) => sum + row.count, 0);
     const players = db
       .prepare(
         `${matched}, appearances AS (
@@ -601,10 +599,22 @@ export function getKifuSearchStatistics(params: KifuSearchParams): KifuSearchSta
       SELECT CASE WHEN TRIM(COALESCE(white_name, '')) = '' THEN NULL ELSE white_name END AS name,
         0 AS black, 1 AS white FROM matched
     ) SELECT name, SUM(black) AS black, SUM(white) AS white, COUNT(*) AS total
-      FROM appearances GROUP BY name ORDER BY total DESC, name COLLATE BINARY ASC
+      FROM appearances GROUP BY name ORDER BY total DESC, name COLLATE BINARY ASC LIMIT ?
     `,
       )
-      .all(...search.args) as unknown as KifuSearchStatistics["players"];
+      .all(
+        ...search.args,
+        KIFU_STATISTICS_PLAYER_LIMIT,
+      ) as unknown as KifuSearchStatistics["players"];
+    // Each file contributes one appearance per side, including missing names.
+    const otherPlayers = players.reduce(
+      (remaining, row) => ({
+        black: remaining.black - row.black,
+        white: remaining.white - row.white,
+        total: remaining.total - row.total,
+      }),
+      { black: total, white: total, total: total * 2 },
+    );
     const nextMoves = search.isPositionSearch
       ? (db
           .prepare(
@@ -618,14 +628,19 @@ export function getKifuSearchStatistics(params: KifuSearchParams): KifuSearchSta
       : undefined;
     db.exec("COMMIT");
     return {
-      total: strategies.reduce((sum, row) => sum + row.count, 0),
+      total,
       generatedAt: Date.now(),
       strategies,
       players,
+      otherPlayers,
       ...(nextMoves ? { nextMoves } : {}),
     };
   } catch (error) {
-    db.exec("ROLLBACK");
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // Preserve the original statistics error.
+    }
     throw error;
   }
 }
@@ -633,11 +648,7 @@ export function getKifuSearchStatistics(params: KifuSearchParams): KifuSearchSta
 export function getKifuSearchFilePaths(params: KifuSearchParams): string[] {
   if (!db) return [];
   const searchSql = buildKifuSearchSql(params);
-  let query = `SELECT f.file_path${searchSql.from}${searchSql.where}`;
-  if (searchSql.isPositionSearch) {
-    query += " GROUP BY f.id";
-  }
-  query += KIFU_SEARCH_ORDER;
+  const query = `SELECT f.file_path${searchSql.from}${searchSql.where}${KIFU_SEARCH_ORDER}`;
 
   try {
     const rows = db.prepare(query).all(...searchSql.args) as { file_path: string }[];

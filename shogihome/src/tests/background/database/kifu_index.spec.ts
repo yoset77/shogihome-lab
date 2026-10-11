@@ -223,6 +223,32 @@ describe("background/database/kifu_index", () => {
     expect(results[0].matched_ply).toBe(10);
   });
 
+  it("preserves unique position matches and ordering with pagination and hash collisions", () => {
+    const positions = [
+      { sfen_hash: 200n, sfen: "shared", ply: 10, next_move: "☗２五歩" },
+      { sfen_hash: 200n, sfen: "shared", ply: 2, next_move: "☗５六歩" },
+    ];
+    for (const [filePath, startDate] of [
+      ["older.kif", "2024/05/01"],
+      ["latest.kif", "2024/05/03"],
+      ["newer.kif", "2024/05/02"],
+    ]) {
+      upsertKifuFile({ ...makeMetadata(filePath), start_date: startDate }, positions);
+    }
+    upsertKifuFile(makeMetadata("collision.kif"), [{ sfen_hash: 200n, sfen: "other", ply: 0 }]);
+
+    const query = { sfenHash: 200n, sfen: "shared" };
+    const paths = ["latest.kif", "newer.kif", "older.kif"];
+    const results = searchKifu(query);
+    expect(results.map((row) => row.file_path)).toEqual(paths);
+    for (const row of results) {
+      expect(row).toMatchObject({ matched_ply: 10, matched_sfen: "shared", next_move: "☗２五歩" });
+    }
+    expect(searchKifu({ ...query, limit: 1, offset: 1 })).toEqual([results[1]]);
+    expect(getKifuSearchCount(query)).toBe(3);
+    expect(getKifuSearchFilePaths({ ...query, limit: 1, offset: 1 })).toEqual(paths);
+  });
+
   it("should not include matched_ply when searching by keyword only", () => {
     const positions = [
       { sfen_hash: 100n, sfen: "pos1", ply: 0 },
@@ -357,6 +383,68 @@ describe("background/database/kifu_index", () => {
       { name: "Player A", black: 125, white: 0, total: 125 },
       { name: "Player B", black: 0, white: 125, total: 125 },
     ]);
+    expect(statistics.otherPlayers).toEqual({ black: 0, white: 0, total: 0 });
+  });
+
+  it.each([false, true])(
+    "returns the top fifty players and omitted appearances across all matching files (position search: %s)",
+    (isPositionSearch) => {
+      for (let index = 59; index >= 0; index -= 1) {
+        upsertKifuFile(
+          {
+            ...makeMetadata(`ranked-${index}.kif`),
+            black_name: `Player ${index.toString().padStart(2, "0")}`,
+            white_name: "Frequent",
+            event: "Ranked",
+          },
+          [
+            { sfen_hash: 100n, sfen: "shared", ply: 0, next_move: "☗７六歩" },
+            { sfen_hash: 100n, sfen: "shared", ply: 4, next_move: "☗２六歩" },
+          ],
+        );
+      }
+      upsertKifuFile(makeMetadata("outside.kif"), [{ sfen_hash: 100n, sfen: "shared", ply: 0 }]);
+
+      const statistics = getKifuSearchStatistics({
+        keyword: "Ranked",
+        ...(isPositionSearch ? { sfenHash: 100n, sfen: "shared" } : {}),
+        limit: 1,
+        offset: 100,
+      });
+      expect(statistics.total).toBe(60);
+      expect(statistics.strategies).toEqual([{ strategy: "unclassified", count: 60 }]);
+      expect(statistics.players).toEqual([
+        { name: "Frequent", black: 0, white: 60, total: 60 },
+        ...Array.from({ length: 49 }, (_, index) => ({
+          name: `Player ${index.toString().padStart(2, "0")}`,
+          black: 1,
+          white: 0,
+          total: 1,
+        })),
+      ]);
+      expect(statistics.otherPlayers).toEqual({ black: 11, white: 0, total: 11 });
+      expect(
+        statistics.players.reduce((sum, row) => sum + row.total, 0) + statistics.otherPlayers.total,
+      ).toBe(statistics.total * 2);
+      if (isPositionSearch) {
+        expect(statistics.nextMoves).toEqual([{ move: "☗７六歩", count: 60 }]);
+      } else {
+        expect(statistics.nextMoves).toBeUndefined();
+      }
+    },
+  );
+
+  it.each([0, 49, 50])("preserves player counts at the cap boundary for %i files", (fileCount) => {
+    for (let index = 0; index < fileCount; index += 1) {
+      upsertKifuFile(
+        { ...makeMetadata(`boundary-${index}.kif`), black_name: `Player ${index}` },
+        [],
+      );
+    }
+    const statistics = getKifuSearchStatistics({});
+    expect(statistics.players).toHaveLength(fileCount ? Math.min(fileCount + 1, 50) : 0);
+    const omitted = Math.max(0, fileCount - 49);
+    expect(statistics.otherPlayers).toEqual({ black: omitted, white: 0, total: omitted });
   });
 
   it("aggregates strategies and player appearances without merging names or missing metadata", () => {
@@ -394,6 +482,7 @@ describe("background/database/kifu_index", () => {
       { name: "A 九段", black: 1, white: 0, total: 1 },
       { name: "B", black: 0, white: 1, total: 1 },
     ]);
+    expect(statistics.otherPlayers).toEqual({ black: 0, white: 0, total: 0 });
     expect(getKifuSearchStatistics({ strategy: "unclassified" }).total).toBe(1);
     expect(getKifuSearchStatistics({ keyword: "not found" })).toMatchObject({
       total: 0,
@@ -459,6 +548,33 @@ describe("background/database/kifu_index", () => {
     expect(statistics.nextMoves?.reduce((sum, row) => sum + row.count, 0)).toBe(statistics.total);
     expect(getKifuSearchStatistics({}).nextMoves).toBeUndefined();
   });
+
+  it.each([false, true])(
+    "preserves the statistics error when rolling back (rollback failure: %s)",
+    (rollbackFails) => {
+      const statisticsError = new Error("statistics query failed");
+      const rollbackError = new Error("rollback failed");
+      const originalExec = DatabaseSync.prototype.exec;
+      const exec = vi.spyOn(DatabaseSync.prototype, "exec").mockImplementation(function (
+        this: DatabaseSync,
+        sql: string,
+      ) {
+        if (sql === "ROLLBACK" && rollbackFails) throw rollbackError;
+        return originalExec.call(this, sql);
+      });
+      const prepare = vi.spyOn(DatabaseSync.prototype, "prepare").mockImplementationOnce(() => {
+        throw statisticsError;
+      });
+
+      try {
+        expect(() => getKifuSearchStatistics({})).toThrow(statisticsError);
+        expect(exec).toHaveBeenCalledWith("ROLLBACK");
+      } finally {
+        prepare.mockRestore();
+        exec.mockRestore();
+      }
+    },
+  );
 
   it("migrates version one without discarding strategies and distinguishes unavailable next moves", () => {
     upsertKifuFile(

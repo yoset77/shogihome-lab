@@ -19,6 +19,7 @@ const result = (total = 125): KifuSearchStatistics => ({
         { name: null, black: 0, white: total, total },
       ]
     : [],
+  otherPlayers: { black: 0, white: 0, total: 0 },
 });
 const mountDialog = (search: KifuSearchQuery = { keyword: "executed" }, searchResultCount = 125) =>
   shallowMount(KifuStatisticsDialog, {
@@ -39,12 +40,31 @@ describe("KifuStatisticsDialog", () => {
     expect(wrapper.text()).toContain(t.kifuStatisticsTargetCount(125));
     expect(wrapper.text()).toContain("100.0%");
     expect(wrapper.text()).toContain(t.kifuStatisticsMissingPlayer);
+    expect(wrapper.find(".players tfoot").exists()).toBe(false);
     query.keyword = "edited";
     await wrapper.setProps({ search: { keyword: "new form" } });
     expect(getStatistics).toHaveBeenCalledTimes(1);
     await wrapper.find(".main-buttons button").trigger("click");
     await flushPromises();
     expect(getStatistics).toHaveBeenLastCalledWith({ keyword: "executed" });
+    wrapper.unmount();
+  });
+
+  it("keeps the executed search count as the recalculation baseline when props change", async () => {
+    const wrapper = mountDialog();
+    await flushPromises();
+    expect(wrapper.text()).not.toContain(t.kifuStatisticsCountChanged);
+    await wrapper.setProps({ search: { keyword: "new search" }, searchResultCount: 64 });
+    getStatistics.mockResolvedValue(result(64));
+    await wrapper.find(".main-buttons button").trigger("click");
+    await flushPromises();
+    expect(getStatistics).toHaveBeenLastCalledWith({ keyword: "executed" });
+    expect(wrapper.text()).toContain(t.kifuStatisticsCountChanged);
+
+    getStatistics.mockResolvedValue(result());
+    await wrapper.find(".main-buttons button").trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).not.toContain(t.kifuStatisticsCountChanged);
     wrapper.unmount();
   });
 
@@ -124,48 +144,42 @@ describe("KifuStatisticsDialog", () => {
     warn.mockRestore();
   });
 
-  it("paginates players in groups of fifty without changing aggregate totals", async () => {
+  it("shows the top fifty players and omitted appearances without pagination or changing totals", async () => {
     getStatistics.mockResolvedValue({
       ...result(60),
-      players: Array.from({ length: 60 }, (_, i) => ({
+      players: Array.from({ length: 50 }, (_, i) => ({
         name: `Player ${i}`,
         black: 1,
         white: 1,
         total: 2,
       })),
+      otherPlayers: { black: 10, white: 10, total: 20 },
     });
     const wrapper = mountDialog();
     await flushPromises();
     expect(wrapper.findAll(".players tbody tr")).toHaveLength(50);
-    await wrapper.findAll(".pagination button")[1].trigger("click");
-    expect(wrapper.findAll(".players tbody tr")).toHaveLength(10);
+    expect(wrapper.find(".pagination").exists()).toBe(false);
+    expect(wrapper.text()).toContain(t.kifuStatisticsTopPlayers(50));
+    expect(wrapper.findAll(".players tfoot td").map((cell) => cell.text())).toEqual([
+      t.kifuStatisticsOtherPlayers,
+      "10",
+      "10",
+      "20",
+    ]);
     expect(wrapper.text()).toContain(t.kifuStatisticsTargetCount(60));
     expect(getStatistics).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });
 
-  it("keeps the strategy caveat visible while collapsing secondary notes and pagination labels", async () => {
-    getStatistics.mockResolvedValue({
-      ...result(60),
-      players: Array.from({ length: 60 }, (_, i) => ({
-        name: `Player ${i}`,
-        black: 1,
-        white: 1,
-        total: 2,
-      })),
-    });
+  it("keeps the strategy caveat and player cap visible while collapsing secondary notes", async () => {
     const wrapper = mountDialog();
     await flushPromises();
     expect(wrapper.find("section p.note").text()).toBe(t.kifuStatisticsStrategyNote);
+    expect(wrapper.text()).toContain(t.kifuStatisticsTopPlayers(50));
     const notes = wrapper.find("details.notes");
     expect(notes.find("summary").text()).toBe(t.kifuStatisticsAbout);
     expect(notes.text()).toContain(t.kifuStatisticsFileNote);
     expect(notes.text()).toContain(t.kifuStatisticsPlayerNote);
-    const [previous, next] = wrapper.findAll(".pagination button");
-    expect(previous.text()).toBe("‹");
-    expect(previous.attributes("aria-label")).toBe(t.kifuStatisticsPreviousPage);
-    expect(next.text()).toBe("›");
-    expect(next.attributes("aria-label")).toBe(t.kifuStatisticsNextPage);
     wrapper.unmount();
   });
 

@@ -111,7 +111,7 @@ Host、Origin、body size、rate limit などのHTTP共通ポリシーは `shogi
 
 棋譜indexも既存のpath boundaryを使用し、設定したroot自体を除くsymlinkを追跡せず、通常の棋譜fileだけを読み込みます。Watcherはconfigured rootのreal pathを監視し、配下のsymlinkは追跡しません。Atomic writerの予約名前空間は監視からも除外し、内部lockの作成・削除で一覧やindexを再走査しません。監視対象から外れたfileの派生indexは同期時に削除します。Directory削除はfile削除と区別し、同じevent batchの再追加・変更を優先します。
 
-棋譜局面indexの走査・位置選択規則はCommonのkifu domain utilityが所有し、indexing、検索結果の次手、preview、棋譜openが同じ代表箇所を参照します。検索統計は一覧上限に依存しない検索条件全体の集計をServerのDBが担当します。詳細は [Server Kifu Search](docs/features/server-kifu-search.md) を参照してください。
+棋譜局面indexの走査・位置選択規則はCommonのkifu domain utilityが所有し、indexing、検索結果の次手、preview、棋譜openが同じ代表箇所を参照します。検索統計は一覧上限に依存しない検索条件全体の集計をServerのDBが担当します。対局者は集計後の上位件数と省略分の登場件数を返し、共有decoderが全体との整合性を検証します。詳細は [Server Kifu Search](docs/features/server-kifu-search.md) を参照してください。
 
 JSON object bodyの解析と形状検証は `shogihome/src/server/routes/body.ts` を共有し、不正JSONやobject以外のbodyを400として拒否します。`shogihome/src/server/errors.ts` は独自の `HttpError` とHonoの `HTTPException` のstatusを維持し、エラー本文を安全なtext/plainとして返します。想定外のHTTPエラー詳細はserver logに留め、APIには固定の500応答を返します。利用者が指定したファイルの欠落は読み込み境界で404として扱います。
 

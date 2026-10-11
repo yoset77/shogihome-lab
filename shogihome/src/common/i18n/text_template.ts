@@ -845,9 +845,8 @@ export type Texts = {
   kifuStatisticsLoading: string;
   kifuStatisticsFailed: string;
   recalculateKifuStatistics: string;
-  kifuStatisticsPreviousPage: string;
-  kifuStatisticsNextPage: string;
-  kifuStatisticsPage: (page: number, total: number) => string;
+  kifuStatisticsTopPlayers: (limit: number) => string;
+  kifuStatisticsOtherPlayers: string;
   kifuNoContinuation: string;
   kifuNextMoveUnavailable: string;
   kifuVariation: string;
