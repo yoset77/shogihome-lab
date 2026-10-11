@@ -598,6 +598,41 @@ describe("store/index", () => {
     expect(store.candidates).toHaveLength(0);
   });
 
+  it("uses the game display position without changing the record or showing stale candidate arrows", async () => {
+    vi.useFakeTimers();
+    mockAPI.saveGameSettings.mockResolvedValue();
+    mockGameManager.prototype.start.mockResolvedValue();
+    const store = createStore();
+    const confirmed = store.record.position;
+    const preview = confirmed.clone();
+    const move = preview.createMoveByUSI("7g7f")!;
+    preview.doMove(move);
+    const displayPosition = vi
+      .spyOn(GameManager.prototype, "displayPosition", "get")
+      .mockReturnValue(preview);
+    const displayLastMove = vi
+      .spyOn(GameManager.prototype, "displayLastMove", "get")
+      .mockReturnValue(move);
+    try {
+      store.updateUSIInfo(101, confirmed, "Engine", { depth: 8, scoreCP: 65, pv: ["7g7f"] });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(store.candidates.map((candidate) => candidate.usi)).toEqual(["7g7f"]);
+      expect(store.boardPosition.sfen).toBe(confirmed.sfen);
+      expect(store.boardLastMove).toBeUndefined();
+      store.startGame(gameSettings10m30s);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(store.appState).toBe(AppState.GAME);
+      expect(store.boardPosition.sfen).toBe(preview.sfen);
+      expect(store.boardLastMove?.usi).toBe("7g7f");
+      expect(store.record.current.ply).toBe(0);
+      expect(store.record.position.sfen).toBe(confirmed.sfen);
+      expect(store.candidates).toEqual([]);
+    } finally {
+      displayPosition.mockRestore();
+      displayLastMove.mockRestore();
+    }
+  });
+
   it("startGame/success", async () => {
     mockAPI.saveGameSettings.mockResolvedValue();
     mockGameManager.prototype.start.mockResolvedValue();

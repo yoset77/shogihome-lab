@@ -1,4 +1,4 @@
-import { Record, Move, importKIF, Color } from "tsshogi";
+import { Record, Move, Position, SpecialMoveType, importKIF, Color } from "tsshogi";
 import { reactive, markRaw } from "vue";
 import { GameManager } from "@/renderer/store/game";
 import { RecordManager } from "@/renderer/store/record";
@@ -233,6 +233,18 @@ describe("game session client", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(value.error.mock.calls).toEqual([]);
     expect(value.game.canMove).toBe(true);
+  }
+
+  function delayCommand(value: ReturnType<typeof setup>) {
+    let deliver!: () => void;
+    const original = value.client.command.getMockImplementation()!;
+    value.client.command.mockImplementationOnce(async (id, command) => {
+      await new Promise<void>((resolve) => {
+        deliver = resolve;
+      });
+      return original(id, command);
+    });
+    return () => deliver();
   }
 
   async function gameWithBothEnginePVs(repeat = 1) {
@@ -724,7 +736,7 @@ describe("game session client", () => {
     expect(value.error).toHaveBeenCalledOnce();
   });
 
-  it("uses server-confirmed moves, locks edits and navigates only after game completion", async () => {
+  it("previews delayed human moves without changing the confirmed record or its edit lock", async () => {
     const value = fixture();
     await start(value);
     const { game, records, client } = value;
@@ -739,11 +751,23 @@ describe("game session client", () => {
     });
     const move = game.move(records.record.position.createMoveByUSI("7g7f")!);
     expect(records.record.current.ply).toBe(0);
+    expect(game.displayPosition.sfen).not.toBe(records.record.position.sfen);
+    expect(game.displayLastMove?.usi).toBe("7g7f");
+    expect(value.session().snapshot().record.nodes).toHaveLength(1);
+    expect(loadRecordForWebApp()!.current.ply).toBe(0);
+    expect(value.beat).toHaveBeenCalledOnce();
     expect(game.canMove).toBe(false);
+    expect(game.canTakeback).toBe(false);
+    await game.move(records.record.position.createMoveByUSI("2g2f")!);
+    expect(
+      client.command.mock.calls.filter(([, command]) => command.action === "move"),
+    ).toHaveLength(1);
     complete();
     await move;
     await vi.advanceTimersByTimeAsync(0);
     expect(records.record.current.ply).toBe(1);
+    expect(game.displayPosition.sfen).toBe(records.record.position.sfen);
+    expect(value.beat).toHaveBeenCalledOnce();
     records.goBack();
     expect(records.record.current.ply).toBe(1);
     const jump = vi.spyOn(records.record as Record, "jumpToBookmark");
@@ -777,11 +801,210 @@ describe("game session client", () => {
     expect(value.beat.mock.calls.length).toBeLessThanOrEqual(1);
   });
 
+  it.each([
+    ["promotion and capture", "4k4/4p4/4P4/9/9/9/9/9/4K4 b - 1", "5c5b+"],
+    ["drop", "4k4/9/9/9/9/9/9/9/4K4 b P 1", "P*7f"],
+    ["white move", "4k4/9/9/9/9/9/4p4/9/4K4 w - 1", "5g5h+"],
+  ])("previews %s with the correct board and hands", async (_label, sfen, usi) => {
+    const value = fixture();
+    (value.records.record as Record).clear(Position.newBySFEN(sfen)!);
+    value.settings.startPosition = "current";
+    await start(value);
+    const deliver = delayCommand(value);
+    const expected = value.records.record.position.clone();
+    const move = expected.createMoveByUSI(usi)!;
+    expect(expected.doMove(move)).toBe(true);
+    const moving = value.game.move(move);
+    expect(value.game.displayPosition.sfen).toBe(expected.sfen);
+    expect(value.game.displayLastMove?.usi).toBe(usi);
+    expect(value.records.record.position.sfen).toBe(sfen);
+    expect(value.beat).toHaveBeenCalledOnce();
+    deliver();
+    await moving;
+    expect(value.records.record.position.sfen).toBe(expected.sfen);
+    expect(value.beat).toHaveBeenCalledOnce();
+  });
+
+  it("does not preview illegal moves or send them to the server", async () => {
+    const value = fixture();
+    await start(value);
+    const calls = value.client.command.mock.calls.length;
+    await expect(
+      value.game.move(value.records.record.position.createMoveByUSI("7g7e")!),
+    ).rejects.toThrow(t.gameInvalid);
+    expect(value.game.displayPosition.sfen).toBe(value.records.record.position.sfen);
+    expect(value.game.displayLastMove).toBeUndefined();
+    expect(value.game.canMove).toBe(true);
+    expect(value.client.command).toHaveBeenCalledTimes(calls);
+    expect(value.beat).not.toHaveBeenCalled();
+  });
+
+  it("requires the durable move journal before previewing or sending a move", async () => {
+    const value = fixture();
+    await start(value);
+    const calls = value.client.command.mock.calls.length;
+    const storage = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("Storage full");
+    });
+    await expect(
+      value.game.move(value.records.record.position.createMoveByUSI("7g7f")!),
+    ).rejects.toThrow("Storage full");
+    expect(value.game.displayPosition.sfen).toBe(value.records.record.position.sfen);
+    expect(value.game.canMove).toBe(true);
+    expect(value.client.command).toHaveBeenCalledTimes(calls);
+    expect(value.beat).not.toHaveBeenCalled();
+    storage.mockRestore();
+  });
+
+  it.each([400, 409])(
+    "discards the preview when the server rejects the move with %s",
+    async (status) => {
+      const value = fixture();
+      await start(value);
+      let reject!: () => void;
+      value.client.command.mockImplementationOnce(async () => {
+        await new Promise<void>((resolve) => {
+          reject = resolve;
+        });
+        throw new ApiResponseError(status, "Move rejected");
+      });
+      const moving = value.game.move(value.records.record.position.createMoveByUSI("7g7f")!);
+      expect(value.game.displayLastMove?.usi).toBe("7g7f");
+      reject();
+      if (status === 400) await expect(moving).rejects.toMatchObject({ status });
+      else await moving;
+      expect(value.game.displayPosition.sfen).toBe(value.records.record.position.sfen);
+      expect(value.game.displayLastMove).toBeUndefined();
+      expect(value.game.canMove).toBe(true);
+      expect(value.beat).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("keeps the preview across same-turn snapshots, clock frames and selected future branches", async () => {
+    const value = fixture();
+    value.records.appendMove({ move: value.records.record.position.createMoveByUSI("7g7f")! });
+    value.records.goBack();
+    value.settings.startPosition = "current";
+    await start(value);
+    const deliver = delayCommand(value);
+    const moving = value.game.move(value.records.record.position.createMoveByUSI("7g7f")!);
+    const expected = value.game.displayPosition.sfen;
+    const snapshot = value.session().snapshot();
+    expect(snapshot.record.selectedPath).toHaveLength(2);
+    snapshot.revision += 1;
+    snapshot.recordRevision += 1;
+    snapshot.record.nodes[0].comment = "Server annotation";
+    value.sockets.at(-1)!.onmessage!({
+      data: JSON.stringify({ type: "snapshot", value: snapshot }),
+    });
+    expect(value.records.record.current.comment).toBe("Server annotation");
+    expect(value.records.record.current.ply).toBe(0);
+    expect(value.game.displayPosition.sfen).toBe(expected);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(value.game.displayPosition.sfen).toBe(expected);
+    expect(value.beat).toHaveBeenCalledOnce();
+    deliver();
+    await moving;
+    expect(value.records.record.current.ply).toBe(1);
+    expect(value.beat).toHaveBeenCalledOnce();
+  });
+
+  it("accepts WebSocket confirmation and an engine reply before a stale HTTP response", async () => {
+    const value = fixture();
+    await start(value, true);
+    let respond!: () => void;
+    const original = value.client.command.getMockImplementation()!;
+    value.client.command.mockImplementationOnce(async (id, command) => {
+      const response = await original(id, command);
+      await new Promise<void>((resolve) => {
+        respond = resolve;
+      });
+      return response;
+    });
+    const moving = value.game.move(value.records.record.position.createMoveByUSI("7g7f")!);
+    expect(value.beat).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(value.records.record.current.ply).toBe(1);
+    expect(value.game.displayPosition.sfen).toBe(value.records.record.position.sfen);
+    expect(value.beat).toHaveBeenCalledOnce();
+    value.searches[0].handler.onMove(value.records.record.position.createMoveByUSI("3c3d")!);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(value.game.displayLastMove?.usi).toBe("3c3d");
+    expect(value.beat).toHaveBeenCalledTimes(2);
+    respond();
+    await moving;
+    expect(value.records.record.current.ply).toBe(2);
+    expect(value.game.displayLastMove?.usi).toBe("3c3d");
+    expect(value.beat).toHaveBeenCalledTimes(2);
+  });
+
+  it("reconciles a snapshot containing both the human move and the engine reply", async () => {
+    const value = fixture();
+    await start(value, true);
+    const socket = value.sockets.at(-1)!;
+    const receive = socket.onmessage!;
+    socket.onmessage = (event) => {
+      if (JSON.parse(event.data).type !== "snapshot") receive(event);
+    };
+    const original = value.client.command.getMockImplementation()!;
+    value.client.command.mockImplementationOnce(async (id, command) => {
+      await original(id, command);
+      const position = (Record.newByUSI(value.searches[0].usi) as Record).position;
+      value.searches[0].handler.onMove(position.createMoveByUSI("3c3d")!);
+      return value.session().snapshot();
+    });
+    const moving = value.game.move(value.records.record.position.createMoveByUSI("7g7f")!);
+    expect(value.beat).toHaveBeenCalledOnce();
+    await moving;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(value.records.record.current.ply).toBe(2);
+    expect(value.game.displayPosition.sfen).toBe(value.records.record.position.sfen);
+    expect(value.game.displayLastMove?.usi).toBe("3c3d");
+    expect(value.beat).toHaveBeenCalledTimes(2);
+  });
+
+  it("discards an unconfirmed preview on timeout without adding it to the final record", async () => {
+    const value = fixture();
+    value.settings.timeLimit = { timeSeconds: 1, byoyomi: 0, increment: 0 };
+    await start(value, true);
+    const deliver = delayCommand(value);
+    const moving = value.game.move(value.records.record.position.createMoveByUSI("7g7f")!);
+    expect(value.game.displayLastMove?.usi).toBe("7g7f");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(value.game.isActive).toBe(false);
+    expect(value.records.record.current.move).toEqual({ type: SpecialMoveType.TIMEOUT });
+    expect(value.game.displayLastMove).toBeUndefined();
+    expect(value.game.displayPosition.sfen).toBe(value.records.record.position.sfen);
+    deliver();
+    await moving;
+    expect(value.records.record.moves.some((node) => node.move instanceof Move)).toBe(false);
+    expect(value.beat).toHaveBeenCalledOnce();
+  });
+
+  it("clears the preview on disposal and ignores a late move response", async () => {
+    const value = fixture();
+    await start(value);
+    const deliver = delayCommand(value);
+    const moving = value.game.move(value.records.record.position.createMoveByUSI("7g7f")!);
+    expect(value.game.displayLastMove?.usi).toBe("7g7f");
+    value.game.dispose();
+    expect(value.game.displayPosition.sfen).toBe(value.records.record.position.sfen);
+    expect(value.game.displayLastMove).toBeUndefined();
+    deliver();
+    await moving;
+    expect(value.game.isActive).toBe(false);
+    expect(value.game.displayLastMove).toBeUndefined();
+    expect(value.records.record.current.ply).toBe(0);
+  });
+
   it("never rewrites an undelivered move after reconnect changes the turn generation", async () => {
     const value = fixture();
     await start(value);
     value.client.command.mockRejectedValueOnce(new TypeError("Move not delivered"));
     await value.game.move(value.records.record.position.createMoveByUSI("7g7f")!);
+    expect(value.records.record.current.ply).toBe(0);
+    expect(value.game.displayLastMove?.usi).toBe("7g7f");
+    expect(value.game.canMove).toBe(false);
     await vi.advanceTimersByTimeAsync(1100);
     const attempts = value.client.command.mock.calls.filter(
       ([, command]) => command.action === "move",
@@ -790,6 +1013,9 @@ describe("game session client", () => {
     expect(attempts[0][1]).toEqual(attempts[1][1]);
     expect(value.records.record.current.ply).toBe(0);
     expect(value.session().snapshot().record.nodes).toHaveLength(1);
+    expect(value.game.displayPosition.sfen).toBe(value.records.record.position.sfen);
+    expect(value.game.displayLastMove).toBeUndefined();
+    expect(value.beat).toHaveBeenCalledOnce();
   });
 
   it("notifies once per outage and only announces recovery after synchronization", async () => {

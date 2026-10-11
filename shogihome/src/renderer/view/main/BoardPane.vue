@@ -14,8 +14,8 @@
       :piece-image-url-template="getPieceImageURLTemplate(appSettings)"
       :king-piece-type="appSettings.kingPieceType"
       :max-size="maxSize"
-      :position="store.record.position"
-      :last-move="lastMove"
+      :position="store.boardPosition"
+      :last-move="store.boardLastMove"
       :candidates="store.candidates"
       :flip="appSettings.boardFlipping"
       :hide-clock="store.appState !== AppState.GAME"
@@ -55,7 +55,7 @@
 import { t } from "@/common/i18n";
 import { computed, PropType } from "vue";
 import BoardView from "@/renderer/view/primitive/BoardView.vue";
-import { Move, getBlackPlayerName, getWhitePlayerName } from "tsshogi";
+import { type Move, getBlackPlayerName, getWhitePlayerName } from "tsshogi";
 import { RectSize } from "@/common/assets/geometry.js";
 import { useStore } from "@/renderer/store";
 import ControlPane, { ControlGroup } from "@/renderer/view/main/ControlPane.vue";
@@ -107,11 +107,6 @@ const onMove = (move: Move) => {
     store.doMove(move);
   }
 };
-
-const lastMove = computed(() => {
-  const move = store.record.current.move;
-  return move instanceof Move ? move : undefined;
-});
 
 const blackPlayerName = computed(() => getBlackPlayerName(store.record.metadata) || t.sente);
 const whitePlayerName = computed(() => getWhitePlayerName(store.record.metadata) || t.gote);
