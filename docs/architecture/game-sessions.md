@@ -11,7 +11,7 @@
 | [`server/game/session.ts`](../../shogihome/src/server/game/session.ts)       | 固定入力、棋譜・時計 snapshot、操作の冪等性、接続の制御権、各局の保存・履歴登録 |
 | [`server/game/manager.ts`](../../shogihome/src/server/game/manager.ts)       | 作成要求の解決、実行数・保持期間の制約、session cleanup                         |
 | [`server/game/player.ts`](../../shogihome/src/server/game/player.ts)         | 人間／LAN player、内部 engine session と外部定跡の寿命・取消                    |
-| [`renderer/store/game.ts`](../../shogihome/src/renderer/store/game.ts)       | 操作要求、同期、reload 復元、時計の表示、対局中の文書編集 lock                  |
+| [`renderer/store/game.ts`](../../shogihome/src/renderer/store/game.ts)       | 操作要求、同期、着手プレビュー、reload 復元、時計の表示、対局中の文書編集 lock  |
 
 USI 遷移は player に複製せず、[`engine/internal.ts`](../../shogihome/src/server/engine/internal.ts) を通じて `EngineSession` を使用します。対局用の内部 session は公開 relay の registry へ登録しません。通常検討・詰み探索は Browser 側の既存経路に残ります。Engine 境界は [Remote Engine Architecture](remote-engine.md) を参照してください。
 
@@ -48,6 +48,7 @@ Browser 側の検討注釈は専用 WebSocket から送り、対局・手番・n
 - AI 同士の対局は Server の一覧から別端末でも発見・アタッチできます。同時アタッチは一画面とし、既存画面からの移譲は明示確認と世代照合を伴います。移譲では操作用識別子を置換し、旧 socket と未確認操作を新しい制御権へ自動で付け替えません。
 - 接続の世代と、Server 発行の復帰権限の識別子を区別します。同じ権限での安全な再接続では元の操作を変更せず照合でき、端末への移譲ではその権限も置換します。結果照合の HTTP API は操作を再実行せず、別 tab の台帳からも未確認要求を整理できます。
 - Snapshot の revision と node ID で棋譜を同期し、古い snapshot で現在の状態を上書きしません。
+- 人間の着手は、確定棋譜とは別の表示用局面に即時反映します。未確認要求の記録後にだけプレビューし、確認中は追加の着手・待ったを受け付けません。同じ手番の更新では維持し、元 node と実際の棋譜進行を照合して確定表示へ収束させます。拒否・手番変更・終局・制御権喪失では破棄し、通信失敗だけでは未採用と決めません。プレビューは棋譜保存、注釈、エンジン進行、時計・終局判定の入力にしません。
 - 通信障害や rate limit では復元用識別子、未確認操作、文書 lock を保持して再試行します。失効や Server 再起動を新しい対局の自動作成へ変換しません。
 - アタッチ復帰情報は sessionStorage、未確認の作成要求・操作・停止要求は localStorage の独立した台帳が所有します。台帳だけから自動アタッチせず、別 tab の開始失敗で他の要求を削除しません。同時作成の競合は Server の実行数制約で拒否します。旧 linkage は台帳へ移行し、復帰意図へ自動変換しません。
 - [`renderer/store/job_tab_guard.ts`](../../shogihome/src/renderer/store/job_tab_guard.ts) は同じ origin の生存画面を照合し、複製された sessionStorage からの復帰を抑止します。Server も画面識別子を照合し、生存画面への自動接続置換は許可しません。安全性を確認できない Browser では一覧からの明示操作を使います。

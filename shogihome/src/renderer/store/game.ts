@@ -1,4 +1,4 @@
-import { Color, Move, SpecialMoveType } from "tsshogi";
+import { Color, Move, SpecialMoveType, type ImmutablePosition } from "tsshogi";
 import { defaultGameSettings, type GameSettings } from "@/common/settings/game";
 import { newGameResults, type GameResults } from "@/common/game/results";
 import {
@@ -72,6 +72,15 @@ type Reference = {
   stopRequested?: boolean;
   pendingAttach?: JobAttachRequest;
   pendingDetach?: JobBinding;
+};
+type MovePreview = {
+  requestId: string;
+  gameId: string;
+  interactionId: number;
+  nodeId: string;
+  lastMoveId: number;
+  position: ImmutablePosition;
+  move: Move;
 };
 type Handlers = {
   gameEnd: (results: GameResults, result: SpecialMoveType) => void;
@@ -185,6 +194,7 @@ export class GameManager {
   private background = false;
   private pendingRequest?: GameSessionRequest;
   private _status?: GameSnapshot;
+  private movePreview?: MovePreview;
   private active = false;
   private socket?: WebSocket;
   private socketReady = false;
@@ -242,6 +252,13 @@ export class GameManager {
   }
   get status(): GameSnapshot | undefined {
     return this._status;
+  }
+  get displayPosition(): ImmutablePosition {
+    return this.movePreview?.position ?? this.recordManager.record.position;
+  }
+  get displayLastMove(): Move | undefined {
+    const move = this.movePreview?.move ?? this.recordManager.record.current.move;
+    return move instanceof Move ? move : undefined;
   }
   get isActive(): boolean {
     return this.active;
@@ -371,6 +388,7 @@ export class GameManager {
     this.finished = false;
     this.connection.reset();
     this._status = undefined;
+    this.movePreview = undefined;
     this.connectionId = generateSessionId();
     this.controllerEpoch = undefined;
     this.lastMoveId = 0;
@@ -834,6 +852,7 @@ export class GameManager {
       flushRecordForWebApp(this.recordManager.record);
       ref.content = durableContent(snapshotRecord(this.recordManager.record));
     }
+    const previewedMoveId = this.reconcileMovePreview(snapshot);
     ref.sessionId = snapshot.sessionId;
     ref.recoveryId = snapshot.controllerRecoveryId;
     if (snapshot.controllerConnectionId === this.connectionId) {
@@ -847,7 +866,9 @@ export class GameManager {
     this.updateClocks(snapshot.clocks, silent);
     if (
       !silent &&
-      snapshot.lastMoveId === this.lastMoveId + 1 &&
+      (snapshot.lastMoveId === this.lastMoveId + 1 ||
+        (previewedMoveId !== undefined && snapshot.lastMoveId > previewedMoveId)) &&
+      snapshot.lastMoveId !== previewedMoveId &&
       this.recordManager.record.current.move instanceof Move
     )
       this.handlers.pieceBeat();
@@ -874,6 +895,33 @@ export class GameManager {
       this.finish(snapshot);
     }
   }
+  private reconcileMovePreview(snapshot: GameSnapshot): number | undefined {
+    const preview = this.movePreview;
+    if (!preview) return;
+    const { record } = snapshot;
+    const baseIndex = record.selectedPath.indexOf(preview.nodeId);
+    const currentIndex = record.selectedPath.indexOf(record.currentId);
+    const next = record.nodes.find((node) => node.id === record.selectedPath[baseIndex + 1]);
+    // A selected future branch alone is not evidence that the move was played.
+    const confirmed =
+      snapshot.gameId === preview.gameId &&
+      snapshot.lastMoveId > preview.lastMoveId &&
+      baseIndex >= 0 &&
+      currentIndex > baseIndex &&
+      next?.parentId === preview.nodeId &&
+      next.move === preview.move.usi;
+    const sameTurn =
+      snapshot.gameId === preview.gameId &&
+      snapshot.interactionId === preview.interactionId &&
+      snapshot.state === "running" &&
+      record.currentId === preview.nodeId &&
+      snapshot.lastMoveId === preview.lastMoveId;
+    if (confirmed || !sameTurn) this.movePreview = undefined;
+    return confirmed ? preview.lastMoveId + 1 : undefined;
+  }
+  private clearMovePreview(requestId: string): void {
+    if (this.movePreview?.requestId === requestId) this.movePreview = undefined;
+  }
   private finish(snapshot: GameSnapshot): void {
     if (this.finishing || this.finished) return;
     this.finishing = true;
@@ -883,6 +931,7 @@ export class GameManager {
       if (ref) forgetReference(ref);
       this.recordManager.endGame(snapshot.requestId);
       this.bindingToken = undefined;
+      this.movePreview = undefined;
       this.active = false;
       this.finished = true;
       this.handlers.stopBeep();
@@ -940,6 +989,7 @@ export class GameManager {
     this.detach();
     this.recordManager.endGame(token);
     this.bindingToken = undefined;
+    this.movePreview = undefined;
     this.active = false;
     this.connection.reset();
     this.blackClock.pause();
@@ -969,12 +1019,14 @@ export class GameManager {
       if (command.action === "interrupt") storage.forgetOperation(ref, "stop");
       this.persist();
       this.accept(response);
+      this.clearMovePreview(command.requestId);
     } catch (error) {
       if (this.reference !== ref || lifecycle !== this.lifecycle) return;
       if (this.transient(error)) {
         this.backoff(error);
         this.schedule();
       } else {
+        this.clearMovePreview(command.requestId);
         ref.pending = ref.pending.filter((item) => item.requestId !== command.requestId);
         storage.forgetOperation(ref, command.requestId);
         if (command.action === "interrupt") {
@@ -998,6 +1050,7 @@ export class GameManager {
   private async request(
     action: GameCommandAction,
     fields: Partial<GameCommand> = {},
+    preview?: Pick<MovePreview, "position" | "move">,
   ): Promise<void> {
     const ref = this.reference,
       status = this._status;
@@ -1018,13 +1071,28 @@ export class GameManager {
     try {
       this.persist();
     } catch (error) {
-      ref.pending = ref.pending.filter((item) => item !== command);
+      ref.pending = ref.pending.filter((item) => item.requestId !== command.requestId);
       throw error;
+    }
+    if (preview) {
+      this.movePreview = {
+        ...preview,
+        requestId: command.requestId,
+        gameId: status.gameId,
+        interactionId: status.interactionId,
+        nodeId: status.record.currentId,
+        lastMoveId: status.lastMoveId,
+      };
+      this.handlers.pieceBeat();
     }
     await this.send(command);
   }
   async move(move: Move): Promise<void> {
-    if (this.canMove) await this.request("move", { move: move.usi });
+    if (!this.canMove) return;
+    const position = this.recordManager.record.position.clone();
+    const localMove = position.createMoveByUSI(move.usi);
+    if (!localMove || !position.doMove(localMove)) throw new Error(t.gameInvalid);
+    await this.request("move", { move: localMove.usi }, { position, move: localMove });
   }
   async resign(): Promise<void> {
     if (this.canMove) await this.request("resign");

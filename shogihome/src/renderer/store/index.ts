@@ -363,6 +363,18 @@ class Store {
     return this.recordManager.record;
   }
 
+  get boardPosition(): ImmutablePosition {
+    return this.appState === AppState.GAME
+      ? this.gameManager.displayPosition
+      : this.record.position;
+  }
+
+  get boardLastMove(): Move | undefined {
+    if (this.appState === AppState.GAME) return this.gameManager.displayLastMove;
+    const move = this.record.current.move;
+    return move instanceof Move ? move : undefined;
+  }
+
   get recordFilePath(): string | undefined {
     return this.recordManager.recordFilePath;
   }
@@ -761,7 +773,7 @@ class Store {
   get candidates(): Move[] {
     const appSettings = useAppSettings();
     const maxScoreDiff = appSettings.arrowScoreDiffRange;
-    const sfen = this.recordManager.record.position.sfen;
+    const sfen = this.boardPosition.sfen;
     const candidates: Move[] = [];
     const usiSet = new Set<string>();
     for (const session of this.usiMonitor.sessions) {
