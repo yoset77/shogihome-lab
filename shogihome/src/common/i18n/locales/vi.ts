@@ -903,9 +903,9 @@ export const vi: Texts = {
   kifuStatisticsLoading: "Đang thống kê…",
   kifuStatisticsFailed: "Không thể lấy thống kê. Vui lòng tính lại.",
   recalculateKifuStatistics: "Tính lại",
-  kifuStatisticsPreviousPage: "Trang trước",
-  kifuStatisticsNextPage: "Trang sau",
-  kifuStatisticsPage: (page: number, total: number) => `Trang ${page} / ${total}`,
+  kifuStatisticsTopPlayers: (limit: number) =>
+    `Hiển thị tối đa ${limit} người chơi theo số lần xuất hiện.`,
+  kifuStatisticsOtherPlayers: "Những người chơi khác",
   kifuNoContinuation: "Không có nước tiếp theo",
   kifuNextMoveUnavailable: "Chưa lập chỉ mục",
   kifuVariation: "Biến thể",

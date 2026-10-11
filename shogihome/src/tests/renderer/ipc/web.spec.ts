@@ -15,6 +15,7 @@ describe("renderer/ipc/web", () => {
       generatedAt: 100,
       strategies: [{ strategy: "角換わり", count: 1 }],
       players: [{ name: "A", black: 1, white: 1, total: 2 }],
+      otherPlayers: { black: 0, white: 0, total: 0 },
       nextMoves: [{ move: "☗２五歩", count: 1 }],
     };
     const response = new Response(JSON.stringify(statistics), {

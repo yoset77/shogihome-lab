@@ -1,5 +1,7 @@
 import { searchableStrategies, type SearchableStrategy } from "@/common/kifu/strategy_taxonomy";
 
+export const KIFU_STATISTICS_PLAYER_LIMIT = 50;
+
 export type KifuStatisticsStrategy = SearchableStrategy | "raw-only" | "unclassified";
 
 // move is the recorded continuation of the representative position: an empty
@@ -14,6 +16,7 @@ export interface KifuSearchStatistics {
   generatedAt: number;
   strategies: { strategy: KifuStatisticsStrategy; count: number }[];
   players: { name: string | null; black: number; white: number; total: number }[];
+  otherPlayers: { black: number; white: number; total: number };
   nextMoves?: KifuStatisticsNextMove[];
 }
 
@@ -25,6 +28,12 @@ const isNextMove = (value: unknown): value is KifuStatisticsNextMove =>
   isObject(value) &&
   (typeof value.move === "string" || value.move === null) &&
   isCount(value.count);
+const isPlayerCounts = (value: unknown): value is KifuSearchStatistics["otherPlayers"] =>
+  isObject(value) &&
+  isCount(value.black) &&
+  isCount(value.white) &&
+  isCount(value.total) &&
+  value.total === value.black + value.white;
 
 export function decodeKifuSearchStatistics(value: unknown): KifuSearchStatistics | null {
   if (
@@ -32,7 +41,9 @@ export function decodeKifuSearchStatistics(value: unknown): KifuSearchStatistics
     !isCount(value.total) ||
     !isCount(value.generatedAt) ||
     !Array.isArray(value.strategies) ||
-    !Array.isArray(value.players)
+    !Array.isArray(value.players) ||
+    value.players.length > KIFU_STATISTICS_PLAYER_LIMIT ||
+    !isPlayerCounts(value.otherPlayers)
   )
     return null;
   if (
@@ -47,12 +58,7 @@ export function decodeKifuSearchStatistics(value: unknown): KifuSearchStatistics
   if (
     !value.players.every(
       (row: unknown) =>
-        isObject(row) &&
-        (row.name === null || typeof row.name === "string") &&
-        isCount(row.black) &&
-        isCount(row.white) &&
-        isCount(row.total) &&
-        row.total === row.black + row.white,
+        isObject(row) && (row.name === null || typeof row.name === "string") && isPlayerCounts(row),
     )
   )
     return null;
@@ -66,9 +72,19 @@ export function decodeKifuSearchStatistics(value: unknown): KifuSearchStatistics
       return null;
   }
   const statistics = value as unknown as KifuSearchStatistics;
+  const playerTotals = statistics.players.reduce(
+    (sum, row) => ({
+      black: sum.black + row.black,
+      white: sum.white + row.white,
+      total: sum.total + row.total,
+    }),
+    statistics.otherPlayers,
+  );
   if (
     statistics.strategies.reduce((sum, row) => sum + row.count, 0) !== statistics.total ||
-    statistics.players.reduce((sum, row) => sum + row.total, 0) !== statistics.total * 2 ||
+    playerTotals.black !== statistics.total ||
+    playerTotals.white !== statistics.total ||
+    playerTotals.total !== statistics.total * 2 ||
     (statistics.nextMoves !== undefined &&
       statistics.nextMoves.reduce((sum, row) => sum + row.count, 0) !== statistics.total)
   )

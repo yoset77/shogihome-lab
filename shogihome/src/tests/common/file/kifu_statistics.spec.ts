@@ -6,6 +6,7 @@ const valid = {
   generatedAt: 100,
   strategies: [{ strategy: "角換わり", count: 1 }],
   players: [{ name: "A", black: 1, white: 1, total: 2 }],
+  otherPlayers: { black: 0, white: 0, total: 0 },
 };
 
 const validNextMoves = {
@@ -13,6 +14,7 @@ const validNextMoves = {
   generatedAt: 100,
   strategies: [{ strategy: "角換わり", count: 3 }],
   players: [{ name: "A", black: 3, white: 3, total: 6 }],
+  otherPlayers: { black: 0, white: 0, total: 0 },
   nextMoves: [
     { move: "☗２五歩", count: 1 },
     { move: "", count: 1 },
@@ -24,8 +26,29 @@ describe("decodeKifuSearchStatistics", () => {
   it("accepts consistent aggregates and empty results", () => {
     expect(decodeKifuSearchStatistics(valid)).toEqual(valid);
     expect(
-      decodeKifuSearchStatistics({ total: 0, generatedAt: 100, strategies: [], players: [] }),
+      decodeKifuSearchStatistics({
+        total: 0,
+        generatedAt: 100,
+        strategies: [],
+        players: [],
+        otherPlayers: { black: 0, white: 0, total: 0 },
+      }),
     ).not.toBeNull();
+  });
+  it("accepts the top fifty players when omitted appearances complete the totals", () => {
+    const statistics = {
+      ...valid,
+      total: 60,
+      strategies: [{ strategy: "角換わり", count: 60 }],
+      players: Array.from({ length: 50 }, (_, index) => ({
+        name: `Player ${index}`,
+        black: 1,
+        white: 1,
+        total: 2,
+      })),
+      otherPlayers: { black: 10, white: 10, total: 20 },
+    };
+    expect(decodeKifuSearchStatistics(statistics)).toEqual(statistics);
   });
   it("accepts next move aggregates including empty and unavailable moves", () => {
     expect(decodeKifuSearchStatistics(validNextMoves)).toEqual(validNextMoves);
@@ -42,6 +65,24 @@ describe("decodeKifuSearchStatistics", () => {
     { ...valid, strategies: [{ strategy: "raw-only", count: 2 }] },
     { ...valid, players: [{ name: "A", black: 1, white: 0, total: 2 }] },
     { ...valid, players: [{ name: 42, black: 1, white: 1, total: 2 }] },
+    { ...valid, players: [{ name: "A", black: 2, white: 0, total: 2 }] },
+    { ...valid, otherPlayers: undefined },
+    { ...valid, otherPlayers: null },
+    { ...valid, otherPlayers: { black: "0", white: 0, total: 0 } },
+    { ...valid, otherPlayers: { black: -1, white: 1, total: 0 } },
+    { ...valid, otherPlayers: { black: 0, white: 0, total: 1 } },
+    { ...valid, otherPlayers: { black: 1, white: 0, total: 1 } },
+    {
+      ...valid,
+      total: 51,
+      strategies: [{ strategy: "角換わり", count: 51 }],
+      players: Array.from({ length: 51 }, (_, index) => ({
+        name: `Player ${index}`,
+        black: 1,
+        white: 1,
+        total: 2,
+      })),
+    },
     { ...valid, nextMoves: "invalid" },
     { ...valid, nextMoves: [{ move: 42, count: 1 }] },
     { ...valid, nextMoves: [{ move: "☗２五歩" }] },

@@ -41,6 +41,7 @@ Server data rootは [`src/node/proc/path.ts`](../../shogihome/src/node/proc/path
 - 局面関連は同一file・正規化SFENを1件にまとめ、共有の深さ優先走査で最初の箇所を代表とします。その箇所の先頭の継続手と変化手順内かどうかも保持します。Previewとopenも同じ共有選択規則を使います。継続手の未取得と、取得済みだが継続がない状態は区別します。
 - 局面関連の派生情報は戦型判定とは別の版で追跡します。Fileが未変更でも局面情報の版が古い場合は関連全体を再構築し、戦型だけのbackfillでは更新済みとみなしません。
 - 検索統計は検索・件数取得と同じSQL条件から全一致fileを集計します。一覧のpaginationは集計対象に影響せず、戦型・対局者と、局面検索時の代表次手の集計を同一read transactionで取得します。集計時点のindexを対象とし、過去の検索結果を固定保存する機能ではありません。
+- 対局者統計はDB集計後に上位件数を制限して返し、省略分の先後別登場件数を別fieldで保持します。共有decoderは返却件数の上限と、上位・省略分を合わせた各側の件数および総登場件数を検証します。Rendererは上位と省略分を表示し、対局者表のpaginationは行いません。
 
 戦型自動判定の設計意図は [Strategy Inference Intent](../features/strategy-inference.md) を参照してください。
 棋譜検索の代表局面と集計単位の設計意図は [Server Kifu Search](../features/server-kifu-search.md) を参照してください。
