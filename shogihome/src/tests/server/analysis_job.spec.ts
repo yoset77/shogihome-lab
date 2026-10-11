@@ -15,6 +15,23 @@ describe("server analysis jobs", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it("reports preparation until the first search starts and preserves its initial output", async () => {
+    const engine = new FakeResearchEngine();
+    engine.prepareDelay = 2000;
+    const job = new AnalysisJob("job", requestFor(), engine, config);
+    job.start();
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(job.status().state).toBe("preparing");
+    expect(job.status().current?.nodeId).toBe("n0");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(job.status().state).toBe("running");
+    expect(job.status().current?.infos[0].scoreCP).toBe(10);
+    expect(job.result().nodes[0].researchInfo?.score).toBe(10);
+    job.cancel();
+    await vi.advanceTimersByTimeAsync(0);
+    await job.completion;
+  });
+
   it.each([
     {
       descending: false,

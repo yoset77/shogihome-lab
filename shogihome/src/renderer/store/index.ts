@@ -24,7 +24,7 @@ import {
   exportBOD,
   formatKIFMove,
 } from "tsshogi";
-import { markRaw, reactive, UnwrapNestedRefs } from "vue";
+import { markRaw, reactive, UnwrapNestedRefs, watch } from "vue";
 import { GameSettings } from "@/common/settings/game";
 import { ClockSoundTarget, Tab, TextDecodingRule } from "@/common/settings/app";
 import { beepShort, beepUnlimited, playPieceBeat, stopBeep } from "@/renderer/devices/audio";
@@ -250,6 +250,15 @@ class Store {
   constructor() {
     const refs = reactive(this);
     this._reactive = refs;
+    // Keep the initial startup lock separate from the creation request's lock.
+    watch(
+      () => refs.isStartingJob,
+      (starting) => {
+        if (starting) useBusyState().retain();
+        else useBusyState().release();
+      },
+      { flush: "sync" },
+    );
     this.recordManager
       .on("changePosition", () => {
         this.onChangePositionHandlers.forEach((handler) => handler());
@@ -941,6 +950,9 @@ class Store {
   }
   get gameStatus(): GameSnapshot | undefined {
     return this.gameManager.status;
+  }
+  get isStartingJob(): boolean {
+    return this.gameManager.isStarting || this.analysisManager.isStarting;
   }
   get hasRetainedGame(): boolean {
     return this.gameManager.hasRetainedSession;

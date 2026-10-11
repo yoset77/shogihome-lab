@@ -141,6 +141,92 @@ describe("analysis job client", () => {
     vi.useRealTimers();
   });
 
+  it("keeps startup pending until the first analysis position is applied", async () => {
+    const { manager, records, status } = fixture();
+    await manager.start(settings);
+    expect(manager.isStarting).toBe(true);
+    expect(records.record.current.ply).toBe(2);
+    const current = status.current;
+    status.current = null;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(manager.isStarting).toBe(true);
+    expect(records.record.current.ply).toBe(2);
+    status.current = { ...current!, infos: [] };
+    await vi.advanceTimersByTimeAsync(500);
+    expect(manager.isStarting).toBe(false);
+    expect(records.record.current.ply).toBe(0);
+  });
+
+  it("keeps startup pending when the first target is known but its search is still preparing", async () => {
+    const { manager, status } = fixture();
+    status.state = "preparing";
+    await manager.start(settings);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(manager.isStarting).toBe(true);
+    status.state = "running";
+    await vi.advanceTimersByTimeAsync(500);
+    expect(manager.isStarting).toBe(false);
+    status.state = "preparing";
+    await vi.advanceTimersByTimeAsync(500);
+    expect(manager.isStarting).toBe(false);
+  });
+
+  it.each(["failed", "completed", "cancelled", "finishing", "cancelling"] as const)(
+    "ends the startup wait on %s even without a first analysis position",
+    async (state) => {
+      const { manager, status } = fixture();
+      status.current = null;
+      status.resultRevision = 0;
+      await manager.start(settings);
+      expect(manager.isStarting).toBe(true);
+      status.state = state;
+      await vi.advanceTimersByTimeAsync(500);
+      expect(manager.isStarting).toBe(false);
+    },
+  );
+
+  it.each(["close", "detach", "suspend"] as const)(
+    "ends the startup wait on %s",
+    async (action) => {
+      const { manager } = fixture();
+      await manager.start(settings);
+      expect(manager.isStarting).toBe(true);
+      manager[action]();
+      expect(manager.isStarting).toBe(false);
+    },
+  );
+
+  it("ends the startup wait even when rejected creation linkage cannot be removed", async () => {
+    const { manager, client } = fixture();
+    client.create.mockRejectedValueOnce(new ApiResponseError(400, "Invalid request"));
+    const storage = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new Error("Storage unavailable");
+    });
+    try {
+      await expect(manager.start(settings)).rejects.toThrow("Storage unavailable");
+      expect(manager.isStarting).toBe(false);
+    } finally {
+      storage.mockRestore();
+    }
+  });
+
+  it("ends the startup wait on polling failure while retaining the job and record lock", async () => {
+    const { manager, records, client, status } = fixture();
+    status.state = "preparing";
+    status.current = null;
+    status.resultRevision = 0;
+    await manager.start(settings);
+    client.status.mockRejectedValueOnce(new TypeError("Offline"));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(manager.isStarting).toBe(false);
+    expect(manager.reconnecting).toBe(true);
+    expect(records.analysisLocked).toBe(true);
+    expect(manager.hasRetainedJob).toBe(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(manager.status?.state).toBe("preparing");
+    expect(manager.isStarting).toBe(false);
+  });
+
   it("sends frozen input, locks editing, and applies absolute node updates without duplication", async () => {
     const { manager, records, client } = fixture();
     await manager.start(settings);
@@ -165,6 +251,7 @@ describe("analysis job client", () => {
     const original = snapshotRecord(records.record);
     await manager.start(settings, true);
     expect(manager.isActive).toBe(false);
+    expect(manager.isStarting).toBe(false);
     expect(records.analysisLocked).toBe(false);
     expect(sessionStorage.getItem("shogihome-job-attachment:analysis")).toBeNull();
     expect(client.attach).not.toHaveBeenCalled();
@@ -681,8 +768,10 @@ describe("analysis job client", () => {
     const { records, client, status } = fixture();
     const proxied = reactive({ manager: new AnalysisManager(records, client), records });
     await proxied.manager.start(settings);
+    expect(proxied.manager.isStarting).toBe(true);
     status.state = "completed";
     await vi.advanceTimersByTimeAsync(500);
+    expect(proxied.manager.isStarting).toBe(false);
     proxied.records.changePly(1);
     expect(proxied.records.record.current.comment).toBe("analysis");
     expect(proxied.records.analysisLocked).toBe(false);

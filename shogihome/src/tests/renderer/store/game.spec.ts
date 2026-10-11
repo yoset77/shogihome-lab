@@ -247,6 +247,31 @@ describe("game session client", () => {
     return () => deliver();
   }
 
+  it("keeps startup pending until engine readiness, initial position and socket synchronization", async () => {
+    const value = fixture();
+    value.records.appendMove({ move: value.records.record.position.createMoveByUSI("7g7f")! });
+    value.settings.white = { uri: "lan-engine:test", name: "AI" };
+    let ready!: () => void;
+    vi.spyOn(value.player, "readyNewGame").mockImplementationOnce(
+      () => new Promise<void>((resolve) => (ready = resolve)),
+    );
+    try {
+      await value.game.start(value.settings);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(value.game.status?.state).toBe("preparing");
+      expect(value.game.isStarting).toBe(true);
+      expect(value.records.record.current.ply).toBe(0);
+      expect(value.game.canMove).toBe(false);
+      ready();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(value.game.isStarting).toBe(false);
+      expect(value.records.record.current.ply).toBe(0);
+      expect(value.game.canMove).toBe(true);
+    } finally {
+      ready?.();
+    }
+  });
+
   async function gameWithBothEnginePVs(repeat = 1) {
     const value = fixture();
     const monitor = new USIMonitor();
@@ -293,6 +318,90 @@ describe("game session client", () => {
     ]);
     return { ...value, monitor, emitPV };
   }
+
+  it.each(["human", "engine"])(
+    "waits for the initial socket but not the first %s move",
+    async (first) => {
+      const value = fixture();
+      value.settings[first === "human" ? "white" : "black"] = {
+        uri: "lan-engine:test",
+        name: "AI",
+      };
+      value.delayConnections(100);
+      await value.game.start(value.settings);
+      await vi.advanceTimersByTimeAsync(99);
+      expect(value.game.isStarting).toBe(true);
+      expect(value.game.canMove).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(value.game.isStarting).toBe(false);
+      expect(value.records.record.current.ply).toBe(0);
+      expect(value.game.canMove).toBe(first === "human");
+      expect(value.beat).not.toHaveBeenCalled();
+      expect(value.searches).toHaveLength(first === "human" ? 0 : 1);
+    },
+  );
+
+  it.each(["dispose", "stop", "expired", "transferred"])(
+    "ends the initial startup wait on %s while the engine is still preparing",
+    async (action) => {
+      const value = fixture();
+      value.settings.white = { uri: "lan-engine:test", name: "AI" };
+      let ready!: () => void;
+      const preparing = new Promise<void>((resolve) => (ready = resolve));
+      vi.spyOn(value.player, "readyNewGame").mockImplementationOnce(() => preparing);
+      try {
+        await value.game.start(value.settings);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(value.game.isStarting).toBe(true);
+        if (action === "dispose") value.game.dispose();
+        else if (action === "stop") value.game.stop();
+        else value.sockets.at(-1)!.close(action === "expired" ? 4004 : 4001);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(value.game.isStarting).toBe(false);
+      } finally {
+        ready();
+        await vi.advanceTimersByTimeAsync(1);
+      }
+    },
+  );
+
+  it("ends the startup wait on connection loss without releasing the record lock or waiting again", async () => {
+    const value = fixture();
+    value.settings.white = { uri: "lan-engine:test", name: "AI" };
+    let ready!: () => void;
+    const preparing = new Promise<void>((resolve) => (ready = resolve));
+    vi.spyOn(value.player, "readyNewGame").mockImplementationOnce(() => preparing);
+    try {
+      await value.game.start(value.settings);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(value.game.isStarting).toBe(true);
+      value.sockets.at(-1)!.close();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(value.game.isStarting).toBe(false);
+      expect(value.records.analysisLocked).toBe(true);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(value.game.status?.state).toBe("preparing");
+      expect(value.game.isStarting).toBe(false);
+      ready();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(value.game.canMove).toBe(true);
+      expect(value.game.isStarting).toBe(false);
+    } finally {
+      ready();
+    }
+  });
+
+  it("ends the startup wait on engine preparation failure", async () => {
+    const value = fixture();
+    value.settings.white = { uri: "lan-engine:test", name: "AI" };
+    vi.spyOn(value.player, "readyNewGame").mockRejectedValueOnce(new Error("Engine failed"));
+    await value.game.start(value.settings);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.game.isStarting).toBe(false);
+    expect(value.game.isActive).toBe(false);
+    expect(value.game.status?.state).toBe("failed");
+    expect(value.records.analysisLocked).toBe(false);
+  });
 
   it.each([Color.BLACK, Color.WHITE])(
     "clears previous engine PVs before starting a game with only the %s engine",
@@ -350,6 +459,7 @@ describe("game session client", () => {
     await value.game.start(value.settings, true);
     await vi.advanceTimersByTimeAsync(1);
     expect(value.game.isActive).toBe(false);
+    expect(value.game.isStarting).toBe(false);
     expect(value.records.analysisLocked).toBe(false);
     expect(value.records.record.current.comment).toBe("Current local record");
     expect(storedReference()).toBeNull();
@@ -428,6 +538,7 @@ describe("game session client", () => {
     value.searches[1].handler.onResign();
     await vi.advanceTimersByTimeAsync(1);
     expect(value.game.status?.gameNumber).toBe(2);
+    expect(value.game.isStarting).toBe(false);
     expect(value.monitor.sessions).toEqual([]);
     value.emitPV("Black Engine", ["2g2f", "8c8d"]);
     await vi.advanceTimersByTimeAsync(500);
@@ -628,10 +739,12 @@ describe("game session client", () => {
       const reference = JSON.parse(storedReference()!);
       await vi.advanceTimersByTimeAsync(9999);
       expect(socket.readyState).toBe(1);
+      expect(value.game.isStarting).toBe(phase === "initial");
       expect(value.game.canMove).toBe(false);
       expect(send).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(1);
       expect(socket.readyState).toBe(3);
+      expect(value.game.isStarting).toBe(false);
       expect(value.game.isActive).toBe(true);
       expect(value.records.analysisLocked).toBe(true);
       expect(JSON.parse(storedReference()!).requestId).toBe(reference.requestId);

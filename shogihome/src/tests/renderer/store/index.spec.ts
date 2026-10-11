@@ -1,6 +1,7 @@
 import api, { API } from "@/renderer/ipc/api";
 import { exportKI2, ImmutablePosition, InitialPositionSFEN, Move, Position } from "tsshogi";
 import fs from "node:fs";
+import { ref } from "vue";
 import { createStore } from "@/renderer/store/index";
 import { RecordCustomData, RecordManager } from "@/renderer/store/record";
 import { normalizeSfen } from "@/common/usi/sfen";
@@ -656,6 +657,44 @@ describe("store/index", () => {
     expect(useBusyState().isBusy).toBeFalsy();
     expect(store.appState).toBe(AppState.ANALYSIS_DIALOG);
   });
+
+  it.each(["game", "analysis"])(
+    "keeps the busy dialog locked through foreground %s preparation",
+    async (kind) => {
+      vi.useFakeTimers();
+      const starting = ref(false);
+      const Manager = kind === "game" ? GameManager : AnalysisManager;
+      const isStarting = vi
+        .spyOn(Manager.prototype, "isStarting", "get")
+        .mockImplementation(() => starting.value);
+      const start = vi.mocked(Manager.prototype.start).mockImplementation(async () => {
+        starting.value = true;
+      });
+      mockAPI.saveGameSettings.mockResolvedValue();
+      mockAPI.saveAnalysisSettings.mockResolvedValue();
+      try {
+        const store = createStore();
+        if (kind === "game") store.startGame(gameSettings10m30s);
+        else {
+          store.showAnalysisDialog();
+          store.startAnalysis(analysisSettings);
+        }
+        expect(useBusyState().isBusy).toBe(true);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(start).toHaveBeenCalledOnce();
+        expect(useBusyState().isBusy).toBe(true);
+        useBusyState().retain();
+        starting.value = false;
+        expect(useBusyState().isBusy).toBe(true);
+        useBusyState().release();
+        expect(useBusyState().isBusy).toBe(false);
+      } finally {
+        starting.value = false;
+        isStarting.mockRestore();
+        start.mockResolvedValue();
+      }
+    },
+  );
 
   it("startGame/backgroundNotifiesWithToast", async () => {
     mockAPI.saveGameSettings.mockResolvedValue();

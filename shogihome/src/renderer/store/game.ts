@@ -196,6 +196,7 @@ export class GameManager {
   private _status?: GameSnapshot;
   private movePreview?: MovePreview;
   private active = false;
+  private starting = false;
   private socket?: WebSocket;
   private socketReady = false;
   private generation = 0;
@@ -262,6 +263,9 @@ export class GameManager {
   }
   get isActive(): boolean {
     return this.active;
+  }
+  get isStarting(): boolean {
+    return this.starting;
   }
   get hasRetainedSession(): boolean {
     return this.active ? !!this.reference : loadReferences().length > 0;
@@ -384,6 +388,7 @@ export class GameManager {
     const source = this.recordManager.beginGame(token);
     this.bindingToken = token;
     this.active = true;
+    this.starting = false;
     ++this.lifecycle;
     this.finished = false;
     this.connection.reset();
@@ -413,6 +418,7 @@ export class GameManager {
     this.background = background;
     const requestId = generateSessionId();
     const source = this.bind(requestId);
+    this.starting = !background;
     const lifecycle = this.lifecycle;
     let posted = false;
     try {
@@ -705,6 +711,7 @@ export class GameManager {
         this.frame(decoded.value, initial);
         if (decoded.value.type === "snapshot" && initial && this.reference) {
           this.socketReady = true;
+          this.completeStartup();
           this.retryMs = 1000;
           this.heartbeat();
           void this.resendPending()
@@ -728,6 +735,7 @@ export class GameManager {
       if (generation !== this.generation || this.socket !== socket) return;
       this.socket = undefined;
       this.socketReady = false;
+      this.starting = false;
       this.blackClock.pause();
       this.whiteClock.pause();
       this.handlers.stopBeep();
@@ -886,6 +894,7 @@ export class GameManager {
         this.handlers.flipBoard(true);
     }
     this.handlers.status(snapshot);
+    this.completeStartup();
     for (const record of snapshot.records)
       if (record.state === "failed" && !this.warned.has(record.gameId)) {
         this.warned.add(record.gameId);
@@ -894,6 +903,14 @@ export class GameManager {
     if (isGameTerminal(snapshot.state)) {
       this.finish(snapshot);
     }
+  }
+  private completeStartup(): void {
+    const state = this._status?.state;
+    if (
+      (this.socketReady && (state === "running" || state === "paused")) ||
+      (state && !["preparing", "running", "paused"].includes(state))
+    )
+      this.starting = false;
   }
   private reconcileMovePreview(snapshot: GameSnapshot): number | undefined {
     const preview = this.movePreview;
@@ -933,6 +950,7 @@ export class GameManager {
       this.bindingToken = undefined;
       this.movePreview = undefined;
       this.active = false;
+      this.starting = false;
       this.finished = true;
       this.handlers.stopBeep();
       for (const id of Object.values(MONITOR_IDS)) setInfoSessionActive(id, false);
@@ -969,6 +987,7 @@ export class GameManager {
     }
   }
   private detach(): void {
+    this.starting = false;
     ++this.generation;
     clearTimeout(this.reconnectTimer);
     clearInterval(this.heartbeatTimer);
@@ -1114,6 +1133,7 @@ export class GameManager {
       this.handlers.error(error);
       return;
     }
+    this.starting = false;
     if (this._status)
       void this.request("interrupt")
         .then(() => {
