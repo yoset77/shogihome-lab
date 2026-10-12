@@ -245,6 +245,7 @@ export class GameManager {
     readonly whiteClock = new GameClockDisplay(),
     private readonly client: GameSessionsClient = createGameSessionsClient(),
     private readonly createSocket: (url: string) => WebSocket = (url) => new WebSocket(url),
+    private readonly screenId = SCREEN_ID,
   ) {}
   on<K extends keyof Handlers>(event: K, handler: Handlers[K]): this {
     this.handlers[event] = handler;
@@ -583,13 +584,18 @@ export class GameManager {
       ownerId: ref.controllerId,
       epoch: ref.controllerEpoch ?? this.controllerEpoch ?? 0,
       recoveryId: ref.recoveryId,
-      screenId: SCREEN_ID,
+      screenId: this.screenId,
       takeover: false,
       connectionId: ref.connectionId ?? this.connectionId,
     };
   }
   private authorization(ref: Reference, epoch: number): JobBinding {
-    return { ownerId: ref.controllerId, epoch, recoveryId: ref.recoveryId, screenId: SCREEN_ID };
+    return {
+      ownerId: ref.controllerId,
+      epoch,
+      recoveryId: ref.recoveryId,
+      screenId: this.screenId,
+    };
   }
   get canDetach(): boolean {
     return (
@@ -654,7 +660,7 @@ export class GameManager {
         ownerId: controllerId,
         epoch: job.attachment.epoch,
         takeover: job.attachment.attached,
-        screenId: SCREEN_ID,
+        screenId: this.screenId,
       },
     };
     let snapshot: GameSnapshot | undefined;
@@ -668,7 +674,7 @@ export class GameManager {
           .detach(job.id, {
             ownerId: controllerId,
             epoch: snapshot.controllerEpoch,
-            screenId: SCREEN_ID,
+            screenId: this.screenId,
             recoveryId: snapshot.controllerRecoveryId,
           })
           .catch(() => {});
@@ -694,7 +700,7 @@ export class GameManager {
           .detach(job.id, {
             ownerId: controllerId,
             epoch: snapshot.controllerEpoch,
-            screenId: SCREEN_ID,
+            screenId: this.screenId,
             recoveryId: snapshot.controllerRecoveryId,
           })
           .catch(() => {});
@@ -711,9 +717,13 @@ export class GameManager {
     url.searchParams.set("controllerId", ref.controllerId);
     this.controllerEpoch ??= this._status!.controllerEpoch;
     url.searchParams.set("connectionId", this.connectionId);
-    url.searchParams.set("screenId", SCREEN_ID);
+    url.searchParams.set("screenId", this.screenId);
     url.searchParams.set("recoveryId", ref.recoveryId!);
     url.searchParams.set("controllerEpoch", String(this.controllerEpoch));
+    // Reload must reconcile this handshake even if its first snapshot is lost.
+    ref.connectionId = this.connectionId;
+    ref.controllerEpoch = this.controllerEpoch;
+    this.persist();
     const generation = ++this.generation;
     this.lastFrameAt = Date.now();
     const socket = (this.socket = this.createSocket(url.href));
@@ -1107,7 +1117,7 @@ export class GameManager {
       controllerId: ref.controllerId,
       controllerEpoch: status.controllerEpoch,
       recoveryId: status.controllerRecoveryId,
-      screenId: SCREEN_ID,
+      screenId: this.screenId,
       controllerGeneration: status.controllerGeneration,
       gameId: status.gameId,
       interactionId: status.interactionId,
@@ -1207,7 +1217,7 @@ export class GameManager {
       serverInstanceId: this.reference.serverInstanceId,
       controllerId: this.reference.controllerId,
       controllerEpoch: this._status.controllerEpoch,
-      screenId: SCREEN_ID,
+      screenId: this.screenId,
       gameId: this._status.gameId,
       interactionId: this._status.interactionId,
       action: "annotate",
