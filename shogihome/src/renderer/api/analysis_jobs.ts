@@ -32,7 +32,12 @@ export interface AnalysisJobsClient {
   status(id: string, binding?: JobBinding): Promise<AnalysisJobStatus>;
   source(id: string): Promise<RecordSnapshot>;
   result(id: string, afterRevision: number, binding?: JobBinding): Promise<AnalysisJobResult>;
-  cancel(id: string, binding?: JobBinding, requestId?: string): Promise<AnalysisJobStatus>;
+  cancel(
+    id: string,
+    binding?: JobBinding,
+    requestId?: string,
+    authorization?: JobBinding,
+  ): Promise<AnalysisJobStatus>;
 }
 
 async function decode<T>(
@@ -103,12 +108,16 @@ export function createAnalysisJobsClient(): AnalysisJobsClient {
         }),
         decodeAnalysisResult,
       ),
-    cancel: async (id, binding, requestId) =>
+    cancel: async (id, binding, requestId, authorization) =>
       decode(
         binding
           ? await client[":jobId"]["attached-cancel"].$post({
               param: { jobId: id },
-              json: { ...binding, ...(requestId ? { requestId } : {}) },
+              json: {
+                ...binding,
+                ...(requestId ? { requestId } : {}),
+                ...(authorization ? { authorization } : {}),
+              },
             })
           : await client[":jobId"].cancel.$post({ param: { jobId: id } }),
         decodeAnalysisStatus,

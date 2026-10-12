@@ -4,7 +4,13 @@ import { GameSessionManager } from "@/server/game/manager";
 import { decodeGameSnapshot } from "@/common/game/protocol";
 import type { GameFrame } from "@/common/game/protocol";
 import { restoreRecord, MAX_SNAPSHOT_PLY } from "@/common/record/snapshot";
-import { fakeGamePlayer, gameRequest, gameCommand } from "./helpers/game";
+import {
+  fakeGamePlayer,
+  gameRequest,
+  gameCommand,
+  connectGame,
+  gameConnection,
+} from "./helpers/game";
 import { saveBackup, addHistory } from "@/server/file/history";
 import type { GameEngine } from "@/server/engine/internal";
 
@@ -40,7 +46,7 @@ describe("server game sessions", () => {
     session.start();
     await vi.advanceTimersByTimeAsync(0);
     const send = vi.fn();
-    const connection = session.connect("controller", send);
+    const connection = connectGame(session, send);
     await session.command(gameCommand(session.snapshot(), "resume"));
     return { session, connection, send, request, ...fake };
   }
@@ -66,7 +72,7 @@ describe("server game sessions", () => {
     expect(paused.state).toBe("paused");
     expect(paused.clocks.black.timeMs).toBe(58_750);
     await vi.advanceTimersByTimeAsync(20_000);
-    session.connect("controller", () => {});
+    connectGame(session);
     expect(session.snapshot().state).toBe("paused");
     await session.command(gameCommand(session.snapshot(), "resume"));
     expect(session.snapshot().clocks.black.timeMs).toBe(58_750);
@@ -88,7 +94,7 @@ describe("server game sessions", () => {
     expect(restoreRecord(paused.record).record.current.ply).toBe(2);
     expect(paused.clocks.white.timeMs).toBe(58_750);
     expect(paused.clocks.black.running).toBe(false);
-    session.connect("controller", () => {});
+    connectGame(session);
     await session.command(gameCommand(session.snapshot(), "interrupt"));
     await vi.advanceTimersByTimeAsync(0);
     await session.close();
@@ -99,7 +105,7 @@ describe("server game sessions", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(session.snapshot().state).toBe("paused");
     expect(session.snapshot().clocks.black.timeMs).toBe(30_000);
-    session.connect("controller", () => {});
+    connectGame(session);
     await session.command(gameCommand(session.snapshot(), "interrupt"));
     await vi.advanceTimersByTimeAsync(0);
     await session.close();
@@ -113,7 +119,7 @@ describe("server game sessions", () => {
     request.settings.white = { uri: "lan-engine:test", name: "AI" };
     const session = manager.create(request);
     await vi.advanceTimersByTimeAsync(0);
-    const connection = session.connect("controller", () => {});
+    const connection = connectGame(session);
     await session.command(gameCommand(session.snapshot(), "resume"));
     connection.disconnect();
     await vi.advanceTimersByTimeAsync(59_999);
@@ -193,7 +199,7 @@ describe("server game sessions", () => {
     });
     session.start();
     await vi.advanceTimersByTimeAsync(0);
-    const connection = session.connect("controller", () => {});
+    const connection = connectGame(session);
     await session.command(gameCommand(session.snapshot(), "resume"));
     await session.command(gameCommand(session.snapshot(), "move", { move: "7g7f" }));
     connection.disconnect();
@@ -208,7 +214,7 @@ describe("server game sessions", () => {
     const { session, connection } = await humanGame();
     connection.disconnect();
     await vi.advanceTimersByTimeAsync(50_000);
-    const replacement = session.connect("controller", () => {});
+    const replacement = connectGame(session);
     connection.disconnect();
     await vi.advanceTimersByTimeAsync(20_000);
     expect(session.snapshot().state).toBe("paused");
@@ -224,7 +230,7 @@ describe("server game sessions", () => {
     const { session, connection } = await humanGame();
     connection.disconnect();
     vi.setSystemTime(Date.now() + 60_000);
-    session.connect("controller", () => {});
+    connectGame(session);
     await session.command(gameCommand(session.snapshot(), "resume"));
     await vi.advanceTimersByTimeAsync(0);
     expect(session.snapshot().lastResult).toBe(SpecialMoveType.INTERRUPT);
@@ -263,7 +269,7 @@ describe("server game sessions", () => {
   it("rejects replaced controllers and obsolete human turns", async () => {
     const { session, connection } = await humanGame();
     const old = gameCommand(session.snapshot(), "move", { move: "7g7f" });
-    session.connect("controller", () => {});
+    connectGame(session);
     connection.disconnect();
     expect(() => session.command(old)).toThrow();
     await session.command(gameCommand(session.snapshot(), "resume"));
@@ -274,16 +280,116 @@ describe("server game sessions", () => {
     await vi.advanceTimersByTimeAsync(0);
     await session.close();
   });
+  it("fences old-screen commands while allowing an unchanged retry authorized by the recovered screen", async () => {
+    const { session, connection } = await humanGame();
+    const previous = session.snapshot();
+    const pending = gameCommand(previous, "interrupt", {
+      recoveryId: previous.controllerRecoveryId,
+    });
+    connection.disconnect();
+    const recovered = session.recover({
+      ownerId: "controller",
+      epoch: previous.controllerEpoch,
+      recoveryId: previous.controllerRecoveryId,
+      screenId: "recovered",
+      takeover: false,
+    });
+    session.connect(
+      "controller",
+      () => {},
+      () => {},
+      gameConnection(recovered, { screenId: "recovered" }),
+    );
+    const current = session.snapshot();
+    expect(() => session.command(pending)).toThrow();
+    const authorization = {
+      ownerId: "controller",
+      epoch: current.controllerEpoch,
+      recoveryId: current.controllerRecoveryId,
+      screenId: "recovered",
+    };
+    await session.command(pending, authorization);
+    await vi.advanceTimersByTimeAsync(0);
+    await session.command(pending, authorization);
+    expect(session.snapshot().lastResult).toBe(SpecialMoveType.INTERRUPT);
+    await session.close();
+  });
+  it("releases an attachment lease on socket disconnect so a reload need not wait for expiry", () => {
+    const request = gameRequest();
+    request.settings.black = request.settings.white = { uri: "lan-engine:test", name: "AI" };
+    const session = new GameSession("reload", request);
+    const claimed = session.attach({
+      ownerId: "owner",
+      epoch: 0,
+      screenId: "first",
+      takeover: false,
+    });
+    const connection = session.connect(
+      "owner",
+      () => {},
+      () => {},
+      gameConnection(claimed, { screenId: "first" }),
+    );
+    const current = session.snapshot();
+    connection.disconnect();
+    expect(session.attachment().attached).toBe(false);
+    expect(() =>
+      session.recover({
+        ownerId: "owner",
+        epoch: current.controllerEpoch,
+        recoveryId: current.controllerRecoveryId,
+        screenId: "reloaded",
+        takeover: false,
+      }),
+    ).not.toThrow();
+    session.dispose();
+  });
+  it("does not return a privileged snapshot to an old screen after an awaited operation", async () => {
+    const { session, connection, player } = await humanGame(true);
+    await session.command(gameCommand(session.snapshot(), "move", { move: "7g7f" }));
+    const wait = Promise.withResolvers<void>();
+    vi.mocked(player.cancelSearch!).mockImplementation(() => wait.promise);
+    const previous = session.snapshot();
+    const pending = session.command(
+      gameCommand(previous, "takeback", { recoveryId: previous.controllerRecoveryId }),
+    );
+    const rejected = expect(pending).rejects.toThrow();
+    await Promise.resolve();
+    connection.disconnect();
+    const recovered = session.recover({
+      ownerId: "controller",
+      epoch: previous.controllerEpoch,
+      recoveryId: previous.controllerRecoveryId,
+      screenId: "recovered",
+      takeover: false,
+    });
+    session.connect(
+      "controller",
+      () => {},
+      () => {},
+      gameConnection(recovered, { screenId: "recovered" }),
+    );
+    wait.resolve();
+    await rejected;
+    const closing = session.close();
+    await vi.advanceTimersByTimeAsync(10);
+    await closing;
+  });
 
   it("fences reconnects without disturbing the replacement controller", async () => {
     const { session, connection } = await humanGame();
     const epoch = session.snapshot().controllerEpoch;
     connection.disconnect();
     const close = vi.fn();
-    session.connect("controller", () => {}, close, {
-      connectionId: "replacement",
-      controllerEpoch: epoch,
-    });
+    session.connect(
+      "controller",
+      () => {},
+      close,
+      gameConnection(session.snapshot(), {
+        connectionId: "replacement",
+        controllerEpoch: epoch,
+      }),
+    );
     await session.command(gameCommand(session.snapshot(), "resume"));
     const current = session.snapshot();
     expect(() =>
@@ -291,10 +397,10 @@ describe("server game sessions", () => {
         "controller",
         () => {},
         () => {},
-        {
+        gameConnection(session.snapshot(), {
           connectionId: "old-tab",
           controllerEpoch: epoch,
-        },
+        }),
       ),
     ).toThrow();
     expect(session.snapshot().controllerEpoch).toBe(current.controllerEpoch);
@@ -308,10 +414,10 @@ describe("server game sessions", () => {
   it("allows the same connection to retry when its initial snapshot was lost", async () => {
     const { session, connection } = await humanGame();
     connection.disconnect();
-    const binding = {
+    const binding = gameConnection(session.snapshot(), {
       connectionId: "browser",
       controllerEpoch: session.snapshot().controllerEpoch,
-    };
+    });
     session
       .connect(
         "controller",
@@ -435,7 +541,7 @@ describe("server game sessions", () => {
     session.start();
     await vi.advanceTimersByTimeAsync(0);
     const send = vi.fn();
-    session.connect("controller", send);
+    connectGame(session, send);
     await session.command(gameCommand(session.snapshot(), "resume"));
     await session.command(gameCommand(session.snapshot(), "move", { move: "7g7f" }));
     const clockInfos = () =>
@@ -559,7 +665,7 @@ describe("server game sessions", () => {
     const another = new GameSession("other", request, { playerBuilder: fakeGamePlayer().builder });
     another.start();
     await vi.advanceTimersByTimeAsync(0);
-    another.connect("controller", () => {});
+    connectGame(another);
     await another.command(gameCommand(another.snapshot(), "resume"));
     await another.command(gameCommand(another.snapshot(), "move", { move: "7g7f" }));
     expect(decodeGameSnapshot(another.snapshot()).ok).toBe(true);
@@ -695,7 +801,7 @@ describe("server game sessions", () => {
     request.settings.timeLimit.timeSeconds = 500;
     expect(session.request.settings.timeLimit.timeSeconds).toBe(60);
     await vi.advanceTimersByTimeAsync(0);
-    session.connect("controller", () => {});
+    connectGame(session);
     await session.command(gameCommand(session.snapshot(), "interrupt"));
     await vi.advanceTimersByTimeAsync(0);
     await session.completion;
@@ -732,7 +838,7 @@ describe("server game sessions", () => {
     const request = gameRequest();
     const session = new GameSession("startup", request);
     session.start();
-    session.connect("controller", () => {});
+    connectGame(session);
     await session.command(gameCommand(session.snapshot(), "interrupt"));
     await vi.advanceTimersByTimeAsync(10);
     await session.completion;

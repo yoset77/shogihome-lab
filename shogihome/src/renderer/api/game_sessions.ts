@@ -5,6 +5,7 @@ import {
   type GameCommand,
   type GameSnapshot,
   type GameCapabilities,
+  type GameRecoveryRequest,
 } from "@/common/game/protocol";
 import type { DecodeResult } from "@/common/engine/relay_protocol";
 import { t } from "@/common/i18n/index";
@@ -26,8 +27,8 @@ export interface GameSessionsClient {
   capabilities(): Promise<GameCapabilities>;
   create(request: GameSessionRequest): Promise<GameSnapshot>;
   byRequest(id: string): Promise<GameSnapshot>;
-  snapshot(id: string): Promise<GameSnapshot>;
-  command(id: string, command: GameCommand): Promise<GameSnapshot>;
+  snapshot(id: string, recovery?: GameRecoveryRequest): Promise<GameSnapshot>;
+  command(id: string, command: GameCommand, authorization?: JobBinding): Promise<GameSnapshot>;
 }
 async function decode<T>(
   response: Response,
@@ -69,12 +70,23 @@ export function createGameSessionsClient(): GameSessionsClient {
         await client["by-request"][":requestId"].$get({ param: { requestId: id } }),
         decodeGameSnapshot,
       ),
-    snapshot: async (id) =>
-      decode(await client[":sessionId"].$get({ param: { sessionId: id } }), decodeGameSnapshot),
-    command: async (id, command) =>
+    snapshot: async (id, recovery) =>
+      decode(
+        recovery
+          ? await client[":sessionId"]["attached-snapshot"].$post({
+              param: { sessionId: id },
+              json: recovery,
+            })
+          : await client[":sessionId"].$get({ param: { sessionId: id } }),
+        decodeGameSnapshot,
+      ),
+    command: async (id, command, authorization) =>
       decode(
         await client[":sessionId"].commands.$post(
-          { param: { sessionId: id }, json: command },
+          {
+            param: { sessionId: id },
+            json: { ...command, ...(authorization ? { authorization } : {}) },
+          },
           createApiRequestOptions({ timeoutMs: 30_000 }),
         ),
         decodeGameSnapshot,

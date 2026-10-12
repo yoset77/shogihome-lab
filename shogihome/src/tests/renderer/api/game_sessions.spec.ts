@@ -34,6 +34,7 @@ describe("typed game job client", () => {
       connectionId: "first",
       controllerEpoch: 0,
       screenId: "original-document",
+      recoveryId: created.controllerRecoveryId!,
     });
     const first = session.snapshot();
     expect(() =>
@@ -45,6 +46,7 @@ describe("typed game job client", () => {
           connectionId: "copied-connection",
           controllerEpoch: first.controllerEpoch,
           screenId: "copied-document",
+          recoveryId: first.controllerRecoveryId!,
         },
       ),
     ).toThrow(expect.objectContaining({ status: 423 }));
@@ -57,12 +59,14 @@ describe("typed game job client", () => {
         ownerId: "second",
         epoch: first.controllerEpoch,
         takeover: false,
+        screenId: "screen",
       }),
     ).rejects.toMatchObject({ status: 409 });
     const claimed = await client.attach(session.id, {
       ownerId: "second",
       epoch: first.controllerEpoch,
       takeover: true,
+      screenId: "screen",
     });
     expect(close).toHaveBeenCalledWith(4001);
     await expect(client.command(session.id, gameCommand(first, "interrupt"))).rejects.toMatchObject(
@@ -73,7 +77,12 @@ describe("typed game job client", () => {
       "second",
       () => {},
       () => {},
-      { connectionId: "second-socket", controllerEpoch: claimed.controllerEpoch },
+      {
+        connectionId: "second-socket",
+        controllerEpoch: claimed.controllerEpoch,
+        screenId: "screen",
+        recoveryId: claimed.controllerRecoveryId!,
+      },
     );
     await client.detach(session.id, { ownerId: "controller", epoch: first.controllerEpoch });
     expect((await client.list())[0].attachment.attached).toBe(true);

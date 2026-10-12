@@ -252,8 +252,7 @@ export class AnalysisManager {
         if (
           ref.pendingDetach &&
           status.attachment &&
-          (status.attachment.epoch !== ref.pendingDetach.epoch ||
-            status.attachment.ownerId !== ref.pendingDetach.ownerId)
+          status.attachment.epoch !== ref.pendingDetach.epoch
         )
           storage.forgetOperation(ref, "detach");
         if (ref.cancelRequested) {
@@ -265,8 +264,8 @@ export class AnalysisManager {
             resolved ||
             isAnalysisTerminal(status.state) ||
             (ref.cancelBinding &&
-              (ref.cancelBinding.recoveryId
-                ? status.attachment?.ownerId !== ref.cancelBinding.ownerId
+              (ref.cancelBinding.generation !== undefined
+                ? status.attachment?.generation !== ref.cancelBinding.generation
                 : status.attachment?.epoch !== ref.cancelBinding.epoch))
           )
             storage.forgetOperation(ref, ref.cancelRequestId ?? "cancel");
@@ -274,7 +273,6 @@ export class AnalysisManager {
         if (
           ref.pendingAttach &&
           status.attachment &&
-          status.attachment.ownerId !== ref.ownerId &&
           status.attachment.epoch > ref.pendingAttach.epoch
         )
           storage.forgetOperation(ref, "attachment");
@@ -480,6 +478,7 @@ export class AnalysisManager {
           status.jobId,
           ref.cancelBinding ?? ref.binding,
           ref.cancelRequestId,
+          ref.binding,
         );
         if (generation !== this.generation) return false;
         ref.cancelRequested = undefined;
@@ -568,7 +567,7 @@ export class AnalysisManager {
     ref.binding = binding;
     ref.pendingAttach = undefined;
     storage.forgetOperation(ref, "attachment");
-    status.attachment = { ...binding, attached: true };
+    status.attachment = { epoch: binding.epoch, generation: binding.generation, attached: true };
     this.persist();
   }
 
@@ -674,8 +673,7 @@ export class AnalysisManager {
       binding &&
       !this.reference?.pendingAttach &&
       status.attachment &&
-      (status.attachment.epoch !== binding.epoch ||
-        (status.attachment.ownerId && status.attachment.ownerId !== binding.ownerId))
+      status.attachment.epoch !== binding.epoch
     )
       throw new ApiResponseError(409, t.jobsTransferred);
     if (
@@ -698,7 +696,7 @@ export class AnalysisManager {
       binding &&
       !this.reference?.pendingAttach &&
       attachment &&
-      (binding.epoch !== attachment.epoch || binding.ownerId !== attachment.ownerId)
+      binding.epoch !== attachment.epoch
     )
       throw new ApiResponseError(409, t.jobsTransferred);
     if (
@@ -827,6 +825,7 @@ export class AnalysisManager {
           status.jobId,
           ref.cancelBinding ?? ref.binding,
           ref.cancelRequestId,
+          ref.binding,
         );
         if (generation !== this.generation) return;
         ref.cancelRequested = undefined;

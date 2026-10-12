@@ -34,8 +34,8 @@ export class AnalysisJob {
   cancelOutcome(requestId: string): { state: "accepted" | "unknown" } {
     return { state: this.cancellations.has(requestId) ? "accepted" : "unknown" };
   }
-  cancelOwned(binding: JobBinding, requestId?: string): void {
-    this.attachment.authorizeOperation(binding);
+  cancelOwned(binding: JobBinding, requestId?: string, authorization?: JobBinding): void {
+    this.attachment.authorizeOperation(binding, authorization);
     if (requestId && !this.cancellations.has(requestId) && this.cancellations.size >= 10_000)
       throw new HttpError(503, t.analysisJobCapacity);
     this.cancel();

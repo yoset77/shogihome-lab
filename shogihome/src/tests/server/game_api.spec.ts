@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { GameSessionManager } from "@/server/game/manager";
 import { createGameSessionRoutes } from "@/server/routes/game_sessions";
 import { handleError } from "@/server/errors";
-import { gameRequest, gameCommand } from "./helpers/game";
+import { gameRequest, gameCommand, fakeGamePlayer, connectGame } from "./helpers/game";
 import { Record } from "tsshogi";
 import { decodeGameRequest } from "@/common/game/protocol";
 import { MAX_SNAPSHOT_PLY } from "@/common/record/snapshot";
@@ -28,7 +28,7 @@ describe("game API boundary", () => {
     expect(decodeGameRequest(request).ok).toBe(false);
   });
   function setup() {
-    const manager = new GameSessionManager();
+    const manager = new GameSessionManager({ playerBuilder: fakeGamePlayer().builder });
     const app = new Hono().route("/api/game-sessions", createGameSessionRoutes(manager));
     app.onError(handleError);
     const request = gameRequest();
@@ -41,6 +41,128 @@ describe("game API boundary", () => {
       });
     return { manager, app, request, post };
   }
+  it.each([false, true])(
+    "never exposes control credentials in public responses ai=%s",
+    async (ai) => {
+      const manager = new GameSessionManager({ playerBuilder: fakeGamePlayer().builder });
+      const request = gameRequest();
+      request.serverInstanceId = manager.serverInstanceId;
+      if (ai)
+        request.settings.black = request.settings.white = { uri: "lan-engine:test", name: "AI" };
+      const session = manager.create(request);
+      await vi.advanceTimersByTimeAsync(0);
+      connectGame(session);
+      const app = new Hono().route("/api/game-sessions", createGameSessionRoutes(manager));
+      app.onError(handleError);
+      const responses = [
+        await app.request(`/api/game-sessions/${session.id}`),
+        await app.request(`/api/game-sessions/by-request/${request.requestId}`),
+      ];
+      if (ai)
+        responses.push(
+          await app.request(`/api/game-sessions/${session.id}/detach`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ownerId: "unrelated", epoch: 0, screenId: "unrelated" }),
+          }),
+        );
+      try {
+        for (const response of responses) {
+          expect(response.status).toBe(200);
+          const snapshot = await response.json();
+          expect(snapshot).not.toHaveProperty("controllerOwnerId");
+          expect(snapshot).not.toHaveProperty("controllerRecoveryId");
+          expect(snapshot).not.toHaveProperty("controllerConnectionId");
+          expect(snapshot.controllerGeneration).toBeTypeOf("number");
+        }
+      } finally {
+        const closing = manager.close();
+        await vi.advanceTimersByTimeAsync(10);
+        await closing;
+      }
+    },
+  );
+  it("authenticates recovery and prevents public snapshots from authorizing a human move", async () => {
+    const manager = new GameSessionManager({ playerBuilder: fakeGamePlayer().builder });
+    const request = gameRequest();
+    request.serverInstanceId = manager.serverInstanceId;
+    const session = manager.create(request);
+    await vi.advanceTimersByTimeAsync(0);
+    const connection = connectGame(session);
+    await session.command(gameCommand(session.snapshot(), "resume"));
+    const app = new Hono().route("/api/game-sessions", createGameSessionRoutes(manager));
+    app.onError(handleError);
+    const post = (path: string, body: unknown) =>
+      app.request(`/api/game-sessions/${session.id}/${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    try {
+      const snapshot = await (await app.request(`/api/game-sessions/${session.id}`)).json();
+      expect(
+        (
+          await post(
+            "commands",
+            gameCommand(snapshot, "move", { controllerId: "unrelated", move: "7g7f" }),
+          )
+        ).status,
+      ).toBe(409);
+      expect(
+        (
+          await post("attached-snapshot", {
+            ownerId: "unrelated",
+            epoch: snapshot.controllerEpoch,
+            screenId: "copy",
+            takeover: false,
+          })
+        ).status,
+      ).toBe(409);
+      const current = session.snapshot();
+      expect(
+        (
+          await post("attached-snapshot", {
+            ownerId: "controller",
+            epoch: current.controllerEpoch,
+            screenId: "screen",
+            takeover: false,
+          })
+        ).status,
+      ).toBe(409);
+      const recovery = {
+        ownerId: "controller",
+        epoch: current.controllerEpoch,
+        recoveryId: current.controllerRecoveryId,
+        screenId: "copy",
+        takeover: false,
+      };
+      expect((await post("attached-snapshot", recovery)).status).toBe(423);
+      connection.disconnect();
+      const owned = await (await post("attached-snapshot", recovery)).json();
+      expect(owned.controllerRecoveryId).toBe(current.controllerRecoveryId);
+      expect(owned.controllerEpoch).toBeGreaterThan(current.controllerEpoch);
+      expect(owned.controllerGeneration).toBe(current.controllerGeneration);
+    } finally {
+      const closing = manager.close();
+      await vi.advanceTimersByTimeAsync(10);
+      await closing;
+    }
+  });
+  it("does not expose a new owner's credentials on a retried creation", async () => {
+    const { manager, request, post } = setup();
+    request.settings.black = request.settings.white = { uri: "lan-engine:test", name: "AI" };
+    const response = await post(request);
+    const created = await response.json();
+    const session = manager.get(created.sessionId);
+    session.attach({ ownerId: "new-owner", epoch: 0, screenId: "new-screen", takeover: false });
+    const retried = await (await post(request)).json();
+    expect(retried).not.toHaveProperty("controllerOwnerId");
+    expect(retried).not.toHaveProperty("controllerRecoveryId");
+    expect(retried.controllerGeneration).toBeGreaterThan(created.controllerGeneration);
+    const closing = manager.close();
+    await vi.advanceTimersByTimeAsync(10);
+    await closing;
+  });
   it("creates idempotently and rejects concurrent, conflicting and expired requests", async () => {
     const { manager, request, post, app } = setup();
     const response = await post(request);
@@ -56,7 +178,7 @@ describe("game API boundary", () => {
     expect((await app.request("/api/game-sessions/by-request/unknown")).status).toBe(410);
     expect((await app.request("/api/game-sessions/unknown")).status).toBe(410);
     const session = manager.get(snapshot.sessionId);
-    session.connect("controller", () => {});
+    connectGame(session);
     const command = gameCommand(session.snapshot(), "interrupt");
     const cancelled = await app.request(`/api/game-sessions/${session.id}/commands`, {
       method: "POST",

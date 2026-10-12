@@ -76,14 +76,21 @@ describe("typed analysis HTTP client", () => {
     ]);
     const first = await client.attach(status.jobId, {
       ownerId: "first",
+      screenId: "first",
       epoch: 0,
       takeover: false,
     });
     await expect(
-      client.attach(status.jobId, { ownerId: "second", epoch: first.epoch, takeover: false }),
+      client.attach(status.jobId, {
+        ownerId: "second",
+        epoch: first.epoch,
+        takeover: false,
+        screenId: "second",
+      }),
     ).rejects.toMatchObject({ status: 409 });
     const second = await client.attach(status.jobId, {
       ownerId: "second",
+      screenId: "second",
       epoch: first.epoch,
       takeover: true,
     });
@@ -92,9 +99,39 @@ describe("typed analysis HTTP client", () => {
     await expect(client.cancel(status.jobId, first)).rejects.toMatchObject({ status: 409 });
     await expect(client.cancel(status.jobId)).rejects.toMatchObject({ status: 409 });
     await client.detach(status.jobId, first);
-    expect((await client.status(status.jobId, second)).attachment?.ownerId).toBe("second");
+    expect((await client.status(status.jobId, second)).attachment?.epoch).toBe(second.epoch);
     await client.cancel(status.jobId, second);
     await vi.advanceTimersByTimeAsync(0);
     expect((await client.list())[0].state).toBe("cancelled");
+  });
+  it("requires the recovered screen to authorize an unchanged pending cancellation", async () => {
+    const { client, manager } = setup();
+    const request = requestFor();
+    request.serverInstanceId = manager.serverInstanceId;
+    const status = await client.create(request);
+    const first = await client.attach(status.jobId, {
+      ownerId: "owner",
+      epoch: 0,
+      screenId: "first",
+      takeover: false,
+    });
+    manager.get(status.jobId).attachment.suspend(first);
+    const current = await client.attach(status.jobId, {
+      ...first,
+      screenId: "second",
+      takeover: false,
+    });
+    await expect(client.cancel(status.jobId, first, "cancel-request")).rejects.toMatchObject({
+      status: 409,
+    });
+    expect(await client.cancelOutcome(status.jobId, "cancel-request")).toEqual({
+      state: "unknown",
+    });
+    await client.cancel(status.jobId, first, "cancel-request", current);
+    expect(await client.cancelOutcome(status.jobId, "cancel-request")).toEqual({
+      state: "accepted",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect((await client.status(status.jobId)).state).toBe("cancelled");
   });
 });

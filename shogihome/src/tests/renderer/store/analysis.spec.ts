@@ -372,6 +372,7 @@ describe("analysis job client", () => {
     await value.manager.start(settings);
     await value.client.attach("job", {
       ownerId: "another-device",
+      screenId: "other",
       epoch: value.summary().attachment.epoch,
       takeover: true,
     });

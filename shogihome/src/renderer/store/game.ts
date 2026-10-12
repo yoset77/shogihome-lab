@@ -12,6 +12,7 @@ import {
   type GameCommandAction,
   type GameFrame,
   type GameError,
+  type GameRecoveryRequest,
 } from "@/common/game/protocol";
 import { snapshotRecord, type RecordSnapshot } from "@/common/record/snapshot";
 import { jobRecordContent as durableContent } from "./job_record";
@@ -65,6 +66,7 @@ type Reference = {
   controllerId: string;
   connectionId?: string;
   controllerEpoch?: number;
+  controllerGeneration?: number;
   recoveryId?: string;
   sessionId?: string;
   content: string;
@@ -115,6 +117,9 @@ function readReference(raw: string | null): Reference | undefined {
       ...(input.controllerEpoch === undefined
         ? {}
         : { controllerEpoch: counter(input.controllerEpoch) }),
+      ...(input.controllerGeneration === undefined
+        ? {}
+        : { controllerGeneration: counter(input.controllerGeneration) }),
       ...(input.sessionId === undefined ? {} : { sessionId: identifier(input.sessionId) }),
       content: text(input.content, 20 * 1024 * 1024),
       pending,
@@ -313,24 +318,18 @@ export class GameManager {
           ? await this.client.snapshot(ref.sessionId)
           : await this.client.byRequest(ref.requestId);
         storage.forgetOperation(ref, "creation");
-        if (
-          ref.pendingDetach &&
-          (status.controllerEpoch !== ref.pendingDetach.epoch ||
-            status.controllerOwnerId !== ref.pendingDetach.ownerId)
-        )
+        if (ref.pendingDetach && status.controllerEpoch !== ref.pendingDetach.epoch)
           storage.forgetOperation(ref, "detach");
         if (
           ref.pendingAttach &&
-          ((status.controllerOwnerId !== ref.controllerId &&
-            status.controllerEpoch > ref.pendingAttach.epoch) ||
-            isGameTerminal(status.state))
+          (status.controllerEpoch > ref.pendingAttach.epoch || isGameTerminal(status.state))
         )
           storage.forgetOperation(ref, "attachment");
         if (
           ref.stopRequested &&
           (isGameTerminal(status.state) ||
-            (ref.recoveryId
-              ? status.controllerRecoveryId !== ref.recoveryId
+            (ref.controllerGeneration !== undefined
+              ? status.controllerGeneration !== ref.controllerGeneration
               : ref.controllerEpoch !== undefined && status.controllerEpoch > ref.controllerEpoch))
         )
           storage.forgetOperation(ref, "stop");
@@ -339,8 +338,8 @@ export class GameManager {
           if (
             ["accepted", "rejected"].includes(outcome.state) ||
             isGameTerminal(status.state) ||
-            (command.recoveryId
-              ? status.controllerRecoveryId !== command.recoveryId
+            (command.controllerGeneration !== undefined
+              ? status.controllerGeneration !== command.controllerGeneration
               : status.controllerEpoch > command.controllerEpoch)
           )
             storage.forgetOperation(ref, command.requestId);
@@ -364,7 +363,8 @@ export class GameManager {
     return (
       error instanceof TypeError ||
       isRequestTimeoutError(error) ||
-      (error instanceof ApiResponseError && (error.status === 429 || error.status >= 500))
+      (error instanceof ApiResponseError &&
+        (error.status === 423 || error.status === 429 || error.status >= 500))
     );
   }
   private backoff(error: unknown): void {
@@ -532,7 +532,7 @@ export class GameManager {
         snapshot = ref.sessionId
           ? ref.pendingAttach
             ? await this.client.attach(ref.sessionId, ref.pendingAttach)
-            : await this.client.snapshot(ref.sessionId)
+            : await this.client.snapshot(ref.sessionId, this.recoveryRequest(ref))
           : await this.client.byRequest(ref.requestId);
       } catch (error) {
         if (lifecycle !== this.lifecycle || this.reference !== ref) return;
@@ -555,13 +555,9 @@ export class GameManager {
         this.reference = undefined;
         return;
       }
-      if (
-        (ref.recoveryId !== undefined && snapshot.controllerRecoveryId !== ref.recoveryId) ||
-        (ref.controllerEpoch !== undefined &&
-          snapshot.controllerEpoch > ref.controllerEpoch &&
-          snapshot.controllerConnectionId !== ref.connectionId)
-      )
-        throw new ApiResponseError(409, t.jobsTransferred);
+      if (!snapshot.controllerRecoveryId)
+        snapshot = await this.client.snapshot(snapshot.sessionId, this.recoveryRequest(ref));
+      if (lifecycle !== this.lifecycle || this.reference !== ref) return;
       this.controllerEpoch = snapshot.controllerEpoch;
       this.accept(snapshot, true);
       this.retryMs = 1000;
@@ -582,6 +578,19 @@ export class GameManager {
       this.synchronizing = false;
     }
   }
+  private recoveryRequest(ref: Reference): GameRecoveryRequest {
+    return {
+      ownerId: ref.controllerId,
+      epoch: ref.controllerEpoch ?? this.controllerEpoch ?? 0,
+      recoveryId: ref.recoveryId,
+      screenId: SCREEN_ID,
+      takeover: false,
+      connectionId: ref.connectionId ?? this.connectionId,
+    };
+  }
+  private authorization(ref: Reference, epoch: number): JobBinding {
+    return { ownerId: ref.controllerId, epoch, recoveryId: ref.recoveryId, screenId: SCREEN_ID };
+  }
   get canDetach(): boolean {
     return (
       this.active &&
@@ -600,14 +609,14 @@ export class GameManager {
     const epoch =
       status?.controllerEpoch ?? (ref.pendingAttach ? ref.pendingAttach.epoch + 1 : undefined);
     if (ref.sessionId && epoch !== undefined)
-      storage.writeJournal({ ...ref, pendingDetach: { ownerId: ref.controllerId, epoch } });
+      storage.writeJournal({ ...ref, pendingDetach: this.authorization(ref, epoch) });
     storage.detach(ref);
     this.release(ref.requestId, false);
     this.reference = undefined;
     this.pendingRequest = undefined;
     if (ref.sessionId && epoch !== undefined)
       void this.client
-        .detach(ref.sessionId, { ownerId: ref.controllerId, epoch })
+        .detach(ref.sessionId, this.authorization(ref, epoch))
         .then(() => storage.forgetOperation(ref, "detach"))
         .catch((error) => this.handlers.error(error));
   }
@@ -645,6 +654,7 @@ export class GameManager {
         ownerId: controllerId,
         epoch: job.attachment.epoch,
         takeover: job.attachment.attached,
+        screenId: SCREEN_ID,
       },
     };
     let snapshot: GameSnapshot | undefined;
@@ -655,7 +665,12 @@ export class GameManager {
       snapshot = await this.client.attach(job.id, this.reference.pendingAttach!);
       if (lifecycle !== this.lifecycle) {
         void this.client
-          .detach(job.id, { ownerId: controllerId, epoch: snapshot.controllerEpoch })
+          .detach(job.id, {
+            ownerId: controllerId,
+            epoch: snapshot.controllerEpoch,
+            screenId: SCREEN_ID,
+            recoveryId: snapshot.controllerRecoveryId,
+          })
           .catch(() => {});
         return false;
       }
@@ -676,7 +691,12 @@ export class GameManager {
       this.release(job.requestId, true);
       if (snapshot)
         void this.client
-          .detach(job.id, { ownerId: controllerId, epoch: snapshot.controllerEpoch })
+          .detach(job.id, {
+            ownerId: controllerId,
+            epoch: snapshot.controllerEpoch,
+            screenId: SCREEN_ID,
+            recoveryId: snapshot.controllerRecoveryId,
+          })
           .catch(() => {});
       throw error;
     }
@@ -692,6 +712,7 @@ export class GameManager {
     this.controllerEpoch ??= this._status!.controllerEpoch;
     url.searchParams.set("connectionId", this.connectionId);
     url.searchParams.set("screenId", SCREEN_ID);
+    url.searchParams.set("recoveryId", ref.recoveryId!);
     url.searchParams.set("controllerEpoch", String(this.controllerEpoch));
     const generation = ++this.generation;
     this.lastFrameAt = Date.now();
@@ -863,6 +884,7 @@ export class GameManager {
     const previewedMoveId = this.reconcileMovePreview(snapshot);
     ref.sessionId = snapshot.sessionId;
     ref.recoveryId = snapshot.controllerRecoveryId;
+    ref.controllerGeneration = snapshot.controllerGeneration;
     if (snapshot.controllerConnectionId === this.connectionId) {
       this.controllerEpoch = snapshot.controllerEpoch;
       ref.connectionId = this.connectionId;
@@ -963,7 +985,7 @@ export class GameManager {
         ![snapshot.settings.black.uri, snapshot.settings.white.uri].includes("es://human")
       ) {
         try {
-          const binding = { ownerId: ref.controllerId, epoch: snapshot.controllerEpoch };
+          const binding = this.authorization(ref, snapshot.controllerEpoch);
           storage.writeJournal({
             ...ref,
             pending: [],
@@ -1030,7 +1052,11 @@ export class GameManager {
     this.sending.add(command.requestId);
     const lifecycle = this.lifecycle;
     try {
-      const response = await this.client.command(ref.sessionId, command);
+      const response = await this.client.command(
+        ref.sessionId,
+        command,
+        this.authorization(ref, status.controllerEpoch),
+      );
       if (this.reference !== ref || lifecycle !== this.lifecycle) return;
       ref.pending = ref.pending.filter((item) => item.requestId !== command.requestId);
       if (command.action === "interrupt") ref.stopRequested = false;
@@ -1081,6 +1107,8 @@ export class GameManager {
       controllerId: ref.controllerId,
       controllerEpoch: status.controllerEpoch,
       recoveryId: status.controllerRecoveryId,
+      screenId: SCREEN_ID,
+      controllerGeneration: status.controllerGeneration,
       gameId: status.gameId,
       interactionId: status.interactionId,
       action,
@@ -1179,6 +1207,7 @@ export class GameManager {
       serverInstanceId: this.reference.serverInstanceId,
       controllerId: this.reference.controllerId,
       controllerEpoch: this._status.controllerEpoch,
+      screenId: SCREEN_ID,
       gameId: this._status.gameId,
       interactionId: this._status.interactionId,
       action: "annotate",

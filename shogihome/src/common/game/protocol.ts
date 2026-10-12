@@ -28,6 +28,7 @@ import { Language } from "@/common/i18n/languages";
 import { ES_HUMAN } from "@/common/uri";
 import type { GameResults } from "./results";
 import type { USIInfoCommand } from "./usi";
+import { readJobAttachRequest, type JobAttachRequest } from "@/common/jobs/types";
 
 export const GAME_STATES = [
   "preparing",
@@ -69,6 +70,7 @@ export type GameRecordSummary = {
   path?: string;
 };
 export type GameSnapshot = {
+  controllerGeneration: number;
   controllerRecoveryId?: string;
   controllerOwnerId?: string;
   sessionId: string;
@@ -98,6 +100,8 @@ export type GameSnapshot = {
 export type GameCommandAction =
   "move" | "resign" | "declare" | "takeback" | "interrupt" | "resume" | "annotate";
 export type GameCommand = {
+  screenId?: string;
+  controllerGeneration?: number;
   recoveryId?: string;
   requestId: string;
   serverInstanceId: string;
@@ -131,7 +135,20 @@ export type GameFrame =
       }[];
     };
 export type GameHeartbeat = { type: "heartbeat"; controllerEpoch: number };
-export type GameConnection = { connectionId: string; controllerEpoch: number; screenId?: string };
+export type GameConnection = {
+  connectionId: string;
+  controllerEpoch: number;
+  screenId: string;
+  recoveryId: string;
+};
+export type GameRecoveryRequest = JobAttachRequest & { connectionId?: string };
+export function readGameRecoveryRequest(value: unknown): GameRecoveryRequest {
+  const input = v.object(value);
+  return {
+    ...readJobAttachRequest(input),
+    ...(input.connectionId === undefined ? {} : { connectionId: v.identifier(input.connectionId) }),
+  };
+}
 export type GameClientFrame = GameHeartbeat | { type: "annotation"; value: GameCommand };
 export type GameCapabilities = {
   serverInstanceId: string;
@@ -275,6 +292,10 @@ export function decodeGameCommand(value: unknown): DecodeResult<GameCommand> {
   return decoded(() => {
     const input = v.object(value);
     const result: GameCommand = {
+      ...(input.screenId === undefined ? {} : { screenId: v.identifier(input.screenId) }),
+      ...(input.controllerGeneration === undefined
+        ? {}
+        : { controllerGeneration: v.counter(input.controllerGeneration) }),
       ...(input.recoveryId === undefined ? {} : { recoveryId: v.identifier(input.recoveryId) }),
       requestId: v.identifier(input.requestId),
       serverInstanceId: v.identifier(input.serverInstanceId),
@@ -341,6 +362,7 @@ export function decodeGameSnapshot(value: unknown): DecodeResult<GameSnapshot> {
       };
     };
     return {
+      controllerGeneration: v.counter(input.controllerGeneration),
       ...(input.controllerRecoveryId === undefined
         ? {}
         : { controllerRecoveryId: v.identifier(input.controllerRecoveryId) }),
@@ -432,9 +454,8 @@ export function decodeGameConnection(value: unknown): DecodeResult<GameConnectio
   return decoded(() => {
     const input = v.object(value);
     return {
-      ...(input.screenId === undefined || input.screenId === null
-        ? {}
-        : { screenId: v.identifier(input.screenId) }),
+      screenId: v.identifier(input.screenId),
+      recoveryId: v.identifier(input.recoveryId),
       connectionId: v.identifier(input.connectionId),
       controllerEpoch: v.counter(input.controllerEpoch),
     };
