@@ -190,13 +190,14 @@ function setup() {
     saveRecord,
     ...fake,
     session: () => server.byRequest(request!.requestId),
-    reload: () =>
+    reload: (screenId?: string) =>
       new GameManager(
         new RecordManager(loadRecordForWebApp()!),
         new GameClockDisplay(),
         new GameClockDisplay(),
         client,
         socketFactory,
+        screenId,
       ),
   };
 }
@@ -644,7 +645,7 @@ describe("game session client", () => {
     await start(value);
     value.sockets[0].close();
     await vi.advanceTimersByTimeAsync(0);
-    const recovered = value.reload();
+    const recovered = value.reload("replacement-screen");
     extraClients.push(recovered);
     await recovered.resume(async () => true);
     await vi.advanceTimersByTimeAsync(0);
@@ -831,6 +832,104 @@ describe("game session client", () => {
     expect(value.game.canMove).toBe(true);
     expect(value.error).not.toHaveBeenCalled();
   });
+
+  it("recovers a lost initial socket snapshot after reloading into a new screen", async () => {
+    const value = fixture();
+    value.dropNextConnectionFrames();
+    await value.game.start(value.settings);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.game.canMove).toBe(false);
+    const previous = value.session().snapshot();
+    expect(previous.controllerConnectionId).toBeDefined();
+    value.game.dispose();
+
+    const recovered = value.reload("reloaded-screen");
+    extraClients.push(recovered);
+    const error = vi.fn();
+    recovered.on("error", error);
+    expect(await recovered.resume(async () => true)).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(recovered.canMove).toBe(true);
+    expect(recovered.status?.sessionId).toBe(previous.sessionId);
+    expect(recovered.status?.controllerConnectionId).not.toBe(previous.controllerConnectionId);
+    expect(storedReference()).not.toBeNull();
+    expect(value.client.create).toHaveBeenCalledOnce();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("does not open a socket if its recovery identity cannot be persisted", async () => {
+    const value = fixture();
+    const original = Storage.prototype.setItem;
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      key: string,
+      raw: string,
+    ) {
+      if (key === "shogihome-job-attachment:game" && JSON.parse(raw).connectionId)
+        throw new Error("Storage full");
+      original.call(this, key, raw);
+    });
+
+    await expect(value.game.start(value.settings)).rejects.toThrow("Storage full");
+    write.mockRestore();
+
+    expect(value.sockets).toHaveLength(0);
+    expect(value.session().snapshot().controllerEpoch).toBe(0);
+    expect(value.session().snapshot().controllerConnectionId).toBeUndefined();
+    expect(storedReference()).not.toBeNull();
+    const recovered = value.reload("reloaded-screen");
+    extraClients.push(recovered);
+    expect(await recovered.resume(async () => true)).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(recovered.canMove).toBe(true);
+    expect(value.client.create).toHaveBeenCalledOnce();
+  });
+
+  it.each(["accepted", "pending"] as const)(
+    "recovers an established game reloaded again while its socket handshake is %s",
+    async (handshake) => {
+      const value = fixture();
+      await start(value);
+      for (const move of ["7g7f", "3c3d", "2g2f"]) {
+        await value.game.move(value.records.record.position.createMoveByUSI(move)!);
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      const previous = value.session().snapshot();
+      expect(previous.lastMoveId).toBe(3);
+      value.game.dispose();
+
+      if (handshake === "accepted") value.dropNextConnectionFrames();
+      else value.delayConnections(60_000);
+      const firstReload = value.reload("first-reloaded-screen");
+      extraClients.push(firstReload);
+      expect(await firstReload.resume(async () => true)).toBe(true);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(firstReload.canMove).toBe(false);
+      expect(value.sockets.at(-1)?.readyState).toBe(handshake === "accepted" ? 1 : 0);
+      firstReload.dispose();
+
+      value.delayConnections(0);
+      const secondReload = value.reload("second-reloaded-screen");
+      extraClients.push(secondReload);
+      const error = vi.fn();
+      secondReload.on("error", error);
+      expect(await secondReload.resume(async () => true)).toBe(true);
+      // An unopened socket cannot release the first recovered screen's HTTP lease.
+      await vi.advanceTimersByTimeAsync(handshake === "pending" ? 31_001 : 1);
+
+      expect(secondReload.canMove).toBe(true);
+      expect(secondReload.status).toMatchObject({
+        sessionId: previous.sessionId,
+        gameId: previous.gameId,
+        lastMoveId: 3,
+      });
+      expect(loadRecordForWebApp()?.usi).toBe("position startpos moves 7g7f 3c3d 2g2f");
+      expect(storedReference()).not.toBeNull();
+      expect(value.client.create).toHaveBeenCalledOnce();
+      expect(error).not.toHaveBeenCalled();
+    },
+  );
 
   it("fences a delayed retry handshake after another tab takes control", async () => {
     const value = fixture();
