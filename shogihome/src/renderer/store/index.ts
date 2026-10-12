@@ -969,7 +969,25 @@ class Store {
   get canDetachJob(): boolean {
     return this.analysisManager.isActive || this.gameManager.canDetach;
   }
-  detachJob(): void {
+  canDetachListedJob(job: JobSummary): boolean {
+    if (!job.attachment.attached) return false;
+    if (job.kind === "analysis") {
+      const status = this.analysisManager.status;
+      return (
+        this.analysisManager.isActive &&
+        status?.jobId === job.id &&
+        status.serverInstanceId === job.serverInstanceId
+      );
+    }
+    const status = this.gameManager.status;
+    return (
+      this.gameManager.canDetach &&
+      status?.sessionId === job.id &&
+      status.serverInstanceId === job.serverInstanceId
+    );
+  }
+  detachJob(job?: JobSummary): void {
+    if (job && !this.canDetachListedJob(job)) return;
     const detachable = this.canDetachJob;
     try {
       if (this.analysisManager.isActive) this.analysisManager.detach();

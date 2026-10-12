@@ -19,7 +19,7 @@
                 <button :disabled="!store.canAttachJob" @click="onAttach(job)">
                   {{ terminal(job) ? t.jobsOpenResults : t.jobsAttach }}
                 </button>
-                <button v-if="job.attachment.attached && store.canDetachJob" @click="onDetach">
+                <button v-if="store.canDetachListedJob(job)" @click="onDetach(job)">
                   {{ t.jobsDetach }}
                 </button>
               </span>
@@ -33,7 +33,7 @@
               <span>{{ job.completed }} / {{ job.total }}</span>
             </div>
             <div>{{ job.engines.join(" / ") }}</div>
-            <div>{{ job.attachment.attached ? t.jobsAttached : t.jobsDetached }}</div>
+            <div v-if="store.canDetachListedJob(job)">{{ t.jobsAttached }}</div>
           </li>
         </ul>
       </div>
@@ -77,8 +77,8 @@ const onAttach = async (job: JobSummary) => {
   await store.attachJob(job);
   void list.refresh();
 };
-const onDetach = () => {
-  store.detachJob();
+const onDetach = (job: JobSummary) => {
+  store.detachJob(job);
   void list.refresh();
 };
 onMounted(() => list.start());
