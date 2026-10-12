@@ -78,18 +78,6 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
         <button class="reload-btn thin row align-center" :title="t.reload" @click="onReload">
           <Icon :icon="IconType.REFRESH" />
         </button>
-        <button
-          class="thin"
-          @click="
-            store.showBatchAnalysisDialog({
-              kind: 'folder',
-              directory: currentDir,
-              subdirectories: true,
-            })
-          "
-        >
-          {{ t.batchAnalysis }}
-        </button>
       </div>
       <div class="form-group kifu-list">
         <div

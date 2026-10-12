@@ -35,17 +35,12 @@
           </tr>
         </tbody>
       </table>
-      <div v-show="activeTab === 'directory'" class="form-item row">
-        <input
-          v-model="settings.sourceDirectory"
-          class="grow"
-          type="text"
-          :readonly="!isNative()"
-        />
+      <div v-if="isNative()" v-show="activeTab === 'directory'" class="form-item row">
+        <input v-model="settings.sourceDirectory" class="grow" type="text" />
         <button class="thin" @click="selectDirectory()">
           {{ t.select }}
         </button>
-        <button v-if="isNative()" class="thin open-dir" @click="openDirectory()">
+        <button class="thin open-dir" @click="openDirectory()">
           <Icon :icon="IconType.OPEN_FOLDER" />
         </button>
       </div>
@@ -60,39 +55,27 @@
           {{ t.select }}
         </button>
       </div>
-      <div
-        v-if="!isNative() && activeTab !== 'memory' && serverSelectionList.length > 0"
-        class="server-selection-list"
+      <ServerDirectoryBrowser
+        v-if="!isNative() && activeTab !== 'memory'"
+        :show-path-input="activeTab === 'directory'"
+        :selected-path="serverDirectorySelection"
+        :path="currentServerDir"
+        :entries="serverSelectionEntries"
+        :open="serverSelectionList.length > 0"
+        @open="selectDirectory"
+        @update:path="onNavigateServerDirectory"
+        @select="onSelectServerItem"
       >
-        <div class="server-selection-header breadcrumbs">
-          <span class="breadcrumb-item" @click="currentServerDir = ''">Root</span>
-          <template v-for="(dir, index) in breadcrumbs" :key="index">
-            <span class="breadcrumb-separator">/</span>
-            <span class="breadcrumb-item" @click="currentServerDir = dir.path">
-              {{ dir.name }}
-            </span>
-          </template>
-        </div>
-        <div class="server-selection-scroll">
-          <div
-            v-for="entry in serverSelectionEntries"
-            :key="entry.path"
-            class="server-selection-item row align-center"
+        <template #entry-actions="{ entry }">
+          <button
+            v-if="activeTab === 'directory' && entry.isDirectory"
+            class="thin"
+            @click="onConfirmServerDirectory(entry.path)"
           >
-            <div class="entry-header grow" @click="onSelectServerItem(entry)">
-              <Icon v-if="entry.isDirectory" :icon="IconType.OPEN_FOLDER" class="entry-icon" />
-              {{ entry.name }}
-            </div>
-            <button
-              v-if="activeTab === 'directory' && entry.isDirectory && entry.name !== '..'"
-              class="thin"
-              @click="onConfirmServerDirectory(entry.path)"
-            >
-              {{ t.select }}
-            </button>
-          </div>
-        </div>
-      </div>
+            {{ t.select }}
+          </button>
+        </template>
+      </ServerDirectoryBrowser>
       <div v-show="activeTab === 'directory' || activeTab === 'file'" class="form-item row">
         <span>{{ t.fromPrefix }}</span>
         <input
@@ -173,7 +156,6 @@ import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import api, { isNative } from "@/renderer/ipc/api";
-import { normalizePath } from "@/common/helpers/path";
 import {
   defaultBookImportSettings,
   PlayerCriteria,
@@ -181,6 +163,7 @@ import {
   validateBookImportSettings,
 } from "@/common/settings/book";
 import DialogFrame from "./DialogFrame.vue";
+import ServerDirectoryBrowser from "./ServerDirectoryBrowser.vue";
 import { useConfirmationStore } from "@/renderer/store/confirm";
 import { useToastStore } from "@/renderer/store/toast";
 import {
@@ -252,14 +235,21 @@ watch(importScoreDepth, (value) => {
   localStorage.setItem(STORAGE_KEY_IMPORT_SCORE_DEPTH, String(value));
 });
 
-const breadcrumbs = computed(() => {
-  if (!currentServerDir.value) return [];
-  const parts = normalizePath(currentServerDir.value).split("/");
-  return parts.map((part, index) => ({
-    name: part,
-    path: parts.slice(0, index + 1).join("/"),
-  }));
+const serverSelectionEntries = computed(() => {
+  if (activeTab.value === "directory") {
+    return serverSelectionList.value.filter((entry) => entry.isDirectory);
+  }
+  return serverSelectionList.value;
 });
+
+const serverDirectorySelection = computed(() => {
+  const source = settings.value.sourceDirectory;
+  return source.startsWith("server://") ? source.slice("server://".length) : undefined;
+});
+
+const onNavigateServerDirectory = (path: string) => {
+  currentServerDir.value = path;
+};
 
 const sourceTypeOptions = computed(() => {
   return [
@@ -267,27 +257,6 @@ const sourceTypeOptions = computed(() => {
     { value: "file", label: t.fromFile },
     { value: "directory", label: t.fromDirectory },
   ];
-});
-
-const serverSelectionEntries = computed(() => {
-  const entriesMap = new Map<string, { name: string; path: string; isDirectory: boolean }>();
-  const currentDirNormalized = normalizePath(currentServerDir.value);
-  if (currentServerDir.value) {
-    const parent = currentDirNormalized.split("/").slice(0, -1).join("/");
-    entriesMap.set("..", { name: "..", path: parent, isDirectory: true });
-  }
-
-  serverSelectionList.value.forEach((entry) => {
-    if (activeTab.value !== "directory" || entry.isDirectory) {
-      entriesMap.set(entry.name, {
-        name: entry.name,
-        path: entry.path,
-        isDirectory: entry.isDirectory,
-      });
-    }
-  });
-
-  return Array.from(entriesMap.values());
 });
 
 watch(currentServerDir, async () => {
@@ -548,70 +517,5 @@ input.small {
 button.register-all,
 button.import {
   width: 100%;
-}
-.server-selection-list {
-  width: 100%;
-  box-sizing: border-box;
-  margin-top: 10px;
-  border: 1px solid var(--dialog-border-color);
-  background-color: var(--text-bg-color);
-}
-.server-selection-header {
-  padding: 4px 8px;
-  font-size: 0.8em;
-  font-weight: bold;
-  background-color: var(--selector-bg-color);
-  border-bottom: 1px solid var(--dialog-border-color);
-}
-.server-selection-header.breadcrumbs {
-  text-align: left;
-  white-space: nowrap;
-  overflow-x: auto;
-}
-.breadcrumb-item {
-  cursor: pointer;
-  color: var(--text-color-link);
-}
-.breadcrumb-item:hover {
-  text-decoration: underline;
-}
-.breadcrumb-separator {
-  margin: 0 5px;
-  color: var(--text-color-sub);
-}
-.server-selection-scroll {
-  max-height: min(400px, 45dvh);
-  overflow-y: auto;
-}
-.server-selection-item {
-  padding: 8px 10px;
-  font-size: 0.9em;
-  cursor: pointer;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  border-bottom: 1px solid var(--dialog-border-color);
-}
-.server-selection-item .entry-header {
-  min-width: 0;
-  text-overflow: ellipsis;
-  overflow: hidden;
-}
-.server-selection-item button {
-  flex-shrink: 0;
-  margin-left: 10px;
-}
-.server-selection-item:last-child {
-  border-bottom: none;
-}
-.server-selection-item:hover {
-  background-color: var(--selector-bg-color);
-}
-.entry-icon {
-  width: 1.2em;
-  height: 1.2em;
-  vertical-align: middle;
-  margin-right: 5px;
 }
 </style>

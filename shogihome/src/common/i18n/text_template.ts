@@ -381,12 +381,13 @@ export type Texts = {
   suggestionsCount: string;
   multiPVInvalid: (min: number, max: number) => string;
   batchAnalysis: string;
-  batchAnalysisCheck: string;
-  batchAnalysisCurrent: string;
-  batchAnalysisFolder: string;
+  currentRecord: string;
+  serverFolder: string;
   batchAnalysisSearch: string;
-  batchAnalysisSkip: string;
+  skipAnalyzed: string;
   batchAnalysisSkipNote: string;
+  checkBatchTargets: string;
+  analyzedRecordFilesWillBeOverwritten: string;
   batchAnalysisInvalid: string;
   batchAnalysisNoFiles: string;
   batchAnalysisPlanExpired: string;
@@ -418,6 +419,7 @@ export type Texts = {
   byoyomi: string;
   increments: string;
   startEndCriteria: string;
+  totalMoves: string;
   descending: string;
   endCriteria1Move: string;
   outputSettings: string;

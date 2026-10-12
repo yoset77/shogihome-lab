@@ -140,8 +140,17 @@ describe("responsive desktop dialog styles", () => {
   it("sizes AnalysisDialog from the viewport instead of its shrink-to-fit parent", () => {
     const source = readFileSync("src/renderer/view/dialog/AnalysisDialog.vue", "utf-8");
 
-    expect(source).toContain("width: min(420px, calc(95vw - 32px))");
-    expect(source).toContain("max-width: 100%");
-    expect(source).not.toContain("width: min(420px, 100%)");
+    expect(source).toContain("box-sizing: border-box");
+    expect(source).toContain("min-width: min(502px, calc(95vw - 54px))");
+    expect(source).toMatch(
+      /\.form-item\.row > \.form-item-label-wide \{[^}]*flex: 0 0 160px;[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/,
+    );
+    expect(source).not.toContain("width: min(420px");
+  });
+
+  it("lets the server path input shrink so the select button stays inside narrow dialogs", () => {
+    const source = readFileSync("src/renderer/view/dialog/ServerDirectoryBrowser.vue", "utf-8");
+
+    expect(source).toMatch(/\.path-input input \{[^}]*min-width: 0;/);
   });
 });
