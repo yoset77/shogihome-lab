@@ -55,6 +55,9 @@ function setup() {
   };
   const response = () => ({ ...status, requestId: request!.requestId });
   const client = {
+    prepareBatch: vi.fn<AnalysisJobsClient["prepareBatch"]>(),
+    createBatch: vi.fn<AnalysisJobsClient["createBatch"]>(),
+    files: vi.fn<AnalysisJobsClient["files"]>(async () => []),
     cancelOutcome: vi.fn<AnalysisJobsClient["cancelOutcome"]>(async () => ({ state: "unknown" })),
     list: vi.fn(async () => []),
     attach: vi.fn<AnalysisJobsClient["attach"]>(async (_id, binding) => {
@@ -155,6 +158,258 @@ describe("analysis job client", () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(manager.isStarting).toBe(false);
     expect(records.record.current.ply).toBe(0);
+  });
+
+  function batchFixture() {
+    const f = fixture();
+    f.status.batch = {
+      totalFiles: 2,
+      processedFiles: 0,
+      currentFile: 1,
+      currentPath: "a.kifu",
+      recordIndex: 1,
+      recordPath: "a.kifu",
+      saved: false,
+      successTotal: 0,
+      failedTotal: 0,
+      skippedTotal: 0,
+    };
+    f.result.recordIndex = 1;
+    f.client.createBatch.mockImplementation(async (input) => {
+      f.acceptRequest({
+        requestId: input.requestId,
+        serverInstanceId: input.serverInstanceId,
+        source: f.source,
+        options: input.options,
+      });
+      return { ...f.response(), current: null, resultRevision: 0 };
+    });
+    return f;
+  }
+  const plan = { planId: "plan", files: ["a.kifu", "b.kifu"], expiresAt: Date.now() + 600_000 };
+
+  it("starts a background batch without changing or locking the current document", async () => {
+    const f = batchFixture();
+    const original = f.records.record;
+    await f.manager.startBatch(settings, plan, true, true);
+    expect(f.records.record).toBe(original);
+    expect(f.records.analysisLocked).toBe(false);
+    expect(f.client.create).not.toHaveBeenCalled();
+    expect(f.client.createBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        planId: "plan",
+        skipAnalyzed: true,
+        fileOptions: expect.objectContaining({ autoDetect: expect.any(Boolean) }),
+      }),
+    );
+  });
+  it("cancels a discovered background batch without replacing or locking the current document", async () => {
+    const f = batchFixture();
+    await f.manager.startBatch(settings, plan, true, true);
+    f.records.updateComment("keep my draft");
+    const original = f.records.record;
+    await f.manager.cancelListed(f.summary(), async () => true);
+    expect(f.client.cancel).toHaveBeenCalledOnce();
+    expect(f.client.detach).toHaveBeenCalledOnce();
+    expect(f.records.record).toBe(original);
+    expect(f.records.analysisLocked).toBe(false);
+    expect(f.client.source).not.toHaveBeenCalled();
+  });
+  it("requires takeover confirmation to cancel a batch owned by another screen", async () => {
+    const f = batchFixture();
+    await f.manager.startBatch(settings, plan, true, true);
+    f.status.attachment = { attached: true, epoch: 2 };
+    await f.manager.cancelListed(f.summary(), async () => false);
+    expect(f.client.attach).not.toHaveBeenCalled();
+    expect(f.client.cancel).not.toHaveBeenCalled();
+  });
+  it("keeps uncertain background cancellations in the operation journal for later reconciliation", async () => {
+    const f = batchFixture();
+    await f.manager.startBatch(settings, plan, true, true);
+    f.client.cancel.mockRejectedValueOnce(new TypeError("lost cancellation response"));
+    await expect(f.manager.cancelListed(f.summary(), async () => true)).rejects.toThrow(
+      "lost cancellation response",
+    );
+    const entries = Object.keys(localStorage)
+      .filter((key) => key.startsWith("shogihome-job-journal:analysis:"))
+      .map((key) => JSON.parse(localStorage.getItem(key)!));
+    expect(entries.some((ref) => ref.cancelRequested && ref.cancelBinding)).toBe(true);
+    f.client.cancelOutcome.mockResolvedValueOnce({ state: "accepted" });
+    await f.manager.reconcilePending();
+    expect(
+      Object.keys(localStorage).filter((key) => key.startsWith("shogihome-job-journal:analysis:")),
+    ).toHaveLength(0);
+  });
+  it("does not validate or send the unrelated current document when creating a batch", async () => {
+    const f = batchFixture();
+    f.records.updateComment("x".repeat(65_537));
+    await expect(f.manager.startBatch(settings, plan, true, true)).resolves.toBeUndefined();
+    expect(f.client.createBatch).toHaveBeenCalledOnce();
+    expect(f.client.create).not.toHaveBeenCalled();
+  });
+  it("backs up an unsaved document before an attached batch can modify server files", async () => {
+    const f = batchFixture();
+    f.records.updateComment("unsaved draft");
+    vi.spyOn(f.records, "saveBackup").mockRejectedValueOnce(new Error("backup failed"));
+    await expect(f.manager.startBatch(settings, plan, false)).rejects.toThrow("backup failed");
+    expect(f.client.createBatch).not.toHaveBeenCalled();
+    expect(f.records.analysisLocked).toBe(false);
+    expect(f.records.record.current.comment).toBe("unsaved draft");
+  });
+
+  it("keeps batch startup pending until the first record and position are applied", async () => {
+    const f = batchFixture();
+    await f.manager.startBatch(settings, plan, false);
+    expect(f.manager.isStarting).toBe(true);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(f.records.serverKifuPath).toBe("a.kifu");
+    expect(f.manager.isStarting).toBe(false);
+  });
+
+  it("does not reuse an unconfirmed batch payload after detaching and starting single analysis", async () => {
+    const f = batchFixture();
+    f.client.createBatch.mockRejectedValueOnce(new TypeError("lost response"));
+    await f.manager.startBatch(settings, plan, false);
+    f.manager.detach();
+    await f.manager.start(settings);
+    expect(f.client.create).toHaveBeenCalledOnce();
+    expect(f.client.createBatch).toHaveBeenCalledOnce();
+  });
+
+  it("switches files with record-scoped revisions, saves no history, and marks only acknowledged saves", async () => {
+    const f = batchFixture();
+    await f.manager.startBatch(settings, plan, false);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(f.records.serverKifuPath).toBe("a.kifu");
+    expect(f.records.unsaved).toBe(true);
+    const source = snapshotRecord(Record.newByUSI("position startpos moves 2g2f 8c8d") as Record);
+    f.client.source.mockResolvedValue(source);
+    f.status.batch = {
+      ...f.status.batch!,
+      recordIndex: 2,
+      recordPath: "b.kifu",
+      currentFile: 2,
+      currentPath: "b.kifu",
+      saved: true,
+      successTotal: 2,
+      processedFiles: 2,
+    };
+    f.result.recordIndex = 2;
+    f.result.nodes = [{ id: "n1", revision: 1, comment: "second record" }];
+    await vi.advanceTimersByTimeAsync(500);
+    expect(f.records.serverKifuPath).toBe("b.kifu");
+    expect(f.records.record.moves[1].comment).toBe("second record");
+    expect(f.records.unsaved).toBe(false);
+    expect(f.client.source).toHaveBeenLastCalledWith("job", 2);
+  });
+
+  it("stops file switching after manual navigation and resumes only explicitly", async () => {
+    const f = batchFixture();
+    await f.manager.startBatch(settings, plan, false);
+    await vi.advanceTimersByTimeAsync(500);
+    f.records.goForward();
+    f.status.batch = {
+      ...f.status.batch!,
+      recordIndex: 2,
+      recordPath: "b.kifu",
+      currentFile: 2,
+      currentPath: "b.kifu",
+    };
+    f.result.recordIndex = 2;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(f.records.serverKifuPath).toBe("a.kifu");
+    f.manager.resumeFollowing();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(f.records.serverKifuPath).toBe("b.kifu");
+  });
+
+  it("does not override navigation performed while the next record is being fetched", async () => {
+    const f = batchFixture();
+    await f.manager.startBatch(settings, plan, false);
+    let resolveSource!: (source: typeof f.source) => void;
+    f.client.source.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSource = resolve;
+        }),
+    );
+    await vi.advanceTimersByTimeAsync(500);
+    const original = f.records.record;
+    f.records.goForward();
+    resolveSource(f.source);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.records.record).toBe(original);
+    expect(f.records.serverKifuPath).toBeUndefined();
+  });
+
+  it("protects an unsaved document when attaching before the first batch record is ready", async () => {
+    const f = batchFixture();
+    f.status.batch = { ...f.status.batch!, recordIndex: 0, recordPath: "" };
+    f.status.current = null;
+    f.status.resultRevision = 0;
+    await f.manager.startBatch(settings, plan, true, true);
+    f.records.updateComment("unsaved draft");
+    const original = f.records.record;
+    const confirm = vi.fn(async () => false);
+    expect(await f.manager.attach(f.summary(), confirm, async () => true)).toBe(false);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(f.client.attach).not.toHaveBeenCalled();
+    expect(f.records.record).toBe(original);
+    expect(f.records.analysisLocked).toBe(false);
+  });
+
+  it("opens an all-skipped batch summary without replacing the current record", async () => {
+    const f = batchFixture();
+    f.status.batch = {
+      ...f.status.batch!,
+      recordIndex: 0,
+      recordPath: "",
+      processedFiles: 2,
+      skippedTotal: 2,
+    };
+    f.status.current = null;
+    f.status.state = "completed";
+    f.status.resultRevision = 0;
+    await f.manager.startBatch(settings, plan, true, true);
+    const original = f.records.record;
+    expect(
+      await f.manager.attach(
+        f.summary(),
+        async () => false,
+        async () => true,
+      ),
+    ).toBe(true);
+    expect(f.client.source).not.toHaveBeenCalled();
+    expect(f.records.record).toBe(original);
+    expect(f.finish).toHaveBeenCalledOnce();
+  });
+  it("refetches record-scoped data if a cancellation response refers to a newer record", async () => {
+    const f = batchFixture();
+    await f.manager.startBatch(settings, plan, true);
+    f.manager.close();
+    f.manager.suspend();
+    const secondSource = snapshotRecord(
+      Record.newByUSI("position startpos moves 2g2f 8c8d") as Record,
+    );
+    f.client.cancel.mockImplementationOnce(async () => {
+      f.status.batch = {
+        ...f.status.batch!,
+        recordIndex: 2,
+        recordPath: "b.kifu",
+        currentFile: 2,
+        currentPath: "b.kifu",
+      };
+      f.result.recordIndex = 2;
+      f.result.nodes = [{ id: "n1", revision: 1, comment: "second result" }];
+      f.client.source.mockResolvedValue(secondSource);
+      return f.response();
+    });
+    await f.manager.resume(async () => true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(f.client.source).toHaveBeenLastCalledWith("job", 2);
+    expect(f.records.record.moves[1].move).toEqual(
+      (Record.newByUSI("position startpos moves 2g2f") as Record).current.move,
+    );
   });
 
   it("keeps startup pending when the first target is known but its search is still preparing", async () => {

@@ -645,16 +645,28 @@ export function getKifuSearchStatistics(params: KifuSearchParams): KifuSearchSta
   }
 }
 
-export function getKifuSearchFilePaths(params: KifuSearchParams): string[] {
-  if (!db) return [];
+export function getKifuSearchFilePaths(
+  params: KifuSearchParams,
+  options?: { strict?: boolean; limit?: number },
+): string[] {
+  if (!db) {
+    if (options?.strict) throw new Error("Kifu index is unavailable");
+    return [];
+  }
   const searchSql = buildKifuSearchSql(params);
-  const query = `SELECT f.file_path${searchSql.from}${searchSql.where}${KIFU_SEARCH_ORDER}`;
+  // One extra row lets batch callers reject oversized selections without truncation.
+  const query = `SELECT f.file_path${searchSql.from}${searchSql.where}${KIFU_SEARCH_ORDER}${options?.limit !== undefined ? " LIMIT ?" : ""}`;
 
   try {
-    const rows = db.prepare(query).all(...searchSql.args) as { file_path: string }[];
+    const rows = db
+      .prepare(query)
+      .all(...searchSql.args, ...(options?.limit !== undefined ? [options.limit + 1] : [])) as {
+      file_path: string;
+    }[];
     return rows.map((row) => row.file_path);
   } catch (e) {
     console.error("Failed to get kifu search file paths:", e);
+    if (options?.strict) throw e;
     return [];
   }
 }

@@ -1271,6 +1271,30 @@ describe("store/index", () => {
     expect(useErrorStore().hasError).toBeFalsy();
     expect(store.isRecordFileUnsaved).toBeFalsy();
   });
+  it("opens a saved batch result from the original file rather than a retained snapshot", async () => {
+    const store = createStore();
+    mockAPI.openRecord.mockResolvedValue(new TextEncoder().encode(sampleKIF));
+    expect(await store.openBatchAnalysisFile("games/saved.kifu")).toBe(true);
+    expect(mockAPI.openRecord).toHaveBeenCalledWith("server://games/saved.kifu");
+    expect(store.serverKifuPath).toBe("games/saved.kifu");
+    expect(store.record.moves[2].comment).toContain("#評価値=108");
+    expect(store.isRecordFileUnsaved).toBe(false);
+  });
+  it("requires confirmation and a successful backup before opening a saved batch result", async () => {
+    const store = createStore();
+    store.updateRecordComment("draft");
+    const denied = store.openBatchAnalysisFile("saved.kifu");
+    useConfirmationStore().cancel();
+    expect(await denied).toBe(false);
+    expect(mockAPI.openRecord).not.toHaveBeenCalled();
+    mockAPI.openRecord.mockResolvedValue(new TextEncoder().encode(sampleKIF));
+    mockAPI.saveRecordFileBackup.mockRejectedValueOnce(new Error("backup failed"));
+    const accepted = store.openBatchAnalysisFile("saved.kifu");
+    useConfirmationStore().ok();
+    expect(await accepted).toBe(false);
+    expect(store.record.first.comment).toBe("draft");
+    expect(store.isRecordFileUnsaved).toBe(true);
+  });
 
   it("openRecord/csa/success", async () => {
     mockAPI.showOpenRecordDialog.mockResolvedValue("/test/sample.csa");

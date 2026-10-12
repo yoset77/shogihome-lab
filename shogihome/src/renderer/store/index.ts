@@ -75,6 +75,11 @@ import type { VisionEditSession } from "@/renderer/vision/types";
 import type { JobSummary } from "@/common/jobs/types";
 import { isReloadNavigation } from "./job_storage";
 import { guardJobRecovery, releaseJobTab } from "./job_tab_guard";
+import type { BatchAnalysisSource, BatchAnalysisPlan } from "@/common/analysis/batch";
+import type { BatchAnalysisSettings } from "@/common/settings/batch_analysis";
+import { saveBatchAnalysisSettings } from "./batch_analysis";
+import { snapshotRecord } from "@/common/record/snapshot";
+import { jobRecordContent } from "./job_record";
 
 const puzzleHistoryKey = "shogihome-puzzle-history";
 const puzzleHistoryExpirationDays = 28;
@@ -216,6 +221,7 @@ function getMessageAttachmentsByGameResults(results: GameResults): Attachment[] 
 }
 
 class Store {
+  analysisSource?: BatchAnalysisSource;
   isJobsDialogVisible = false;
   private recordManager = new RecordManager(loadRecordForWebApp());
   private _appState = AppState.NORMAL;
@@ -584,7 +590,20 @@ class Store {
   showAnalysisDialog(): void {
     if (this.appState === AppState.NORMAL) {
       if (this.hasRetainedAnalysis) void this.restoreAnalysis();
-      else this._appState = AppState.ANALYSIS_DIALOG;
+      else {
+        this.analysisSource = undefined;
+        this._appState = AppState.ANALYSIS_DIALOG;
+      }
+    }
+  }
+
+  showBatchAnalysisDialog(source: BatchAnalysisSource): void {
+    if (
+      (this.appState === AppState.NORMAL || this.appState === AppState.SERVER_KIFU_DIALOG) &&
+      !useBusyState().isBusy
+    ) {
+      this.analysisSource = structuredClone(source);
+      this._appState = AppState.ANALYSIS_DIALOG;
     }
   }
 
@@ -1436,7 +1455,11 @@ class Store {
 
   private onFinish(status?: AnalysisJobStatus): void {
     if (this.appState === AppState.ANALYSIS || status) {
-      if (!status || status.state === "completed")
+      if (status?.batch)
+        useMessageStore().enqueue({
+          text: `${t.batchAnalysis}\n${t.batchAnalysisSummary(status.batch.successTotal, status.batch.failedTotal, status.batch.skippedTotal)}`,
+        });
+      else if (!status || status.state === "completed")
         useMessageStore().enqueue({ text: t.recordAnalysisCompleted });
       this._appState = AppState.NORMAL;
     }
@@ -1557,6 +1580,89 @@ class Store {
       .finally(() => {
         useBusyState().release();
       });
+  }
+
+  async startBatchAnalysis(
+    settings: BatchAnalysisSettings,
+    analysisSettings: AnalysisSettings,
+    plan: BatchAnalysisPlan,
+    background = false,
+  ): Promise<void> {
+    if (this.appState !== AppState.ANALYSIS_DIALOG || useBusyState().isBusy) return;
+    if (!background && this.recordManager.unsaved && !(await this.confirmJob(t.analysisRecover)))
+      return;
+    if (this.appState !== AppState.ANALYSIS_DIALOG || useBusyState().isBusy) return;
+    useBusyState().retain();
+    try {
+      saveBatchAnalysisSettings(settings);
+      await api.saveAnalysisSettings(analysisSettings);
+      await this.analysisManager.startBatch(
+        analysisSettings,
+        plan,
+        settings.skipAnalyzed,
+        background,
+      );
+      this._appState = background ? AppState.NORMAL : AppState.ANALYSIS;
+      if (background) useToastStore().success(t.analysisStartedInBackground);
+    } catch (error) {
+      useErrorStore().add(error);
+    } finally {
+      useBusyState().release();
+    }
+  }
+
+  get analysisStatus() {
+    return this.analysisManager.isActive ? this.analysisManager.status : undefined;
+  }
+  resumeAnalysisFollowing() {
+    this.analysisManager.resumeFollowing();
+  }
+  async openBatchAnalysisFile(path: string): Promise<boolean> {
+    if (!this.canAttachJob) return false;
+    if (this.recordManager.unsaved && !(await this.confirmJob(t.analysisRecover))) return false;
+    if (!this.canAttachJob) return false;
+    const record = this.recordManager.record;
+    const content = jobRecordContent(snapshotRecord(record));
+    useBusyState().retain();
+    try {
+      const uri = "server://" + path;
+      const data = await api.openRecord(uri);
+      if (
+        record !== this.recordManager.record ||
+        content !== jobRecordContent(snapshotRecord(this.recordManager.record))
+      )
+        throw new Error(t.analysisJobInvalid);
+      await this.recordManager.openSavedRecord(
+        data,
+        uri,
+        { autoDetect: useAppSettings().textDecodingRule === TextDecodingRule.AUTO_DETECT },
+        () => this.appState === AppState.NORMAL,
+      );
+      if (this.appState !== AppState.NORMAL) return false;
+      this.closeJobsDialog();
+      return true;
+    } catch (error) {
+      useErrorStore().add(error);
+      return false;
+    } finally {
+      useBusyState().release();
+    }
+  }
+  async cancelAnalysisJob(job: JobSummary): Promise<void> {
+    if (
+      job.kind !== "analysis" ||
+      useBusyState().isBusy ||
+      !(await this.confirmJob(t.stopAnalysis))
+    )
+      return;
+    useBusyState().retain();
+    try {
+      await this.analysisManager.cancelListed(job, () => this.confirmJob(t.jobsTakeover));
+    } catch (error) {
+      useErrorStore().add(error);
+    } finally {
+      useBusyState().release();
+    }
   }
 
   stopAnalysis(): void {

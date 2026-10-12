@@ -2,6 +2,60 @@
   <DialogFrame limited @cancel="onCancel">
     <div class="root">
       <div class="title">{{ t.recordAnalysis }}</div>
+      <div v-if="!isNative()" class="form-group">
+        <HorizontalSelector
+          v-model:value="target"
+          :items="[
+            { value: 'record', label: t.batchAnalysisCurrent },
+            { value: 'folder', label: t.batchAnalysisFolder },
+            ...(searchSource ? [{ value: 'search', label: t.batchAnalysisSearch }] : []),
+          ]"
+        />
+      </div>
+      <div v-if="target !== 'record'" class="form-group">
+        <template v-if="target === 'folder'">
+          <label for="batch-directory">{{ t.batchAnalysisFolder }}</label>
+          <div class="form-item row">
+            <span>server://</span>
+            <input id="batch-directory" v-model="batchSettings.directory" type="text" />
+            <button @click="openDirectory(batchSettings.directory)">{{ t.select }}</button>
+          </div>
+          <div v-if="directories" class="directory-list">
+            <button @click="openDirectory('')">{{ t.rootDirectory }}</button>
+            <button
+              v-if="batchSettings.directory"
+              @click="openDirectory(batchSettings.directory.split('/').slice(0, -1).join('/'))"
+            >
+              ..
+            </button>
+            <button
+              v-for="directory in directories"
+              :key="directory.path"
+              @click="openDirectory(directory.path)"
+            >
+              {{ directory.name }}
+            </button>
+          </div>
+          <div class="form-item">
+            <span>{{ t.subdirectories }}</span
+            ><ToggleButton v-model:value="batchSettings.subdirectories" />
+          </div>
+        </template>
+        <div v-else class="note">{{ t.batchAnalysisSearch }}</div>
+        <div class="form-item">
+          <ToggleButton v-model:value="batchSettings.skipAnalyzed" :label="t.batchAnalysisSkip" />
+        </div>
+        <p class="note">{{ t.batchAnalysisSkipNote }}</p>
+        <template v-if="plan">
+          <p class="note">{{ t.batchAnalysisConfirm(plan.files.length) }}</p>
+          <details>
+            <summary>{{ t.batchAnalysisDetails }} ({{ plan.files.length }})</summary>
+            <ol class="target-files">
+              <li v-for="file in plan.files" :key="file">{{ file }}</li>
+            </ol>
+          </details>
+        </template>
+      </div>
       <div class="form-group">
         <div>{{ t.searchEngine }}</div>
         <PlayerSelector
@@ -99,7 +153,7 @@
       </div>
       <div class="main-buttons">
         <button data-hotkey="Enter" autofocus @click="onStart()">
-          {{ t.analyze }}
+          {{ target !== "record" && !plan ? t.batchAnalysisCheck : t.analyze }}
         </button>
         <button data-hotkey="Escape" @click="onCancel()">
           {{ t.cancel }}
@@ -117,7 +171,7 @@ import { MIN_MULTIPV, MAX_MULTIPV } from "@/common/engine/relay_protocol";
 import { CommentBehavior } from "@/common/settings/comment";
 import { getPredefinedUSIEngineTag, USIEngines, USIEngine } from "@/common/settings/usi";
 import { useStore } from "@/renderer/store";
-import { onMounted, ref } from "vue";
+import { onMounted, ref, watch } from "vue";
 import PlayerSelector from "@/renderer/view/dialog/PlayerSelector.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
@@ -125,6 +179,10 @@ import { useErrorStore } from "@/renderer/store/error";
 import { useBusyState } from "@/renderer/store/busy";
 import DialogFrame from "./DialogFrame.vue";
 import { useLanStore } from "@/renderer/store/lan";
+import { loadBatchAnalysisSettings, prepareBatchAnalysis } from "@/renderer/store/batch_analysis";
+import type { BatchAnalysisPlan } from "@/common/analysis/batch";
+import type { ServerDirectoryEntry } from "@/common/file/upload";
+import { useConfirmationStore } from "@/renderer/store/confirm";
 
 const store = useStore();
 const background = ref(false);
@@ -133,6 +191,33 @@ const settings = ref(defaultAnalysisSettings());
 const engines = ref(new USIEngines());
 const engineURI = ref("");
 const lanStore = useLanStore();
+const batchSettings = ref(loadBatchAnalysisSettings());
+const target = ref(store.analysisSource?.kind ?? "record");
+const searchSource = store.analysisSource?.kind === "search" ? store.analysisSource : undefined;
+if (store.analysisSource?.kind === "folder")
+  batchSettings.value.directory = store.analysisSource.directory;
+const directories = ref<ServerDirectoryEntry[]>();
+const plan = ref<BatchAnalysisPlan>();
+let sourceGeneration = 0;
+watch(
+  [target, () => batchSettings.value.directory, () => batchSettings.value.subdirectories],
+  () => {
+    sourceGeneration++;
+    plan.value = undefined;
+  },
+);
+const openDirectory = async (directory: string) => {
+  busyState.retain();
+  try {
+    const result = await api.listServerDirectories(directory);
+    batchSettings.value.directory = result.path;
+    directories.value = result.directories;
+  } catch (error) {
+    useErrorStore().add(error);
+  } finally {
+    busyState.release();
+  }
+};
 
 busyState.retain();
 
@@ -183,7 +268,7 @@ const resolveEngine = (uri: string): USIEngine | undefined => {
   return engines.value.getEngine(uri);
 };
 
-const onStart = () => {
+const onStart = async () => {
   const engine = resolveEngine(engineURI.value);
   if (!engine) {
     useErrorStore().add(t.engineNotSelected);
@@ -198,7 +283,45 @@ const onStart = () => {
     useErrorStore().add(error);
     return;
   }
-  store.startAnalysis(newSettings, background.value);
+  if (target.value === "record") {
+    store.startAnalysis(newSettings, background.value);
+    return;
+  }
+  if (!plan.value) {
+    busyState.retain();
+    const generation = sourceGeneration;
+    try {
+      const prepared = await prepareBatchAnalysis(
+        target.value === "search" && searchSource
+          ? searchSource
+          : {
+              kind: "folder",
+              directory: batchSettings.value.directory,
+              subdirectories: batchSettings.value.subdirectories,
+            },
+      );
+      if (generation === sourceGeneration) plan.value = prepared;
+    } catch (error) {
+      useErrorStore().add(error);
+    } finally {
+      busyState.release();
+    }
+    return;
+  }
+  const confirmedPlan = plan.value;
+  if (confirmedPlan.expiresAt <= Date.now()) {
+    plan.value = undefined;
+    useErrorStore().add(t.batchAnalysisPlanExpired);
+    return;
+  }
+  const savedSettings = { ...batchSettings.value };
+  const runInBackground = background.value;
+  useConfirmationStore().show({
+    message: t.batchAnalysisConfirm(confirmedPlan.files.length),
+    onOk: () => {
+      void store.startBatchAnalysis(savedSettings, newSettings, confirmedPlan, runInBackground);
+    },
+  });
 };
 
 const onCancel = () => {
@@ -228,6 +351,16 @@ input.small {
 }
 .selector {
   max-width: 210px;
+}
+.directory-list,
+.target-files {
+  max-height: 160px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+#batch-directory {
+  min-width: 0;
+  width: 100%;
 }
 @media (max-width: 480px) {
   .form-item-label-wide {

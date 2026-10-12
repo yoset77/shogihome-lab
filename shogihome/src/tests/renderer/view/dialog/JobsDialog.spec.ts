@@ -82,6 +82,35 @@ describe("JobsDialog", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     expect(mocks.analysis).toHaveBeenCalledTimes(calls);
   });
+  it("shows both file progress and position progress for a background batch", async () => {
+    mocks.analysis.mockResolvedValue([
+      {
+        ...job,
+        completed: 2,
+        total: 10,
+        positionProgress: { completed: 15, total: 80 },
+        batch: {
+          totalFiles: 10,
+          processedFiles: 2,
+          successTotal: 1,
+          failedTotal: 1,
+          skippedTotal: 0,
+          currentFile: 3,
+          currentPath: "games/current.kifu",
+          recordIndex: 3,
+          recordPath: "games/current.kifu",
+          saved: false,
+        },
+      },
+    ]);
+    mocks.games.mockResolvedValue([]);
+    const wrapper = mountDialog();
+    await flushPromises();
+    expect(wrapper.text()).toContain("2 / 10");
+    expect(wrapper.text()).toContain("15 / 80");
+    expect(wrapper.text()).toContain("games/current.kifu");
+    wrapper.unmount();
+  });
 
   it("offers detachment but disables new attachments while the screen is occupied", async () => {
     mocks.store.canAttachJob = false;

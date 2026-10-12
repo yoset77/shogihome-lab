@@ -13,6 +13,10 @@ import { fetchEngineConfigs, toLanEngineInfo } from "@/server/engine/list";
 import type { EngineConfig } from "@/server/engine/types";
 import { AnalysisJob } from "./job";
 import type { JobSummary } from "@/common/jobs/types";
+import { BatchAnalysisJob } from "./batch";
+import { BatchAnalysisFiles } from "./files";
+import { KIFU_DIR } from "@/server/config";
+import type { BatchAnalysisJobRequest, BatchAnalysisSource } from "@/common/analysis/batch";
 
 const RETENTION_MS = 24 * 60 * 60 * 1000;
 const MAX_TERMINAL_JOBS = 10;
@@ -27,12 +31,13 @@ async function resolveEngine(id: string): Promise<EngineConfig> {
 
 export class AnalysisJobManager {
   readonly serverInstanceId = randomUUID();
-  private jobs = new Map<string, AnalysisJob>();
+  private jobs = new Map<string, AnalysisJob | BatchAnalysisJob>();
   private requests = new Map<string, { hash: string; jobId: string }>();
 
   constructor(
     private readonly createEngine: () => ResearchEngine = () => new InternalEngine(),
     private readonly engineResolver: (id: string) => Promise<EngineConfig> = resolveEngine,
+    private readonly batchFiles = new BatchAnalysisFiles(() => KIFU_DIR),
   ) {}
 
   capabilities() {
@@ -52,7 +57,9 @@ export class AnalysisJobManager {
     const accepted = this.requests.get(request.requestId);
     if (accepted) {
       if (accepted.hash !== hash) throw new HttpError(409, t.analysisJobInvalid);
-      return this.get(accepted.jobId);
+      const job = this.get(accepted.jobId);
+      if (!(job instanceof AnalysisJob)) throw new HttpError(409, t.analysisJobInvalid);
+      return job;
     }
     if (
       [...this.jobs.values()].some((job) => !isAnalysisTerminal(job.status().state)) ||
@@ -73,7 +80,44 @@ export class AnalysisJobManager {
     return job;
   }
 
-  get(id: string): AnalysisJob {
+  prepareBatch(source: BatchAnalysisSource) {
+    return this.batchFiles.prepare(source);
+  }
+
+  createBatch(request: BatchAnalysisJobRequest): BatchAnalysisJob {
+    this.cleanup();
+    if (request.serverInstanceId !== this.serverInstanceId)
+      throw new HttpError(410, t.analysisJobExpired);
+    const hash = createHash("sha256").update(JSON.stringify(request)).digest("hex");
+    const accepted = this.requests.get(request.requestId);
+    if (accepted) {
+      if (accepted.hash !== hash) throw new HttpError(409, t.analysisJobInvalid);
+      const job = this.get(accepted.jobId);
+      if (!(job instanceof BatchAnalysisJob)) throw new HttpError(409, t.analysisJobInvalid);
+      return job;
+    }
+    if (
+      [...this.jobs.values()].some((job) => !isAnalysisTerminal(job.status().state)) ||
+      this.requests.size >= MAX_REQUEST_LEDGER
+    )
+      throw new HttpError(503, t.analysisJobCapacity);
+    const plan = this.batchFiles.get(request.planId);
+    const job = new BatchAnalysisJob(
+      randomUUID(),
+      structuredClone(request),
+      plan,
+      this.createEngine(),
+      this.engineResolver,
+      this.batchFiles,
+    );
+    this.jobs.set(job.id, job);
+    this.requests.set(request.requestId, { hash, jobId: job.id });
+    void job.completion.then(() => this.cleanup());
+    job.start();
+    return job;
+  }
+
+  get(id: string): AnalysisJob | BatchAnalysisJob {
     this.cleanup();
     const job = this.jobs.get(id);
     if (!job) throw new HttpError(410, t.analysisJobExpired);
@@ -92,14 +136,23 @@ export class AnalysisJobManager {
         createdAt: job.createdAt,
         state: status.state,
         engines: [status.engineName || job.request.options.engineId],
-        completed: status.completedPositions,
-        total: status.totalPositions,
+        completed: status.batch?.processedFiles ?? status.completedPositions,
+        total: status.batch?.totalFiles ?? status.totalPositions,
+        ...(status.batch
+          ? {
+              batch: status.batch,
+              positionProgress: {
+                completed: status.completedPositions,
+                total: status.totalPositions,
+              },
+            }
+          : {}),
         attachment: job.attachment.status(),
       };
     });
   }
 
-  byRequest(requestId: string): AnalysisJob {
+  byRequest(requestId: string): AnalysisJob | BatchAnalysisJob {
     const request = this.requests.get(requestId);
     if (!request) throw new HttpError(410, t.analysisJobExpired);
     return this.get(request.jobId);

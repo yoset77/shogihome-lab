@@ -14,13 +14,21 @@
           >
             <hr v-if="index !== 0" />
             <div class="header">
-              <strong>{{ job.kind === "analysis" ? t.jobsAnalysis : t.jobsGame }}</strong>
+              <strong>{{
+                job.batch ? t.batchAnalysis : job.kind === "analysis" ? t.jobsAnalysis : t.jobsGame
+              }}</strong>
               <span class="actions">
                 <button :disabled="!store.canAttachJob" @click="onAttach(job)">
                   {{ terminal(job) ? t.jobsOpenResults : t.jobsAttach }}
                 </button>
                 <button v-if="store.canDetachListedJob(job)" @click="onDetach(job)">
                   {{ t.jobsDetach }}
+                </button>
+                <button v-if="job.batch" @click="resultsJob = job.id">
+                  {{ t.batchAnalysisDetails }}
+                </button>
+                <button v-if="job.batch && !terminal(job)" @click="onCancelJob(job)">
+                  {{ t.stopAnalysis }}
                 </button>
               </span>
             </div>
@@ -33,6 +41,22 @@
               <span>{{ job.completed }} / {{ job.total }}</span>
             </div>
             <div>{{ job.engines.join(" / ") }}</div>
+            <template v-if="job.batch">
+              <div>{{ job.batch.currentPath }}</div>
+              <div v-if="job.positionProgress">
+                {{ t.recordAnalysis }}: {{ job.positionProgress.completed }} /
+                {{ job.positionProgress.total }}
+              </div>
+              <div>
+                {{
+                  t.batchAnalysisSummary(
+                    job.batch.successTotal,
+                    job.batch.failedTotal,
+                    job.batch.skippedTotal,
+                  )
+                }}
+              </div>
+            </template>
             <div v-if="store.canDetachListedJob(job)">{{ t.jobsAttached }}</div>
           </li>
         </ul>
@@ -46,18 +70,30 @@
       </div>
     </div>
   </DialogFrame>
+  <BatchAnalysisResultsDialog
+    v-if="resultsJob"
+    :key="resultsJob"
+    :job-id="resultsJob"
+    @close="resultsJob = undefined"
+  />
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, reactive } from "vue";
+import { computed, onMounted, onBeforeUnmount, reactive, ref } from "vue";
 import { t } from "@/common/i18n";
 import type { JobSummary } from "@/common/jobs/types";
 import { useStore } from "@/renderer/store";
 import { JobListManager } from "@/renderer/store/jobs";
 import DialogFrame from "./DialogFrame.vue";
+import BatchAnalysisResultsDialog from "./BatchAnalysisResultsDialog.vue";
 
 const store = useStore();
 const list = reactive(new JobListManager());
+const resultsJob = ref<string>();
+const onCancelJob = async (job: JobSummary) => {
+  await store.cancelAnalysisJob(job);
+  void list.refresh();
+};
 const states: Record<JobSummary["state"], string> = {
   preparing: t.jobsStatePreparing,
   running: t.jobsStateRunning,
@@ -121,5 +157,7 @@ li .form-item {
 .actions {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 </style>

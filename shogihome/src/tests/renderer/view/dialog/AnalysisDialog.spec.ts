@@ -13,6 +13,13 @@ const mocks = vi.hoisted(() => ({
   closeModalDialog: vi.fn(),
   destroyModalDialog: vi.fn(),
   error: vi.fn(),
+  prepareBatch: vi.fn(),
+  startBatchAnalysis: vi.fn(),
+  confirm: vi.fn(),
+  analysisSource: undefined as
+    | { kind: "folder"; directory: string; subdirectories: boolean }
+    | { kind: "search"; search: { player1?: string } }
+    | undefined,
 }));
 
 vi.mock("@/renderer/ipc/api", () => ({
@@ -23,6 +30,13 @@ vi.mock("@/renderer/ipc/api", () => ({
   },
 }));
 vi.mock("@/renderer/store", () => ({ useStore: () => mocks }));
+vi.mock("@/renderer/store/confirm", () => ({
+  useConfirmationStore: () => ({ show: mocks.confirm }),
+}));
+vi.mock("@/renderer/store/batch_analysis", async (original) => ({
+  ...(await original<typeof import("@/renderer/store/batch_analysis")>()),
+  prepareBatchAnalysis: mocks.prepareBatch,
+}));
 vi.mock("@/renderer/store/error", () => ({ useErrorStore: () => ({ add: mocks.error }) }));
 vi.mock("@/renderer/store/lan", () => ({
   useLanStore: () => ({
@@ -35,6 +49,13 @@ describe("AnalysisDialog MultiPV", () => {
   const wrappers: ReturnType<typeof mount>[] = [];
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    mocks.analysisSource = undefined;
+    mocks.prepareBatch.mockResolvedValue({
+      planId: "plan",
+      files: ["a.kifu", "b.jkf"],
+      expiresAt: Date.now() + 600_000,
+    });
     mocks.loadAnalysisSettings.mockResolvedValue({
       ...defaultAnalysisSettings(),
       usi: { ...emptyUSIEngine(), uri: "lan-engine:test" },
@@ -75,6 +96,59 @@ describe("AnalysisDialog MultiPV", () => {
       expect.objectContaining({ overrideMultiPV: false, multiPV: 1 }),
       false,
     );
+  });
+
+  it("confirms a server folder without a format selection UI before starting", async () => {
+    mocks.analysisSource = { kind: "folder", directory: "games", subdirectories: true };
+    const wrapper = await dialog();
+    expect(wrapper.get<HTMLInputElement>("#batch-directory").element.value).toBe("games");
+    expect(wrapper.text()).not.toContain(".ki2");
+    await wrapper.get('button[data-hotkey="Enter"]').trigger("click");
+    await flushPromises();
+    expect(mocks.prepareBatch).toHaveBeenCalledWith({
+      kind: "folder",
+      directory: "games",
+      subdirectories: true,
+    });
+    expect(mocks.startBatchAnalysis).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("a.kifu");
+    await wrapper.get('button[data-hotkey="Enter"]').trigger("click");
+    expect(mocks.confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: t.batchAnalysisConfirm(2) }),
+    );
+    mocks.confirm.mock.calls[0][0].onOk();
+    expect(mocks.startBatchAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({ directory: "games", skipAnalyzed: true }),
+      expect.objectContaining({ overrideMultiPV: false }),
+      expect.objectContaining({ planId: "plan" }),
+      false,
+    );
+  });
+
+  it("passes the executed search rather than displayed paths", async () => {
+    mocks.analysisSource = { kind: "search", search: { player1: "Test" } };
+    const wrapper = await dialog();
+    expect(wrapper.find("#batch-directory").exists()).toBe(false);
+    await wrapper.get('button[data-hotkey="Enter"]').trigger("click");
+    await flushPromises();
+    expect(mocks.prepareBatch).toHaveBeenCalledWith({
+      kind: "search",
+      search: { player1: "Test" },
+    });
+  });
+
+  it("invalidates the confirmed list after changing its folder", async () => {
+    mocks.analysisSource = { kind: "folder", directory: "games", subdirectories: true };
+    const wrapper = await dialog();
+    await wrapper.get('button[data-hotkey="Enter"]').trigger("click");
+    await flushPromises();
+    await wrapper.get("#batch-directory").setValue("other");
+    await wrapper.get('button[data-hotkey="Enter"]').trigger("click");
+    await flushPromises();
+    expect(mocks.prepareBatch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ directory: "other" }),
+    );
+    expect(mocks.confirm).not.toHaveBeenCalled();
   });
 
   it("retains the count when toggled off and on and passes it to background analysis", async () => {

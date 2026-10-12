@@ -66,6 +66,81 @@ describe("typed analysis HTTP client", () => {
     await expect(createAnalysisJobsClient().status("job")).rejects.toThrow();
   });
 
+  it("uses batch RPC paths and scopes source and result requests to the record index", async () => {
+    const source = requestFor().source;
+    const batch = {
+      totalFiles: 1,
+      processedFiles: 0,
+      currentFile: 1,
+      currentPath: "a.kifu",
+      recordIndex: 1,
+      recordPath: "a.kifu",
+      saved: false,
+      successTotal: 0,
+      failedTotal: 0,
+      skippedTotal: 0,
+    };
+    const status = {
+      jobId: "batch",
+      requestId: "request",
+      serverInstanceId: "server",
+      state: "running",
+      engineName: "Test",
+      completedPositions: 0,
+      totalPositions: 1,
+      resultRevision: 0,
+      current: null,
+      batch,
+    };
+    const calls: URL[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      calls.push(url);
+      const payload = url.pathname.endsWith("/prepare")
+        ? { planId: "plan", files: ["a.kifu"], expiresAt: 1 }
+        : url.pathname.endsWith("/source")
+          ? source
+          : url.pathname.endsWith("/result")
+            ? { jobId: "batch", serverInstanceId: "server", revision: 0, nodes: [], recordIndex: 1 }
+            : url.pathname.endsWith("/files")
+              ? [{ index: 1, path: "a.kifu", state: "pending" }]
+              : status;
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    const client = createAnalysisJobsClient();
+    expect(
+      (await client.prepareBatch({ kind: "folder", directory: "", subdirectories: true })).files,
+    ).toEqual(["a.kifu"]);
+    await client.createBatch({
+      requestId: "request",
+      serverInstanceId: "server",
+      planId: "plan",
+      options: requestFor().options,
+      skipAnalyzed: true,
+      fileOptions: {
+        autoDetect: true,
+        returnCode: "\n",
+        useCSAV3: false,
+        useUTF8ForKifAndKi2: false,
+      },
+    });
+    await client.source("batch", 1);
+    await client.result("batch", 0, undefined, 1);
+    await client.files("batch");
+    expect(calls.map((url) => url.pathname)).toEqual([
+      "/api/analysis-jobs/batch/prepare",
+      "/api/analysis-jobs/batch",
+      "/api/analysis-jobs/batch/source",
+      "/api/analysis-jobs/batch/result",
+      "/api/analysis-jobs/batch/files",
+    ]);
+    expect(calls[2].searchParams.get("recordIndex")).toBe("1");
+    expect(calls[3].searchParams.get("recordIndex")).toBe("1");
+  });
+
   it("lists retained jobs and transfers attachment without granting old owners cancellation", async () => {
     const { client, manager } = setup();
     const request = requestFor();

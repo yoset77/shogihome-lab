@@ -1,5 +1,6 @@
 import * as v from "@/common/analysis/validation";
 import type { DecodeResult } from "@/common/engine/relay_protocol";
+import { readBatchProgress, type BatchAnalysisProgress } from "@/common/analysis/batch";
 
 export type JobBinding = {
   ownerId: string;
@@ -49,6 +50,8 @@ export type JobSummary = {
   completed: number;
   total: number;
   attachment: JobAttachmentState;
+  batch?: BatchAnalysisProgress;
+  positionProgress?: { completed: number; total: number };
 };
 
 export function readJobBinding(value: unknown): JobBinding {
@@ -94,6 +97,9 @@ export function decodeJobList(value: unknown): DecodeResult<JobSummary[]> {
       ok: true,
       value: v.array(value, 22).map((value) => {
         const input = v.object(value);
+        const positions =
+          input.positionProgress === undefined ? undefined : v.object(input.positionProgress);
+        const positionTotal = positions && v.counter(positions.total);
         return {
           kind: v.enumeration(input.kind, ["analysis", "game"] as const),
           id: v.identifier(input.id),
@@ -115,6 +121,15 @@ export function decodeJobList(value: unknown): DecodeResult<JobSummary[]> {
           completed: v.counter(input.completed),
           total: v.counter(input.total),
           attachment: readJobAttachment(input.attachment),
+          ...(input.batch === undefined ? {} : { batch: readBatchProgress(input.batch) }),
+          ...(positions
+            ? {
+                positionProgress: {
+                  completed: v.counter(positions.completed, positionTotal),
+                  total: positionTotal!,
+                },
+              }
+            : {}),
         };
       }),
     };

@@ -59,6 +59,8 @@ type replaceRecordOption = {
   path?: string;
   markAsSaved?: boolean;
   preserveCustomData?: boolean;
+  skipHistory?: boolean;
+  skipBackup?: boolean;
 };
 
 export type ImportRecordOption = {
@@ -243,6 +245,27 @@ export class RecordManager {
     if (this.analysisBinding?.token === token) this.analysisBinding = undefined;
   }
 
+  switchBatchAnalysis(token: string, source: RecordSnapshot, path: string): void {
+    const binding = this.analysisBinding;
+    if (
+      !binding ||
+      binding.token !== token ||
+      binding.record !== this._record ||
+      binding.content !== recordContent(snapshotRecord(this.record))
+    )
+      throw new Error(t.analysisJobInvalid);
+    const record = restoreRecord(source).record;
+    this.endAnalysis(token);
+    this.replaceRecord(record, {
+      path: "server://" + path,
+      markAsSaved: true,
+      preserveCustomData: true,
+      skipHistory: true,
+      skipBackup: true,
+    });
+    this.beginAnalysis(token);
+  }
+
   applyAnalysisResults(token: string, updates: AnalysisNodeResult[]): boolean {
     const binding = this.analysisBinding;
     if (
@@ -311,26 +334,26 @@ export class RecordManager {
     return this._positionCounts;
   }
 
-  private updateRecordFilePath(recordFilePath: string | undefined): void {
+  private updateRecordFilePath(recordFilePath: string | undefined, skipHistory = false): void {
     this._unsaved = false;
     if (recordFilePath === this._recordFilePath) {
       return;
     }
     this._recordFilePath = recordFilePath;
     this._serverKifuPath = undefined;
-    if (recordFilePath) {
+    if (recordFilePath && !skipHistory) {
       api.addRecordFileHistory(recordFilePath);
     }
   }
 
-  private updateServerKifuPath(serverKifuPath: string | undefined): void {
+  private updateServerKifuPath(serverKifuPath: string | undefined, skipHistory = false): void {
     this._unsaved = false;
     if (serverKifuPath === this._serverKifuPath) {
       return;
     }
     this._serverKifuPath = serverKifuPath;
     this._recordFilePath = undefined;
-    if (serverKifuPath) {
+    if (serverKifuPath && !skipHistory) {
       api.addRecordFileHistory("server://" + serverKifuPath);
     }
   }
@@ -364,14 +387,14 @@ export class RecordManager {
 
   private replaceRecord(record: Record, option?: replaceRecordOption): void {
     if (this.analysisLocked) throw new Error(t.analysisJobInvalid);
-    this.saveBackupOnBackground();
+    if (!option?.skipBackup) this.saveBackupOnBackground();
     this._record = record;
     this.resetPositionCounts();
     this.bindRecordHandlers();
     if (option?.path?.startsWith("server://")) {
-      this.updateServerKifuPath(option.path.substring(9));
+      this.updateServerKifuPath(option.path.substring(9), option.skipHistory);
     } else {
-      this.updateRecordFilePath(option?.path);
+      this.updateRecordFilePath(option?.path, option?.skipHistory);
     }
     this._unsaved = !option?.markAsSaved;
     this._sourceURL = undefined;
@@ -479,6 +502,26 @@ export class RecordManager {
     return;
   }
 
+  async openSavedRecord(
+    data: Uint8Array,
+    path: string,
+    option: { autoDetect: boolean },
+    isCurrent: () => boolean,
+  ): Promise<void> {
+    if (this.analysisLocked) throw new Error(t.analysisJobInvalid);
+    const format = detectRecordFileFormatByPath(path);
+    if (!format) throw new Error(`${t.unknownFileExtension}: ${path}`);
+    const imported = importRecordFromBuffer(data, format, option);
+    if (imported instanceof Error) throw localizeError(imported);
+    const current = this._record;
+    const content = recordContent(snapshotRecord(current));
+    await this.saveBackup();
+    if (!isCurrent()) return;
+    if (current !== this._record || content !== recordContent(snapshotRecord(this.record)))
+      throw new Error(t.analysisJobInvalid);
+    this.replaceRecord(imported, { path, markAsSaved: true, skipBackup: true });
+  }
+
   async importRecordFromRemoteURL(url?: string): Promise<void> {
     const replaceMode = !!url;
     url = url || this._sourceURL;
@@ -510,11 +553,11 @@ export class RecordManager {
     return exportRecordAsBuffer(this._record, format, opt);
   }
 
-  markAsSaved(path: string): void {
+  markAsSaved(path: string, skipHistory = false): void {
     if (path.startsWith("server://")) {
-      this.updateServerKifuPath(path.substring(9));
+      this.updateServerKifuPath(path.substring(9), skipHistory);
     } else {
-      this.updateRecordFilePath(path);
+      this.updateRecordFilePath(path, skipHistory);
     }
   }
 

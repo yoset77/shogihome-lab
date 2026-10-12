@@ -247,6 +247,14 @@ describe("background/database/kifu_index", () => {
     expect(searchKifu({ ...query, limit: 1, offset: 1 })).toEqual([results[1]]);
     expect(getKifuSearchCount(query)).toBe(3);
     expect(getKifuSearchFilePaths({ ...query, limit: 1, offset: 1 })).toEqual(paths);
+    expect(getKifuSearchFilePaths(query, { strict: true, limit: 1 })).toEqual(paths.slice(0, 2));
+    expect(getKifuSearchFilePaths(query, { strict: true, limit: 3 })).toEqual(paths);
+  });
+  it("distinguishes unavailable search indexes from empty matches for batch enumeration", () => {
+    expect(getKifuSearchFilePaths({ player1: "missing" }, { strict: true })).toEqual([]);
+    closeDatabase();
+    expect(getKifuSearchFilePaths({})).toEqual([]);
+    expect(() => getKifuSearchFilePaths({}, { strict: true })).toThrow("unavailable");
   });
 
   it("should not include matched_ply when searching by keyword only", () => {

@@ -7,6 +7,8 @@
 | 所有者                                                                               | 責務                                                                  |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
 | [`server/analysis/job.ts`](../../shogihome/src/server/analysis/job.ts)               | 固定棋譜、解析順序・進捗、局面ごとの探索、注釈生成、途中結果、取消    |
+| [`server/analysis/batch.ts`](../../shogihome/src/server/analysis/batch.ts)           | 直列バッチ、内部の単一解析、engine再利用、棋譜別成否、保存中取消      |
+| [`server/analysis/files.ts`](../../shogihome/src/server/analysis/files.ts)           | 確認用対象一覧、検証済みファイル読込、原本変更検出、atomic保存        |
 | [`server/analysis/jobManager.ts`](../../shogihome/src/server/analysis/jobManager.ts) | engine 定義の解決、作成の冪等性、実行数と保持の制約、終了時 cleanup   |
 | [`server/engine/internal.ts`](../../shogihome/src/server/engine/internal.ts)         | 既存 USI state machine への内部探索・停止・取消・終了 adapter         |
 | [`renderer/store/analysis.ts`](../../shogihome/src/renderer/store/analysis.ts)       | 作成要求、HTTP 同期、reload 復元、閲覧追従、文書 lock、安全な結果反映 |
@@ -27,6 +29,10 @@
 
 棋譜 snapshot の共有境界は [`common/record/snapshot.ts`](../../shogihome/src/common/record/snapshot.ts) を使います。
 
+連続解析は確認用planの対象path・処理順を固定して開始します。内容は各棋譜の処理開始時に既存importerとsnapshot decoderで検証し、本譜の固定入力へ変換します。バッチ内部の単一解析は公開ジョブとして登録せず、同じengine adapterを再利用します。Managerの実行枠と作成要求台帳は単一解析と共有します。
+
+棋譜ごとの結果revisionは独立しているため、連続解析のsourceとresultはrecord indexでも照合します。古い棋譜を指定した取得は再同期可能な応答で拒否し、別棋譜の同名nodeへ結果を適用しません。Rendererは新しい棋譜への切替前にsourceと完全結果を取得し、非同期取得中の手動閲覧も優先します。最初の切替やアタッチでは未保存棋譜の確認・backupを先行させ、以後の内部切替を履歴へ大量登録しません。
+
 ## Lifecycle and Failure Policy
 
 - 準備・解析・終了処理を経て terminal 状態になります。Engine cleanup 完了までは次の job を受け付けず、待ち行列は持ちません。
@@ -35,6 +41,7 @@
 - 取消は冪等です。進行中の探索を無効化し、停止完了まで Renderer も文書 lock を保持します。取消後の出力や新しい隣接局面コメントは採用しません。
 - 終了処理に入った後の取消は状態や結果を変更しません。Engine cleanup の完了は待ち、cleanup 失敗は引き続き失敗として報告します。
 - 有効な途中結果は取消・失敗後も保持します。入力、実行時間、出力、終了待ち、完了 job と作成要求台帳は有界です。
+- バッチのファイル別成否と保持中棋譜は別のデータです。全棋譜のsnapshotは保持しません。完了時の原本保存はServerが所有し、Browserの反映・保存確認を待ちません。保存公開前の内容照合とatomic writerの保証は [Storage Architecture](storage.md) に従います。
 - 失効や Server 再起動では既存 job が失われたことを返し、空の job の再生成や自動再実行はしません。
 
 ## HTTP Synchronization

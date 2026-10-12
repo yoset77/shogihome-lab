@@ -97,6 +97,10 @@ export class AnalysisJob {
     });
   }
 
+  source() {
+    return this.request.source;
+  }
+
   status(): AnalysisJobStatus {
     return {
       jobId: this.id,
