@@ -1,5 +1,6 @@
 // @vitest-environment node
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { Position } from "tsshogi";
 import { emptyUSIEngineExtraBookConfig } from "@/common/settings/usi";
@@ -24,7 +25,7 @@ describe("browser and game book session isolation", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    config.directory = await fs.mkdtemp("/tmp/opencode/book-session-isolation-");
+    config.directory = await fs.mkdtemp(path.join(os.tmpdir(), "book-session-isolation-"));
     await fs.writeFile(
       path.join(config.directory, "game.db"),
       `#YANEURAOU-DB2016 1.00\nsfen ${sfen}\n7g7f 3c3d 100 8 10\n`,
@@ -43,8 +44,9 @@ describe("browser and game book session isolation", () => {
   afterEach(async () => {
     gameBook?.close();
     gameBook = undefined;
-    manager.close(browserId);
-    await fs.rm(config.directory, { recursive: true, force: true });
+    manager?.close(browserId);
+    if (config.directory) await fs.rm(config.directory, { recursive: true, force: true });
+    config.directory = "";
   });
 
   function churnBrowserSessions(): void {

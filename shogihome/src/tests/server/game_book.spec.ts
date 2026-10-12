@@ -1,5 +1,6 @@
 // @vitest-environment node
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { Position, Record } from "tsshogi";
 import { GameBook, searchGameBook } from "@/server/game/book";
@@ -24,7 +25,7 @@ describe("server game books", () => {
   };
   let book: GameBook;
   beforeEach(async () => {
-    config.directory = await fs.mkdtemp("/tmp/opencode/game-book-");
+    config.directory = await fs.mkdtemp(path.join(os.tmpdir(), "game-book-"));
     await fs.writeFile(
       path.join(config.directory, "book.db"),
       `#YANEURAOU-DB2016 1.00\nsfen ${new Position().sfen}\n7g7f 3c3d 100 8 10\n2g2f none 50 12 20\n5i5a none 999 99 1\n`,
@@ -34,7 +35,8 @@ describe("server game books", () => {
   afterEach(async () => {
     book?.close();
     vi.restoreAllMocks();
-    await fs.rm(config.directory, { recursive: true, force: true });
+    if (config.directory) await fs.rm(config.directory, { recursive: true, force: true });
+    config.directory = "";
   });
   const search = (settings = options, position = new Position()) =>
     searchGameBook(

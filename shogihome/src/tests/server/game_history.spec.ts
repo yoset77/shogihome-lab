@@ -1,5 +1,6 @@
 // @vitest-environment node
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { importKIF, Record, SpecialMoveType } from "tsshogi";
 import { GameSession } from "@/server/game/session";
@@ -12,10 +13,11 @@ vi.mock("@/node/proc/path", () => ({ getUserDataPath: () => config.directory }))
 
 describe("completed game history", () => {
   beforeEach(async () => {
-    config.directory = await fs.mkdtemp("/tmp/opencode/game-history-");
+    config.directory = await fs.mkdtemp(path.join(os.tmpdir(), "game-history-"));
   });
   afterEach(async () => {
-    await fs.rm(config.directory, { recursive: true, force: true });
+    if (config.directory) await fs.rm(config.directory, { recursive: true, force: true });
+    config.directory = "";
   });
 
   it("keeps only the latest twenty backups from detached repetitions, without losing branches or comments", async () => {

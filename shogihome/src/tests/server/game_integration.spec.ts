@@ -3,6 +3,7 @@ import net from "node:net";
 import http from "node:http";
 import readline from "node:readline";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
@@ -57,9 +58,7 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
     delete process.env.WRAPPER_ACCESS_TOKEN;
     commands = [];
     saveRecord.mockReset().mockResolvedValue("saved.kifu");
-    directory = await fs.mkdtemp(
-      path.join(process.env.OPENCODE_TMP_DIR ?? "/tmp/opencode", "game-wrapper-"),
-    );
+    directory = await fs.mkdtemp(path.join(os.tmpdir(), "game-wrapper-"));
     wrapperConfig.directory = path.join(directory, "data");
     if (mode === "rust") {
       const script = path.join(directory, "engine.mjs");
@@ -153,7 +152,7 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
     for (const browser of browsers) browser.terminate();
     browsers.clear();
     await manager?.close();
-    await new Promise<void>((resolve) => middle?.close(() => resolve()));
+    if (middle) await new Promise<void>((resolve) => middle.close(() => resolve()));
     for (const socket of connections) socket.destroy();
     connections.clear();
     if (tcp) await new Promise<void>((resolve) => tcp!.close(() => resolve()));

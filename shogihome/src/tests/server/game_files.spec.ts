@@ -1,5 +1,6 @@
 // @vitest-environment node
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { Record } from "tsshogi";
 import { gameRequest } from "./helpers/game";
@@ -15,10 +16,11 @@ vi.mock("@/server/config", async (original) => ({
 }));
 describe("server game files", () => {
   beforeEach(async () => {
-    config.directory = await fs.mkdtemp("/tmp/opencode/game-files-");
+    config.directory = await fs.mkdtemp(path.join(os.tmpdir(), "game-files-"));
   });
   afterEach(async () => {
-    await fs.rm(config.directory, { recursive: true, force: true });
+    if (config.directory) await fs.rm(config.directory, { recursive: true, force: true });
+    config.directory = "";
   });
   it("saves frozen records atomically without overwriting colliding filenames", async () => {
     const request = gameRequest();
@@ -36,7 +38,7 @@ describe("server game files", () => {
     await expect(
       saveGameRecord(request.source, { ...request.options.save, directory: "../" }, "test"),
     ).rejects.toThrow();
-    await fs.symlink("/tmp/opencode", path.join(config.directory, "linked"));
+    await fs.symlink(os.tmpdir(), path.join(config.directory, "linked"));
     await expect(
       saveGameRecord(request.source, { ...request.options.save, directory: "linked" }, "test"),
     ).rejects.toThrow();
