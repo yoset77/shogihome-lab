@@ -51,13 +51,18 @@
           />
         </div>
         <div class="form-item">
-          <div class="form-item-label-wide">{{ t.suggestionsCount }}</div>
+          <label class="form-item-label-wide" for="research-multi-pv">{{
+            t.suggestionsCount
+          }}</label>
           <ToggleButton v-model:value="researchSettings.overrideMultiPV" />
           <input
+            id="research-multi-pv"
             v-model.number="researchSettings.multiPV"
             class="number"
             type="number"
-            min="1"
+            :min="MIN_MULTIPV"
+            :max="MAX_MULTIPV"
+            step="1"
             :disabled="!researchSettings.overrideMultiPV"
           />
         </div>
@@ -83,6 +88,7 @@ import {
   validateResearchSettings,
 } from "@/common/settings/research";
 import { USIEngine, getPredefinedUSIEngineTag, USIEngines } from "@/common/settings/usi";
+import { MIN_MULTIPV, MAX_MULTIPV } from "@/common/engine/relay_protocol";
 import { useStore } from "@/renderer/store";
 import { onMounted, ref } from "vue";
 import PlayerSelector from "@/renderer/view/dialog/PlayerSelector.vue";

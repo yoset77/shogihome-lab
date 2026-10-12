@@ -5,6 +5,8 @@ import { CommentBehavior, SearchCommentFormat } from "@/common/settings/comment"
 import {
   isRelayEngineId,
   isValidUsiCommand,
+  isValidMultiPV,
+  MIN_MULTIPV,
   MAX_MULTIPV,
   type DecodeResult,
 } from "@/common/engine/relay_protocol";
@@ -134,6 +136,9 @@ export function decodeAnalysisJobRequest(value: unknown): DecodeResult<AnalysisJ
     ].map((value) => v.finite(value, 1, 100));
     if (thresholds.some((value, index) => index > 0 && value <= thresholds[index - 1]))
       throw new Error("Invalid accuracy thresholds");
+    const overrideMultiPV =
+      options.overrideMultiPV === undefined ? false : v.boolean(options.overrideMultiPV);
+    if (overrideMultiPV && !isValidMultiPV(options.multiPV)) throw new Error("Invalid MultiPV");
     return {
       requestId: v.identifier(input.requestId),
       serverInstanceId: v.identifier(input.serverInstanceId),
@@ -147,6 +152,8 @@ export function decodeAnalysisJobRequest(value: unknown): DecodeResult<AnalysisJ
         perMoveCriteria: {
           maxSeconds: v.finite(v.object(options.perMoveCriteria).maxSeconds, 0, 3600),
         },
+        overrideMultiPV,
+        multiPV: isValidMultiPV(options.multiPV) ? options.multiPV : MIN_MULTIPV,
         commentBehavior: v.enumeration(options.commentBehavior, Object.values(CommentBehavior)),
         commentFormat: v.enumeration(options.commentFormat, Object.values(SearchCommentFormat)),
         language: v.enumeration(options.language, Object.values(Language)),
@@ -182,8 +189,8 @@ export function readUSIInfo(value: unknown): USIInfoCommand {
       );
   }
   if (input.multipv !== undefined) {
-    result.multipv = v.counter(input.multipv, MAX_MULTIPV);
-    if (result.multipv === 0) throw new Error("Invalid MultiPV");
+    if (!isValidMultiPV(input.multipv)) throw new Error("Invalid MultiPV");
+    result.multipv = input.multipv;
   }
   for (const key of ["lowerbound", "upperbound"] as const)
     if (input[key] !== undefined) result[key] = v.boolean(input[key]);

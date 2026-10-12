@@ -381,6 +381,7 @@ export const ja: Texts = {
   ponder: "先読み(Ponder)",
   numberOfThreads: "スレッド数",
   suggestionsCount: "候補手の数",
+  multiPVInvalid: (min, max) => `候補手の数は${min}〜${max}の整数を指定してください。`,
   startPosition: "開始局面",
   beginFromThisPosition: "この局面から開始",
   maxMoves: "最大手数",

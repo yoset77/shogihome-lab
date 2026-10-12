@@ -12,6 +12,7 @@ export interface ResearchSearch {
 
 export interface ResearchEngine {
   launch(config: EngineConfig, timeoutSeconds: number, signal: AbortSignal): Promise<void>;
+  setMultiPV(value: number): void;
   readyNewGame(): void;
   startResearch(
     position: string,
@@ -70,6 +71,13 @@ export class InternalEngine implements ResearchEngine {
       timeoutSeconds * 1000,
       signal,
     );
+  }
+
+  setMultiPV(value: number): void {
+    this.session.dispatchInternal({
+      type: "usi",
+      command: `setoption name MultiPV value ${value}`,
+    });
   }
 
   readyNewGame(): void {

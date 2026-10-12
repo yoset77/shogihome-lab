@@ -4,11 +4,24 @@ import {
   encodeClientRelayMessage,
   encodeEngineListRelayMessage,
   encodeSessionRelayMessage,
+  isValidMultiPV,
   type ClientRelayMessage,
   type SessionRelayPayload,
 } from "@/common/engine/relay_protocol";
 
 describe("engine relay protocol", () => {
+  describe("MultiPV validation", () => {
+    it.each([1, 3, 10])("accepts count %i", (value) => {
+      expect(isValidMultiPV(value)).toBe(true);
+      expect(decodeClientRelayMessage(`setoption name MultiPV value ${value}`).ok).toBe(true);
+    });
+
+    it.each([undefined, null, "", "3", true, 0, -1, 1.5, 11, NaN, Infinity])(
+      "rejects invalid count %s",
+      (value) => expect(isValidMultiPV(value)).toBe(false),
+    );
+  });
+
   describe("server messages", () => {
     it.each([
       [

@@ -382,6 +382,7 @@ export const zh_tw: Texts = {
   ponder: "對方手番時運算 (Ponder)",
   numberOfThreads: "執行緒數",
   suggestionsCount: "候補手數量",
+  multiPVInvalid: (min, max) => `候補手數量必須是${min}到${max}之間的整數。`,
   startPosition: "開始局面",
   beginFromThisPosition: "自此局面開始",
   maxMoves: "最大手數",

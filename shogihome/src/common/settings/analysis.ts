@@ -1,5 +1,7 @@
 import { CommentBehavior } from "./comment.js";
 import { normalizeUSIEngine, USIEngine } from "./usi.js";
+import { isValidMultiPV, MIN_MULTIPV, MAX_MULTIPV } from "@/common/engine/relay_protocol";
+import { t } from "@/common/i18n/index";
 
 type StartCriteria = {
   enableNumber: boolean;
@@ -40,6 +42,8 @@ export type AnalysisSettings = {
   startCriteria: StartCriteria;
   endCriteria: EndCriteria;
   perMoveCriteria: PerMoveCriteria;
+  overrideMultiPV: boolean;
+  multiPV: number;
   descending: boolean;
   commentBehavior: CommentBehavior;
 };
@@ -49,12 +53,14 @@ export function defaultAnalysisSettings(): AnalysisSettings {
     startCriteria: defaultStartCriteria(),
     endCriteria: defaultEndCriteria(),
     perMoveCriteria: defaultPerMoveCriteria(),
+    overrideMultiPV: false,
+    multiPV: MIN_MULTIPV,
     descending: false,
     commentBehavior: CommentBehavior.INSERT,
   };
 }
 
-export function normalizeAnalysisSettings(settings: AnalysisSettings): AnalysisSettings {
+export function normalizeAnalysisSettings(settings: Partial<AnalysisSettings>): AnalysisSettings {
   return {
     ...defaultAnalysisSettings(),
     ...settings,
@@ -75,6 +81,9 @@ export function normalizeAnalysisSettings(settings: AnalysisSettings): AnalysisS
 }
 
 export function validateAnalysisSettings(settings: AnalysisSettings): Error | undefined {
+  if (settings.overrideMultiPV && !isValidMultiPV(settings.multiPV)) {
+    return new Error(t.multiPVInvalid(MIN_MULTIPV, MAX_MULTIPV));
+  }
   if (
     settings.startCriteria.enableNumber &&
     (settings.startCriteria.number <= 0 || settings.startCriteria.number % 1 !== 0)

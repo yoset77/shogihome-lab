@@ -84,6 +84,15 @@ const ENGINE_ID_PATTERN = /^[a-zA-Z0-9_.-]+$/;
 export const MIN_MULTIPV = 1;
 export const MAX_MULTIPV = 10;
 
+export function isValidMultiPV(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= MIN_MULTIPV &&
+    value <= MAX_MULTIPV
+  );
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -335,7 +344,7 @@ export const isValidUsiCommand = (command: unknown): command is string => {
       const match = /^setoption name MultiPV value (\d+)$/.exec(cmd);
       if (!match) return false;
       const value = Number(match[1]);
-      return Number.isSafeInteger(value) && value >= MIN_MULTIPV && value <= MAX_MULTIPV;
+      return isValidMultiPV(value);
     }
     case "position":
       if (parts[1] === "startpos") {
