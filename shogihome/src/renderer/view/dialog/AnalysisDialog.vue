@@ -1,53 +1,59 @@
 <template>
   <DialogFrame limited @cancel="onCancel">
-    <div class="root">
-      <div class="title">{{ t.recordAnalysis }}</div>
-      <div v-if="!isNative()" class="form-group">
-        <HorizontalSelector
-          v-model:value="target"
-          :items="[
-            { value: 'record', label: t.batchAnalysisCurrent },
-            { value: 'folder', label: t.batchAnalysisFolder },
-            ...(searchSource ? [{ value: 'search', label: t.batchAnalysisSearch }] : []),
-          ]"
-        />
+    <div class="title">{{ t.recordAnalysis }}</div>
+    <div v-if="!isNative()" class="form-item center selector-item">
+      <HorizontalSelector
+        v-model:value="target"
+        :items="[
+          { label: t.currentRecord, value: 'record' },
+          { label: t.serverFolder, value: 'folder' },
+          ...(searchSource ? [{ label: t.batchAnalysisSearch, value: 'search' }] : []),
+        ]"
+      />
+    </div>
+    <div ref="scrollContainer" class="form-group scroll">
+      <div v-show="target !== 'record'" class="form-group warning">
+        <div class="note">{{ t.analyzedRecordFilesWillBeOverwritten }}</div>
       </div>
-      <div v-if="target !== 'record'" class="form-group">
-        <template v-if="target === 'folder'">
-          <label for="batch-directory">{{ t.batchAnalysisFolder }}</label>
+      <div v-show="target !== 'record'" class="form-group">
+        <div v-show="target === 'folder'">
+          <ServerDirectoryBrowser
+            :selected-path="selectedDirectory"
+            :path="browseDirectory"
+            :entries="directoryEntries"
+            :open="browserOpen"
+            @open="onOpenDirectoryPicker"
+            @update:path="onNavigateDirectory"
+            @select="onSelectDirectory"
+          >
+            <template #entry-actions="{ entry }">
+              <button v-if="entry.isDirectory" class="thin" @click="onConfirmDirectory(entry.path)">
+                {{ t.select }}
+              </button>
+            </template>
+          </ServerDirectoryBrowser>
           <div class="form-item row">
-            <span>server://</span>
-            <input id="batch-directory" v-model="batchSettings.directory" type="text" />
-            <button @click="openDirectory(batchSettings.directory)">{{ t.select }}</button>
+            <div class="form-item-label-wide">{{ t.subdirectories }}</div>
+            <ToggleButton v-model:value="batchSettings.subdirectories" class="toggle" />
           </div>
-          <div v-if="directories" class="directory-list">
-            <button @click="openDirectory('')">{{ t.rootDirectory }}</button>
-            <button
-              v-if="batchSettings.directory"
-              @click="openDirectory(batchSettings.directory.split('/').slice(0, -1).join('/'))"
-            >
-              ..
-            </button>
-            <button
-              v-for="directory in directories"
-              :key="directory.path"
-              @click="openDirectory(directory.path)"
-            >
-              {{ directory.name }}
-            </button>
-          </div>
-          <div class="form-item">
-            <span>{{ t.subdirectories }}</span
-            ><ToggleButton v-model:value="batchSettings.subdirectories" />
-          </div>
-        </template>
-        <div v-else class="note">{{ t.batchAnalysisSearch }}</div>
-        <div class="form-item">
-          <ToggleButton v-model:value="batchSettings.skipAnalyzed" :label="t.batchAnalysisSkip" />
         </div>
-        <p class="note">{{ t.batchAnalysisSkipNote }}</p>
+        <div class="form-item row">
+          <div class="form-item-label-wide">{{ t.skipAnalyzed }}</div>
+          <ToggleButton v-model:value="batchSettings.skipAnalyzed" class="toggle" />
+        </div>
+        <div class="form-item">
+          <button
+            class="thin"
+            data-test="check-targets"
+            :disabled="!canCheckTargets"
+            @click="onCheckTargets"
+          >
+            {{ t.checkBatchTargets }}
+          </button>
+        </div>
+        <div v-if="batchSettings.skipAnalyzed" class="note">{{ t.batchAnalysisSkipNote }}</div>
         <template v-if="plan">
-          <p class="note">{{ t.batchAnalysisConfirm(plan.files.length) }}</p>
+          <div class="note">{{ t.nKifuFound(plan.files.length) }}</div>
           <details>
             <summary>{{ t.batchAnalysisDetails }} ({{ plan.files.length }})</summary>
             <ol class="target-files">
@@ -71,7 +77,7 @@
           <label class="form-item-label-wide" for="analysis-multi-pv">{{
             t.suggestionsCount
           }}</label>
-          <ToggleButton v-model:value="settings.overrideMultiPV" />
+          <ToggleButton v-model:value="settings.overrideMultiPV" data-test="override-multi-pv" />
           <input
             id="analysis-multi-pv"
             v-model.number="settings.multiPV"
@@ -111,6 +117,9 @@
             :disabled="!settings.endCriteria.enableNumber"
           />
           <div class="form-item-small-label">{{ t.plySuffix }}{{ t.toSuffix }}</div>
+          <div v-show="target === 'record'" class="form-item-small-label">
+            ({{ t.totalMoves }}: {{ totalMoves }})
+          </div>
         </div>
         <div class="form-item">
           <ToggleButton v-model:value="settings.descending" :label="t.descending" />
@@ -148,17 +157,21 @@
       </div>
       <div v-if="!isNative()" class="form-group">
         <div class="form-item">
-          <ToggleButton v-model:value="background" :label="t.jobsBackground" />
+          <ToggleButton
+            v-model:value="background"
+            data-test="background"
+            :label="t.jobsBackground"
+          />
         </div>
       </div>
-      <div class="main-buttons">
-        <button data-hotkey="Enter" autofocus @click="onStart()">
-          {{ target !== "record" && !plan ? t.batchAnalysisCheck : t.analyze }}
-        </button>
-        <button data-hotkey="Escape" @click="onCancel()">
-          {{ t.cancel }}
-        </button>
-      </div>
+    </div>
+    <div class="main-buttons">
+      <button data-hotkey="Enter" autofocus @click="onStart()">
+        {{ t.analyze }}
+      </button>
+      <button data-hotkey="Escape" @click="onCancel()">
+        {{ t.cancel }}
+      </button>
     </div>
   </DialogFrame>
 </template>
@@ -171,10 +184,13 @@ import { MIN_MULTIPV, MAX_MULTIPV } from "@/common/engine/relay_protocol";
 import { CommentBehavior } from "@/common/settings/comment";
 import { getPredefinedUSIEngineTag, USIEngines, USIEngine } from "@/common/settings/usi";
 import { useStore } from "@/renderer/store";
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import PlayerSelector from "@/renderer/view/dialog/PlayerSelector.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
+import ServerDirectoryBrowser, {
+  ServerDirectoryEntryUI,
+} from "@/renderer/view/dialog/ServerDirectoryBrowser.vue";
 import { useErrorStore } from "@/renderer/store/error";
 import { useBusyState } from "@/renderer/store/busy";
 import DialogFrame from "./DialogFrame.vue";
@@ -183,6 +199,7 @@ import { loadBatchAnalysisSettings, prepareBatchAnalysis } from "@/renderer/stor
 import type { BatchAnalysisPlan } from "@/common/analysis/batch";
 import type { ServerDirectoryEntry } from "@/common/file/upload";
 import { useConfirmationStore } from "@/renderer/store/confirm";
+import { Move } from "tsshogi";
 
 const store = useStore();
 const background = ref(false);
@@ -192,31 +209,74 @@ const engines = ref(new USIEngines());
 const engineURI = ref("");
 const lanStore = useLanStore();
 const batchSettings = ref(loadBatchAnalysisSettings());
-const target = ref(store.analysisSource?.kind ?? "record");
+const selectedDirectory = ref<string | undefined>(batchSettings.value.directory || undefined);
 const searchSource = store.analysisSource?.kind === "search" ? store.analysisSource : undefined;
-if (store.analysisSource?.kind === "folder")
-  batchSettings.value.directory = store.analysisSource.directory;
-const directories = ref<ServerDirectoryEntry[]>();
+const target = ref(searchSource ? "search" : "record");
+const directories = ref<ServerDirectoryEntry[]>([]);
+const browseDirectory = ref("");
+const browserOpen = ref(false);
 const plan = ref<BatchAnalysisPlan>();
 let sourceGeneration = 0;
-watch(
-  [target, () => batchSettings.value.directory, () => batchSettings.value.subdirectories],
-  () => {
-    sourceGeneration++;
-    plan.value = undefined;
-  },
+
+const directoryEntries = computed(() =>
+  directories.value.map((entry) => ({ ...entry, isDirectory: true })),
 );
-const openDirectory = async (directory: string) => {
+
+const canCheckTargets = computed(() =>
+  target.value === "folder" ? selectedDirectory.value !== undefined : true,
+);
+
+const totalMoves = computed(() => {
+  const moves = store.record?.moves;
+  const lastMove = moves?.[moves.length - 1];
+  if (!lastMove) {
+    return 0;
+  }
+  return lastMove.ply === 0 ? 0 : lastMove.move instanceof Move ? lastMove.ply : lastMove.ply - 1;
+});
+
+const scrollContainer = ref<HTMLElement>();
+
+watch([target, selectedDirectory, () => batchSettings.value.subdirectories], () => {
+  sourceGeneration++;
+  plan.value = undefined;
+});
+
+watch(target, () => {
+  if (scrollContainer.value) {
+    scrollContainer.value.scrollTop = 0;
+  }
+});
+
+const loadDirectory = async (directory: string) => {
   busyState.retain();
   try {
     const result = await api.listServerDirectories(directory);
-    batchSettings.value.directory = result.path;
+    browseDirectory.value = result.path;
     directories.value = result.directories;
+    browserOpen.value = true;
   } catch (error) {
     useErrorStore().add(error);
   } finally {
     busyState.release();
   }
+};
+
+const onOpenDirectoryPicker = () => {
+  void loadDirectory(selectedDirectory.value ?? "");
+};
+
+const onNavigateDirectory = (path: string) => {
+  void loadDirectory(path);
+};
+
+const onSelectDirectory = (entry: ServerDirectoryEntryUI) => {
+  void loadDirectory(entry.path);
+};
+
+const onConfirmDirectory = (path: string) => {
+  selectedDirectory.value = path;
+  browserOpen.value = false;
 };
 
 busyState.retain();
@@ -287,41 +347,58 @@ const onStart = async () => {
     store.startAnalysis(newSettings, background.value);
     return;
   }
-  if (!plan.value) {
-    busyState.retain();
-    const generation = sourceGeneration;
-    try {
-      const prepared = await prepareBatchAnalysis(
-        target.value === "search" && searchSource
-          ? searchSource
-          : {
-              kind: "folder",
-              directory: batchSettings.value.directory,
-              subdirectories: batchSettings.value.subdirectories,
-            },
-      );
-      if (generation === sourceGeneration) plan.value = prepared;
-    } catch (error) {
-      useErrorStore().add(error);
-    } finally {
-      busyState.release();
+  if (target.value === "folder" && selectedDirectory.value === undefined) {
+    useErrorStore().add(t.batchAnalysisInvalid);
+    return;
+  }
+  let confirmedPlan = plan.value;
+  if (!confirmedPlan || confirmedPlan.expiresAt <= Date.now()) {
+    confirmedPlan = await preparePlan();
+    if (!confirmedPlan) {
+      return;
     }
-    return;
   }
-  const confirmedPlan = plan.value;
-  if (confirmedPlan.expiresAt <= Date.now()) {
-    plan.value = undefined;
-    useErrorStore().add(t.batchAnalysisPlanExpired);
-    return;
-  }
-  const savedSettings = { ...batchSettings.value };
+  const savedSettings = {
+    ...batchSettings.value,
+    directory: selectedDirectory.value ?? batchSettings.value.directory,
+  };
   const runInBackground = background.value;
   useConfirmationStore().show({
     message: t.batchAnalysisConfirm(confirmedPlan.files.length),
     onOk: () => {
-      void store.startBatchAnalysis(savedSettings, newSettings, confirmedPlan, runInBackground);
+      void store.startBatchAnalysis(savedSettings, newSettings, confirmedPlan!, runInBackground);
     },
   });
+};
+
+const onCheckTargets = () => {
+  void preparePlan();
+};
+
+const preparePlan = async (): Promise<BatchAnalysisPlan | undefined> => {
+  busyState.retain();
+  const generation = sourceGeneration;
+  try {
+    const prepared = await prepareBatchAnalysis(
+      target.value === "search" && searchSource
+        ? searchSource
+        : {
+            kind: "folder",
+            directory: selectedDirectory.value ?? "",
+            subdirectories: batchSettings.value.subdirectories,
+          },
+    );
+    if (generation !== sourceGeneration) {
+      return undefined;
+    }
+    plan.value = prepared;
+    return prepared;
+  } catch (error) {
+    useErrorStore().add(error);
+    return undefined;
+  } finally {
+    busyState.release();
+  }
 };
 
 const onCancel = () => {
@@ -334,17 +411,19 @@ const onUpdatePlayerSettings = async (val: USIEngines) => {
 </script>
 
 <style scoped>
-.root {
-  width: min(420px, calc(95vw - 32px));
-  max-width: 100%;
-  min-height: 0;
-  overflow-y: auto;
+/* Include borders and padding so groups fit inside the scroll container on narrow screens. */
+.form-group:not(.scroll) {
+  box-sizing: border-box;
+  min-width: min(502px, calc(95vw - 54px));
+}
+/* Keep toggle columns aligned even when a label is long. */
+.form-item.row > .form-item-label-wide {
+  flex: 0 0 160px;
+  min-width: 0;
   overflow-wrap: anywhere;
 }
-input.toggle {
-  height: 1em;
-  width: 1em;
-  margin-right: 10px;
+.selector-item {
+  margin: 0 !important;
 }
 input.small {
   width: 50px;
@@ -352,15 +431,10 @@ input.small {
 .selector {
   max-width: 210px;
 }
-.directory-list,
 .target-files {
   max-height: 160px;
   overflow-y: auto;
   overflow-wrap: anywhere;
-}
-#batch-directory {
-  min-width: 0;
-  width: 100%;
 }
 @media (max-width: 480px) {
   .form-item-label-wide {

@@ -45,9 +45,24 @@ const mountDialog = () =>
       stubs: {
         DialogFrame: { template: "<div><slot /></div>" },
         Icon: true,
+        ServerDirectoryBrowser: false,
       },
     },
   });
+
+async function openDirectoryPicker(wrapper: ReturnType<typeof mountDialog>) {
+  await wrapper.get(".path-input button").trigger("click");
+  await flushPromises();
+}
+
+async function confirmRoot(wrapper: ReturnType<typeof mountDialog>) {
+  await wrapper
+    .findAll(".server-selection-item")
+    .find((item) => item.text().includes("Root"))!
+    .get("button")
+    .trigger("click");
+  await flushPromises();
+}
 
 describe("ServerFileUploadDialog", () => {
   beforeEach(() => {
@@ -65,8 +80,37 @@ describe("ServerFileUploadDialog", () => {
     const input = wrapper.find<HTMLInputElement>('input[type="file"]');
     expect(input.attributes("multiple")).toBeDefined();
     expect(input.attributes("accept")).toBe(SERVER_UPLOAD_ACCEPT);
+    await openDirectoryPicker(wrapper);
     expect(wrapper.text()).toContain("books");
     expect(mocks.listDirectories).toHaveBeenCalledWith("");
+  });
+
+  it("keeps the directory browser and folder creation closed until selected", async () => {
+    const wrapper = mountDialog();
+    await flushPromises();
+    expect(wrapper.find(".server-selection-list").exists()).toBe(false);
+    expect(wrapper.find(".new-directory").exists()).toBe(false);
+    expect(mocks.listDirectories).not.toHaveBeenCalled();
+
+    await openDirectoryPicker(wrapper);
+    expect(wrapper.find(".server-selection-list").exists()).toBe(true);
+    expect(wrapper.find(".new-directory").exists()).toBe(true);
+  });
+
+  it("requires an explicit destination before uploading", async () => {
+    const wrapper = mountDialog();
+    await flushPromises();
+    const file = new File(["data"], "game.kif");
+    const input = wrapper.find<HTMLInputElement>('input[type="file"]');
+    Object.defineProperty(input.element, "files", { configurable: true, value: [file] });
+    await input.trigger("change");
+
+    expect(wrapper.get<HTMLButtonElement>("button.upload").element.disabled).toBe(true);
+
+    await openDirectoryPicker(wrapper);
+    await confirmRoot(wrapper);
+    expect(wrapper.get<HTMLInputElement>(".path-input input").element.value).toBe("server://");
+    expect(wrapper.get<HTMLButtonElement>("button.upload").element.disabled).toBe(false);
   });
 
   it("retries only conflicting files after confirmation", async () => {
@@ -76,6 +120,8 @@ describe("ServerFileUploadDialog", () => {
     const input = wrapper.find<HTMLInputElement>('input[type="file"]');
     Object.defineProperty(input.element, "files", { configurable: true, value: files });
     await input.trigger("change");
+    await openDirectoryPicker(wrapper);
+    await confirmRoot(wrapper);
     mocks.uploadFiles.mockResolvedValueOnce({
       uploaded: [{ path: "new.kif" }],
       conflicts: [createUploadItem(files[1])],
@@ -102,6 +148,7 @@ describe("ServerFileUploadDialog", () => {
   it("lists selected files and removes them individually", async () => {
     const wrapper = mountDialog();
     await flushPromises();
+    await openDirectoryPicker(wrapper);
     const files = [new File(["a"], "a.kif"), new File(["b"], "b.db")];
     const input = wrapper.find<HTMLInputElement>('input[type="file"]');
     Object.defineProperty(input.element, "files", { configurable: true, value: files });
@@ -127,6 +174,8 @@ describe("ServerFileUploadDialog", () => {
     await wrapper.find(".save-name input").setValue("renamed");
     expect(wrapper.find(".extension").text()).toBe(".KIF");
     expect(wrapper.find(".name").text()).toBe("original.KIF");
+    await openDirectoryPicker(wrapper);
+    await confirmRoot(wrapper);
     mocks.uploadFiles.mockResolvedValueOnce({ uploaded: [], conflicts: [], errors: [] });
 
     await wrapper.find("button.upload").trigger("click");
@@ -146,6 +195,8 @@ describe("ServerFileUploadDialog", () => {
     Object.defineProperty(input.element, "files", { configurable: true, value: [file] });
     await input.trigger("change");
     await wrapper.find(".save-name input").setValue("../invalid");
+    await openDirectoryPicker(wrapper);
+    await confirmRoot(wrapper);
     const error = new Error("invalid name");
     mocks.uploadFiles.mockRejectedValueOnce(error);
 
@@ -160,12 +211,16 @@ describe("ServerFileUploadDialog", () => {
   it("creates a directory and selects it for the next upload", async () => {
     const wrapper = mountDialog();
     await flushPromises();
+    await openDirectoryPicker(wrapper);
     mocks.createDirectory.mockResolvedValueOnce({ name: "new", path: "new" });
     await wrapper.find(".new-directory input").setValue("new");
     await wrapper.find("form.new-directory").trigger("submit");
     await flushPromises();
     expect(mocks.createDirectory).toHaveBeenCalledWith("", "new");
-    expect(wrapper.find(".breadcrumbs").text()).toContain("new");
+    expect(wrapper.get<HTMLInputElement>(".path-input input").element.value).toBe("server://new");
+    expect(wrapper.find(".server-selection-list").exists()).toBe(false);
+
+    await openDirectoryPicker(wrapper);
     expect(wrapper.find<HTMLInputElement>(".new-directory input").element.value).toBe("");
 
     const file = new File(["data"], "game.kif");
@@ -181,12 +236,14 @@ describe("ServerFileUploadDialog", () => {
   it("keeps the current destination and input when directory creation fails", async () => {
     const wrapper = mountDialog();
     await flushPromises();
+    await openDirectoryPicker(wrapper);
     mocks.createDirectory.mockRejectedValueOnce(new Error("already exists"));
     await wrapper.find(".new-directory input").setValue("books");
     await wrapper.find("form.new-directory").trigger("submit");
     await flushPromises();
     expect(mocks.addError).toHaveBeenCalled();
-    expect(wrapper.find(".breadcrumbs").text()).not.toContain("books");
+    expect(wrapper.find(".server-selection-list").exists()).toBe(true);
+    expect(wrapper.get<HTMLInputElement>(".path-input input").element.value).toBe("");
     expect(wrapper.find<HTMLInputElement>(".new-directory input").element.value).toBe("books");
     expect(mocks.destroy).not.toHaveBeenCalled();
   });

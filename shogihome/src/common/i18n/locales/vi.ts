@@ -385,19 +385,20 @@ export const vi: Texts = {
   suggestionsCount: "Số nước đề xuất",
   multiPVInvalid: (min, max) => `Số nước đề xuất phải là số nguyên từ ${min} đến ${max}.`,
   batchAnalysis: "Phân tích hàng loạt",
-  batchAnalysisCheck: "Kiểm tra tệp mục tiêu",
-  batchAnalysisCurrent: "Ván hiện tại",
-  batchAnalysisFolder: "Thư mục máy chủ",
+  currentRecord: "Kỳ phổ hiện tại",
+  serverFolder: "Thư mục máy chủ",
   batchAnalysisSearch: "Tất cả ván phù hợp",
-  batchAnalysisSkip: "Bỏ qua ván đã phân tích",
+  skipAnalyzed: "Bỏ qua kỳ phổ đã phân tích",
   batchAnalysisSkipNote:
-    "Bỏ qua nếu có nước đi, kể cả biến thể, có chú thích phân tích. Không xét phân tích một phần, động cơ hoặc MultiPV.",
+    "Các ván đã phân tích sẽ được bỏ qua khi phân tích, nên số ván thực tế có thể ít hơn số đang hiển thị.",
+  checkBatchTargets: "Kiểm tra đối tượng",
+  analyzedRecordFilesWillBeOverwritten:
+    "Tệp kỳ phổ sau khi phân tích sẽ bị ghi đè. Vui lòng sao lưu dữ liệu quan trọng trước.",
   batchAnalysisInvalid: "Nguồn hoặc cài đặt phân tích hàng loạt không hợp lệ.",
   batchAnalysisNoFiles: "Không có tệp ván phù hợp.",
   batchAnalysisPlanExpired: "Danh sách tệp đã hết hạn. Hãy xác nhận lại.",
   batchAnalysisPreparing: "Đang chuẩn bị ván để phân tích.",
-  batchAnalysisConfirm: (count) =>
-    `Phân tích lần lượt ${count} ván và ghi đè tệp gốc khi hoàn tất? Hãy sao lưu trước.`,
+  batchAnalysisConfirm: (count) => `Phân tích lần lượt tối đa ${count} ván. Bắt đầu chứ?`,
   batchAnalysisSummary: (success, failed, skipped) =>
     `Thành công ${success} / Lỗi ${failed} / Bỏ qua ${skipped}`,
   batchAnalysisFollow: "Tiếp tục theo dõi ván hiện tại",
@@ -434,6 +435,7 @@ export const vi: Texts = {
   byoyomi: "Byoyomi",
   increments: "Cộng thời gian",
   startEndCriteria: "Điều kiện bắt đầu/kết thúc",
+  totalMoves: "Tổng số nước",
   descending: "逆順", // TODO: Translate
   endCriteria1Move: "Điều kiện kết thúc cho mỗi nước đi",
   outputSettings: "Tùy chọn xuất",

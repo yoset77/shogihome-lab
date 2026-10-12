@@ -384,18 +384,18 @@ export const zh_tw: Texts = {
   suggestionsCount: "候補手數量",
   multiPVInvalid: (min, max) => `候補手數量必須是${min}到${max}之間的整數。`,
   batchAnalysis: "連續棋譜分析",
-  batchAnalysisCheck: "確認目標檔案",
-  batchAnalysisCurrent: "目前棋譜",
-  batchAnalysisFolder: "伺服器資料夾",
+  currentRecord: "目前棋譜",
+  serverFolder: "伺服器資料夾",
   batchAnalysisSearch: "所有符合搜尋的棋譜",
-  batchAnalysisSkip: "跳過已分析的棋譜",
-  batchAnalysisSkipNote:
-    "若任一步（包括變化）有分析註解即跳過。不區分部分分析、引擎或MultiPV設定。",
+  skipAnalyzed: "跳過已解析",
+  batchAnalysisSkipNote: "已解析的棋譜會在解析時略過，實際解析的數量可能少於上方顯示的數量。",
+  checkBatchTargets: "確認對象",
+  analyzedRecordFilesWillBeOverwritten: "解析後的棋譜檔案將被覆寫。重要資料請事先備份。",
   batchAnalysisInvalid: "連續分析的來源或設定無效。",
   batchAnalysisNoFiles: "沒有符合的棋譜檔案。",
   batchAnalysisPlanExpired: "檔案清單確認期限已過，請重新確認。",
   batchAnalysisPreparing: "正在準備分析棋譜。",
-  batchAnalysisConfirm: (count) => `依序分析${count}份棋譜並在完成後覆寫原檔。請先備份。要開始嗎？`,
+  batchAnalysisConfirm: (count) => `依序分析最多${count}份棋譜。要開始嗎？`,
   batchAnalysisSummary: (success, failed, skipped) =>
     `成功 ${success} / 失敗 ${failed} / 跳過 ${skipped}`,
   batchAnalysisFollow: "恢復追蹤目前棋譜",
@@ -432,6 +432,7 @@ export const zh_tw: Texts = {
   byoyomi: "讀秒",
   increments: "增秒",
   startEndCriteria: "開始・結束條件",
+  totalMoves: "総手数", // TODO: translate
   descending: "逆順", // TODO: Translate
   endCriteria1Move: "局面結束條件",
   outputSettings: "輸出設定",

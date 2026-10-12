@@ -37,59 +37,44 @@
       </div>
 
       <div class="destination-label">{{ t.uploadDestination }}</div>
-      <div class="server-selection-list">
-        <div class="server-selection-header breadcrumbs">
-          <span class="breadcrumb-item" @click="openDirectory('')">{{ t.rootDirectory }}</span>
-          <template v-for="part in breadcrumbs" :key="part.path">
-            <span class="breadcrumb-separator">/</span>
-            <span class="breadcrumb-item" @click="openDirectory(part.path)">
-              {{ part.name }}
-            </span>
-          </template>
-        </div>
-        <div class="server-selection-scroll">
-          <div
-            v-if="currentDirectory"
-            class="server-selection-item row align-center"
-            @click="openDirectory(parentDirectory)"
-          >
-            <div class="entry-header grow">
-              <Icon :icon="IconType.OPEN_FOLDER" class="entry-icon" />
-              ..
-            </div>
-          </div>
-          <div
-            v-for="directory in directories"
-            :key="directory.path"
-            class="server-selection-item row align-center"
-            @click="openDirectory(directory.path)"
-          >
-            <div class="entry-header grow">
-              <Icon :icon="IconType.OPEN_FOLDER" class="entry-icon" />
-              {{ directory.name }}
-            </div>
-          </div>
-        </div>
-      </div>
+      <ServerDirectoryBrowser
+        :selected-path="selectedDirectory"
+        :path="browseDirectory"
+        :entries="directoryEntries"
+        :open="browserOpen"
+        @open="onOpenDirectoryPicker"
+        @update:path="loadDirectory"
+        @select="onSelectDirectory"
+      >
+        <template #entry-actions="{ entry }">
+          <button class="thin" @click="onConfirmDirectory(entry.path)">
+            {{ t.select }}
+          </button>
+        </template>
+      </ServerDirectoryBrowser>
 
-      <form class="new-directory row align-center" @submit.prevent="createDirectory">
+      <form
+        v-if="browserOpen"
+        class="new-directory row align-center"
+        @submit.prevent="createDirectory"
+      >
         <input
           v-model="newDirectoryName"
           type="text"
           :placeholder="t.folderName"
           :aria-label="t.folderName"
         />
-        <button
-          class="create-directory"
-          type="submit"
-          :disabled="!directoryReady || !newDirectoryName"
-        >
+        <button class="create-directory" type="submit" :disabled="!newDirectoryName">
           {{ t.createNewFolder }}
         </button>
       </form>
 
       <div class="main-buttons">
-        <button class="upload" :disabled="!directoryReady || files.length === 0" @click="upload">
+        <button
+          class="upload"
+          :disabled="selectedDirectory === undefined || files.length === 0"
+          @click="upload"
+        >
           {{ t.upload }}
         </button>
         <button data-hotkey="Escape" @click="close">{{ t.cancel }}</button>
@@ -99,9 +84,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
 import { t } from "@/common/i18n";
-import { normalizePath } from "@/common/helpers/path";
 import { SERVER_UPLOAD_ACCEPT, type ServerDirectoryEntry } from "@/common/file/upload";
 import { useStore } from "@/renderer/store";
 import { useBusyState } from "@/renderer/store/busy";
@@ -119,26 +103,24 @@ import { useToastStore } from "@/renderer/store/toast";
 import DialogFrame from "./DialogFrame.vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { IconType } from "@/renderer/assets/icons";
+import ServerDirectoryBrowser, { ServerDirectoryEntryUI } from "./ServerDirectoryBrowser.vue";
 
 const store = useStore();
 const files = ref<ServerFileUploadItem[]>([]);
-const currentDirectory = ref("");
+const selectedDirectory = ref<string | undefined>(undefined);
+const browseDirectory = ref("");
 const directories = ref<ServerDirectoryEntry[]>([]);
 const fileInput = ref<HTMLInputElement>();
 const newDirectoryName = ref("");
-const directoryReady = ref(false);
+const browserOpen = ref(false);
 
-const breadcrumbs = computed(() => {
-  if (!currentDirectory.value) return [];
-  const parts = normalizePath(currentDirectory.value).split("/");
-  return parts.map((name, index) => ({ name, path: parts.slice(0, index + 1).join("/") }));
-});
-
-const parentDirectory = computed(() =>
-  currentDirectory.value
-    ? normalizePath(currentDirectory.value).split("/").slice(0, -1).join("/")
-    : "",
+const directoryEntries = computed(() =>
+  directories.value.map((entry) => ({ ...entry, isDirectory: true })),
 );
+
+const onOpenDirectoryPicker = () => {
+  void loadDirectory(selectedDirectory.value ?? "");
+};
 
 const formatSize = (size: number) => {
   if (size < 1024) return `${size} B`;
@@ -156,14 +138,14 @@ const removeFile = (index: number) => {
   files.value.splice(index, 1);
 };
 
-const openDirectory = async (path: string) => {
+const loadDirectory = async (path: string) => {
   const busy = useBusyState();
   busy.retain();
   try {
     const result = await listUploadDirectories(path);
-    currentDirectory.value = result.path;
+    browseDirectory.value = result.path;
     directories.value = result.directories;
-    directoryReady.value = true;
+    browserOpen.value = true;
   } catch (error) {
     useErrorStore().add(error);
   } finally {
@@ -171,15 +153,24 @@ const openDirectory = async (path: string) => {
   }
 };
 
+const onSelectDirectory = (entry: ServerDirectoryEntryUI) => {
+  void loadDirectory(entry.path);
+};
+
+const onConfirmDirectory = (path: string) => {
+  selectedDirectory.value = path;
+  browserOpen.value = false;
+};
+
 const createDirectory = async () => {
   const busy = useBusyState();
   busy.retain();
   try {
-    const created = await createUploadDirectory(currentDirectory.value, newDirectoryName.value);
-    currentDirectory.value = created.path;
+    const created = await createUploadDirectory(browseDirectory.value, newDirectoryName.value);
+    selectedDirectory.value = created.path;
     directories.value = [];
     newDirectoryName.value = "";
-    directoryReady.value = true;
+    browserOpen.value = false;
   } catch (error) {
     useErrorStore().add(error);
   } finally {
@@ -196,7 +187,7 @@ const finish = (uploaded: number, errors: Error[]) => {
 };
 
 const upload = async () => {
-  const directory = currentDirectory.value;
+  const directory = selectedDirectory.value ?? "";
   try {
     const initial = await uploadServerFiles(files.value, directory);
     if (!initial.conflicts.length) {
@@ -225,8 +216,6 @@ const upload = async () => {
     useErrorStore().add(error);
   }
 };
-
-onMounted(() => openDirectory(""));
 </script>
 
 <style scoped>
@@ -307,66 +296,6 @@ onMounted(() => openDirectory(""));
   font-weight: bold;
   margin-top: 4px;
 }
-.server-selection-list {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1px solid var(--dialog-border-color);
-  background-color: var(--text-bg-color);
-}
-.server-selection-header {
-  padding: 4px 8px;
-  font-size: 0.8em;
-  font-weight: bold;
-  background-color: var(--selector-bg-color);
-  border-bottom: 1px solid var(--dialog-border-color);
-}
-.server-selection-header.breadcrumbs {
-  text-align: left;
-  white-space: nowrap;
-  overflow-x: auto;
-}
-.breadcrumb-item {
-  cursor: pointer;
-  color: var(--text-color-link);
-}
-.breadcrumb-item:hover {
-  text-decoration: underline;
-}
-.breadcrumb-separator {
-  margin: 0 5px;
-  color: var(--text-color-sub);
-}
-.server-selection-scroll {
-  max-height: min(340px, 40dvh);
-  overflow-y: auto;
-}
-.server-selection-item {
-  padding: 8px 10px;
-  font-size: 0.9em;
-  cursor: pointer;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  border-bottom: 1px solid var(--dialog-border-color);
-}
-.server-selection-item .entry-header {
-  min-width: 0;
-  text-overflow: ellipsis;
-  overflow: hidden;
-}
-.server-selection-item:last-child {
-  border-bottom: none;
-}
-.server-selection-item:hover {
-  background-color: var(--selector-bg-color);
-}
-.entry-icon {
-  width: 1.2em;
-  height: 1.2em;
-  vertical-align: middle;
-  margin-right: 5px;
-}
 .main-buttons {
   display: flex;
   justify-content: center;
@@ -380,7 +309,7 @@ onMounted(() => openDirectory(""));
   .file-picker {
     flex-wrap: wrap;
   }
-  .server-selection-scroll {
+  .root :deep(.server-selection-scroll) {
     max-height: 36dvh;
   }
 }
