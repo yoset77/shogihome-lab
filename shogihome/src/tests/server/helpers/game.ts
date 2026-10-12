@@ -9,7 +9,9 @@ import type {
   GameCommand,
   GameCommandAction,
   GameSnapshot,
+  GameConnection,
 } from "@/common/game/protocol";
+import type { GameSession } from "@/server/game/session";
 import type { Player, SearchHandler } from "@/common/game/player";
 import { HumanPlayer } from "@/server/game/player";
 
@@ -49,13 +51,35 @@ export function gameCommand(
   return {
     requestId: `command-${++nextCommand}`,
     serverInstanceId: snapshot.serverInstanceId,
-    controllerId: "controller",
+    controllerId: snapshot.controllerOwnerId ?? "controller",
     controllerEpoch: snapshot.controllerEpoch,
+    screenId: "screen",
+    controllerGeneration: snapshot.controllerGeneration,
     gameId: snapshot.gameId,
     interactionId: snapshot.interactionId,
     action,
     ...fields,
   };
+}
+export function gameConnection(
+  snapshot: GameSnapshot,
+  fields: Partial<GameConnection> = {},
+): GameConnection {
+  return {
+    connectionId: `connection-${++nextCommand}`,
+    controllerEpoch: snapshot.controllerEpoch,
+    screenId: "screen",
+    recoveryId: snapshot.controllerRecoveryId!,
+    ...fields,
+  };
+}
+export function connectGame(
+  session: GameSession,
+  send: (frame: import("@/common/game/protocol").GameFrame) => void = () => {},
+  close: (code?: number) => void = () => {},
+) {
+  const snapshot = session.snapshot();
+  return session.connect(snapshot.controllerOwnerId!, send, close, gameConnection(snapshot));
 }
 export function fakeGamePlayer() {
   const searches: { usi: string; handler: SearchHandler }[] = [];

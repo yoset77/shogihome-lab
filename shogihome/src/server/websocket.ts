@@ -110,6 +110,7 @@ export const createEngineWebSocketServer = (
         const decodedConnection = decodeGameConnection({
           connectionId: url.searchParams.get("connectionId"),
           screenId: url.searchParams.get("screenId"),
+          recoveryId: url.searchParams.get("recoveryId"),
           controllerEpoch: epoch && /^\d+$/.test(epoch) ? Number(epoch) : undefined,
         });
         if (!decodedConnection.ok) {

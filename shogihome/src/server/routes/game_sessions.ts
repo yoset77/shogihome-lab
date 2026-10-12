@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 import { validator } from "hono/validator";
-import { decodeGameRequest, decodeGameCommand } from "@/common/game/protocol";
+import {
+  decodeGameRequest,
+  decodeGameCommand,
+  readGameRecoveryRequest,
+} from "@/common/game/protocol";
 import { identifier } from "@/common/analysis/validation";
 import { t } from "@/common/i18n";
 import { GameSessionManager, gameSessionManager } from "@/server/game/manager";
@@ -37,6 +41,18 @@ export const createGameSessionRoutes = (manager: GameSessionManager = gameSessio
       ),
     )
     .post(
+      "/:sessionId/attached-snapshot",
+      createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
+      validator("json", (value) => {
+        try {
+          return readGameRecoveryRequest(parseJsonObject(value));
+        } catch {
+          throw new HttpError(400, t.gameInvalid);
+        }
+      }),
+      (c) => c.json(manager.get(id(c.req.param("sessionId"))).recover(c.req.valid("json"))),
+    )
+    .post(
       "/:sessionId/attach",
       createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
       validator("json", (value) => {
@@ -61,7 +77,7 @@ export const createGameSessionRoutes = (manager: GameSessionManager = gameSessio
       (c) => {
         const session = manager.get(id(c.req.param("sessionId")));
         session.detach(c.req.valid("json"));
-        return c.json(session.snapshot());
+        return c.json(session.publicSnapshot());
       },
     )
     .post(
@@ -72,10 +88,10 @@ export const createGameSessionRoutes = (manager: GameSessionManager = gameSessio
         if (!decoded.ok) throw new HttpError(400, t.gameInvalid);
         return decoded.value;
       }),
-      (c) => c.json(manager.create(c.req.valid("json")).snapshot(), 202),
+      (c) => c.json(manager.create(c.req.valid("json")).creationSnapshot(), 202),
     )
     .get("/by-request/:requestId", (c) =>
-      c.json(manager.byRequest(id(c.req.param("requestId"))).snapshot()),
+      c.json(manager.byRequest(id(c.req.param("requestId"))).publicSnapshot()),
     )
     .post(
       "/:sessionId/commands",
@@ -83,10 +99,24 @@ export const createGameSessionRoutes = (manager: GameSessionManager = gameSessio
       validator("json", (value) => {
         const decoded = decodeGameCommand(parseJsonObject(value));
         if (!decoded.ok) throw new HttpError(400, t.gameInvalid);
-        return decoded.value;
+        const input = parseJsonObject(value);
+        try {
+          return {
+            ...decoded.value,
+            ...(input.authorization === undefined
+              ? {}
+              : { authorization: readJobBinding(input.authorization) }),
+          };
+        } catch {
+          throw new HttpError(400, t.gameInvalid);
+        }
       }),
-      async (c) =>
-        c.json(await manager.get(id(c.req.param("sessionId"))).command(c.req.valid("json"))),
+      async (c) => {
+        const { authorization, ...command } = c.req.valid("json");
+        return c.json(
+          await manager.get(id(c.req.param("sessionId"))).command(command, authorization),
+        );
+      },
     )
-    .get("/:sessionId", (c) => c.json(manager.get(id(c.req.param("sessionId"))).snapshot()));
+    .get("/:sessionId", (c) => c.json(manager.get(id(c.req.param("sessionId"))).publicSnapshot()));
 export const gameSessionRoutes = createGameSessionRoutes();

@@ -11,7 +11,6 @@ import {
   decodeGameClientFrame,
   decodeGameConnection,
   type GameSessionRequest,
-  type GameCommand,
   type GameFrame,
 } from "@/common/game/protocol";
 import { SearchInfoSenderType } from "@/common/record/types";
@@ -82,10 +81,12 @@ function setup() {
       request = input;
       return session.snapshot();
     }),
-    byRequest: vi.fn(async (id: string) => asHttp(() => server.byRequest(id).snapshot())),
-    snapshot: vi.fn(async (id: string) => asHttp(() => server.get(id).snapshot())),
-    command: vi.fn(async (id: string, command: GameCommand) =>
-      asHttp(() => server.get(id).command(command)),
+    byRequest: vi.fn(async (id: string) => asHttp(() => server.byRequest(id).publicSnapshot())),
+    snapshot: vi.fn<GameSessionsClient["snapshot"]>(async (id, recovery) =>
+      asHttp(() => (recovery ? server.get(id).recover(recovery) : server.get(id).publicSnapshot())),
+    ),
+    command: vi.fn<GameSessionsClient["command"]>(async (id, command, authorization) =>
+      asHttp(() => server.get(id).command(command, authorization)),
     ),
   } satisfies GameSessionsClient;
   const sockets: FakeSocket[] = [];
@@ -107,6 +108,8 @@ function setup() {
         const parsed = new URL(url);
         const binding = decodeGameConnection({
           connectionId: parsed.searchParams.get("connectionId"),
+          screenId: parsed.searchParams.get("screenId"),
+          recoveryId: parsed.searchParams.get("recoveryId"),
           controllerEpoch: Number(parsed.searchParams.get("controllerEpoch")),
         });
         if (!binding.ok) throw new Error(binding.error);

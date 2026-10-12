@@ -2,6 +2,12 @@ import type { JobAttachRequest, JobAttachmentState, JobBinding } from "@/common/
 import { t } from "@/common/i18n";
 import { HttpError } from "@/server/errors";
 import { randomUUID } from "node:crypto";
+import {
+  claimJobControl,
+  isCurrentJobBinding,
+  authorizeJobOperation,
+  type JobControl,
+} from "./control";
 
 export class JobAttachment {
   private epoch = 0;
@@ -10,24 +16,31 @@ export class JobAttachment {
   private acquisitionEpoch = 0;
   private recoveryId?: string;
   private screenId?: string;
+  private generation = 0;
+
+  private control(): JobControl {
+    return {
+      ownerId: this.ownerId,
+      epoch: this.epoch,
+      acquisitionEpoch: this.acquisitionEpoch,
+      recoveryId: this.recoveryId,
+      screenId: this.screenId,
+      attached: this.status().attached,
+    };
+  }
 
   status(): JobAttachmentState {
     return {
       epoch: this.epoch,
       attached: !!this.ownerId && Date.now() - this.lastSeen < 30_000,
-      ...(this.ownerId ? { ownerId: this.ownerId } : {}),
+      generation: this.generation,
     };
   }
 
-  claim(request: JobAttachRequest): JobBinding {
-    const current = this.status();
-    if (
-      current.ownerId === request.ownerId &&
-      (request.epoch === this.epoch || request.epoch === this.acquisitionEpoch) &&
-      (request.recoveryId === undefined || request.recoveryId === this.recoveryId)
-    ) {
-      if (this.screenId !== undefined && request.screenId !== this.screenId) {
-        if (current.attached) throw new HttpError(423, t.jobsOccupied);
+  claim(request: JobAttachRequest): JobBinding & { screenId: string } {
+    const transition = claimJobControl(this.control(), request);
+    if (transition !== "acquire") {
+      if (transition === "recover") {
         this.acquisitionEpoch = request.epoch;
         ++this.epoch;
         this.screenId = request.screenId;
@@ -37,62 +50,41 @@ export class JobAttachment {
         ownerId: request.ownerId,
         epoch: this.epoch,
         recoveryId: this.recoveryId,
-        screenId: this.screenId,
+        screenId: this.screenId!,
+        generation: this.generation,
       };
     }
-    if (request.epoch !== this.epoch || (current.attached && !request.takeover))
-      throw new HttpError(409, t.jobsTransferred);
     this.ownerId = request.ownerId;
     this.acquisitionEpoch = request.epoch;
     this.recoveryId = randomUUID();
     this.screenId = request.screenId;
     this.lastSeen = Date.now();
+    ++this.generation;
     return {
       ownerId: request.ownerId,
       epoch: ++this.epoch,
       recoveryId: this.recoveryId,
       screenId: this.screenId,
+      generation: this.generation,
     };
   }
 
   touch(binding: JobBinding): void {
-    const current = this.status();
-    if (
-      binding.ownerId !== current.ownerId ||
-      binding.epoch !== this.epoch ||
-      binding.screenId !== this.screenId ||
-      (binding.recoveryId !== undefined && binding.recoveryId !== this.recoveryId)
-    )
-      throw new HttpError(409, t.jobsTransferred);
+    if (!isCurrentJobBinding(this.control(), binding)) throw new HttpError(409, t.jobsTransferred);
     this.lastSeen = Date.now();
   }
-  authorizeOperation(binding: JobBinding): void {
-    if (
-      binding.recoveryId !== undefined &&
-      binding.recoveryId === this.recoveryId &&
-      binding.ownerId === this.ownerId &&
-      binding.epoch <= this.epoch
-    )
-      return;
-    this.touch(binding);
+  authorizeOperation(binding: JobBinding, authorization?: JobBinding): void {
+    authorizeJobOperation(this.control(), binding, authorization);
   }
 
   release(binding: JobBinding): void {
-    if (
-      binding.ownerId === this.ownerId &&
-      binding.epoch === this.epoch &&
-      binding.screenId === this.screenId
-    ) {
+    if (isCurrentJobBinding(this.control(), binding)) {
       this.ownerId = undefined;
       ++this.epoch;
+      ++this.generation;
     }
   }
   suspend(binding: JobBinding): void {
-    if (
-      binding.ownerId === this.ownerId &&
-      binding.epoch === this.epoch &&
-      binding.screenId === this.screenId
-    )
-      this.lastSeen = -Infinity;
+    if (isCurrentJobBinding(this.control(), binding)) this.lastSeen = -Infinity;
   }
 }

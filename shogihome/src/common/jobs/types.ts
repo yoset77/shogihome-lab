@@ -1,9 +1,15 @@
 import * as v from "@/common/analysis/validation";
 import type { DecodeResult } from "@/common/engine/relay_protocol";
 
-export type JobBinding = { ownerId: string; epoch: number; recoveryId?: string; screenId?: string };
-export type JobAttachRequest = JobBinding & { takeover: boolean };
-export type JobAttachmentState = { epoch: number; attached: boolean; ownerId?: string };
+export type JobBinding = {
+  ownerId: string;
+  epoch: number;
+  recoveryId?: string;
+  screenId?: string;
+  generation?: number;
+};
+export type JobAttachRequest = JobBinding & { takeover: boolean; screenId: string };
+export type JobAttachmentState = { epoch: number; attached: boolean; generation?: number };
 export type JobOperationOutcome = { state: "unknown" | "pending" | "accepted" | "rejected" };
 
 export function decodeJobOperationOutcome(value: unknown): DecodeResult<JobOperationOutcome> {
@@ -52,11 +58,17 @@ export function readJobBinding(value: unknown): JobBinding {
     epoch: v.counter(input.epoch),
     ...(input.recoveryId === undefined ? {} : { recoveryId: v.identifier(input.recoveryId) }),
     ...(input.screenId === undefined ? {} : { screenId: v.identifier(input.screenId) }),
+    ...(input.generation === undefined ? {} : { generation: v.counter(input.generation) }),
   };
 }
 
 export function readJobAttachRequest(value: unknown): JobAttachRequest {
-  return { ...readJobBinding(value), takeover: v.boolean(v.object(value).takeover) };
+  const input = v.object(value);
+  return {
+    ...readJobBinding(input),
+    screenId: v.identifier(input.screenId),
+    takeover: v.boolean(input.takeover),
+  };
 }
 
 export function readJobAttachment(value: unknown): JobAttachmentState {
@@ -64,7 +76,7 @@ export function readJobAttachment(value: unknown): JobAttachmentState {
   return {
     epoch: v.counter(input.epoch),
     attached: v.boolean(input.attached),
-    ...(input.ownerId === undefined ? {} : { ownerId: v.identifier(input.ownerId) }),
+    ...(input.generation === undefined ? {} : { generation: v.counter(input.generation) }),
   };
 }
 

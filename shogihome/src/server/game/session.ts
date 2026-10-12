@@ -11,6 +11,7 @@ import {
   type GameError,
   type GameRecordSummary,
   type GameConnection,
+  type GameRecoveryRequest,
 } from "@/common/game/protocol";
 import {
   restoreRecord,
@@ -41,6 +42,12 @@ import type {
   JobBinding,
   JobSummary,
 } from "@/common/jobs/types";
+import {
+  claimJobControl,
+  isCurrentJobBinding,
+  authorizeJobOperation,
+  type JobControl,
+} from "@/server/jobs/control";
 
 export const GAME_HEARTBEAT_MS = 5000;
 export const GAME_CONTROLLER_TIMEOUT_MS = 30_000;
@@ -82,6 +89,7 @@ export class GameSession {
   private sampleId = 0;
   private lastMoveId = 0;
   private controllerEpoch = 0;
+  private controllerGeneration = 0;
   private controllerRecoveryId = randomUUID();
   private acquisitionEpoch?: number;
   private screenId?: string;
@@ -324,6 +332,7 @@ export class GameSession {
   }
   snapshot(): GameSnapshot {
     return {
+      controllerGeneration: this.controllerGeneration,
       controllerRecoveryId: this.controllerRecoveryId,
       controllerOwnerId: this.controllerId,
       sessionId: this.id,
@@ -352,6 +361,54 @@ export class GameSession {
       ...(this.error ? { error: this.error } : {}),
       records: structuredClone(this.summaries),
     };
+  }
+  publicSnapshot(): GameSnapshot {
+    const snapshot = this.snapshot();
+    delete snapshot.controllerOwnerId;
+    delete snapshot.controllerRecoveryId;
+    delete snapshot.controllerConnectionId;
+    return snapshot;
+  }
+  creationSnapshot(): GameSnapshot {
+    return this.controllerId === this.request.controllerId
+      ? this.snapshot()
+      : this.publicSnapshot();
+  }
+
+  private control(): JobControl {
+    return {
+      ownerId: this.controllerId,
+      epoch: this.controllerEpoch,
+      acquisitionEpoch: this.acquisitionEpoch,
+      recoveryId: this.controllerRecoveryId,
+      screenId: this.screenId,
+      attached: this.attachment().attached,
+    };
+  }
+
+  recover(request: GameRecoveryRequest): GameSnapshot {
+    if (request.ownerId !== this.controllerId) throw new HttpError(409, t.gameConflict);
+    // The creator's private owner ID authorizes the first claim, including a lost create response.
+    if (
+      this.controllerEpoch === 0 &&
+      this.screenId === undefined &&
+      request.epoch === 0 &&
+      request.screenId &&
+      (request.recoveryId === undefined || request.recoveryId === this.controllerRecoveryId)
+    ) {
+      this.screenId = request.screenId;
+      this.acquisitionEpoch = 0;
+      this.claimedAt = Date.now();
+      return this.snapshot();
+    }
+    if (
+      request.recoveryId === this.controllerRecoveryId &&
+      request.connectionId !== undefined &&
+      request.connectionId === this.controllerConnectionId &&
+      request.epoch <= this.controllerEpoch
+    )
+      request = { ...request, epoch: this.controllerEpoch };
+    return this.claim(request);
   }
   // Live infos belong to the current interaction; reset them on turn or game switches.
   // Annotation updates must not clear them, so pruning is driven by the interaction ID.
@@ -387,8 +444,13 @@ export class GameSession {
     close: (code?: number) => void = () => {},
     connection?: GameConnection,
   ): { epoch: number; heartbeat: () => void; disconnect: () => void } {
-    if (controllerId !== this.controllerId) throw new HttpError(409, t.gameConflict);
-    if (this.controller && this.screenId && connection?.screenId !== this.screenId)
+    if (
+      controllerId !== this.controllerId ||
+      !connection?.screenId ||
+      connection.recoveryId !== this.controllerRecoveryId
+    )
+      throw new HttpError(409, t.gameConflict);
+    if (this.attachment().attached && this.screenId && connection.screenId !== this.screenId)
       throw new HttpError(423, t.gameConflict);
     // A retry may have missed the epoch assigned to its own previous connection.
     if (
@@ -402,6 +464,7 @@ export class GameSession {
     const previous = this.controller;
     this.controller = undefined;
     this.core.setConnected(false);
+    this.acquisitionEpoch ??= this.controllerEpoch;
     const epoch = ++this.controllerEpoch;
     this.controllerConnectionId = connection?.connectionId;
     this.screenId = connection?.screenId;
@@ -420,6 +483,7 @@ export class GameSession {
   private disconnect(epoch: number): void {
     if (this.controller?.epoch !== epoch) return;
     this.controller = undefined;
+    this.claimedAt = 0;
     this.detachedSince = this.now();
     this.core.setConnected(false);
   }
@@ -428,6 +492,7 @@ export class GameSession {
     return {
       epoch: this.controllerEpoch,
       attached: !!this.controller || Date.now() - this.claimedAt < GAME_CONTROLLER_TIMEOUT_MS,
+      generation: this.controllerGeneration,
     };
   }
 
@@ -437,21 +502,26 @@ export class GameSession {
       this.request.settings.white.uri === ES_HUMAN
     )
       throw new HttpError(400, t.gameInvalid);
-    if (
-      request.ownerId === this.controllerId &&
-      (request.epoch === this.controllerEpoch || request.epoch === this.acquisitionEpoch)
-    )
+    return this.claim(request);
+  }
+  private claim(request: JobAttachRequest): GameSnapshot {
+    const transition = claimJobControl(this.control(), request);
+    if (transition === "retry") {
+      this.claimedAt = Date.now();
       return this.snapshot();
-    if (request.epoch !== this.controllerEpoch || (this.attachment().attached && !request.takeover))
-      throw new HttpError(409, t.gameConflict);
+    }
     const previous = this.controller;
     this.controller = undefined;
     this.core.setConnected(false);
     this.controllerId = request.ownerId;
-    this.controllerRecoveryId = randomUUID();
+    if (transition === "acquire") {
+      this.controllerRecoveryId = randomUUID();
+      ++this.controllerGeneration;
+    }
     this.acquisitionEpoch = request.epoch;
     ++this.controllerEpoch;
     this.controllerConnectionId = undefined;
+    this.screenId = request.screenId;
     this.claimedAt = Date.now();
     this.detachedSince = this.now();
     previous?.close(4001);
@@ -463,45 +533,49 @@ export class GameSession {
       this.request.settings.white.uri === ES_HUMAN
     )
       throw new HttpError(400, t.gameInvalid);
-    if (binding.ownerId !== this.controllerId || binding.epoch !== this.controllerEpoch) return;
+    if (!isCurrentJobBinding(this.control(), binding)) return;
     const previous = this.controller;
     if (previous) this.disconnect(previous.epoch);
     this.claimedAt = 0;
     this.controllerId = randomUUID();
     this.controllerRecoveryId = randomUUID();
+    ++this.controllerGeneration;
     ++this.controllerEpoch;
     previous?.close(4001);
   }
 
-  command(command: GameCommand): Promise<GameSnapshot> {
+  command(command: GameCommand, authorization?: JobBinding): Promise<GameSnapshot> {
     if (command.serverInstanceId !== this.request.serverInstanceId)
       throw new HttpError(410, t.gameSessionExpired);
     if (command.controllerId !== this.controllerId) throw new HttpError(409, t.gameConflict);
+    const authorize = () =>
+      authorizeJobOperation(
+        this.control(),
+        {
+          ownerId: command.controllerId,
+          epoch: command.controllerEpoch,
+          recoveryId: command.recoveryId,
+          screenId: command.screenId,
+        },
+        authorization,
+      );
+    const response = () => {
+      authorize();
+      return this.snapshot();
+    };
+    authorize();
     const hash = createHash("sha256").update(JSON.stringify(command)).digest("hex");
     const previous = this.commands.get(command.requestId);
     if (previous) {
       if (previous.hash !== hash) throw new HttpError(409, t.gameConflict);
-      return previous.result.then(() => this.snapshot());
+      return previous.result.then(response);
     }
-    if (
-      !this.controller ||
-      (command.recoveryId === undefined
-        ? command.controllerEpoch !== this.controller.epoch
-        : command.recoveryId !== this.controllerRecoveryId ||
-          command.controllerEpoch > this.controller.epoch)
-    )
+    if (!this.controller || command.controllerEpoch > this.controller.epoch)
       throw new HttpError(409, t.gameConflict);
     if (this.commands.size >= 10_000) throw new HttpError(503, t.gameCapacity);
     const result = Promise.resolve().then(async () => {
-      if (
-        !this.controller ||
-        command.controllerId !== this.controllerId ||
-        (command.recoveryId === undefined
-          ? command.controllerEpoch !== this.controller.epoch
-          : command.recoveryId !== this.controllerRecoveryId ||
-            command.controllerEpoch > this.controller.epoch)
-      )
-        throw new HttpError(409, t.gameConflict);
+      authorize();
+      if (!this.controller) throw new HttpError(409, t.gameConflict);
       if (
         !["interrupt", "resume"].includes(command.action) &&
         (command.gameId !== this.gameId ||
@@ -558,7 +632,7 @@ export class GameSession {
         entry.state = "rejected";
       },
     );
-    return result.then(() => this.snapshot());
+    return result.then(response);
   }
 
   commandOutcome(id: string): { state: "unknown" | "pending" | "accepted" | "rejected" } {
@@ -574,6 +648,7 @@ export class GameSession {
       !annotation ||
       command.serverInstanceId !== this.request.serverInstanceId ||
       command.controllerId !== this.controllerId ||
+      command.screenId !== this.screenId ||
       command.controllerEpoch !== this.controller?.epoch ||
       command.gameId !== this.gameId ||
       command.interactionId !== this.core.interactionId ||

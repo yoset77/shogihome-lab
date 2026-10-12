@@ -179,7 +179,7 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
   };
   const browserURL = (snapshot: GameSnapshot, connectionId: string) =>
     url.replace("http:", "ws:") +
-    `/ws/game-sessions/${snapshot.sessionId}?controllerId=controller&serverInstanceId=${snapshot.serverInstanceId}&connectionId=${connectionId}&controllerEpoch=${snapshot.controllerEpoch}`;
+    `/ws/game-sessions/${snapshot.sessionId}?controllerId=controller&serverInstanceId=${snapshot.serverInstanceId}&connectionId=${connectionId}&controllerEpoch=${snapshot.controllerEpoch}&screenId=screen&recoveryId=${snapshot.controllerRecoveryId}`;
   let nextConnection = 0;
   async function browser(snapshot: GameSnapshot, connectionId = `browser-${++nextConnection}`) {
     const ws = new WebSocket(browserURL(snapshot, connectionId), { headers });
@@ -251,7 +251,15 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
     await vi.waitFor(() => expect(manager.get(created.sessionId).snapshot().state).toBe("paused"));
     const recovered = (await call(`/by-request/${request.requestId}`)) as GameSnapshot;
     expect(restoreRecord(recovered.record).record.current.ply).toBe(2);
-    const second = await browser(recovered);
+    expect(recovered.controllerRecoveryId).toBeUndefined();
+    const owned = (await call(`/${created.sessionId}/attached-snapshot`, {
+      ownerId: "controller",
+      epoch: first.latest().controllerEpoch,
+      recoveryId: first.latest().controllerRecoveryId,
+      screenId: "screen",
+      takeover: false,
+    })) as GameSnapshot;
+    const second = await browser(owned);
     expect(second.latest().canMove).toBe(false);
     await call(`/${created.sessionId}/commands`, gameCommand(second.latest(), "resume"));
     await vi.waitFor(() => expect(second.latest().canMove).toBe(true));

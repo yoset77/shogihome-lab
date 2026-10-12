@@ -33,6 +33,9 @@ const cancelInput = validator("json", (value) => {
     const input = parseJsonObject(value);
     return {
       ...readJobBinding(input),
+      ...(input.authorization === undefined
+        ? {}
+        : { authorization: readJobBinding(input.authorization) }),
       ...(input.requestId === undefined ? {} : { requestId: identifier(input.requestId) }),
     };
   } catch {
@@ -98,7 +101,11 @@ export const createAnalysisJobRoutes = (manager: AnalysisJobManager = analysisJo
     )
     .post("/:jobId/attached-cancel", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), cancelInput, (c) => {
       const job = manager.get(id(c.req.param("jobId")));
-      job.cancelOwned(c.req.valid("json"), c.req.valid("json").requestId);
+      job.cancelOwned(
+        c.req.valid("json"),
+        c.req.valid("json").requestId,
+        c.req.valid("json").authorization,
+      );
       return c.json(job.status(), 202);
     })
     .get(
