@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   store: {
     canAttachJob: true,
     canDetachJob: false,
+    canDetachListedJob: vi.fn(),
     attachJob: vi.fn(),
     detachJob: vi.fn(),
     closeJobsDialog: vi.fn(),
@@ -47,6 +48,14 @@ describe("JobsDialog", () => {
     vi.clearAllMocks();
     mocks.store.canAttachJob = true;
     mocks.store.canDetachJob = false;
+    mocks.store.canDetachListedJob.mockImplementation(
+      (candidate: JobSummary) =>
+        mocks.store.canDetachJob &&
+        candidate.attachment.attached &&
+        candidate.kind === job.kind &&
+        candidate.id === job.id &&
+        candidate.serverInstanceId === job.serverInstanceId,
+    );
     mocks.analysis.mockResolvedValue([job]);
     mocks.games.mockResolvedValue([{ ...job, kind: "game", id: "game", state: "completed" }]);
   });
@@ -61,6 +70,8 @@ describe("JobsDialog", () => {
     expect(wrapper.text()).toContain("実行中");
     expect(wrapper.text()).toContain("完了");
     expect(wrapper.text()).toContain("1 / 3");
+    expect(wrapper.text()).not.toContain("アタッチ中");
+    expect(wrapper.text()).not.toContain("デタッチ中");
     const actions = wrapper.findAll("li button");
     expect(actions[0].text()).toBe("アタッチ");
     expect(actions[1].text()).toBe("結果を開く");
@@ -96,6 +107,9 @@ describe("JobsDialog", () => {
       id: "attached",
       attachment: { attached: true, epoch: 1 },
     };
+    mocks.store.canDetachListedJob.mockImplementation(
+      (candidate: JobSummary) => candidate.id === attached.id,
+    );
     mocks.analysis.mockResolvedValue([detached, attached]);
     mocks.games.mockResolvedValue([]);
     const wrapper = mountDialog();
@@ -114,6 +128,52 @@ describe("JobsDialog", () => {
     expect(mocks.store.detachJob).toHaveBeenCalledOnce();
     wrapper.unmount();
   });
+
+  it.each(["analysis", "game"] as const)(
+    "only detaches this screen's %s job when other screens also have attachments",
+    async (kind) => {
+      mocks.store.canAttachJob = false;
+      mocks.store.canDetachJob = true;
+      const current: JobSummary = {
+        ...job,
+        kind,
+        engines: ["Current Engine"],
+        attachment: { attached: true, epoch: 1 },
+      };
+      const otherJobs: JobSummary[] = [
+        { ...current, id: "other-job", engines: ["Other Engine"] },
+        { ...current, kind: kind === "analysis" ? "game" : "analysis", engines: ["Other Engine"] },
+        { ...current, serverInstanceId: "other-server", engines: ["Other Engine"] },
+      ];
+      const jobs = [current, ...otherJobs];
+      mocks.analysis.mockResolvedValue(jobs.filter((candidate) => candidate.kind === "analysis"));
+      mocks.games.mockResolvedValue(jobs.filter((candidate) => candidate.kind === "game"));
+      mocks.store.canDetachListedJob.mockImplementation(
+        (candidate: JobSummary) =>
+          candidate.kind === current.kind &&
+          candidate.id === current.id &&
+          candidate.serverInstanceId === current.serverInstanceId,
+      );
+      const wrapper = mountDialog();
+      await flushPromises();
+      const rows = wrapper.findAll("li");
+      const detachButtons = (row: (typeof rows)[number]) =>
+        row.findAll("button").filter((button) => button.text() === "デタッチ");
+      expect(rows).toHaveLength(4);
+      for (const row of rows.filter((row) => row.text().includes("Other Engine"))) {
+        expect(detachButtons(row)).toHaveLength(0);
+        expect(row.text()).not.toContain("アタッチ中");
+        expect(row.text()).not.toContain("デタッチ中");
+      }
+      const currentRow = rows.find((row) => row.text().includes("Current Engine"))!;
+      expect(detachButtons(currentRow)).toHaveLength(1);
+      expect(currentRow.text()).toContain("アタッチ中");
+      expect(currentRow.text()).not.toContain("デタッチ中");
+      await detachButtons(currentRow)[0].trigger("click");
+      expect(mocks.store.detachJob).toHaveBeenCalledExactlyOnceWith(current);
+      wrapper.unmount();
+    },
+  );
 
   it("orders jobs by creation time across kinds", async () => {
     const oldAnalysis: JobSummary = { ...job, id: "old-analysis", createdAt: 1000 };

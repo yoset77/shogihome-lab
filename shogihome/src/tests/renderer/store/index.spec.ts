@@ -27,6 +27,9 @@ import { ResearchManager } from "@/renderer/store/research";
 import type { VisionEditSession } from "@/renderer/vision/types";
 import { useToastStore } from "@/renderer/store/toast";
 import { t } from "@/common/i18n";
+import type { AnalysisJobStatus } from "@/common/analysis/types";
+import type { GameSnapshot } from "@/common/game/protocol";
+import type { JobSummary } from "@/common/jobs/types";
 
 vi.mock("@/renderer/devices/audio.js");
 vi.mock("@/renderer/ipc/api.js");
@@ -815,6 +818,84 @@ describe("store/index", () => {
       active.mockRestore();
     }
   });
+
+  it.each(["analysis", "game"] as const)(
+    "detachJob/onlyDetachesTheListedLocalJob kind=%s",
+    (kind) => {
+      const job: JobSummary = {
+        kind,
+        id: "job",
+        requestId: "request",
+        serverInstanceId: "server",
+        createdAt: 1000,
+        state: "running",
+        engines: ["Engine"],
+        completed: 1,
+        total: 3,
+        attachment: { attached: true, epoch: 1 },
+      };
+      const active = vi
+        .spyOn(AnalysisManager.prototype, "isActive", "get")
+        .mockReturnValue(kind === "analysis");
+      const detachable = vi
+        .spyOn(GameManager.prototype, "canDetach", "get")
+        .mockReturnValue(kind === "game");
+      const analysisStatus = vi.spyOn(AnalysisManager.prototype, "status", "get").mockReturnValue({
+        jobId: job.id,
+        serverInstanceId: job.serverInstanceId,
+      } as AnalysisJobStatus);
+      const gameStatus = vi.spyOn(GameManager.prototype, "status", "get").mockReturnValue({
+        sessionId: job.id,
+        serverInstanceId: job.serverInstanceId,
+      } as GameSnapshot);
+      try {
+        const store = createStore();
+        expect(store.canDetachListedJob(job)).toBe(true);
+        const otherJobs: JobSummary[] = [
+          { ...job, kind: kind === "analysis" ? "game" : "analysis" },
+          { ...job, id: "other-job" },
+          { ...job, serverInstanceId: "other-server" },
+          { ...job, attachment: { attached: false, epoch: 1 } },
+        ];
+        for (const other of otherJobs) {
+          expect(store.canDetachListedJob(other)).toBe(false);
+          store.detachJob(other);
+        }
+        expect(mockAnalysisManager.prototype.detach).not.toHaveBeenCalled();
+        expect(mockGameManager.prototype.detachJob).not.toHaveBeenCalled();
+        expect(useToastStore().toasts).toHaveLength(0);
+        store.detachJob(job);
+        if (kind === "analysis") {
+          expect(mockAnalysisManager.prototype.detach).toHaveBeenCalledOnce();
+          expect(mockGameManager.prototype.detachJob).not.toHaveBeenCalled();
+        } else {
+          expect(mockGameManager.prototype.detachJob).toHaveBeenCalledOnce();
+          expect(mockAnalysisManager.prototype.detach).not.toHaveBeenCalled();
+        }
+        expect(useToastStore().toasts).toMatchObject([
+          { type: "success", message: t.jobMovedToBackground },
+        ]);
+        active.mockReturnValue(false);
+        detachable.mockReturnValue(false);
+        expect(store.canDetachListedJob(job)).toBe(false);
+        store.detachJob(job);
+        expect(mockAnalysisManager.prototype.detach).toHaveBeenCalledTimes(
+          kind === "analysis" ? 1 : 0,
+        );
+        expect(mockGameManager.prototype.detachJob).toHaveBeenCalledTimes(kind === "game" ? 1 : 0);
+        active.mockReturnValue(kind === "analysis");
+        detachable.mockReturnValue(kind === "game");
+        analysisStatus.mockReturnValue(undefined);
+        gameStatus.mockReturnValue(undefined);
+        expect(store.canDetachListedJob(job)).toBe(false);
+      } finally {
+        active.mockRestore();
+        detachable.mockRestore();
+        analysisStatus.mockRestore();
+        gameStatus.mockRestore();
+      }
+    },
+  );
 
   it("startMateSearch/success", async () => {
     mockAPI.saveMateSearchSettings.mockResolvedValue();
