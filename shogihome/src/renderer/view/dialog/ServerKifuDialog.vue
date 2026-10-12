@@ -78,6 +78,18 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
         <button class="reload-btn thin row align-center" :title="t.reload" @click="onReload">
           <Icon :icon="IconType.REFRESH" />
         </button>
+        <button
+          class="thin"
+          @click="
+            store.showBatchAnalysisDialog({
+              kind: 'folder',
+              directory: currentDir,
+              subdirectories: true,
+            })
+          "
+        >
+          {{ t.batchAnalysis }}
+        </button>
       </div>
       <div class="form-group kifu-list">
         <div
@@ -238,6 +250,13 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
             <button
               class="thin"
               :disabled="!lastExecutedSearch || searchResultCount === 0"
+              @click="analyzeSearchResults"
+            >
+              {{ t.batchAnalysis }}
+            </button>
+            <button
+              class="thin"
+              :disabled="!lastExecutedSearch || searchResultCount === 0"
               @click="showStatisticsDialog = true"
             >
               {{ t.showKifuStatistics }}
@@ -392,6 +411,10 @@ const {
   addHistory,
 } = useServerKifuStore();
 const appSettings = useAppSettings();
+const analyzeSearchResults = () => {
+  if (lastExecutedSearch.value)
+    store.showBatchAnalysisDialog({ kind: "search", search: { ...lastExecutedSearch.value } });
+};
 const busyState = useBusyState();
 const list = ref<KifuListEntry[]>([]);
 const showSfenExportDialog = ref(false);

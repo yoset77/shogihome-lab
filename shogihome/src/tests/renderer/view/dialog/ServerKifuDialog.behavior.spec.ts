@@ -11,9 +11,11 @@ vi.mock("@/renderer/ipc/api", () => ({
   },
 }));
 const closeModalDialog = vi.hoisted(() => vi.fn());
+const showBatchAnalysisDialog = vi.hoisted(() => vi.fn());
 vi.mock("@/renderer/store", () => ({
   useStore: () => ({
     closeModalDialog,
+    showBatchAnalysisDialog,
     setOnPasteHandler: vi.fn(),
     dequeuePendingPasteData: vi.fn(),
   }),
@@ -47,6 +49,7 @@ describe("ServerKifuDialog search result behavior", () => {
       matched_is_variation: id === 2,
     }));
     closeModalDialog.mockReset();
+    showBatchAnalysisDialog.mockReset();
   });
   afterEach(() => {
     const state = useServerKifuStore();
@@ -78,7 +81,11 @@ describe("ServerKifuDialog search result behavior", () => {
     const state = useServerKifuStore();
     const wrapper = mountDialog();
     await flushPromises();
-    await wrapper.find(".results-tools button").trigger("click");
+    const statisticsButton = () =>
+      wrapper
+        .findAll(".results-tools button")
+        .find((button) => button.text() === t.showKifuStatistics)!;
+    await statisticsButton().trigger("click");
     const dialog = wrapper.findComponent({ name: "KifuStatisticsDialog" });
     expect(dialog.exists()).toBe(true);
     expect(dialog.props("search")).toEqual(state.lastExecutedSearch.value);
@@ -89,11 +96,29 @@ describe("ServerKifuDialog search result behavior", () => {
     expect(closeModalDialog).not.toHaveBeenCalled();
     state.searchResultCount.value = 0;
     await flushPromises();
-    expect(wrapper.find(".results-tools button").attributes("disabled")).toBeDefined();
+    expect(statisticsButton().attributes("disabled")).toBeDefined();
     state.searchResultCount.value = 4;
     state.lastExecutedSearch.value = undefined;
     await flushPromises();
-    expect(wrapper.find(".results-tools button").attributes("disabled")).toBeDefined();
+    expect(statisticsButton().attributes("disabled")).toBeDefined();
+    wrapper.unmount();
+  });
+
+  it("passes the last executed search to batch analysis without using the displayed result subset", async () => {
+    const state = useServerKifuStore();
+    state.searchResultCount.value = 150;
+    state.keyword.value = "not executed";
+    const wrapper = mountDialog();
+    await flushPromises();
+    await wrapper
+      .findAll(".results-tools button")
+      .find((button) => button.text() === t.batchAnalysis)!
+      .trigger("click");
+    expect(showBatchAnalysisDialog).toHaveBeenCalledWith({
+      kind: "search",
+      search: state.lastExecutedSearch.value,
+    });
+    expect(state.searchResults.value).toHaveLength(4);
     wrapper.unmount();
   });
 });

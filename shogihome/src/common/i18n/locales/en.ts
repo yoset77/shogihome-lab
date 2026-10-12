@@ -387,6 +387,34 @@ export const en: Texts = {
   numberOfThreads: "Threads",
   suggestionsCount: "Suggestions Count",
   multiPVInvalid: (min, max) => `Suggestions count must be an integer from ${min} to ${max}.`,
+  batchAnalysis: "Batch Analysis",
+  batchAnalysisCheck: "Check target files",
+  batchAnalysisCurrent: "Current record",
+  batchAnalysisFolder: "Server folder",
+  batchAnalysisSearch: "All matching records",
+  batchAnalysisSkip: "Skip analyzed records",
+  batchAnalysisSkipNote:
+    "Skip if any move, including variations, has analysis comments. Partial analysis, engine and MultiPV differences are not considered.",
+  batchAnalysisInvalid: "Invalid batch analysis source or settings.",
+  batchAnalysisNoFiles: "No matching record files.",
+  batchAnalysisPlanExpired: "The confirmed file list has expired. Check the source again.",
+  batchAnalysisPreparing: "Preparing the analysis record.",
+  batchAnalysisConfirm: (count) =>
+    `Analyze ${count} records sequentially and overwrite each original file after completion? Back up your files first.`,
+  batchAnalysisSummary: (success, failed, skipped) =>
+    `Success ${success} / Failed ${failed} / Skipped ${skipped}`,
+  batchAnalysisFollow: "Resume following the current record",
+  batchAnalysisDetails: "Per-file results",
+  batchAnalysisReason: (reason) =>
+    ({
+      read: "Read failed",
+      invalid: "Invalid or oversized record",
+      save: "Save failed",
+      changed: "Original file changed",
+      engine: "Engine error",
+      analyzed: "Already analyzed",
+      noPositions: "No target positions",
+    })[reason] ?? reason,
   startPosition: "Position",
   beginFromThisPosition: "Begin from this position",
   maxMoves: "Max Moves",
@@ -982,7 +1010,7 @@ export const en: Texts = {
     "Another screen with the same recovery information is connected. Waiting for disconnection.",
   jobsInvalid: "Invalid job input or response.",
   jobsRetention:
-    "Completed results are retained temporarily. Save analyzed records to a file when needed.",
+    "Job results are retained temporarily. Saved batch results remain in the original files. Save single-record analysis and unsaved partial results when needed.",
   jobsStatePreparing: "Preparing",
   jobsStateRunning: "Running",
   jobsStatePaused: "Paused",

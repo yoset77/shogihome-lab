@@ -6,8 +6,11 @@ import {
   type AnalysisJobError,
   type AnalysisJobRequest,
   type AnalysisJobStatus,
+  decodeBatchJobRequest,
 } from "@/common/analysis/types";
-import { identifier, object } from "@/common/analysis/validation";
+import { identifier, object, counter } from "@/common/analysis/validation";
+import type { BatchAnalysisPlan, BatchAnalysisJobRequest } from "@/common/analysis/batch";
+import { TextDecodingRule } from "@/common/settings/app";
 import { t } from "@/common/i18n/index";
 import { snapshotRecord, indexRecordNodes, type RecordSnapshot } from "@/common/record/snapshot";
 import type { AnalysisSettings } from "@/common/settings/analysis";
@@ -67,6 +70,7 @@ type Reference = {
   cancelRequestId?: string;
   cancelBinding?: JobBinding;
   pendingDetach?: JobBinding;
+  recordIndex?: number;
 };
 type FinishCallback = (status?: AnalysisJobStatus) => void;
 type ErrorCallback = (error: unknown) => void;
@@ -93,6 +97,7 @@ function readReference(raw: string | null): Reference | undefined {
       ...(value.ownerId === undefined ? {} : { ownerId: identifier(value.ownerId) }),
       ...(value.binding === undefined ? {} : { binding: readJobBinding(value.binding) }),
       ...(typeof value.content === "string" ? { content: value.content } : {}),
+      ...(value.recordIndex === undefined ? {} : { recordIndex: counter(value.recordIndex) }),
       ...(value.pendingAttach === undefined
         ? {}
         : { pendingAttach: readJobAttachRequest(value.pendingAttach) }),
@@ -181,6 +186,8 @@ export class AnalysisManager {
   private reference?: Reference;
   private background = false;
   private pendingRequest?: AnalysisJobRequest;
+  private pendingBatchRequest?: BatchAnalysisJobRequest;
+  private batchRecordIndex = 0;
   private active = false;
   private starting = false;
   private generation = 0;
@@ -300,6 +307,7 @@ export class AnalysisManager {
     this.lastNavigationRevision = this.recordManager.navigationRevision;
     this.following = true;
     this.lastSearchId = 0;
+    this.batchRecordIndex = 0;
     this.revision = 0;
     this.active = true;
     this.starting = false;
@@ -310,7 +318,20 @@ export class AnalysisManager {
     return source;
   }
 
-  async start(settings: AnalysisSettings, background = false): Promise<void> {
+  startBatch(
+    settings: AnalysisSettings,
+    plan: BatchAnalysisPlan,
+    skipAnalyzed: boolean,
+    background = false,
+  ) {
+    return this.start(settings, background, { plan, skipAnalyzed });
+  }
+
+  async start(
+    settings: AnalysisSettings,
+    background = false,
+    batch?: { plan: BatchAnalysisPlan; skipAnalyzed: boolean },
+  ): Promise<void> {
     if (!this.active) this.reference = loadReferences()[0];
     if (this.reference || this.active) throw new Error(t.analysisJobCapacity);
     if (
@@ -350,9 +371,31 @@ export class AnalysisManager {
           },
         },
       };
-      const decoded = decodeAnalysisJobRequest(JSON.parse(JSON.stringify(input)));
-      if (!decoded.ok) throw new Error(t.analysisJobInvalid);
+      const decoded = batch
+        ? decodeBatchJobRequest(
+            JSON.parse(
+              JSON.stringify({
+                requestId,
+                serverInstanceId: "pending",
+                planId: batch.plan.planId,
+                options: input.options,
+                skipAnalyzed: batch.skipAnalyzed,
+                fileOptions: {
+                  autoDetect: app.textDecodingRule === TextDecodingRule.AUTO_DETECT,
+                  returnCode: app.returnCode,
+                  useCSAV3: app.useCSAV3,
+                  useUTF8ForKifAndKi2: app.useUTF8ForKifAndKi2,
+                },
+              }),
+            ),
+          )
+        : decodeAnalysisJobRequest(JSON.parse(JSON.stringify(input)));
+      if (!decoded.ok) throw new Error(batch ? t.batchAnalysisInvalid : t.analysisJobInvalid);
       const request = decoded.value;
+      if (batch && !background) {
+        await this.recordManager.saveBackup();
+        if (generation !== this.generation) return;
+      }
       const capabilities = await this.client.capabilities();
       if (generation !== this.generation) return;
       request.serverInstanceId = capabilities.serverInstanceId;
@@ -364,12 +407,17 @@ export class AnalysisManager {
         ownerId: generateSessionId(),
         content: recordContent(source),
       };
-      this.pendingRequest = request;
+      if ("planId" in request) {
+        this.pendingBatchRequest = request;
+      } else this.pendingRequest = request;
       this.persist();
       this.pollMs = capabilities.pollMs;
       this.resetRetry();
       try {
-        const status = await this.client.create(request);
+        const status =
+          "planId" in request
+            ? await this.client.createBatch(request)
+            : await this.client.create(request);
         if (generation !== this.generation) return;
         if (background) {
           this.checkStatus(status);
@@ -377,6 +425,7 @@ export class AnalysisManager {
           this.persist();
         } else this.acceptStatus(status);
         this.pendingRequest = undefined;
+        this.pendingBatchRequest = undefined;
         if (!background) await this.claim(status);
       } catch (error) {
         if (generation !== this.generation) return;
@@ -439,11 +488,34 @@ export class AnalysisManager {
       this.persist();
       this.checkStatus(status);
       this.onStatus(status);
-      const source = await this.client.source(status.jobId);
+      if (status.batch?.recordIndex === 0) {
+        if (
+          !isAnalysisTerminal(status.state) &&
+          !(await this.protectPendingBatch(confirmRecovery, generation, false))
+        )
+          return false;
+        if (ref.pendingAttach || !isAnalysisTerminal(status.state)) await this.claim(status);
+        if (generation !== this.generation) return false;
+        this.needsRecovery = false;
+        this.acceptStatus(status);
+        this.resetRetry();
+        if (isAnalysisTerminal(status.state)) this.finish(status);
+        else this.schedule();
+        return true;
+      }
+      const recordIndex = status.batch?.recordIndex;
+      const source = await this.client.source(status.jobId, recordIndex);
       if (generation !== this.generation) return false;
-      const result = await this.client.result(status.jobId, 0);
+      const result = await this.client.result(
+        status.jobId,
+        0,
+        undefined,
+        status.batch?.recordIndex,
+      );
       if (generation !== this.generation) return false;
       this.checkResult(result.jobId, result.serverInstanceId, status.jobId, result.attachment);
+      if (status.batch && result.recordIndex !== status.batch.recordIndex)
+        throw new ApiResponseError(423, t.batchAnalysisPreparing);
       if (result.revision < status.resultRevision) throw new Error(t.analysisJobInvalid);
       const projected = structuredClone(source);
       for (const update of result.nodes) {
@@ -485,6 +557,15 @@ export class AnalysisManager {
         storage.forgetOperation(ref, ref.cancelRequestId ?? "cancel");
         this.persist();
       }
+      if (status.batch && status.batch.recordIndex !== recordIndex)
+        throw new ApiResponseError(423, t.batchAnalysisPreparing);
+      if (status.batch) {
+        this.recordManager.switchBatchAnalysis(ref.requestId, source, status.batch.recordPath);
+        this.nodeIndex = indexRecordNodes(this.recordManager.record);
+        this.lastNavigationRevision = this.recordManager.navigationRevision;
+        this.batchRecordIndex = status.batch.recordIndex;
+        ref.recordIndex = this.batchRecordIndex;
+      }
       if (!this.recordManager.applyAnalysisResults(ref.requestId, result.nodes))
         throw new Error(t.analysisJobInvalid);
       this.revision = result.revision;
@@ -492,6 +573,8 @@ export class AnalysisManager {
       this.needsRecovery = false;
       this.resetRetry();
       this.acceptStatus(status);
+      if (status.batch?.saved)
+        this.recordManager.markAsSaved("server://" + status.batch.recordPath, true);
       this.connection.restored();
       if (isAnalysisTerminal(status.state)) this.finish(status);
       else this.schedule();
@@ -597,12 +680,26 @@ export class AnalysisManager {
     let generation = this.generation;
     try {
       // Confirmation and backup must precede acquiring another screen's attachment.
+      const before = await this.client.status(job.id);
+      if (generation !== this.generation) return false;
+      if (before.batch?.recordIndex === 0) {
+        if (
+          !isAnalysisTerminal(before.state) &&
+          !(await this.protectPendingBatch(confirmRecovery, generation, true))
+        )
+          return false;
+        await this.claim(before);
+        if (generation !== this.generation) return false;
+        return this.recover(confirmRecovery);
+      }
       const [source, result] = await Promise.all([
-        this.client.source(job.id),
-        this.client.result(job.id, 0),
+        this.client.source(job.id, before.batch?.recordIndex),
+        this.client.result(job.id, 0, undefined, before.batch?.recordIndex),
       ]);
       if (generation !== this.generation) return false;
       this.checkResult(result.jobId, result.serverInstanceId, job.id);
+      if (before.batch && result.recordIndex !== before.batch.recordIndex)
+        throw new ApiResponseError(423, t.batchAnalysisPreparing);
       const projected = structuredClone(source);
       for (const update of result.nodes) {
         const node = projected.nodes.find((node) => node.id === update.id);
@@ -660,6 +757,7 @@ export class AnalysisManager {
     this.release(ref.requestId, false);
     this.reference = undefined;
     this.pendingRequest = undefined;
+    this.pendingBatchRequest = undefined;
     if (ref.jobId && binding)
       void this.client
         .detach(ref.jobId, binding)
@@ -714,6 +812,10 @@ export class AnalysisManager {
     this.persist();
     this._status = status;
     this.onStatus(status);
+    if (status.batch && status.batch.recordIndex !== this.batchRecordIndex) {
+      if (!this.following || isAnalysisTerminal(status.state)) this.starting = false;
+      return;
+    }
     const current = status.current;
     if (!current) {
       if (status.state !== "preparing" && status.state !== "running") this.starting = false;
@@ -806,14 +908,21 @@ export class AnalysisManager {
           : await this.client.byRequest(ref.requestId);
       } catch (error) {
         if (generation !== this.generation) return;
-        if (!(error instanceof ApiResponseError && error.status === 410 && this.pendingRequest))
+        if (!(
+          error instanceof ApiResponseError &&
+          error.status === 410 &&
+          (this.pendingRequest || this.pendingBatchRequest)
+        ))
           throw error;
-        status = await this.client.create(this.pendingRequest);
+        status = this.pendingBatchRequest
+          ? await this.client.createBatch(this.pendingBatchRequest)
+          : await this.client.create(this.pendingRequest!);
       }
       if (generation !== this.generation) return;
       this.checkStatus(status);
       ref.jobId = status.jobId;
       this.pendingRequest = undefined;
+      this.pendingBatchRequest = undefined;
       this.persist();
       if (this.background) {
         this.reference = undefined;
@@ -834,10 +943,21 @@ export class AnalysisManager {
       }
       if (generation !== this.generation) return;
       this.checkStatus(status);
-      if (status.resultRevision > this.revision) {
-        const result = await this.client.result(status.jobId, this.revision, ref.binding);
+      if (this.recordManager.navigationRevision !== this.lastNavigationRevision)
+        this.following = false;
+      const apply = !status.batch || (await this.synchronizeBatch(status, generation));
+      if (generation !== this.generation) return;
+      if (apply && status.resultRevision > this.revision) {
+        const result = await this.client.result(
+          status.jobId,
+          this.revision,
+          ref.binding,
+          status.batch?.recordIndex,
+        );
         if (generation !== this.generation) return;
         this.checkResult(result.jobId, result.serverInstanceId, status.jobId, result.attachment);
+        if (status.batch && result.recordIndex !== this.batchRecordIndex)
+          throw new ApiResponseError(423, t.batchAnalysisPreparing);
         if (
           result.revision < status.resultRevision ||
           result.revision < this.revision ||
@@ -850,6 +970,8 @@ export class AnalysisManager {
       }
       this.resetRetry();
       this.acceptStatus(status);
+      if (apply && status.batch?.saved)
+        this.recordManager.markAsSaved("server://" + status.batch.recordPath, true);
       this.connection.restored();
       if (isAnalysisTerminal(status.state)) this.finish(status);
     } catch (error) {
@@ -873,6 +995,123 @@ export class AnalysisManager {
         this.schedule();
       }
     }
+  }
+
+  resumeFollowing(): void {
+    this.following = true;
+    this.lastNavigationRevision = this.recordManager.navigationRevision;
+  }
+
+  private async protectPendingBatch(
+    confirmRecovery: () => Promise<boolean>,
+    generation: number,
+    forget: boolean,
+  ): Promise<boolean> {
+    const ref = this.reference!;
+    const local = recordContent(snapshotRecord(this.recordManager.record));
+    if (this.recordManager.unsaved && local !== ref.content) {
+      const confirmed = await confirmRecovery();
+      if (generation !== this.generation) return false;
+      if (!confirmed) {
+        this.release(ref.requestId, forget);
+        return false;
+      }
+      await this.recordManager.saveBackup();
+      if (generation !== this.generation) return false;
+      if (recordContent(snapshotRecord(this.recordManager.record)) !== local)
+        throw new Error(t.analysisJobInvalid);
+    }
+    ref.content = local;
+    this.persist();
+    return true;
+  }
+
+  async cancelListed(job: JobSummary, confirmTakeover: () => Promise<boolean>): Promise<void> {
+    if (
+      this.active &&
+      this.reference?.jobId === job.id &&
+      this.reference.serverInstanceId === job.serverInstanceId
+    ) {
+      this.close();
+      return;
+    }
+    const status = await this.client.status(job.id);
+    if (status.serverInstanceId !== job.serverInstanceId) throw new Error(t.analysisJobExpired);
+    if (isAnalysisTerminal(status.state)) return;
+    if (status.attachment?.attached && !(await confirmTakeover())) return;
+    const ref: Reference = {
+      requestId: job.requestId,
+      serverInstanceId: job.serverInstanceId,
+      jobId: job.id,
+      ownerId: generateSessionId(),
+      cancelRequested: true,
+      cancelRequestId: generateSessionId(),
+    };
+    ref.pendingAttach = {
+      ownerId: ref.ownerId!,
+      epoch: status.attachment?.epoch ?? 0,
+      takeover: status.attachment?.attached ?? false,
+      screenId: SCREEN_ID,
+    };
+    storage.writeJournal(ref);
+    try {
+      ref.binding = await this.client.attach(job.id, ref.pendingAttach);
+      ref.pendingAttach = undefined;
+      storage.forgetOperation(ref, "attachment");
+      ref.cancelBinding = ref.binding;
+      storage.writeJournal(ref);
+      await this.client.cancel(job.id, ref.binding, ref.cancelRequestId);
+      storage.forgetOperation(ref, ref.cancelRequestId!);
+    } finally {
+      if (ref.binding) {
+        storage.writeJournal({
+          ...ref,
+          pendingAttach: undefined,
+          cancelRequested: undefined,
+          pendingDetach: ref.binding,
+        });
+        await this.client.detach(job.id, ref.binding);
+        storage.forgetOperation(ref, "detach");
+      }
+    }
+  }
+
+  private async synchronizeBatch(status: AnalysisJobStatus, generation: number): Promise<boolean> {
+    const batch = status.batch!;
+    if (!batch.recordIndex) return false;
+    if (batch.recordIndex === this.batchRecordIndex) return true;
+    if (!this.following) return false;
+    const ref = this.reference!;
+    const source = await this.client.source(status.jobId, batch.recordIndex);
+    const result = await this.client.result(status.jobId, 0, ref.binding, batch.recordIndex);
+    if (generation !== this.generation) return false;
+    this.checkResult(result.jobId, result.serverInstanceId, status.jobId, result.attachment);
+    if (result.recordIndex !== batch.recordIndex)
+      throw new ApiResponseError(423, t.batchAnalysisPreparing);
+    if (this.recordManager.navigationRevision !== this.lastNavigationRevision) {
+      this.following = false;
+      return false;
+    }
+    if (!this.batchRecordIndex) {
+      await this.recordManager.saveBackup();
+      if (generation !== this.generation) return false;
+      if (this.recordManager.navigationRevision !== this.lastNavigationRevision) {
+        this.following = false;
+        return false;
+      }
+    }
+    this.recordManager.switchBatchAnalysis(ref.requestId, source, batch.recordPath);
+    this.nodeIndex = indexRecordNodes(this.recordManager.record);
+    this.batchRecordIndex = batch.recordIndex;
+    ref.recordIndex = batch.recordIndex;
+    this.lastNavigationRevision = this.recordManager.navigationRevision;
+    this.lastSearchId = 0;
+    if (!this.recordManager.applyAnalysisResults(ref.requestId, result.nodes))
+      throw new Error(t.analysisJobInvalid);
+    this.revision = result.revision;
+    ref.content = recordContent(snapshotRecord(this.recordManager.record));
+    this.persist();
+    return true;
   }
 
   private finish(status: AnalysisJobStatus): void {
@@ -916,6 +1155,7 @@ export class AnalysisManager {
     if (forget) {
       this.reference = undefined;
       this.pendingRequest = undefined;
+      this.pendingBatchRequest = undefined;
     }
     this.onStatus(null);
   }

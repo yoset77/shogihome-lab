@@ -22,6 +22,12 @@ import {
 } from "@/common/record/snapshot";
 import * as v from "./validation";
 import { readJobAttachment, type JobAttachmentState } from "@/common/jobs/types";
+import {
+  readBatchProgress,
+  type BatchAnalysisProgress,
+  type BatchAnalysisJobRequest,
+  MAX_BATCH_FILES,
+} from "./batch";
 
 export const DEFAULT_ANALYSIS_POLL_MS = 1000;
 
@@ -74,6 +80,7 @@ export type AnalysisJobStatus = {
   resultRevision: number;
   current: { nodeId: string; searchId: number; position: string; infos: USIInfoCommand[] } | null;
   error?: AnalysisJobError;
+  batch?: BatchAnalysisProgress;
 };
 export type AnalysisNodeResult = {
   id: string;
@@ -87,6 +94,7 @@ export type AnalysisJobResult = {
   serverInstanceId: string;
   revision: number;
   nodes: AnalysisNodeResult[];
+  recordIndex?: number;
 };
 
 export function isAnalysisTerminal(state: AnalysisJobState): boolean {
@@ -109,61 +117,85 @@ export function decodeAnalysisJobRequest(value: unknown): DecodeResult<AnalysisJ
     const input = v.object(value);
     const source = decodeRecordSnapshot(input.source);
     if (!source.ok) throw new Error(source.error);
-    const options = v.object(input.options);
-    const engineId = v.text(options.engineId, 100);
-    if (!isRelayEngineId(engineId)) throw new Error("Invalid engine ID");
-    const criteria = (value: unknown) => {
-      const input = v.object(value);
-      const enableNumber = v.boolean(input.enableNumber);
-      const number = v.counter(input.number);
-      if (enableNumber && number === 0) throw new Error("Invalid move number");
-      return { enableNumber, number };
-    };
-    const startCriteria = criteria(options.startCriteria);
-    const endCriteria = criteria(options.endCriteria);
-    if (
-      startCriteria.enableNumber &&
-      endCriteria.enableNumber &&
-      startCriteria.number > endCriteria.number
-    )
-      throw new Error("Invalid analysis range");
-    const accuracy = v.object(options.accuracy);
-    const thresholds = [
-      accuracy.badMoveLevelThreshold1,
-      accuracy.badMoveLevelThreshold2,
-      accuracy.badMoveLevelThreshold3,
-      accuracy.badMoveLevelThreshold4,
-    ].map((value) => v.finite(value, 1, 100));
-    if (thresholds.some((value, index) => index > 0 && value <= thresholds[index - 1]))
-      throw new Error("Invalid accuracy thresholds");
-    const overrideMultiPV =
-      options.overrideMultiPV === undefined ? false : v.boolean(options.overrideMultiPV);
-    if (overrideMultiPV && !isValidMultiPV(options.multiPV)) throw new Error("Invalid MultiPV");
     return {
       requestId: v.identifier(input.requestId),
       serverInstanceId: v.identifier(input.serverInstanceId),
       source: source.value,
-      options: {
-        engineId,
-        engineTimeoutSeconds: v.finite(options.engineTimeoutSeconds, 1, 300),
-        startCriteria,
-        endCriteria,
-        descending: v.boolean(options.descending),
-        perMoveCriteria: {
-          maxSeconds: v.finite(v.object(options.perMoveCriteria).maxSeconds, 0, 3600),
-        },
-        overrideMultiPV,
-        multiPV: isValidMultiPV(options.multiPV) ? options.multiPV : MIN_MULTIPV,
-        commentBehavior: v.enumeration(options.commentBehavior, Object.values(CommentBehavior)),
-        commentFormat: v.enumeration(options.commentFormat, Object.values(SearchCommentFormat)),
-        language: v.enumeration(options.language, Object.values(Language)),
-        accuracy: {
-          coefficientInSigmoid: v.finite(accuracy.coefficientInSigmoid, Number.MIN_VALUE),
-          badMoveLevelThreshold1: thresholds[0],
-          badMoveLevelThreshold2: thresholds[1],
-          badMoveLevelThreshold3: thresholds[2],
-          badMoveLevelThreshold4: thresholds[3],
-        },
+      options: readAnalysisOptions(input.options),
+    };
+  });
+}
+
+export function readAnalysisOptions(value: unknown): AnalysisJobOptions {
+  const options = v.object(value);
+  const engineId = v.text(options.engineId, 100);
+  if (!isRelayEngineId(engineId)) throw new Error("Invalid engine ID");
+  const criteria = (value: unknown) => {
+    const input = v.object(value);
+    const enableNumber = v.boolean(input.enableNumber);
+    const number = v.counter(input.number);
+    if (enableNumber && number === 0) throw new Error("Invalid move number");
+    return { enableNumber, number };
+  };
+  const startCriteria = criteria(options.startCriteria);
+  const endCriteria = criteria(options.endCriteria);
+  if (
+    startCriteria.enableNumber &&
+    endCriteria.enableNumber &&
+    startCriteria.number > endCriteria.number
+  )
+    throw new Error("Invalid analysis range");
+  const accuracy = v.object(options.accuracy);
+  const thresholds = [
+    accuracy.badMoveLevelThreshold1,
+    accuracy.badMoveLevelThreshold2,
+    accuracy.badMoveLevelThreshold3,
+    accuracy.badMoveLevelThreshold4,
+  ].map((value) => v.finite(value, 1, 100));
+  if (thresholds.some((value, index) => index > 0 && value <= thresholds[index - 1]))
+    throw new Error("Invalid accuracy thresholds");
+  const overrideMultiPV =
+    options.overrideMultiPV === undefined ? false : v.boolean(options.overrideMultiPV);
+  if (overrideMultiPV && !isValidMultiPV(options.multiPV)) throw new Error("Invalid MultiPV");
+  return {
+    engineId,
+    engineTimeoutSeconds: v.finite(options.engineTimeoutSeconds, 1, 300),
+    startCriteria,
+    endCriteria,
+    descending: v.boolean(options.descending),
+    perMoveCriteria: {
+      maxSeconds: v.finite(v.object(options.perMoveCriteria).maxSeconds, 0, 3600),
+    },
+    overrideMultiPV,
+    multiPV: isValidMultiPV(options.multiPV) ? options.multiPV : MIN_MULTIPV,
+    commentBehavior: v.enumeration(options.commentBehavior, Object.values(CommentBehavior)),
+    commentFormat: v.enumeration(options.commentFormat, Object.values(SearchCommentFormat)),
+    language: v.enumeration(options.language, Object.values(Language)),
+    accuracy: {
+      coefficientInSigmoid: v.finite(accuracy.coefficientInSigmoid, Number.MIN_VALUE),
+      badMoveLevelThreshold1: thresholds[0],
+      badMoveLevelThreshold2: thresholds[1],
+      badMoveLevelThreshold3: thresholds[2],
+      badMoveLevelThreshold4: thresholds[3],
+    },
+  };
+}
+
+export function decodeBatchJobRequest(value: unknown): DecodeResult<BatchAnalysisJobRequest> {
+  return decoded(() => {
+    const input = v.object(value);
+    const file = v.object(input.fileOptions);
+    return {
+      requestId: v.identifier(input.requestId),
+      serverInstanceId: v.identifier(input.serverInstanceId),
+      planId: v.identifier(input.planId),
+      options: readAnalysisOptions(input.options),
+      skipAnalyzed: v.boolean(input.skipAnalyzed),
+      fileOptions: {
+        autoDetect: v.boolean(file.autoDetect),
+        returnCode: v.enumeration(file.returnCode, ["\n", "\r\n"]),
+        useCSAV3: v.boolean(file.useCSAV3),
+        useUTF8ForKifAndKi2: v.boolean(file.useUTF8ForKifAndKi2),
       },
     };
   });
@@ -258,6 +290,7 @@ export function decodeAnalysisStatus(value: unknown): DecodeResult<AnalysisJobSt
         ? {}
         : { attachment: readJobAttachment(input.attachment) }),
       current,
+      ...(input.batch === undefined ? {} : { batch: readBatchProgress(input.batch) }),
       ...(input.error === undefined
         ? {}
         : { error: v.enumeration(input.error, ANALYSIS_JOB_ERRORS) }),
@@ -277,6 +310,9 @@ export function decodeAnalysisResult(value: unknown): DecodeResult<AnalysisJobRe
       jobId: v.identifier(input.jobId),
       serverInstanceId: v.identifier(input.serverInstanceId),
       revision,
+      ...(input.recordIndex === undefined
+        ? {}
+        : { recordIndex: v.counter(input.recordIndex, MAX_BATCH_FILES) }),
       nodes: v.array(input.nodes, MAX_SNAPSHOT_NODES).map((value) => {
         const node = v.object(value);
         const id = v.identifier(node.id);

@@ -85,6 +85,8 @@ HostとOriginの検証は [`security.ts`](../../shogihome/src/server/security.ts
 - Writer lockの名前空間は内部専用です。共有name validatorとpath resolverでユーザーからの作成・アクセスを拒否し、一覧や監視へ公開しません。
 - このatomicityは論理的な公開とwriter排他を意味し、突然のstorage failureに対する完全なdurability保証ではありません。
 
+連続棋譜解析の [`analysis/files.ts`](../../shogihome/src/server/analysis/files.ts) は、検証済みの元ファイルを同形式で書き戻します。公開前に読込時の内容・file identity・親directoryのidentityを照合し、削除・外部変更・保存先の置換を検出した場合は上書きを拒否します。この照合は外部processとの完全な同時編集排他ではありません。Index更新はfilesystem eventに任せ、対象一覧や棋譜の解析済み判定をindex更新に依存させません。
+
 新しいServer側ファイル保存処理は、特別な理由がない限り既存のatomic helperを使用します。
 
 ## Browser File Addition

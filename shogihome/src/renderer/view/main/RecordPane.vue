@@ -1,5 +1,6 @@
 <template>
   <div ref="root" class="column record-pane">
+    <BatchAnalysisProgress />
     <div class="auto record">
       <RecordView
         :record="store.record"
@@ -71,6 +72,7 @@ import BookPanel from "./BookPanel.vue";
 import { getRecordShortcutKeys } from "@/renderer/view/primitive/board/shortcut";
 import DuplicatePositionsDialog from "@/renderer/view/dialog/DuplicatePositionsDialog.vue";
 import { ImmutableNode } from "tsshogi";
+import BatchAnalysisProgress from "./BatchAnalysisProgress.vue";
 
 defineProps({
   showElapsedTime: {

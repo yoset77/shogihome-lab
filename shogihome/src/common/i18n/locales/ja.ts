@@ -382,6 +382,34 @@ export const ja: Texts = {
   numberOfThreads: "スレッド数",
   suggestionsCount: "候補手の数",
   multiPVInvalid: (min, max) => `候補手の数は${min}〜${max}の整数を指定してください。`,
+  batchAnalysis: "連続棋譜解析",
+  batchAnalysisCheck: "対象を確認",
+  batchAnalysisCurrent: "現在の棋譜",
+  batchAnalysisFolder: "サーバーフォルダ",
+  batchAnalysisSearch: "検索一致の全棋譜",
+  batchAnalysisSkip: "解析済みの棋譜をスキップ",
+  batchAnalysisSkipNote:
+    "変化を含む1手以上に解析コメントがあればスキップします。部分解析や異なるエンジン・MultiPVも区別しません。",
+  batchAnalysisInvalid: "連続解析の対象または設定が不正です。",
+  batchAnalysisNoFiles: "対象の棋譜がありません。",
+  batchAnalysisPlanExpired: "対象一覧の確認期限が切れました。もう一度対象を確認してください。",
+  batchAnalysisPreparing: "解析対象の棋譜を準備しています。",
+  batchAnalysisConfirm: (count) =>
+    `${count}件の棋譜を順番に解析し、完了した棋譜の元ファイルを上書きします。事前にバックアップしてください。開始しますか？`,
+  batchAnalysisSummary: (success, failed, skipped) =>
+    `成功 ${success} / 失敗 ${failed} / スキップ ${skipped}`,
+  batchAnalysisFollow: "処理中の棋譜への追従を再開",
+  batchAnalysisDetails: "ファイル別の結果",
+  batchAnalysisReason: (reason) =>
+    ({
+      read: "読込失敗",
+      invalid: "不正または大きすぎる棋譜",
+      save: "保存失敗",
+      changed: "原本が変更されました",
+      engine: "エンジン異常",
+      analyzed: "解析済み",
+      noPositions: "対象局面なし",
+    })[reason] ?? reason,
   startPosition: "開始局面",
   beginFromThisPosition: "この局面から開始",
   maxMoves: "最大手数",
@@ -968,7 +996,7 @@ export const ja: Texts = {
   jobsOccupied: "同じ復帰情報を持つ別の画面が接続中です。切断の確認を待っています。",
   jobsInvalid: "ジョブの入力または応答が不正です。",
   jobsRetention:
-    "完了結果は一時的に保持されます。解析棋譜は必要に応じてファイルへ保存してください。",
+    "ジョブの結果は一時的に保持されます。連続解析の保存済み結果は元ファイルに残ります。単一解析や未保存の途中結果は必要に応じて保存してください。",
   jobsStatePreparing: "準備中",
   jobsStateRunning: "実行中",
   jobsStatePaused: "一時停止",

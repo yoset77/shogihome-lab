@@ -20,6 +20,14 @@ import {
   type JobBinding,
   type JobSummary,
 } from "@/common/jobs/types";
+import {
+  decodeBatchPlan,
+  decodeBatchFiles,
+  type BatchAnalysisPlan,
+  type BatchAnalysisSource,
+  type BatchAnalysisJobRequest,
+  type BatchFileResult,
+} from "@/common/analysis/batch";
 
 export interface AnalysisJobsClient {
   cancelOutcome(id: string, requestId: string): Promise<JobOperationOutcome>;
@@ -28,10 +36,18 @@ export interface AnalysisJobsClient {
   detach(id: string, binding: JobBinding): Promise<AnalysisJobStatus>;
   capabilities(): Promise<AnalysisCapabilities>;
   create(request: AnalysisJobRequest): Promise<AnalysisJobStatus>;
+  prepareBatch(source: BatchAnalysisSource): Promise<BatchAnalysisPlan>;
+  createBatch(request: BatchAnalysisJobRequest): Promise<AnalysisJobStatus>;
+  files(id: string): Promise<BatchFileResult[]>;
   byRequest(id: string): Promise<AnalysisJobStatus>;
   status(id: string, binding?: JobBinding): Promise<AnalysisJobStatus>;
-  source(id: string): Promise<RecordSnapshot>;
-  result(id: string, afterRevision: number, binding?: JobBinding): Promise<AnalysisJobResult>;
+  source(id: string, recordIndex?: number): Promise<RecordSnapshot>;
+  result(
+    id: string,
+    afterRevision: number,
+    binding?: JobBinding,
+    recordIndex?: number,
+  ): Promise<AnalysisJobResult>;
   cancel(
     id: string,
     binding?: JobBinding,
@@ -60,6 +76,21 @@ export function createAnalysisJobsClient(): AnalysisJobsClient {
         decodeJobOperationOutcome,
       ),
     list: async () => decode(await client.$get(), decodeJobList),
+    prepareBatch: async (source) =>
+      decode(
+        await client.batch.prepare.$post(
+          { json: source },
+          createApiRequestOptions({ timeoutMs: 30_000 }),
+        ),
+        decodeBatchPlan,
+      ),
+    createBatch: async (request) =>
+      decode(
+        await client.batch.$post({ json: request }, createApiRequestOptions({ timeoutMs: 30_000 })),
+        decodeAnalysisStatus,
+      ),
+    files: async (id) =>
+      decode(await client[":jobId"].files.$get({ param: { jobId: id } }), decodeBatchFiles),
     attach: async (id, request) =>
       decode(
         await client[":jobId"].attach.$post({ param: { jobId: id }, json: request }),
@@ -88,14 +119,21 @@ export function createAnalysisJobsClient(): AnalysisJobsClient {
           : await client[":jobId"].$get({ param: { jobId: id } }),
         decodeAnalysisStatus,
       ),
-    source: async (id) =>
-      decode(await client[":jobId"].source.$get({ param: { jobId: id } }), decodeRecordSnapshot),
-    result: async (id, afterRevision, binding) =>
+    source: async (id, recordIndex) =>
+      decode(
+        await client[":jobId"].source.$get({
+          param: { jobId: id },
+          query: recordIndex === undefined ? {} : { recordIndex: String(recordIndex) },
+        }),
+        decodeRecordSnapshot,
+      ),
+    result: async (id, afterRevision, binding, recordIndex) =>
       decode(
         await client[":jobId"].result.$get({
           param: { jobId: id },
           query: {
             afterRevision: String(afterRevision),
+            ...(recordIndex === undefined ? {} : { recordIndex: String(recordIndex) }),
             ...(binding
               ? {
                   ownerId: binding.ownerId,

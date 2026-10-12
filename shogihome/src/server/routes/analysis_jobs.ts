@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { validator } from "hono/validator";
-import { decodeAnalysisJobRequest } from "@/common/analysis/types";
+import { decodeAnalysisJobRequest, decodeBatchJobRequest } from "@/common/analysis/types";
+import { readBatchSource, MAX_BATCH_FILES } from "@/common/analysis/batch";
+import { BatchAnalysisJob } from "@/server/analysis/batch";
 import { identifier, counter } from "@/common/analysis/validation";
 import { t } from "@/common/i18n";
 import { AnalysisJobManager, analysisJobManager } from "@/server/analysis/jobManager";
@@ -59,6 +61,33 @@ export const createAnalysisJobRoutes = (manager: AnalysisJobManager = analysisJo
     })
     .get("/capabilities", (c) => c.json(manager.capabilities()))
     .get("/", (c) => c.json(manager.list()))
+    .post(
+      "/batch/prepare",
+      createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
+      validator("json", (value) => {
+        try {
+          return readBatchSource(parseJsonObject(value));
+        } catch {
+          throw new HttpError(400, t.batchAnalysisInvalid);
+        }
+      }),
+      async (c) => c.json(await manager.prepareBatch(c.req.valid("json"))),
+    )
+    .post(
+      "/batch",
+      createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
+      validator("json", (value) => {
+        const decoded = decodeBatchJobRequest(parseJsonObject(value));
+        if (!decoded.ok) throw new HttpError(400, t.batchAnalysisInvalid);
+        return decoded.value;
+      }),
+      (c) => c.json(manager.createBatch(c.req.valid("json")).status(), 202),
+    )
+    .get("/:jobId/files", (c) => {
+      const job = manager.get(id(c.req.param("jobId")));
+      if (!(job instanceof BatchAnalysisJob)) throw new HttpError(400, t.batchAnalysisInvalid);
+      return c.json(job.fileResults());
+    })
     .get("/:jobId/cancellations/:requestId", (c) =>
       c.json(manager.get(id(c.req.param("jobId"))).cancelOutcome(id(c.req.param("requestId")))),
     )
@@ -75,7 +104,30 @@ export const createAnalysisJobRoutes = (manager: AnalysisJobManager = analysisJo
     .get("/by-request/:requestId", (c) =>
       c.json(manager.byRequest(id(c.req.param("requestId"))).status()),
     )
-    .get("/:jobId/source", (c) => c.json(manager.get(id(c.req.param("jobId"))).request.source))
+    .get(
+      "/:jobId/source",
+      validator("query", (value) => {
+        const index = value.recordIndex;
+        try {
+          if (index !== undefined && (typeof index !== "string" || !/^\d+$/.test(index)))
+            throw new Error("Invalid record index");
+          return index === undefined
+            ? {}
+            : { recordIndex: String(counter(Number(index), MAX_BATCH_FILES)) };
+        } catch {
+          throw new HttpError(400, t.analysisJobInvalid);
+        }
+      }),
+      (c) => {
+        const job = manager.get(id(c.req.param("jobId")));
+        const index = c.req.valid("query").recordIndex;
+        return c.json(
+          job instanceof BatchAnalysisJob
+            ? job.source(index === undefined ? undefined : counter(Number(index)))
+            : job.source(),
+        );
+      },
+    )
     .post("/:jobId/attach", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), attachInput, (c) =>
       c.json(manager.get(id(c.req.param("jobId"))).attachment.claim(c.req.valid("json"))),
     )
@@ -115,6 +167,12 @@ export const createAnalysisJobRoutes = (manager: AnalysisJobManager = analysisJo
         if (raw !== undefined && (typeof raw !== "string" || !/^\d+$/.test(raw)))
           throw new HttpError(400, t.analysisJobInvalid);
         try {
+          const recordIndex = value.recordIndex;
+          if (
+            recordIndex !== undefined &&
+            (typeof recordIndex !== "string" || !/^\d+$/.test(recordIndex))
+          )
+            throw new Error("Invalid record index");
           const epoch = value.epoch;
           if (epoch !== undefined && (typeof epoch !== "string" || !/^\d+$/.test(epoch)))
             throw new Error("Invalid epoch");
@@ -129,6 +187,9 @@ export const createAnalysisJobRoutes = (manager: AnalysisJobManager = analysisJo
                 });
           return {
             afterRevision: raw === undefined ? 0 : counter(Number(raw)),
+            ...(recordIndex === undefined
+              ? {}
+              : { recordIndex: String(counter(Number(recordIndex), MAX_BATCH_FILES)) }),
             ...(binding
               ? {
                   ownerId: binding.ownerId,
@@ -153,8 +214,15 @@ export const createAnalysisJobRoutes = (manager: AnalysisJobManager = analysisJo
             recoveryId: query.recoveryId,
           });
         const after = c.req.valid("query").afterRevision;
-        if (after > job.status().resultRevision) throw new HttpError(409, t.analysisJobInvalid);
-        return c.json(job.result(after));
+        const result =
+          job instanceof BatchAnalysisJob
+            ? job.result(
+                after,
+                query.recordIndex === undefined ? undefined : Number(query.recordIndex),
+              )
+            : job.result(after);
+        if (after > result.revision) throw new HttpError(409, t.analysisJobInvalid);
+        return c.json(result);
       },
     )
     .post("/:jobId/cancel", (c) => {

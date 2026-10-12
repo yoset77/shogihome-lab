@@ -1,6 +1,9 @@
 // @vitest-environment node
 import net from "node:net";
 import readline from "node:readline";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { Hono } from "hono";
 import { Record } from "tsshogi";
 import { AnalysisJobManager } from "@/server/analysis/jobManager";
@@ -10,6 +13,8 @@ import { saveAnalysisResults } from "@/server/database/sqlite";
 import { engineConfigCache } from "@/server/engine/list";
 import type { AppEnv } from "@/server/hono";
 import { requestFor } from "./helpers/analysis";
+import { BatchAnalysisFiles } from "@/server/analysis/files";
+import { exportRecordAsBuffer, RecordFileFormat } from "@/common/file/record";
 
 const wrapperConfig = vi.hoisted(() => ({ port: 0 }));
 vi.mock("@/server/config", async (importOriginal) => ({
@@ -155,6 +160,75 @@ describe("HTTP analysis through the real TCP/USI session", () => {
     ).toBe(true);
     expect(job.result().nodes.some((node) => node.comment.includes("#評価値=200"))).toBe(false);
     await vi.waitFor(() => expect(sockets.size).toBe(0));
+  });
+
+  it("runs a detached batch through one TCP session and saves each file without duplicating DB writes", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "batch-tcp-"));
+    try {
+      const record = Record.newByUSI("position startpos moves 7g7f resign") as Record;
+      for (const name of ["a.kifu", "b.kifu"])
+        await fs.writeFile(
+          path.join(directory, name),
+          exportRecordAsBuffer(record, RecordFileFormat.KIFU, {}).data,
+        );
+      manager = new AnalysisJobManager(
+        undefined,
+        undefined,
+        new BatchAnalysisFiles(() => directory),
+      );
+      app = new Hono<AppEnv>()
+        .route("/api/analysis-jobs", createAnalysisJobRoutes(manager))
+        .onError(handleError);
+      const plan = await manager.prepareBatch({
+        kind: "folder",
+        directory: "",
+        subdirectories: true,
+      });
+      const request = {
+        requestId: "batch-tcp",
+        serverInstanceId: manager.serverInstanceId,
+        planId: plan.planId,
+        options: {
+          ...requestFor().options,
+          perMoveCriteria: { maxSeconds: 0.05 },
+          overrideMultiPV: true,
+          multiPV: 3,
+        },
+        skipAnalyzed: false,
+        fileOptions: {
+          autoDetect: true,
+          returnCode: "\n",
+          useCSAV3: false,
+          useUTF8ForKifAndKi2: false,
+        },
+      };
+      const response = await app.request("/api/analysis-jobs/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      });
+      expect(response.status).toBe(202);
+      const status = await response.json();
+      const job = manager.get(status.jobId);
+      await job.completion;
+      expect(job.status()).toMatchObject({
+        state: "completed",
+        batch: { successTotal: 2, failedTotal: 0 },
+      });
+      expect(commands.filter((line) => line === "usi")).toHaveLength(1);
+      expect(commands.filter((line) => line === "usinewgame")).toHaveLength(2);
+      expect(commands.filter((line) => line === "setoption name MultiPV value 3")).toHaveLength(1);
+      expect(commands.filter((line) => line === "go infinite")).toHaveLength(4);
+      expect(saveAnalysisResults).toHaveBeenCalledTimes(4);
+      for (const call of vi.mocked(saveAnalysisResults).mock.calls)
+        expect([...call[4].keys()]).toEqual([1, 2, 3]);
+      expect(await fs.readFile(path.join(directory, "a.kifu"), "utf8")).toContain("#評価値=");
+      expect(await fs.readFile(path.join(directory, "b.kifu"), "utf8")).toContain("#評価値=");
+      await vi.waitFor(() => expect(sockets.size).toBe(0));
+    } finally {
+      await manager.close();
+      await fs.rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("inherits configured MultiPV without sending an override", async () => {
