@@ -379,6 +379,7 @@ export type Texts = {
   ponder: string;
   numberOfThreads: string;
   suggestionsCount: string;
+  multiPVInvalid: (min: number, max: number) => string;
   startPosition: string;
   beginFromThisPosition: string;
   maxMoves: string;

@@ -383,6 +383,7 @@ export const vi: Texts = {
   ponder: "Đọc trước",
   numberOfThreads: "Luồng",
   suggestionsCount: "Số nước đề xuất",
+  multiPVInvalid: (min, max) => `Số nước đề xuất phải là số nguyên từ ${min} đến ${max}.`,
   startPosition: "Thế cờ ban đầu",
   beginFromThisPosition: "Bắt đầu từ thế cờ này",
   maxMoves: "Số nước tối đa",

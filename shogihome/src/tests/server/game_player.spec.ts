@@ -9,6 +9,7 @@ describe("server game player", () => {
     let onOutput!: (line: string) => void;
     const engine: GameEngine = {
       launch: vi.fn(),
+      setMultiPV: vi.fn(),
       readyNewGame: vi.fn(),
       startResearch: vi.fn(),
       startSearch: vi.fn(async (_position, _go, output) => {

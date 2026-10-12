@@ -14,6 +14,8 @@ const engine: USIEngine = {
 };
 
 export const analysisSettings: AnalysisSettings = {
+  overrideMultiPV: false,
+  multiPV: 1,
   usi: engine,
   startCriteria: {
     enableNumber: false,

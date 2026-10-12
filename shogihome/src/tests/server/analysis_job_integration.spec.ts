@@ -28,6 +28,7 @@ describe("HTTP analysis through the real TCP/USI session", () => {
   let manager: AnalysisJobManager;
   let app: Hono<AppEnv>;
   let mode: "normal" | "disconnect" | "startup" = "normal";
+  let configuredMultiPV = 1;
 
   beforeAll(async () => {
     wrapper = net.createServer((socket) => {
@@ -35,6 +36,7 @@ describe("HTTP analysis through the real TCP/USI session", () => {
       socket.on("close", () => sockets.delete(socket));
       const lines = readline.createInterface({ input: socket });
       let position = "position startpos";
+      let multiPV = configuredMultiPV;
       lines.on("line", (line) => {
         commands.push(line);
         if (line === "list") {
@@ -51,6 +53,8 @@ describe("HTTP analysis through the real TCP/USI session", () => {
           );
         } else if (line === "usi" && mode !== "startup") socket.write("usiok\n");
         else if (line === "isready") socket.write("readyok\n");
+        else if (line.startsWith("setoption name MultiPV value "))
+          multiPV = Number(line.split(" ").at(-1));
         else if (line.startsWith("position ")) position = line;
         else if (line === "go infinite") {
           if (mode === "disconnect") socket.destroy();
@@ -59,7 +63,13 @@ describe("HTTP analysis through the real TCP/USI session", () => {
           const record = Record.newByUSI(position) as Record;
           const pv = ["7g7f", "3c3d", "2g2f"][record.current.ply] ?? "2g2f";
           // The last info must be consumed before bestmove settles the search.
-          socket.write(`info depth 100 score cp 20 pv ${pv}\nbestmove ${pv}\n`);
+          const alternatives = record.current.ply === 1 ? ["8c8d", "5c5d"] : ["5g5f", "6g6f"];
+          const infos = [`info multipv 1 depth 100 score cp 20 pv ${pv}`];
+          for (let rank = 2; rank <= Math.min(multiPV, 3); rank++)
+            infos.push(
+              `info multipv ${rank} depth 100 score cp ${rank * 100} pv ${alternatives[rank - 2]}`,
+            );
+          socket.write(infos.join("\n") + `\nbestmove ${pv}\n`);
         }
       });
     });
@@ -69,6 +79,7 @@ describe("HTTP analysis through the real TCP/USI session", () => {
 
   beforeEach(() => {
     mode = "normal";
+    configuredMultiPV = 1;
     commands = [];
     vi.mocked(saveAnalysisResults).mockClear();
     manager = new AnalysisJobManager();
@@ -83,10 +94,12 @@ describe("HTTP analysis through the real TCP/USI session", () => {
     await new Promise<void>((resolve) => wrapper.close(() => resolve()));
   });
 
-  async function create() {
+  async function create(multiPV?: number, requestId = "request-1") {
     const request = requestFor(Record.newByUSI("position startpos moves 7g7f 3c3d") as Record);
     request.serverInstanceId = manager.serverInstanceId;
+    request.requestId = requestId;
     request.options.perMoveCriteria.maxSeconds = 0.1;
+    if (multiPV !== undefined) Object.assign(request.options, { overrideMultiPV: true, multiPV });
     const response = await app.request("/api/analysis-jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -111,6 +124,7 @@ describe("HTTP analysis through the real TCP/USI session", () => {
     expect(status.jobId).toBe(job.id);
     expect(commands.filter((command) => command === "go infinite")).toHaveLength(3);
     expect(commands.filter((command) => command === "stop")).toHaveLength(3);
+    expect(commands.some((command) => command.startsWith("setoption name MultiPV"))).toBe(false);
     expect(job.result().nodes.every((node) => node.researchInfo?.depth === 100)).toBe(true);
     expect(vi.mocked(saveAnalysisResults)).toHaveBeenCalledTimes(3);
     expect(
@@ -119,6 +133,51 @@ describe("HTTP analysis through the real TCP/USI session", () => {
         .mock.calls.every((args) => args[2] === "group" && args[3] === "Group"),
     ).toBe(true);
     await vi.waitFor(() => expect(sockets.size).toBe(0));
+  });
+
+  it("overrides configured MultiPV once before searching and saves every candidate through the existing writer", async () => {
+    configuredMultiPV = 5;
+    const { job } = await create(3);
+    await job.completion;
+    expect(job.status().state).toBe("completed");
+    const command = "setoption name MultiPV value 3";
+    expect(commands.filter((line) => line === command)).toHaveLength(1);
+    expect(commands.indexOf(command)).toBeGreaterThan(commands.indexOf("isready"));
+    expect(commands.indexOf(command)).toBeLessThan(commands.indexOf("usinewgame"));
+    expect(commands.indexOf(command)).toBeLessThan(commands.indexOf("go infinite"));
+    expect(saveAnalysisResults).toHaveBeenCalledTimes(3);
+    for (const call of vi.mocked(saveAnalysisResults).mock.calls)
+      expect([...call[4].keys()]).toEqual([1, 2, 3]);
+    expect(
+      job
+        .result()
+        .nodes.every((node) => node.researchInfo?.score === 20 || node.researchInfo?.score === -20),
+    ).toBe(true);
+    expect(job.result().nodes.some((node) => node.comment.includes("#評価値=200"))).toBe(false);
+    await vi.waitFor(() => expect(sockets.size).toBe(0));
+  });
+
+  it("inherits configured MultiPV without sending an override", async () => {
+    configuredMultiPV = 3;
+    const { job } = await create();
+    await job.completion;
+    expect(job.status().state).toBe("completed");
+    expect(commands.some((command) => command.startsWith("setoption name MultiPV"))).toBe(false);
+    for (const call of vi.mocked(saveAnalysisResults).mock.calls)
+      expect([...call[4].keys()]).toEqual([1, 2, 3]);
+  });
+
+  it("does not carry an override into a later job", async () => {
+    const first = await create(3);
+    await first.job.completion;
+    commands = [];
+    vi.mocked(saveAnalysisResults).mockClear();
+    const second = await create(undefined, "second-request");
+    await second.job.completion;
+    expect(second.job.status().state).toBe("completed");
+    expect(commands.some((command) => command.startsWith("setoption name MultiPV"))).toBe(false);
+    for (const call of vi.mocked(saveAnalysisResults).mock.calls)
+      expect([...call[4].keys()]).toEqual([1]);
   });
 
   it("uses server-resolved DB policy even if discovery cache changes", async () => {

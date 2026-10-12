@@ -15,6 +15,44 @@ describe("server analysis jobs", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it.each([false, true])("sets MultiPV once only when override is %s", async (overrideMultiPV) => {
+    const engine = new FakeResearchEngine();
+    const request = requestFor();
+    request.options.overrideMultiPV = overrideMultiPV;
+    request.options.multiPV = 3;
+    const job = new AnalysisJob("job", request, engine, config);
+    job.start();
+    await vi.advanceTimersByTimeAsync(6000);
+    await job.completion;
+    expect(job.status().state).toBe("completed");
+    if (overrideMultiPV) {
+      expect(engine.setMultiPV).toHaveBeenCalledExactlyOnceWith(3);
+      expect(engine.setMultiPV.mock.invocationCallOrder[0]).toBeGreaterThan(
+        engine.launch.mock.invocationCallOrder[0],
+      );
+      expect(engine.setMultiPV.mock.invocationCallOrder[0]).toBeLessThan(
+        engine.readyNewGame.mock.invocationCallOrder[0],
+      );
+    } else expect(engine.setMultiPV).not.toHaveBeenCalled();
+  });
+
+  it("cleans up a failed MultiPV setup without starting a search", async () => {
+    const engine = new FakeResearchEngine();
+    engine.setMultiPV.mockImplementation(() => {
+      throw new Error("Engine unavailable");
+    });
+    const request = requestFor();
+    request.options.overrideMultiPV = true;
+    request.options.multiPV = 3;
+    const job = new AnalysisJob("job", request, engine, config);
+    job.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await job.completion;
+    expect(job.status()).toMatchObject({ state: "failed", error: "engine" });
+    expect(engine.positions).toEqual([]);
+    expect(engine.close).toHaveBeenCalledOnce();
+  });
+
   it("reports preparation until the first search starts and preserves its initial output", async () => {
     const engine = new FakeResearchEngine();
     engine.prepareDelay = 2000;
@@ -142,7 +180,10 @@ describe("server analysis jobs", () => {
           ready = resolve;
         }),
     );
-    const job = new AnalysisJob("job", requestFor(), engine, config);
+    const request = requestFor();
+    request.options.overrideMultiPV = true;
+    request.options.multiPV = 3;
+    const job = new AnalysisJob("job", request, engine, config);
     job.start();
     await vi.advanceTimersByTimeAsync(0);
     job.cancel();
@@ -150,6 +191,7 @@ describe("server analysis jobs", () => {
     await vi.advanceTimersByTimeAsync(0);
     await job.completion;
     expect(engine.positions).toEqual([]);
+    expect(engine.setMultiPV).not.toHaveBeenCalled();
     expect(job.status().state).toBe("cancelled");
     expect(engine.close).toHaveBeenCalledOnce();
   });
@@ -236,6 +278,8 @@ describe("server analysis jobs", () => {
     const engine = new FakeResearchEngine();
     engine.scores = [1000, -1000];
     const request = requestFor(Record.newByUSI("position startpos moves 7g7f") as Record);
+    request.options.overrideMultiPV = true;
+    request.options.multiPV = 3;
     const job = new AnalysisJob("job", request, engine, config);
     job.start();
     await vi.advanceTimersByTimeAsync(0);

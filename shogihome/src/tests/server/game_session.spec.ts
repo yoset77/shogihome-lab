@@ -575,6 +575,7 @@ describe("server game sessions", () => {
     let onOutput!: (line: string) => void;
     const engine: GameEngine = {
       launch: vi.fn(async () => {}),
+      setMultiPV: vi.fn(),
       readyNewGame: vi.fn(),
       startResearch: vi.fn(),
       startSearch: vi.fn(async (_position: string, _go: string, output: (line: string) => void) => {

@@ -1,4 +1,5 @@
 import { t } from "@/common/i18n/index";
+import { isValidMultiPV, MIN_MULTIPV, MAX_MULTIPV } from "@/common/engine/relay_protocol";
 import { normalizeUSIEngine, USIEngine } from "./usi.js";
 
 export type SecondaryResearchSettings = {
@@ -45,5 +46,8 @@ export function validateResearchSettings(settings: ResearchSettings): Error | un
   }
   if (settings.secondaries?.some((secondary) => !secondary.usi)) {
     return new Error(t.engineNotSelected);
+  }
+  if (settings.overrideMultiPV && !isValidMultiPV(settings.multiPV)) {
+    return new Error(t.multiPVInvalid(MIN_MULTIPV, MAX_MULTIPV));
   }
 }

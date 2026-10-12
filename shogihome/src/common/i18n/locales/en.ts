@@ -386,6 +386,7 @@ export const en: Texts = {
   ponder: "Ponder",
   numberOfThreads: "Threads",
   suggestionsCount: "Suggestions Count",
+  multiPVInvalid: (min, max) => `Suggestions count must be an integer from ${min} to ${max}.`,
   startPosition: "Position",
   beginFromThisPosition: "Begin from this position",
   maxMoves: "Max Moves",

@@ -260,6 +260,17 @@ describe("analysis job client", () => {
     expect(snapshotRecord(records.record)).toEqual(original);
   });
 
+  it.each([false, true])("freezes explicit MultiPV for background=%s", async (background) => {
+    const { manager, client } = fixture();
+    const input = { ...settings, overrideMultiPV: true, multiPV: 3 };
+    await manager.start(input, background);
+    input.multiPV = 5;
+    expect(client.create.mock.calls[0][0].options).toMatchObject({
+      overrideMultiPV: true,
+      multiPV: 3,
+    });
+  });
+
   it("detaches without cancelling and ignores an in-flight result", async () => {
     const { manager, records, client, result } = fixture();
     await manager.start(settings);

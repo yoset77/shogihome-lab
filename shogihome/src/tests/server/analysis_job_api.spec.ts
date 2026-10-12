@@ -27,6 +27,74 @@ describe("analysis job HTTP boundary", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it("accepts legacy requests without MultiPV settings and preserves engine defaults", async () => {
+    const { payload, post, manager } = setup();
+    const options = { ...payload.options } as Record<string, unknown>;
+    delete options.overrideMultiPV;
+    delete options.multiPV;
+    const response = await post({ ...payload, options });
+    expect(response.status).toBe(202);
+    const status = await response.json();
+    expect(manager.get(status.jobId).request.options).toMatchObject({
+      overrideMultiPV: false,
+      multiPV: 1,
+    });
+    await manager.close();
+  });
+
+  it.each([undefined, null, "3", "", 0, -1, 1.5, 11])(
+    "rejects invalid explicit MultiPV %s without starting a job",
+    async (multiPV) => {
+      const { payload, post, manager } = setup();
+      const response = await post({
+        ...payload,
+        options: { ...payload.options, overrideMultiPV: true, multiPV },
+      });
+      expect(response.status).toBe(400);
+      expect(manager.list()).toEqual([]);
+    },
+  );
+
+  it.each([1, 3, 10])(
+    "freezes valid MultiPV %i and rejects conflicting retries",
+    async (multiPV) => {
+      const { payload, post, manager } = setup();
+      const input = { ...payload, options: { ...payload.options, overrideMultiPV: true, multiPV } };
+      const response = await post(input);
+      expect(response.status).toBe(202);
+      const status = await response.json();
+      expect(manager.get(status.jobId).request.options).toMatchObject({
+        overrideMultiPV: true,
+        multiPV,
+      });
+      expect((await (await post(input)).json()).jobId).toBe(status.jobId);
+      expect(
+        (await post({ ...input, options: { ...input.options, multiPV: multiPV === 1 ? 2 : 1 } }))
+          .status,
+      ).toBe(409);
+      await manager.close();
+    },
+  );
+
+  it("ignores an inactive invalid count and rejects malformed override flags", async () => {
+    const { payload, post, manager } = setup();
+    for (const overrideMultiPV of [null, "true", 1])
+      expect(
+        (await post({ ...payload, options: { ...payload.options, overrideMultiPV } })).status,
+      ).toBe(400);
+    const response = await post({
+      ...payload,
+      options: { ...payload.options, overrideMultiPV: false, multiPV: "" },
+    });
+    expect(response.status).toBe(202);
+    const status = await response.json();
+    expect(manager.get(status.jobId).request.options).toMatchObject({
+      overrideMultiPV: false,
+      multiPV: 1,
+    });
+    await manager.close();
+  });
+
   it("creates asynchronously, recovers by request, and exposes complete results after disconnect", async () => {
     const { app, payload, post } = setup();
     const first = await post();

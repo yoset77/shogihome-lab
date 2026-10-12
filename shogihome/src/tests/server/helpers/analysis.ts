@@ -40,6 +40,7 @@ export class FakeResearchEngine implements ResearchEngine {
   stopDelay = 0;
   positions: string[] = [];
   launch = vi.fn<ResearchEngine["launch"]>(async () => {});
+  setMultiPV = vi.fn<ResearchEngine["setMultiPV"]>();
   readyNewGame = vi.fn();
   close = vi.fn(async () => {});
   stops = vi.fn();

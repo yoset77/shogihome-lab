@@ -13,6 +13,22 @@
           :display-multi-pv-state="true"
           @update-engines="onUpdatePlayerSettings"
         />
+        <div class="form-item">
+          <label class="form-item-label-wide" for="analysis-multi-pv">{{
+            t.suggestionsCount
+          }}</label>
+          <ToggleButton v-model:value="settings.overrideMultiPV" />
+          <input
+            id="analysis-multi-pv"
+            v-model.number="settings.multiPV"
+            class="small"
+            type="number"
+            :min="MIN_MULTIPV"
+            :max="MAX_MULTIPV"
+            step="1"
+            :disabled="!settings.overrideMultiPV"
+          />
+        </div>
       </div>
       <div class="form-group">
         <div>{{ t.startEndCriteria }}</div>
@@ -97,6 +113,7 @@
 import { t } from "@/common/i18n";
 import api, { isNative } from "@/renderer/ipc/api";
 import { defaultAnalysisSettings, validateAnalysisSettings } from "@/common/settings/analysis";
+import { MIN_MULTIPV, MAX_MULTIPV } from "@/common/engine/relay_protocol";
 import { CommentBehavior } from "@/common/settings/comment";
 import { getPredefinedUSIEngineTag, USIEngines, USIEngine } from "@/common/settings/usi";
 import { useStore } from "@/renderer/store";
