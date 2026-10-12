@@ -1,5 +1,5 @@
 import { Record, SpecialMoveType, importKIF } from "tsshogi";
-import { GameSession } from "@/server/game/session";
+import { GameSession, GAME_CONTROLLER_TIMEOUT_MS } from "@/server/game/session";
 import { GameSessionManager } from "@/server/game/manager";
 import { decodeGameSnapshot } from "@/common/game/protocol";
 import type { GameFrame } from "@/common/game/protocol";
@@ -109,6 +109,61 @@ describe("server game sessions", () => {
     await session.command(gameCommand(session.snapshot(), "interrupt"));
     await vi.advanceTimersByTimeAsync(0);
     await session.close();
+  });
+
+  it("stops clock frames after completion but still expires the controller heartbeat", async () => {
+    const { session } = await humanGame();
+    const send = vi.fn<(frame: GameFrame) => void>();
+    const close = vi.fn();
+    const connection = connectGame(session, send, close);
+    try {
+      await session.command(gameCommand(session.snapshot(), "resume"));
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "clock" }));
+      await session.command(gameCommand(session.snapshot(), "resign"));
+      await vi.advanceTimersByTimeAsync(0);
+      await session.completion;
+      expect(send).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          type: "snapshot",
+          value: expect.objectContaining({ state: "completed" }),
+        }),
+      );
+      send.mockClear();
+      connection.heartbeat();
+      await vi.advanceTimersByTimeAsync(GAME_CONTROLLER_TIMEOUT_MS - 1);
+      expect(send).not.toHaveBeenCalled();
+      expect(close).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(close).toHaveBeenCalledExactlyOnceWith(1013);
+      expect(send).not.toHaveBeenCalled();
+      expect(session.snapshot().state).toBe("completed");
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("sends retained terminal snapshots on reconnect without restarting clock frames", async () => {
+    const { session, connection } = await humanGame();
+    try {
+      await session.command(gameCommand(session.snapshot(), "resign"));
+      await vi.advanceTimersByTimeAsync(0);
+      await session.completion;
+      connection.disconnect();
+      const send = vi.fn<(frame: GameFrame) => void>();
+      connectGame(session, send);
+      expect(send).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          type: "snapshot",
+          value: expect.objectContaining({ state: "completed" }),
+        }),
+      );
+      send.mockClear();
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      await session.close();
+    }
   });
 
   it("interrupts detached human turns at the TTL and releases capacity after saving", async () => {

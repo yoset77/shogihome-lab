@@ -124,7 +124,7 @@ export class AnalysisJob {
   }
 
   cancel(): void {
-    if (isAnalysisTerminal(this.state)) return;
+    if (isAnalysisTerminal(this.state) || this.state === "finishing") return;
     this.state = "cancelling";
     this.controller.abort();
   }

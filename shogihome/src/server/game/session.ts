@@ -167,7 +167,7 @@ export class GameSession {
       if (Date.now() - controller.lastSeen >= GAME_CONTROLLER_TIMEOUT_MS) {
         this.disconnect(controller.epoch);
         controller.close(1013);
-      } else {
+      } else if (!this.terminal) {
         this.pruneLiveInfos();
         if (this.annotationsDirty) this.publish();
         controller.send({

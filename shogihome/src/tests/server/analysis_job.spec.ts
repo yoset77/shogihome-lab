@@ -170,6 +170,45 @@ describe("server analysis jobs", () => {
     expect(job.result().nodes.find((node) => node.id === "n1")?.comment).toBe("");
   });
 
+  it.each([false, true])(
+    "ignores cancellation during finishing without hiding cleanup failure=%s",
+    async (cleanupFails) => {
+      const cleanup = Promise.withResolvers<void>();
+      const engine = new FakeResearchEngine();
+      engine.close.mockImplementation(async () => {
+        await cleanup.promise;
+        if (cleanupFails) throw new Error("close failed");
+      });
+      const job = new AnalysisJob("job", requestFor(), engine, config);
+      job.start();
+      await vi.advanceTimersByTimeAsync(6000);
+      const results = job.result();
+      try {
+        expect(job.status()).toMatchObject({
+          state: "finishing",
+          completedPositions: 5,
+          totalPositions: 5,
+        });
+        job.cancel();
+        job.cancel();
+        expect(job.status().state).toBe("finishing");
+        expect(engine.launch.mock.calls[0][2].aborted).toBe(false);
+        expect(engine.cancellations).not.toHaveBeenCalled();
+        expect(engine.close).toHaveBeenCalledOnce();
+        expect(job.endedAt).toBeUndefined();
+      } finally {
+        cleanup.resolve();
+        await job.completion;
+      }
+      expect(job.status()).toMatchObject({
+        state: cleanupFails ? "failed" : "completed",
+        completedPositions: 5,
+        ...(cleanupFails ? { error: "engine" } : {}),
+      });
+      expect(job.result()).toEqual(results);
+    },
+  );
+
   it("preserves missing-info gaps, deeper existing evaluations and untouched branches", async () => {
     const record = Record.newByUSI("position startpos moves 7g7f 3c3d 2g2f") as Record;
     record.goto(1);
