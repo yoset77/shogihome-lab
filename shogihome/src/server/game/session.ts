@@ -3,6 +3,7 @@ import { performance } from "node:perf_hooks";
 import { Color, SpecialMoveType, exportKIF, type ImmutableNode } from "tsshogi";
 import { GameRecord } from "@/common/game/record";
 import {
+  MAX_GAME_ERROR_MESSAGE_LENGTH,
   type GameCommand,
   type GameFrame,
   type GameSessionRequest,
@@ -301,7 +302,8 @@ export class GameSession {
         console.error("Game startup failed", error);
         this.error = error instanceof HttpError && error.status === 503 ? "capacity" : "engine";
         // Only explicitly user-visible errors may cross the protocol boundary.
-        if (error instanceof HttpError) this.errorMessage = error.message;
+        if (error instanceof HttpError)
+          this.errorMessage = error.message.slice(0, MAX_GAME_ERROR_MESSAGE_LENGTH);
       }
       this.finish();
     }

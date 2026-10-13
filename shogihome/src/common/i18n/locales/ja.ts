@@ -975,7 +975,7 @@ export const ja: Texts = {
   resourceThreadsUnavailable: (engine) =>
     `エンジン「${engine}」の Threads を解決できません。設定エディタで消費量を手動指定してください。`,
   resourceManualCostRequired: (engine) =>
-    `エンジン「${engine}」の消費量を設定エディタで正の整数として手動指定してください。`,
+    `エンジン「${engine}」の消費量を設定エディタで1〜100,000の整数として手動指定してください。`,
   analysisRecover: "保持されている解析棋譜を開きますか？ 現在の棋譜は置き換えられます。",
   analysisCancelling: "解析の取消を確認中",
   gameInvalid: "対局の入力または応答が不正です。",

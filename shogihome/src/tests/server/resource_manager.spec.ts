@@ -40,14 +40,21 @@ describe("engine resource cost", () => {
     expect(engineResourceCost(engine({ threads: 4, resource: { groupId: "g" } }))).toBe(4);
   });
 
-  it.each([undefined, 0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
-    "requires a manual cost for unresolvable Threads %s",
-    (threads) => {
-      const config = engine({ threads, resource: { groupId: "g" } });
-      expect(() => engineResourceCost(config)).toThrow(HttpError);
-      expect(() => engineResourceCost(config)).toThrow(/Engine 1.*Threads/);
-    },
-  );
+  it.each([
+    undefined,
+    0,
+    -1,
+    1.5,
+    NaN,
+    Infinity,
+    100_001,
+    Number.MAX_SAFE_INTEGER,
+    Number.MAX_SAFE_INTEGER + 1,
+  ])("requires a manual cost for unresolvable Threads %s", (threads) => {
+    const config = engine({ threads, resource: { groupId: "g" } });
+    expect(() => engineResourceCost(config)).toThrow(HttpError);
+    expect(() => engineResourceCost(config)).toThrow(/Engine 1.*Threads/);
+  });
 
   it("uses the manual cost in manual mode", () => {
     expect(
@@ -61,11 +68,20 @@ describe("engine resource cost", () => {
   });
 
   it("requires a valid manual cost rather than silently substituting 1", () => {
-    for (const cost of [undefined, 0, -1, 1.5, NaN, Infinity]) {
+    for (const cost of [undefined, 0, -1, 1.5, NaN, Infinity, 100_001, Number.MAX_SAFE_INTEGER]) {
       expect(() =>
         engineResourceCost(engine({ resource: { groupId: "g", autoThreads: false, cost } })),
       ).toThrow(HttpError);
     }
+  });
+
+  it("accepts the maximum cost in both automatic and manual modes", () => {
+    expect(engineResourceCost(engine({ threads: 100_000, resource: { groupId: "g" } }))).toBe(
+      100_000,
+    );
+    expect(
+      engineResourceCost(engine({ resource: { groupId: "g", autoThreads: false, cost: 100_000 } })),
+    ).toBe(100_000);
   });
 
   it("treats engines without a resource assignment as unmanaged", () => {
@@ -95,6 +111,37 @@ describe("engine resource cost", () => {
 });
 
 describe("resource reservation", () => {
+  it("rejects unsafe accumulated usage atomically even while enforcement is disabled", () => {
+    resourceRegistry.resetForTest(false, [
+      { id: "g", name: "G", budget: 8 },
+      { id: "other", name: "Other", budget: 8 },
+    ]);
+    const lease = resourceRegistry.acquire({ groupId: "g", cost: Number.MAX_SAFE_INTEGER });
+    try {
+      expect(() =>
+        resourceRegistry.acquire({ groupId: "other", cost: 1 }, { groupId: "g", cost: 2 }),
+      ).toThrow(HttpError);
+      expect(resourceRegistry.groupSnapshot().map((group) => group.used)).toEqual([
+        Number.MAX_SAFE_INTEGER,
+        0,
+      ]);
+    } finally {
+      lease!.release();
+    }
+    expect(resourceRegistry.groupSnapshot().map((group) => group.used)).toEqual([0, 0]);
+  });
+
+  it("rejects unsafe merged requirements without recording rounded usage", () => {
+    resourceRegistry.resetForTest(false, [{ id: "g", name: "G", budget: 8 }]);
+    expect(() =>
+      resourceRegistry.acquire(
+        { groupId: "g", cost: Number.MAX_SAFE_INTEGER },
+        { groupId: "g", cost: 2 },
+      ),
+    ).toThrow(HttpError);
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+  });
+
   it("reserves and releases the budget idempotently", () => {
     resourceRegistry.resetForTest(true, [{ id: "g", name: "G", budget: 8 }]);
     const lease = resourceRegistry.acquire(
@@ -396,4 +443,44 @@ describe("owner integration", () => {
     }
     await session.close();
   });
+
+  it.each(["capacity", "threads", "manual"] as const)(
+    "keeps snapshots decodable when a %s error includes a long name",
+    async (kind) => {
+      const name = "名前".repeat(1500);
+      resourceRegistry.resetForTest(true, [{ id: "g", name, budget: 4 }]);
+      const config = engine({
+        name,
+        threads: kind === "capacity" ? 8 : undefined,
+        resource: { groupId: "g", ...(kind === "manual" ? { autoThreads: false } : {}) },
+      });
+      const fake = fakeGamePlayer();
+      const session = new GameSession("long-name", gameRequest(), {
+        playerBuilder: fake.builder,
+        acquireResourceLease: async () => resourceRegistry.acquire(...engineRequirements(config)),
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      session.start();
+      try {
+        await session.completion;
+        const snapshot = session.snapshot();
+        const message =
+          kind === "capacity"
+            ? t.resourceGroupCapacity(name, 4, 0, 8)
+            : kind === "threads"
+              ? t.resourceThreadsUnavailable(name)
+              : t.resourceManualCostRequired(name);
+        expect(message.length).toBeGreaterThan(2048);
+        expect(decodeGameSnapshot(snapshot).ok).toBe(true);
+        expect(snapshot).toMatchObject({
+          state: "failed",
+          error: kind === "capacity" ? "capacity" : "engine",
+          errorMessage: message.slice(0, 2048),
+        });
+        expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+      } finally {
+        await session.close();
+      }
+    },
+  );
 });

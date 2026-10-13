@@ -40,6 +40,7 @@ export const GAME_STATES = [
   "failed",
 ] as const;
 export type GameSessionState = (typeof GAME_STATES)[number];
+export const MAX_GAME_ERROR_MESSAGE_LENGTH = 2048;
 export type GameError = "engine" | "capacity" | "save";
 export type GameClock = { timeMs: number; byoyomiMs: number; elapsedMs: number; running: boolean };
 export type GameClocks = { black: GameClock; white: GameClock };
@@ -406,7 +407,7 @@ export function decodeGameSnapshot(value: unknown): DecodeResult<GameSnapshot> {
         : { error: v.enumeration(input.error, ["engine", "capacity", "save"] as const) }),
       ...(input.errorMessage === undefined
         ? {}
-        : { errorMessage: v.text(input.errorMessage, 2048) }),
+        : { errorMessage: v.text(input.errorMessage, MAX_GAME_ERROR_MESSAGE_LENGTH) }),
       records: v.array(input.records, 10_000).map((value) => {
         const item = v.object(value);
         return {

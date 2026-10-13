@@ -1,10 +1,36 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseEngineListPayload, toEngineConfig } from "@/server/engine/list";
 import { resourceRegistry } from "@/server/engine/resources";
+import { decodeEngineResourceConfig, decodeResourceSettings } from "@/common/engine/relay_protocol";
+
+// The launcher runs the same fixtures against its load/save validator.
+const resourceFixtures = JSON.parse(
+  readFileSync("src/tests/testdata/engine/resource-budget.json", "utf8"),
+) as Record<"settings" | "assignments", { name: string; value: unknown; valid: boolean }[]>;
 
 afterEach(() => resourceRegistry.resetForTest());
 
 describe("engine list validation", () => {
+  describe("shared resource validation contract", () => {
+    const engines = [
+      { id: "managed", name: "Managed", path: "engine" },
+      { id: "unmanaged", name: "Unmanaged", path: "engine" },
+    ];
+
+    it.each(resourceFixtures.settings)("settings: $name", ({ value, valid }) => {
+      expect(decodeResourceSettings(value).ok).toBe(valid);
+      expect(parseEngineListPayload({ resources: value, engines }) !== null).toBe(valid);
+    });
+
+    it.each(resourceFixtures.assignments)("assignment: $name", ({ value, valid }) => {
+      expect(decodeEngineResourceConfig(value).ok).toBe(valid);
+      const payload = parseEngineListPayload([{ ...engines[0], resource: value }, engines[1]]);
+      expect(payload !== null).toBe(valid);
+      if (valid) expect(payload?.configs).toHaveLength(2);
+    });
+  });
+
   it("should accept well-formed engine configs", () => {
     expect(
       toEngineConfig({

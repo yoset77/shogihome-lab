@@ -1,0 +1,70 @@
+{
+  "settings": [
+    { "name": "empty settings", "value": {}, "valid": true },
+    { "name": "legacy null settings", "value": null, "valid": true },
+    {
+      "name": "ASCII group ID and maximum budget",
+      "value": { "enabled": false, "groups": [{ "id": "CPU_1.a-b", "name": "日本語", "budget": 100000 }] },
+      "valid": true
+    },
+    {
+      "name": "100-character group ID",
+      "value": { "groups": [{ "id": "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789", "name": "", "budget": 1 }] },
+      "valid": true
+    },
+    {
+      "name": "101-character group ID",
+      "value": { "groups": [{ "id": "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789x", "name": "G", "budget": 1 }] },
+      "valid": false
+    },
+    { "name": "empty group ID", "value": { "groups": [{ "id": "", "name": "G", "budget": 1 }] }, "valid": false },
+    { "name": "Japanese group ID", "value": { "groups": [{ "id": "日本語", "name": "G", "budget": 1 }] }, "valid": false },
+    { "name": "space in group ID", "value": { "groups": [{ "id": "with space", "name": "G", "budget": 1 }] }, "valid": false },
+    { "name": "newline in group ID", "value": { "groups": [{ "id": "g\n", "name": "G", "budget": 1 }] }, "valid": false },
+    { "name": "non-string name", "value": { "groups": [{ "id": "g", "name": null, "budget": 1 }] }, "valid": false },
+    { "name": "missing name", "value": { "groups": [{ "id": "g", "budget": 1 }] }, "valid": false },
+    { "name": "zero budget", "value": { "groups": [{ "id": "g", "name": "G", "budget": 0 }] }, "valid": false },
+    { "name": "fractional budget", "value": { "groups": [{ "id": "g", "name": "G", "budget": 1.5 }] }, "valid": false },
+    { "name": "budget over maximum", "value": { "groups": [{ "id": "g", "name": "G", "budget": 100001 }] }, "valid": false },
+    { "name": "string budget", "value": { "groups": [{ "id": "g", "name": "G", "budget": "1" }] }, "valid": false },
+    { "name": "null budget", "value": { "groups": [{ "id": "g", "name": "G", "budget": null }] }, "valid": false },
+    { "name": "integer decimal budget", "value": { "groups": [{ "id": "g", "name": "G", "budget": 1.0 }] }, "valid": true },
+    { "name": "integer exponent budget", "value": { "groups": [{ "id": "g", "name": "G", "budget": 1e5 }] }, "valid": true },
+    { "name": "invalid enabled flag", "value": { "enabled": "false" }, "valid": false },
+    { "name": "non-array groups", "value": { "groups": {} }, "valid": false },
+    {
+      "name": "duplicate group IDs",
+      "value": { "groups": [{ "id": "g", "name": "G", "budget": 1 }, { "id": "g", "name": "H", "budget": 2 }] },
+      "valid": false
+    },
+    { "name": "unknown settings fields", "value": { "future": true, "groups": [{ "id": "g", "name": "G", "budget": 1, "future": true }] }, "valid": true }
+  ],
+  "assignments": [
+    { "name": "empty assignment", "value": {}, "valid": true },
+    { "name": "legacy empty group ID", "value": { "groupId": "", "autoThreads": true }, "valid": true },
+    { "name": "ASCII assignment", "value": { "groupId": "CPU_1.a-b", "autoThreads": true }, "valid": true },
+    { "name": "100-character assignment", "value": { "groupId": "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789" }, "valid": true },
+    { "name": "101-character assignment", "value": { "groupId": "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789x" }, "valid": false },
+    { "name": "Japanese assignment", "value": { "groupId": "日本語" }, "valid": false },
+    { "name": "space in assignment", "value": { "groupId": "with space" }, "valid": false },
+    { "name": "newline in assignment", "value": { "groupId": "g\n" }, "valid": false },
+    { "name": "non-string assignment", "value": { "groupId": null }, "valid": false },
+    { "name": "invalid mode", "value": { "groupId": "g", "autoThreads": "true" }, "valid": false },
+    { "name": "minimum manual cost", "value": { "groupId": "g", "autoThreads": false, "cost": 1 }, "valid": true },
+    { "name": "maximum manual cost", "value": { "groupId": "g", "autoThreads": false, "cost": 100000 }, "valid": true },
+    { "name": "missing manual cost", "value": { "groupId": "g", "autoThreads": false }, "valid": false },
+    { "name": "null manual cost", "value": { "groupId": "g", "autoThreads": false, "cost": null }, "valid": false },
+    { "name": "zero cost", "value": { "groupId": "g", "cost": 0 }, "valid": false },
+    { "name": "negative cost", "value": { "groupId": "g", "cost": -1 }, "valid": false },
+    { "name": "fractional cost", "value": { "groupId": "g", "cost": 1.5 }, "valid": false },
+    { "name": "cost over maximum", "value": { "groupId": "g", "cost": 100001 }, "valid": false },
+    { "name": "maximum safe integer cost", "value": { "groupId": "g", "cost": 9007199254740991 }, "valid": false },
+    { "name": "string cost", "value": { "groupId": "g", "cost": "1" }, "valid": false },
+    { "name": "null automatic cost", "value": { "groupId": "g", "autoThreads": true, "cost": null }, "valid": false },
+    { "name": "integer decimal cost", "value": { "groupId": "g", "autoThreads": false, "cost": 1.0 }, "valid": true },
+    { "name": "integer exponent cost", "value": { "groupId": "g", "autoThreads": false, "cost": 1e5 }, "valid": true },
+    { "name": "null assignment", "value": null, "valid": false },
+    { "name": "array assignment", "value": [], "valid": false },
+    { "name": "unknown assignment fields", "value": { "groupId": "g", "future": true }, "valid": true }
+  ]
+}

@@ -958,7 +958,7 @@ export const zh_tw: Texts = {
   resourceThreadsUnavailable: (engine) =>
     `無法解析引擎「${engine}」的 Threads。請在設定編輯器中手動指定資源消耗量。`,
   resourceManualCostRequired: (engine) =>
-    `請在設定編輯器中將引擎「${engine}」的手動資源消耗量設為正整數。`,
+    `請在設定編輯器中將引擎「${engine}」的手動資源消耗量設為1至100,000的整數。`,
   analysisRecover: "開啟保留的分析棋譜嗎？目前的棋譜將被取代。",
   analysisCancelling: "正在確認取消分析",
   gameInvalid: "對局輸入或回應無效。",

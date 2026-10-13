@@ -988,7 +988,7 @@ export const en: Texts = {
   resourceThreadsUnavailable: (engine) =>
     `Cannot resolve Threads for engine "${engine}". Set a manual resource cost in the config editor.`,
   resourceManualCostRequired: (engine) =>
-    `Set a positive integer manual resource cost for engine "${engine}" in the config editor.`,
+    `Set an integer manual resource cost from 1 to 100,000 for engine "${engine}" in the config editor.`,
   analysisRecover: "Open the retained analysis record? The current record will be replaced.",
   analysisCancelling: "Waiting for analysis cancellation",
   gameInvalid: "Invalid game input or response.",
