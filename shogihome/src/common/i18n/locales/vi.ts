@@ -851,7 +851,7 @@ export const vi: Texts = {
   defaultResearchEngine: "Động cơ tính toán mặc định", // Added
   changeMultiPVFromPVTab: "Thay đổi MultiPV từ tab PV",
   multiPVMustBe1To10: "MultiPV phải nằm trong khoảng từ 1 đến 10.",
-  serverKifu: "Kỳ phổ trên máy chủ",
+  serverKifu: "Kỳ phổ máy chủ",
   preview: "Xem trước",
   loadingKifu: "Đang tải kỳ phổ...",
   failedToLoadKifu: "Tải kỳ phổ thất bại.",
@@ -863,7 +863,6 @@ export const vi: Texts = {
   noKifuFound: "Không tìm thấy kỳ phổ.",
   noKifuFoundCheckKifuDir: "Không tìm thấy kỳ phổ. Vui lòng kiểm tra cấu hình KIFU_DIR.",
   enterFileName: "Vui lòng nhập tên tệp",
-  loadFromServer: "Mở từ máy chủ",
   saveToServer: "Lưu vào máy chủ",
   upload: "Tải lên",
   uploadDestination: "Thư mục tải lên",

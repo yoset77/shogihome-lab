@@ -437,10 +437,9 @@ input.small {
   overflow-wrap: anywhere;
 }
 @media (max-width: 480px) {
+  /* Keep labels inline so toggle rows stay on a single line, as in ResearchDialog. */
   .form-item-label-wide {
-    display: block;
-    width: auto;
-    margin-bottom: 5px;
+    width: 120px;
   }
 }
 </style>

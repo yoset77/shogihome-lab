@@ -800,7 +800,6 @@ export type Texts = {
   noKifuFound: string;
   noKifuFoundCheckKifuDir: string;
   enterFileName: string;
-  loadFromServer: string;
   saveToServer: string;
   upload: string;
   uploadDestination: string;
