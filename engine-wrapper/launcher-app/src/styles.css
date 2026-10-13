@@ -135,8 +135,50 @@ pre.log-tall { max-height: 420px; }
   width: 90px; flex: 0 0 auto;
   padding: 0.25rem 0.5rem; font-size: 0.875rem;
 }
+/* Keep the wider engine list independent of other launcher windows. */
+.container.editor-container { max-width: 960px; }
+#editorSection > .spread { flex-wrap: wrap; align-items: center; gap: 10px; }
+#editorSection > .spread h2 { margin: 0; }
+#editorSection > .spread .row { margin-top: 0; }
+#engineTable { min-width: 760px; }
+/* Shrink-to-content: the button labels differ by language (ja/en). */
+#engineTable .engine-actions { width: 1%; white-space: nowrap; }
+#engineTable .engine-resource { width: 150px; white-space: normal; }
+/* Badges wrap as whole units; long text is truncated (full text in title). */
+#engineTable .engine-badges {
+  display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; width: 0; min-width: 100%;
+}
+#engineTable .engine-badge {
+  display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; padding: 2px 4px; border-radius: 3px; color: white; font-size: 0.75rem;
+}
+#engineTable .engine-badge-no-db { background: #dc3545; }
+#engineTable .engine-badge-group { background: #6f42c1; }
+#engineTable .resource-group {
+  width: 150px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+#engineTable .resource-cost { font-size: 0.875rem; color: var(--muted); white-space: nowrap; }
+.resource-status {
+  display: inline-block; margin-left: 6px; padding: 0 5px; border: 1px solid var(--border);
+  border-radius: 4px; font-size: 0.75rem; font-weight: normal; white-space: nowrap;
+  vertical-align: middle;
+}
+.resource-status[data-enabled="false"] { color: var(--muted); }
+@media (prefers-color-scheme: dark) {
+  #engineTable .resource-cost,
+  #engineTable .resource-status[data-enabled="false"] { color: #adb5bd; }
+}
 /* Engine editor modal: single-row layouts matching config_editor.html.
    Scoped to #engineModal so dashboard/settings/logs are unaffected. */
+/* Only the form body scrolls; title and Apply/Cancel stay reachable. The
+   border-box sizing keeps the whole dialog inside the 90vh cap. */
+#engineModal .modal-content {
+  box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden;
+}
+#engineModal .modal-content { max-width: 680px; }
+#engineModal .modal-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-left: 4px; padding-right: 16px;
+}
 #engineModal .options-header {
   display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;
 }
@@ -148,6 +190,7 @@ pre.log-tall { max-height: 420px; }
 #engineModal .save-db-row > label { margin-bottom: 0; }
 #engineModal .save-db-row > label.check {
   background: var(--card-bg); border: 1px solid var(--border); padding: 5px 10px; border-radius: 4px;
+  cursor: pointer;
 }
 /* Boolean option cell: boxed look matching config_editor.html, with a wide
    click target (the whole box toggles). Theme-aware via --card-bg. */
@@ -165,6 +208,18 @@ pre.log-tall { max-height: 420px; }
 #engineModal .row > input[type="text"] { flex: 1; min-width: 0; }
 #engineModal .row > select { flex: 1; min-width: 0; }
 #engineModal .row > .btn { white-space: nowrap; flex-shrink: 0; }
+/* Resource cost row: mode label, radios, manual cost input, live preview. */
+#engineModal .resource-cost-row .field-label { font-weight: bold; margin: 0; flex: 0 0 auto; }
+#engineModal .resource-cost-row input.cost-input { width: 100px; flex: 0 0 auto; display: inline-block; }
+#engineModal .resource-cost-row .hint { margin: 0; }
+/* Action buttons must not wrap ("削" / "除") in narrow table columns. */
+table .btn { white-space: nowrap; }
+/* Breathing room between the group-add row and the group table. */
+#resourceGroupTable { margin-top: 10px; }
+/* Invalid budget inputs: red border plus an inline error line below. */
+input[data-invalid="true"] { border-color: var(--danger); }
+.field-error { color: var(--danger); font-size: 0.8rem; margin-top: 0.25rem; }
+.field-error:empty { display: none; }
 /* Server settings multi-value (TYPE_LIST) rows: one input per line with a
    remove button, plus an add button below (Python _build_setting_row parity). */
 #settingsForm .list-rows .row { margin-top: 6px; }

@@ -15,6 +15,17 @@ describe("i18n", () => {
     expect(text("settingsError_out_of_range", "en", "PORT", "1", "9")).toContain("1");
   });
 
+  it("uses concise resource titles and thread-count labels", () => {
+    expect(text("editor.resourceTitle", "ja")).toBe("リソース制限");
+    expect(text("editor.resourceTitle", "en")).toBe("Resource Limits");
+    expect(text("editor.resourceCostThreads", "ja")).toBe("スレッド数に連動");
+    expect(text("editor.resourceCostThreads", "en")).toBe("Follow thread count");
+    expect(text("editor.resourceStatusEnabled", "ja")).toBe("有効");
+    expect(text("editor.resourceStatusDisabled", "ja")).toBe("無効");
+    expect(text("editor.resourceStatusEnabled", "en")).toBe("Enabled");
+    expect(text("editor.resourceStatusDisabled", "en")).toBe("Disabled");
+  });
+
   describe("detectLang", () => {
     beforeEach(() => {
       vi.stubEnv("SHOGIHOME_LAB_LANG", undefined);
@@ -115,7 +126,7 @@ describe("i18n", () => {
         "editor.editTitle",
         "editor.addTitle",
         "editor.nameLabel",
-        "editor.typeGame",
+        "editor.typeNameGame",
         "editor.pathLabel",
         "editor.saveDbLabel",
         "editor.groupLabel",

@@ -9,7 +9,7 @@
   <script type="module" src="./src/editor-main.ts"></script>
 </head>
 <body>
-  <div class="container">
+  <div class="container editor-container">
     <div class="spread">
       <h1 id="editorTitle">ShogiHome Lab 設定エディタ</h1>
       <select id="langSelect" class="btn btn-sm" aria-label="Language">
@@ -40,7 +40,12 @@
       </div>
       <div class="table-responsive">
         <table id="engineTable">
-          <thead><tr><th id="colName">名前 (Name)</th><th id="colType">種類 (Type)</th><th id="colActions">操作</th></tr></thead>
+          <thead><tr>
+            <th id="colName">名前</th>
+            <th id="colType">種類</th>
+            <th class="engine-resource"><span id="colResource">リソース</span> <span id="resourceStatus" class="resource-status" role="status"></span></th>
+            <th id="colActions" class="engine-actions">操作</th>
+          </tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -48,12 +53,11 @@
 
     <div class="modal" id="resourceModal" style="display:none;">
       <div class="modal-content">
-        <h2 id="resourceModalTitle">リソース制限 (実験的)</h2>
+        <h2 id="resourceModalTitle">リソース制限</h2>
         <label class="check"><input type="checkbox" id="resourceEnabled" /> <span id="resourceEnabledLabel">リソース制限を有効にする</span></label>
         <p class="hint" id="resourceEnabledHint"></p>
         <p class="hint" id="resourceCoreCountHint"></p>
         <div class="row">
-          <button class="btn btn-sm" id="resourceApplyCoresBtn">このマシンの論理コア数を設定</button>
           <button class="btn btn-sm" id="resourceAddGroupBtn">＋ グループ追加</button>
         </div>
         <table id="resourceGroupTable">
@@ -65,6 +69,7 @@
           </tr></thead>
           <tbody></tbody>
         </table>
+        <p class="hint" id="resourceBudgetColumnHint"></p>
         <div class="modal-footer">
           <button class="btn" id="closeResourceModalBtn">閉じる</button>
         </div>
@@ -74,69 +79,75 @@
     <div class="modal" id="engineModal" style="display:none;">
       <div class="modal-content">
         <h2 id="modalTitle">エンジン追加</h2>
-        <div class="form-group">
-          <label for="editName"><span id="editNameLabel">名前 (Name)</span> <span style="color:red">*</span></label>
-          <input type="text" id="editName" placeholder="例: YaneuraOu" />
-        </div>
-        <div class="form-group" id="editIdGroup" style="display:none;">
-          <label for="editId">ID (自動生成) <span style="color:red">*</span></label>
-          <div class="row">
-            <input type="text" id="editId" readonly />
-            <button class="btn btn-sm" id="regenerateIdBtn" title="IDを再生成">↺</button>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="editName"><span id="editNameLabel">名前</span> <span style="color:red">*</span></label>
+            <input type="text" id="editName" placeholder="例: YaneuraOu" />
           </div>
-        </div>
-        <div class="form-group" id="editTypeContainer">
-          <label><span id="editTypeLabel">種類 (Type)</span> <span style="color:red">*</span></label>
-          <label class="check"><input type="checkbox" name="type" value="game" /> <span id="typeGameLabel">対局 (game)</span></label>
-          <label class="check"><input type="checkbox" name="type" value="research" /> <span id="typeResearchLabel">検討 (research)</span></label>
-          <label class="check"><input type="checkbox" name="type" value="mate" /> <span id="typeMateLabel">詰み探索 (mate)</span></label>
-        </div>
-        <div class="form-group save-db-row">
-          <label id="saveDbLabel">読み筋をデータベースに保存</label>
-          <label class="check"><input type="checkbox" id="editSaveAnalysisDB" /> <span id="editSaveAnalysisDBLabel" class="bool-label">true</span></label>
-        </div>
-        <div class="form-group">
-          <label for="editAnalysisDBGroupId" id="groupLabel">所属エンジングループ</label>
-          <div class="row">
-            <select id="editAnalysisDBGroupId"><option value="" id="noGroupOption">個別管理 (グループなし)</option></select>
-            <button class="btn btn-sm" id="addGroupBtn">＋ 新規作成</button>
+          <div class="form-group" id="editIdGroup" style="display:none;">
+            <label for="editId">ID (自動生成) <span style="color:red">*</span></label>
+            <div class="row">
+              <input type="text" id="editId" readonly />
+              <button class="btn btn-sm" id="regenerateIdBtn" title="IDを再生成">↺</button>
+            </div>
           </div>
-          <div class="hint" id="groupHint">
-            同じグループに設定されたエンジンはデータベース上で単一のエンジンとして集約されます。
+          <div class="form-group" id="editTypeContainer">
+            <label><span id="editTypeLabel">種類</span> <span style="color:red">*</span></label>
+            <label class="check"><input type="checkbox" name="type" value="game" /> <span id="typeGameLabel">対局</span></label>
+            <label class="check"><input type="checkbox" name="type" value="research" /> <span id="typeResearchLabel">検討</span></label>
+            <label class="check"><input type="checkbox" name="type" value="mate" /> <span id="typeMateLabel">詰み探索</span></label>
           </div>
-        </div>
-        <div class="form-group">
-          <label for="editResourceGroupId" id="resourceGroupLabel">リソースグループ (同時実行の制限)</label>
-          <div class="row">
-            <select id="editResourceGroupId"><option value="" id="noResourceGroupOption">制限しない</option></select>
-            <label class="check"><input type="radio" name="resourceCostMode" id="resourceCostThreads" value="threads" /> <span id="resourceCostThreadsLabel">Threadsに連動</span></label>
-            <label class="check"><input type="radio" name="resourceCostMode" id="resourceCostManual" value="manual" /> <span id="resourceCostManualLabel">手動指定</span></label>
-            <input type="number" id="editResourceCost" min="1" style="width:100px;display:none;" />
+          <div class="form-group save-db-row">
+            <label id="saveDbLabel">読み筋をデータベースに保存</label>
+            <label class="check"><input type="checkbox" id="editSaveAnalysisDB" /> <span id="editSaveAnalysisDBLabel" class="bool-label">true</span></label>
           </div>
-          <div class="hint" id="resourceGroupHint"></div>
-        </div>
-        <div class="form-group">
-          <label for="editPath"><span id="editPathLabel">実行ファイルのパス (Path)</span> <span style="color:red">*</span></label>
-          <div class="row">
-            <input type="text" id="editPath" placeholder="例: C:\Engines\yaneuraou.exe" />
-            <button class="btn btn-sm" id="browseBtn">参照...</button>
-            <button class="btn btn-sm btn-info" id="analyzeBtn">オプション取得</button>
+          <div class="form-group">
+            <label for="editAnalysisDBGroupId" id="groupLabel">所属エンジングループ</label>
+            <div class="row">
+              <select id="editAnalysisDBGroupId"><option value="" id="noGroupOption">個別管理 (グループなし)</option></select>
+              <button class="btn btn-sm" id="addGroupBtn">＋ 新規作成</button>
+            </div>
+            <div class="hint" id="groupHint">
+              同じグループに設定されたエンジンはデータベース上で単一のエンジンとして集約されます。
+            </div>
           </div>
-          <div class="hint" id="pathHint">
-            絶対パス、または engine-wrapper からの相対パス。
+          <div class="form-group">
+            <label for="editResourceGroupId" id="resourceGroupLabel">リソースグループ (同時実行の制限)</label>
+            <div class="row">
+              <select id="editResourceGroupId"><option value="" id="noResourceGroupOption">制限しない</option></select>
+            </div>
+            <div class="row resource-cost-row" id="resourceCostRow">
+              <span class="field-label" id="resourceCostModeLabel">消費量</span>
+              <label class="check"><input type="radio" name="resourceCostMode" id="resourceCostThreads" value="threads" /> <span id="resourceCostThreadsLabel">スレッド数に連動</span></label>
+              <label class="check"><input type="radio" name="resourceCostMode" id="resourceCostManual" value="manual" /> <span id="resourceCostManualLabel">手動指定</span></label>
+              <input type="number" id="editResourceCost" class="cost-input" min="1" max="100000" style="display:none;" />
+              <span class="hint" id="resourceCostPreview"></span>
+            </div>
+            <div class="hint" id="resourceGroupHint"></div>
           </div>
-        </div>
-        <div class="form-group">
-          <div class="options-header">
-            <h3 id="optionsLabel">オプション (Options)</h3>
-            <button class="btn btn-sm btn-warning" id="resetAllBtn" style="display:none;">すべて既定値に戻す</button>
+          <div class="form-group">
+            <label for="editPath"><span id="editPathLabel">実行ファイルのパス</span> <span style="color:red">*</span></label>
+            <div class="row">
+              <input type="text" id="editPath" placeholder="例: C:\Engines\yaneuraou.exe" />
+              <button class="btn btn-sm" id="browseBtn">参照...</button>
+              <button class="btn btn-sm btn-info" id="analyzeBtn">オプション取得</button>
+            </div>
+            <div class="hint" id="pathHint">
+              絶対パス、または engine-wrapper からの相対パス。
+            </div>
           </div>
-        <div id="optionsList"></div>
-        <div class="row" style="margin-top:10px;">
-          <button class="btn btn-sm" id="addStringOptionBtn">+ 文字列</button>
-          <button class="btn btn-sm" id="addSpinOptionBtn">+ 数値</button>
-          <button class="btn btn-sm" id="addBoolOptionBtn">+ 真偽値</button>
-        </div>
+          <div class="form-group">
+            <div class="options-header">
+              <h3 id="optionsLabel">オプション</h3>
+              <button class="btn btn-sm btn-warning" id="resetAllBtn" style="display:none;">すべて既定値に戻す</button>
+            </div>
+            <div id="optionsList"></div>
+            <div class="row" style="margin-top:10px;">
+              <button class="btn btn-sm" id="addStringOptionBtn">+ 文字列</button>
+              <button class="btn btn-sm" id="addSpinOptionBtn">+ 数値</button>
+              <button class="btn btn-sm" id="addBoolOptionBtn">+ 真偽値</button>
+            </div>
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn" id="cancelModalBtn">キャンセル</button>

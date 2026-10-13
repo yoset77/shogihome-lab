@@ -45,7 +45,7 @@ pub fn create_window(handle: &tauri::AppHandle) -> Result<(), String> {
         tauri::WebviewUrl::App("editor.html".into()),
     )
     .title("ShogiHome Lab Config Editor")
-    .inner_size(800.0, 900.0)
+    .inner_size(880.0, 960.0)
     .min_inner_size(600.0, 600.0)
     .build();
     if let Err(error) = result {
