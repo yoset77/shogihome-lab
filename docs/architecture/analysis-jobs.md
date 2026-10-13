@@ -11,7 +11,7 @@
 | [`server/analysis/files.ts`](../../shogihome/src/server/analysis/files.ts)           | 確認用対象一覧、検証済みファイル読込、原本変更検出、atomic保存        |
 | [`server/analysis/jobManager.ts`](../../shogihome/src/server/analysis/jobManager.ts) | engine 定義の解決、作成の冪等性、実行数と保持の制約、終了時 cleanup   |
 | [`server/engine/internal.ts`](../../shogihome/src/server/engine/internal.ts)         | 既存 USI state machine への内部探索・停止・取消・終了 adapter         |
-| [`renderer/store/analysis.ts`](../../shogihome/src/renderer/store/analysis.ts)       | 作成要求、HTTP 同期、reload 復元、閲覧追従、文書 lock、安全な結果反映 |
+| [`renderer/store/analysis.ts`](../../shogihome/src/renderer/store/analysis.ts)       | 作成要求、HTTP 同期、reload 復元、局面追従、文書 lock、安全な結果反映 |
 | [`server/jobs/attachment.ts`](../../shogihome/src/server/jobs/attachment.ts)         | アタッチ所有者、heartbeat、移譲の世代照合                             |
 | [`renderer/store/job_storage.ts`](../../shogihome/src/renderer/store/job_storage.ts) | タブの復帰意図と端末の未確認要求台帳の分離                            |
 | [`common/analysis/types.ts`](../../shogihome/src/common/analysis/types.ts)           | 共有型と runtime decoder                                              |
@@ -21,7 +21,7 @@
 ## Frozen Input and Execution
 
 - 作成時に棋譜 snapshot、選択経路、解析設定を検証して固定します。Engine 名・能力・DB 保存方針は Server で解決します。
-- 解析 cursor と閲覧 cursor は独立しています。Renderer は文書編集を lock しつつ閲覧・分岐選択を許可し、手動閲覧後は解析局面への追従を停止します。
+- アタッチ中の Renderer は文書編集と閲覧・分岐選択を lock し、盤面を解析局面へ追従させます。閲覧はデタッチ後に行います。
 - 局面ごとの解析時間は探索開始後に計測し、engine 起動や前の探索の停止待ちを含めません。
 - 初回探索の開始確認までは準備状態を維持します。その間に届く探索出力も現在の探索へ照合して取り込み、最初の info を失いません。
 - 通常停止は terminal output と最終 info を取り込んでから注釈生成・次局面へ進みます。取消は探索結果を無効化する操作として区別します。

@@ -399,7 +399,6 @@ export const ja: Texts = {
   batchAnalysisConfirm: (count) => `最大${count}件の棋譜を順番に解析します。開始しますか？`,
   batchAnalysisSummary: (success, failed, skipped) =>
     `成功 ${success} / 失敗 ${failed} / スキップ ${skipped}`,
-  batchAnalysisFollow: "処理中の棋譜への追従を再開",
   batchAnalysisDetails: "ファイル別の結果",
   batchAnalysisReason: (reason) =>
     ({

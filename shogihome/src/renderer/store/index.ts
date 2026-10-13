@@ -407,6 +407,7 @@ class Store {
   }
 
   changeNode(node: ImmutableNode): void {
+    if (this.appState === AppState.ANALYSIS) return;
     this.recordManager.changeNode(node);
   }
 
@@ -1611,12 +1612,6 @@ class Store {
     }
   }
 
-  get analysisStatus() {
-    return this.analysisManager.isActive ? this.analysisManager.status : undefined;
-  }
-  resumeAnalysisFollowing() {
-    this.analysisManager.resumeFollowing();
-  }
   async openBatchAnalysisFile(path: string): Promise<boolean> {
     if (!this.canAttachJob) return false;
     if (this.recordManager.unsaved && !(await this.confirmJob(t.analysisRecover))) return false;
@@ -1846,37 +1841,25 @@ class Store {
   }
 
   goForward(): void {
-    if (
-      this.appState === AppState.NORMAL ||
-      this.appState === AppState.ANALYSIS ||
-      this.appState === AppState.ELAPSED_TIME_CHART_DIALOG
-    ) {
+    if (this.appState === AppState.NORMAL || this.appState === AppState.ELAPSED_TIME_CHART_DIALOG) {
       this.recordManager.goForward();
     }
   }
 
   goBack(): void {
-    if (
-      this.appState === AppState.NORMAL ||
-      this.appState === AppState.ANALYSIS ||
-      this.appState === AppState.ELAPSED_TIME_CHART_DIALOG
-    ) {
+    if (this.appState === AppState.NORMAL || this.appState === AppState.ELAPSED_TIME_CHART_DIALOG) {
       this.recordManager.goBack();
     }
   }
 
   changePly(ply: number): void {
-    if (
-      this.appState === AppState.NORMAL ||
-      this.appState === AppState.ANALYSIS ||
-      this.appState === AppState.ELAPSED_TIME_CHART_DIALOG
-    ) {
+    if (this.appState === AppState.NORMAL || this.appState === AppState.ELAPSED_TIME_CHART_DIALOG) {
       this.recordManager.changePly(ply);
     }
   }
 
   changeBranch(index: number): void {
-    if (this.appState === AppState.NORMAL || this.appState === AppState.ANALYSIS) {
+    if (this.appState === AppState.NORMAL) {
       this.recordManager.changeBranch(index);
     }
   }
@@ -1890,7 +1873,7 @@ class Store {
   }
 
   backToMainBranch(): void {
-    if (this.appState === AppState.NORMAL || this.appState === AppState.ANALYSIS) {
+    if (this.appState === AppState.NORMAL) {
       this.recordManager.resetAllBranchSelection();
     }
   }

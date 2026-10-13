@@ -398,7 +398,6 @@ export const zh_tw: Texts = {
   batchAnalysisConfirm: (count) => `依序分析最多${count}份棋譜。要開始嗎？`,
   batchAnalysisSummary: (success, failed, skipped) =>
     `成功 ${success} / 失敗 ${failed} / 跳過 ${skipped}`,
-  batchAnalysisFollow: "恢復追蹤目前棋譜",
   batchAnalysisDetails: "各檔案結果",
   batchAnalysisReason: (reason) =>
     ({

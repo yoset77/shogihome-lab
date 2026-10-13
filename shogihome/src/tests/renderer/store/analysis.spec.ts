@@ -303,45 +303,6 @@ describe("analysis job client", () => {
     expect(f.client.source).toHaveBeenLastCalledWith("job", 2);
   });
 
-  it("stops file switching after manual navigation and resumes only explicitly", async () => {
-    const f = batchFixture();
-    await f.manager.startBatch(settings, plan, false);
-    await vi.advanceTimersByTimeAsync(500);
-    f.records.goForward();
-    f.status.batch = {
-      ...f.status.batch!,
-      recordIndex: 2,
-      recordPath: "b.kifu",
-      currentFile: 2,
-      currentPath: "b.kifu",
-    };
-    f.result.recordIndex = 2;
-    await vi.advanceTimersByTimeAsync(500);
-    expect(f.records.serverKifuPath).toBe("a.kifu");
-    f.manager.resumeFollowing();
-    await vi.advanceTimersByTimeAsync(500);
-    expect(f.records.serverKifuPath).toBe("b.kifu");
-  });
-
-  it("does not override navigation performed while the next record is being fetched", async () => {
-    const f = batchFixture();
-    await f.manager.startBatch(settings, plan, false);
-    let resolveSource!: (source: typeof f.source) => void;
-    f.client.source.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveSource = resolve;
-        }),
-    );
-    await vi.advanceTimersByTimeAsync(500);
-    const original = f.records.record;
-    f.records.goForward();
-    resolveSource(f.source);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(f.records.record).toBe(original);
-    expect(f.records.serverKifuPath).toBeUndefined();
-  });
-
   it("protects an unsaved document when attaching before the first batch record is ready", async () => {
     const f = batchFixture();
     f.status.batch = { ...f.status.batch!, recordIndex: 0, recordPath: "" };
@@ -493,10 +454,8 @@ describe("analysis job client", () => {
       false,
     );
     await vi.advanceTimersByTimeAsync(500);
-    records.changePly(1);
-    expect(records.record.current.comment).toBe("analysis");
     await vi.advanceTimersByTimeAsync(1000);
-    expect(records.record.current.comment).toBe("analysis");
+    expect(records.record.moves[1].comment).toBe("analysis");
     expect(client.result).toHaveBeenCalledTimes(1);
     expect(records.unsaved).toBe(true);
   });
@@ -877,11 +836,10 @@ describe("analysis job client", () => {
     result.nodes[0] = { ...result.nodes[0], revision: 2, comment: "updated" };
     client.result.mockRejectedValueOnce(new ApiResponseError(429, "rate limited"));
     await vi.advanceTimersByTimeAsync(500);
-    records.changePly(1);
-    expect(records.record.current.comment).toBe("analysis");
+    expect(records.record.moves[1].comment).toBe("analysis");
     expect(records.analysisLocked).toBe(true);
     await vi.advanceTimersByTimeAsync(1000);
-    expect(records.record.current.comment).toBe("updated");
+    expect(records.record.moves[1].comment).toBe("updated");
     expect(client.result.mock.calls.map(([id, revision]) => [id, revision])).toEqual([
       ["job", 0],
       ["job", 1],
@@ -987,31 +945,6 @@ describe("analysis job client", () => {
     expect(records.analysisLocked).toBe(false);
     records.changePly(1);
     expect(records.record.current.comment).toBe("");
-  });
-
-  it("does not change the browsing position after manual navigation", async () => {
-    const { manager, records } = fixture();
-    await manager.start(settings);
-    records.changePly(1);
-    await vi.advanceTimersByTimeAsync(500);
-    expect(records.record.current.ply).toBe(1);
-    expect(records.record.current.comment).toBe("analysis");
-  });
-
-  it("stops following even when manual navigation returns to the same node", async () => {
-    const { manager, records, status } = fixture();
-    await manager.start(settings);
-    await vi.advanceTimersByTimeAsync(500);
-    records.changePly(1);
-    records.changePly(0);
-    status.current = {
-      nodeId: "n2",
-      searchId: 2,
-      position: "position startpos moves 7g7f 3c3d",
-      infos: [],
-    };
-    await vi.advanceTimersByTimeAsync(500);
-    expect(records.record.current.ply).toBe(0);
   });
 
   it("does not overlap polling requests", async () => {

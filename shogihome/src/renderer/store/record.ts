@@ -158,7 +158,6 @@ export type BackupHandler = () => BackupOptions | null | void;
 
 export class RecordManager {
   private gameBinding?: { token: string; record: Record; content: string };
-  private _navigationRevision = 0;
   private analysisBinding?: {
     token: string;
     record: Record;
@@ -223,10 +222,6 @@ export class RecordManager {
     this.onUpdateTree();
     this.onUpdateCustomData();
     return true;
-  }
-
-  get navigationRevision(): number {
-    return this._navigationRevision;
   }
 
   beginAnalysis(token: string): RecordSnapshot {
@@ -563,25 +558,21 @@ export class RecordManager {
 
   goForward(): void {
     if (this.gameBinding) return;
-    this._navigationRevision++;
     this._record.goForward();
   }
 
   goBack(): void {
     if (this.gameBinding) return;
-    this._navigationRevision++;
     this._record.goBack();
   }
 
   changePly(ply: number): void {
     if (this.gameBinding) return;
-    this._navigationRevision++;
     this._record.goto(ply);
   }
 
   changePlyBySFEN(ply: number, sfen: string): boolean {
     if (this.gameBinding) return false;
-    this._navigationRevision++;
     const target = findKifuPosition(this._record.first, ply, sfen);
     if (target) {
       return this._record.gotoNode(target);
@@ -591,13 +582,11 @@ export class RecordManager {
 
   changeBranch(index: number): boolean {
     if (this.gameBinding) return false;
-    this._navigationRevision++;
     return this._record.switchBranchByIndex(index);
   }
 
   changeNode(node: ImmutableNode): boolean {
     if (this.gameBinding) return false;
-    this._navigationRevision++;
     return this._record.gotoNode(node);
   }
 
@@ -621,7 +610,6 @@ export class RecordManager {
 
   resetAllBranchSelection() {
     if (this.gameBinding) return;
-    this._navigationRevision++;
     this._record.resetAllBranchSelection();
   }
 
@@ -647,7 +635,6 @@ export class RecordManager {
 
   jumpToBookmark(bookmark: string): boolean {
     if (this.gameBinding) return false;
-    this._navigationRevision++;
     return this._record.jumpToBookmark(bookmark);
   }
 

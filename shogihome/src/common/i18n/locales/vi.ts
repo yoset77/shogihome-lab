@@ -401,7 +401,6 @@ export const vi: Texts = {
   batchAnalysisConfirm: (count) => `Phân tích lần lượt tối đa ${count} ván. Bắt đầu chứ?`,
   batchAnalysisSummary: (success, failed, skipped) =>
     `Thành công ${success} / Lỗi ${failed} / Bỏ qua ${skipped}`,
-  batchAnalysisFollow: "Tiếp tục theo dõi ván hiện tại",
   batchAnalysisDetails: "Kết quả từng tệp",
   batchAnalysisReason: (reason) =>
     ({
