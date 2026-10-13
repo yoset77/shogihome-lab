@@ -1,5 +1,47 @@
 import { RecordFileFormat } from "@/common/file/record";
-import { ImmutableNode, ImmutableRecord } from "tsshogi";
+import { encodeCustomData } from "@/common/record/snapshot";
+import { ImmutableNode, ImmutableRecord, Move } from "tsshogi";
+
+/** Compare local edits without job snapshot limits or navigation state. */
+export function getRecordDocumentContent(
+  record: ImmutableRecord,
+  includeCustomData = true,
+): string {
+  const nodes: unknown[] = [];
+  record.forEach((node) => {
+    nodes.push({
+      ply: node.ply,
+      move: node.move instanceof Move ? node.move.usi : node.move,
+      comment: node.comment,
+      bookmark: node.bookmark,
+      elapsedMs: node.elapsedMs,
+      ...(includeCustomData ? { customData: encodeCustomData(node.customData) } : {}),
+    });
+  });
+  return JSON.stringify(
+    {
+      initialSfen: record.initialPosition.sfen,
+      standardMetadata: [...record.metadata.standardMetadataKeys].map((key) => [
+        key,
+        record.metadata.getStandardMetadata(key),
+      ]),
+      customMetadata: [...record.metadata.customMetadataKeys].map((key) => [
+        key,
+        record.metadata.getCustomMetadata(key),
+      ]),
+      nodes,
+    },
+    (_key, value: unknown) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+      const object = value as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.keys(object)
+          .sort()
+          .map((key) => [key, object[key]]),
+      );
+    },
+  );
+}
 
 export type RecordProperties = {
   branch: boolean;

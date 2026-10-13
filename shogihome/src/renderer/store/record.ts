@@ -54,6 +54,7 @@ import {
   type RecordSnapshot,
 } from "@/common/record/snapshot";
 import type { AnalysisNodeResult } from "@/common/analysis/types";
+import { getRecordDocumentContent } from "@/renderer/helpers/record";
 
 type replaceRecordOption = {
   path?: string;
@@ -509,10 +510,10 @@ export class RecordManager {
     const imported = importRecordFromBuffer(data, format, option);
     if (imported instanceof Error) throw localizeError(imported);
     const current = this._record;
-    const content = recordContent(snapshotRecord(current));
+    const content = getRecordDocumentContent(current);
     await this.saveBackup();
     if (!isCurrent()) return;
-    if (current !== this._record || content !== recordContent(snapshotRecord(this.record)))
+    if (current !== this._record || content !== getRecordDocumentContent(this.record))
       throw new Error(t.analysisJobInvalid);
     this.replaceRecord(imported, { path, markAsSaved: true, skipBackup: true });
   }

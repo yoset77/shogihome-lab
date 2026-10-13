@@ -1,6 +1,10 @@
 import { RecordFileFormat } from "@/common/file/record";
-import { Move, Record, SpecialMoveType } from "tsshogi";
-import { detectUnsupportedRecordProperties, getSiblingBranches } from "@/renderer/helpers/record";
+import { Move, Record, RecordMetadataKey, SpecialMoveType } from "tsshogi";
+import {
+  detectUnsupportedRecordProperties,
+  getRecordDocumentContent,
+  getSiblingBranches,
+} from "@/renderer/helpers/record";
 
 function buildBranchRecord(): Record {
   const record = new Record();
@@ -21,6 +25,57 @@ function buildBranchRecord(): Record {
 }
 
 describe("helpers/record", () => {
+  it("compares document content independently of the current position and selected branches", () => {
+    const record = buildBranchRecord();
+    const content = getRecordDocumentContent(record);
+    record.goto(0);
+    record.resetAllBranchSelection();
+    record.goto(2);
+    expect(getRecordDocumentContent(record)).toBe(content);
+  });
+
+  it.each(["comment", "bookmark", "time", "standardMetadata", "customMetadata", "branch"])(
+    "detects local %s edits",
+    (edit) => {
+      const record = buildBranchRecord();
+      const content = getRecordDocumentContent(record);
+      switch (edit) {
+        case "comment":
+          record.first.comment = "new comment";
+          break;
+        case "bookmark":
+          record.first.bookmark = "new bookmark";
+          break;
+        case "time":
+          record.current.setElapsedMs(1);
+          break;
+        case "standardMetadata":
+          record.metadata.setStandardMetadata(RecordMetadataKey.TITLE, "new title");
+          break;
+        case "customMetadata":
+          record.metadata.setCustomMetadata("custom", "new value");
+          break;
+        case "branch":
+          record.goto(1);
+          record.append(record.position.createMoveByUSI("5c5d")!);
+          break;
+      }
+      expect(getRecordDocumentContent(record)).not.toBe(content);
+    },
+  );
+
+  it("allows fetch-time comparisons to ignore transient search data but checks it before replacement", () => {
+    const record = buildBranchRecord();
+    const full = getRecordDocumentContent(record);
+    const document = getRecordDocumentContent(record, false);
+    record.current.customData = { researchInfo: { depth: 10, score: 20 } };
+    expect(getRecordDocumentContent(record, false)).toBe(document);
+    expect(getRecordDocumentContent(record)).not.toBe(full);
+    const updated = getRecordDocumentContent(record);
+    record.current.customData = { researchInfo: { score: 20, depth: 10 } };
+    expect(getRecordDocumentContent(record)).toBe(updated);
+  });
+
   it("detectUnsupportedRecordProperties", () => {
     const record = new Record();
     expect(detectUnsupportedRecordProperties(record, RecordFileFormat.KIF)).toStrictEqual({

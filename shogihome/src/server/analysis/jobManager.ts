@@ -112,6 +112,7 @@ export class AnalysisJobManager {
     );
     this.jobs.set(job.id, job);
     this.requests.set(request.requestId, { hash, jobId: job.id });
+    this.batchFiles.release(request.planId);
     void job.completion.then(() => this.cleanup());
     job.start();
     return job;

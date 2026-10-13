@@ -247,6 +247,62 @@ describe("analysis job client", () => {
     expect(f.client.createBatch).toHaveBeenCalledOnce();
     expect(f.client.create).not.toHaveBeenCalled();
   });
+
+  it("starts a background batch without snapshotting or locking an oversized current document", async () => {
+    const f = batchFixture();
+    const moves = Array(513).fill("5i6i 5a6a 6i5i 6a5a").join(" ");
+    expect(f.records.importRecord(`position startpos moves ${moves}`)).toBeUndefined();
+    expect(f.records.record.current.ply).toBe(2052);
+    const original = f.records.record;
+    const bind = vi.spyOn(f.records, "beginAnalysis");
+    const backup = vi.spyOn(f.records, "saveBackup");
+    const create = f.client.createBatch.getMockImplementation()!;
+    f.client.createBatch.mockImplementation(async (request) => {
+      expect(f.records.analysisLocked).toBe(false);
+      return create(request);
+    });
+    await expect(f.manager.startBatch(settings, plan, true, true)).resolves.toBeUndefined();
+    expect(bind).not.toHaveBeenCalled();
+    expect(backup).not.toHaveBeenCalled();
+    expect(f.client.createBatch).toHaveBeenCalledOnce();
+    expect(f.client.createBatch.mock.calls[0][0]).not.toHaveProperty("source");
+    expect(f.records.record).toBe(original);
+    expect(f.records.analysisLocked).toBe(false);
+    expect(f.records.unsaved).toBe(true);
+  });
+
+  it("retries an uncertain background batch creation without binding the current document", async () => {
+    const f = batchFixture();
+    const moves = Array(513).fill("5i6i 5a6a 6i5i 6a5a").join(" ");
+    expect(f.records.importRecord(`position startpos moves ${moves}`)).toBeUndefined();
+    const original = f.records.record;
+    const bind = vi.spyOn(f.records, "beginAnalysis");
+    f.client.createBatch.mockRejectedValueOnce(new TypeError("lost creation request"));
+    f.client.byRequest.mockRejectedValueOnce(new ApiResponseError(410, "not accepted"));
+    await f.manager.startBatch(settings, plan, true, true);
+    expect(f.records.analysisLocked).toBe(false);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(f.client.createBatch).toHaveBeenCalledTimes(2);
+    expect(f.client.createBatch.mock.calls[1][0]).toEqual(f.client.createBatch.mock.calls[0][0]);
+    expect(f.client.attach).not.toHaveBeenCalled();
+    expect(bind).not.toHaveBeenCalled();
+    expect(f.records.record).toBe(original);
+    expect(f.records.analysisLocked).toBe(false);
+    expect(f.error).not.toHaveBeenCalled();
+  });
+
+  it("releases rejected background batch creation without touching the current document", async () => {
+    const f = batchFixture();
+    const original = f.records.record;
+    const bind = vi.spyOn(f.records, "beginAnalysis");
+    f.client.createBatch.mockRejectedValueOnce(new ApiResponseError(400, "invalid plan"));
+    await expect(f.manager.startBatch(settings, plan, true, true)).rejects.toThrow("invalid plan");
+    expect(bind).not.toHaveBeenCalled();
+    expect(f.manager.isActive).toBe(false);
+    expect(f.manager.hasRetainedJob).toBe(false);
+    expect(f.records.record).toBe(original);
+    expect(f.records.analysisLocked).toBe(false);
+  });
   it("backs up an unsaved document before an attached batch can modify server files", async () => {
     const f = batchFixture();
     f.records.updateComment("unsaved draft");

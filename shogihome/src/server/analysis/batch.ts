@@ -18,8 +18,10 @@ import { JobAttachment } from "@/server/jobs/attachment";
 import type { JobBinding } from "@/common/jobs/types";
 import { HttpError } from "@/server/errors";
 import { t } from "@/common/i18n";
-import { AnalysisJob, ANALYSIS_MAX_RUNTIME_MS } from "./job";
+import { AnalysisJob } from "./job";
 import { BatchAnalysisFiles, BatchFileError } from "./files";
+
+export const BATCH_ANALYSIS_MAX_RUNTIME_MS = 14 * 24 * 60 * 60 * 1000;
 
 export class BatchAnalysisJob {
   readonly attachment = new JobAttachment();
@@ -149,7 +151,7 @@ export class BatchAnalysisJob {
     const deadline = setTimeout(() => {
       this.error = "deadline";
       this.cancel();
-    }, ANALYSIS_MAX_RUNTIME_MS);
+    }, BATCH_ANALYSIS_MAX_RUNTIME_MS);
     try {
       const adapter: ResearchEngine = {
         launch: async (config, timeout, signal) => {
