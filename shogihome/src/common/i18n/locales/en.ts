@@ -1002,6 +1002,8 @@ export const en: Texts = {
   jobsAttached: "Attached",
   jobsDetached: "Detached",
   jobsProgress: "Progress",
+  jobsProgressGames: (n, total) => `${n} / ${total} games`,
+  jobsProgressMoves: (n, total) => `${n} / ${total} moves`,
   jobsState: "State",
   jobsAnalysis: "Record analysis",
   jobsGame: "Engine game",

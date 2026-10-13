@@ -912,6 +912,10 @@ export type Texts = {
   jobsAttached: string;
   jobsDetached: string;
   jobsProgress: string;
+  /** Format job progress in games (engine game or batch analysis). */
+  jobsProgressGames: (n: number, total: number) => string;
+  /** Format job progress in moves (record analysis). */
+  jobsProgressMoves: (n: number, total: number) => string;
   jobsState: string;
   jobsAnalysis: string;
   jobsGame: string;

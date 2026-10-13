@@ -10,7 +10,6 @@ import {
   normalizeBatchAnalysisSettings,
 } from "@/common/settings/batch_analysis";
 import { requestFor } from "@/tests/server/helpers/analysis";
-import { decodeJobList } from "@/common/jobs/types";
 describe("batch analysis protocol", () => {
   const input = {
     requestId: "request",
@@ -68,24 +67,5 @@ describe("batch analysis protocol", () => {
         skippedTotal: 0,
       }),
     ).toThrow();
-  });
-  it("validates position progress in discoverable batch summaries", () => {
-    const summary = {
-      kind: "analysis",
-      id: "job",
-      requestId: "request",
-      serverInstanceId: "server",
-      createdAt: 1,
-      state: "running",
-      engines: ["Test"],
-      completed: 1,
-      total: 2,
-      attachment: { epoch: 0, attached: false },
-      positionProgress: { completed: 2, total: 3 },
-    };
-    expect(decodeJobList([summary]).ok).toBe(true);
-    expect(decodeJobList([{ ...summary, positionProgress: { completed: 4, total: 3 } }]).ok).toBe(
-      false,
-    );
   });
 });

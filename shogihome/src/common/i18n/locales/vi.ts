@@ -989,6 +989,8 @@ export const vi: Texts = {
   jobsAttached: "Đã kết nối",
   jobsDetached: "Đã ngắt kết nối",
   jobsProgress: "Tiến độ",
+  jobsProgressGames: (n, total) => `${n} / ${total} ván`,
+  jobsProgressMoves: (n, total) => `${n} / ${total} nước đi`,
   jobsState: "Trạng thái",
   jobsAnalysis: "Phân tích kỳ phổ",
   jobsGame: "Ván đấu với máy tính",

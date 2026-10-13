@@ -27,9 +27,6 @@
                 <button v-if="job.batch" @click="resultsJob = job.id">
                   {{ t.batchAnalysisDetails }}
                 </button>
-                <button v-if="job.batch && !terminal(job)" @click="onCancelJob(job)">
-                  {{ t.stopAnalysis }}
-                </button>
               </span>
             </div>
             <div class="form-item">
@@ -38,15 +35,14 @@
             </div>
             <div class="form-item">
               <span class="form-item-label">{{ t.jobsProgress }}</span>
-              <span>{{ job.completed }} / {{ job.total }}</span>
+              <span>{{
+                job.batch || job.kind === "game"
+                  ? t.jobsProgressGames(job.completed, job.total)
+                  : t.jobsProgressMoves(job.completed, job.total)
+              }}</span>
             </div>
             <div>{{ job.engines.join(" / ") }}</div>
             <template v-if="job.batch">
-              <div>{{ job.batch.currentPath }}</div>
-              <div v-if="job.positionProgress">
-                {{ t.recordAnalysis }}: {{ job.positionProgress.completed }} /
-                {{ job.positionProgress.total }}
-              </div>
               <div>
                 {{
                   t.batchAnalysisSummary(
@@ -90,10 +86,6 @@ import BatchAnalysisResultsDialog from "./BatchAnalysisResultsDialog.vue";
 const store = useStore();
 const list = reactive(new JobListManager());
 const resultsJob = ref<string>();
-const onCancelJob = async (job: JobSummary) => {
-  await store.cancelAnalysisJob(job);
-  void list.refresh();
-};
 const states: Record<JobSummary["state"], string> = {
   preparing: t.jobsStatePreparing,
   running: t.jobsStateRunning,

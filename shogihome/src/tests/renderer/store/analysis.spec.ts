@@ -203,43 +203,6 @@ describe("analysis job client", () => {
       }),
     );
   });
-  it("cancels a discovered background batch without replacing or locking the current document", async () => {
-    const f = batchFixture();
-    await f.manager.startBatch(settings, plan, true, true);
-    f.records.updateComment("keep my draft");
-    const original = f.records.record;
-    await f.manager.cancelListed(f.summary(), async () => true);
-    expect(f.client.cancel).toHaveBeenCalledOnce();
-    expect(f.client.detach).toHaveBeenCalledOnce();
-    expect(f.records.record).toBe(original);
-    expect(f.records.analysisLocked).toBe(false);
-    expect(f.client.source).not.toHaveBeenCalled();
-  });
-  it("requires takeover confirmation to cancel a batch owned by another screen", async () => {
-    const f = batchFixture();
-    await f.manager.startBatch(settings, plan, true, true);
-    f.status.attachment = { attached: true, epoch: 2 };
-    await f.manager.cancelListed(f.summary(), async () => false);
-    expect(f.client.attach).not.toHaveBeenCalled();
-    expect(f.client.cancel).not.toHaveBeenCalled();
-  });
-  it("keeps uncertain background cancellations in the operation journal for later reconciliation", async () => {
-    const f = batchFixture();
-    await f.manager.startBatch(settings, plan, true, true);
-    f.client.cancel.mockRejectedValueOnce(new TypeError("lost cancellation response"));
-    await expect(f.manager.cancelListed(f.summary(), async () => true)).rejects.toThrow(
-      "lost cancellation response",
-    );
-    const entries = Object.keys(localStorage)
-      .filter((key) => key.startsWith("shogihome-job-journal:analysis:"))
-      .map((key) => JSON.parse(localStorage.getItem(key)!));
-    expect(entries.some((ref) => ref.cancelRequested && ref.cancelBinding)).toBe(true);
-    f.client.cancelOutcome.mockResolvedValueOnce({ state: "accepted" });
-    await f.manager.reconcilePending();
-    expect(
-      Object.keys(localStorage).filter((key) => key.startsWith("shogihome-job-journal:analysis:")),
-    ).toHaveLength(0);
-  });
   it("does not validate or send the unrelated current document when creating a batch", async () => {
     const f = batchFixture();
     f.records.updateComment("x".repeat(65_537));

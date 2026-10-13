@@ -139,15 +139,7 @@ export class AnalysisJobManager {
         engines: [status.engineName || job.request.options.engineId],
         completed: status.batch?.processedFiles ?? status.completedPositions,
         total: status.batch?.totalFiles ?? status.totalPositions,
-        ...(status.batch
-          ? {
-              batch: status.batch,
-              positionProgress: {
-                completed: status.completedPositions,
-                total: status.totalPositions,
-              },
-            }
-          : {}),
+        ...(status.batch ? { batch: status.batch } : {}),
         attachment: job.attachment.status(),
       };
     });
