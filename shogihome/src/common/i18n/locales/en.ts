@@ -873,7 +873,6 @@ export const en: Texts = {
   noKifuFoundCheckKifuDir: "No kifu found. Please check if KIFU_DIR is configured correctly.",
 
   enterFileName: "Please enter file name",
-  loadFromServer: "Open from Server",
   saveToServer: "Save to Server",
   upload: "Upload",
   uploadDestination: "Upload destination",

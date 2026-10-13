@@ -153,4 +153,14 @@ describe("responsive desktop dialog styles", () => {
 
     expect(source).toMatch(/\.path-input input \{[^}]*min-width: 0;/);
   });
+
+  it("keeps AnalysisDialog labels inline on mobile", () => {
+    const source = readFileSync("src/renderer/view/dialog/AnalysisDialog.vue", "utf-8");
+
+    // The mobile label rule narrows the width instead of stacking labels on their own line.
+    expect(source).toMatch(
+      /@media \(max-width: 480px\) \{[^}]*\.form-item-label-wide \{\s*width: 120px;/,
+    );
+    expect(source).not.toMatch(/\.form-item-label-wide \{[^}]*display: block/);
+  });
 });

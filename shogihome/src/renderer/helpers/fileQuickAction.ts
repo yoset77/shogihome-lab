@@ -34,7 +34,7 @@ const actions: Record<FileQuickAction, Action> = {
     },
   },
   [FileQuickAction.LOAD_FROM_SERVER]: {
-    label: () => t.loadFromServer,
+    label: () => t.serverKifu,
     icon: IconType.BATCH,
     enabled: (store) => !isNative() && store.isServerSideKifuEnabled && inNormalState(store),
     execute: (store) => {

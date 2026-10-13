@@ -57,7 +57,7 @@ describe("PC file quick action", () => {
     expect(quickButton.text()).toBe(t.puzzles);
     settings.fileQuickAction = FileQuickAction.LOAD_FROM_SERVER;
     await nextTick();
-    expect(quickButton.text()).toBe(t.loadFromServer);
+    expect(quickButton.text()).toBe(t.serverKifu);
     await quickButton.trigger("click");
     expect(store.showServerKifuDialog).toHaveBeenCalledOnce();
 
@@ -93,9 +93,7 @@ describe("PC file quick action", () => {
   it("shows server opening disabled on PC without KIFU_DIR and enables it when available", async () => {
     store.isServerSideKifuEnabled = false;
     const wrapper = shallowMount(FileMenu);
-    const serverButton = wrapper
-      .findAll("button")
-      .find((button) => button.text() === t.loadFromServer);
+    const serverButton = wrapper.findAll("button").find((button) => button.text() === t.serverKifu);
 
     expect(serverButton).toBeDefined();
     expect(serverButton!.attributes("disabled")).toBeDefined();
@@ -114,9 +112,7 @@ describe("PC file quick action", () => {
     store.isServerSideKifuEnabled = false;
     const wrapper = shallowMount(FileMenu);
 
-    expect(wrapper.findAll("button").some((button) => button.text() === t.loadFromServer)).toBe(
-      false,
-    );
+    expect(wrapper.findAll("button").some((button) => button.text() === t.serverKifu)).toBe(false);
     wrapper.unmount();
   });
 });

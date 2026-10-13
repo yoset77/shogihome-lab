@@ -95,7 +95,7 @@
           @click="onLoadFromServer"
         >
           <Icon :icon="IconType.BATCH" />
-          <div class="label">{{ t.loadFromServer }}</div>
+          <div class="label">{{ t.serverKifu }}</div>
         </button>
         <button
           v-if="!isNative() && store.isServerSideKifuEnabled"
