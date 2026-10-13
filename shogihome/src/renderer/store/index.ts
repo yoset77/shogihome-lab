@@ -1644,23 +1644,6 @@ class Store {
       useBusyState().release();
     }
   }
-  async cancelAnalysisJob(job: JobSummary): Promise<void> {
-    if (
-      job.kind !== "analysis" ||
-      useBusyState().isBusy ||
-      !(await this.confirmJob(t.stopAnalysis))
-    )
-      return;
-    useBusyState().retain();
-    try {
-      await this.analysisManager.cancelListed(job, () => this.confirmJob(t.jobsTakeover));
-    } catch (error) {
-      useErrorStore().add(error);
-    } finally {
-      useBusyState().release();
-    }
-  }
-
   stopAnalysis(): void {
     if (this.appState !== AppState.ANALYSIS) {
       return;

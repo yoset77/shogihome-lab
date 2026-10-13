@@ -989,6 +989,8 @@ export const ja: Texts = {
   jobsAttached: "アタッチ中",
   jobsDetached: "デタッチ中",
   jobsProgress: "進捗",
+  jobsProgressGames: (n, total) => `${n} / ${total} 局`,
+  jobsProgressMoves: (n, total) => `${n} / ${total} 手`,
   jobsState: "状態",
   jobsAnalysis: "棋譜解析",
   jobsGame: "エンジン対局",

@@ -972,6 +972,8 @@ export const zh_tw: Texts = {
   jobsAttached: "已連接",
   jobsDetached: "已分離",
   jobsProgress: "進度",
+  jobsProgressGames: (n, total) => `${n} / ${total} 局`,
+  jobsProgressMoves: (n, total) => `${n} / ${total} 手`,
   jobsState: "狀態",
   jobsAnalysis: "棋譜分析",
   jobsGame: "引擎對局",

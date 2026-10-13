@@ -69,7 +69,7 @@ describe("JobsDialog", () => {
     await flushPromises();
     expect(wrapper.text()).toContain("実行中");
     expect(wrapper.text()).toContain("完了");
-    expect(wrapper.text()).toContain("1 / 3");
+    expect(wrapper.text()).toContain("1 / 3 手");
     expect(wrapper.text()).not.toContain("アタッチ中");
     expect(wrapper.text()).not.toContain("デタッチ中");
     const actions = wrapper.findAll("li button");
@@ -82,13 +82,12 @@ describe("JobsDialog", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     expect(mocks.analysis).toHaveBeenCalledTimes(calls);
   });
-  it("shows both file progress and position progress for a background batch", async () => {
+  it("shows the file progress of a background batch in games", async () => {
     mocks.analysis.mockResolvedValue([
       {
         ...job,
         completed: 2,
         total: 10,
-        positionProgress: { completed: 15, total: 80 },
         batch: {
           totalFiles: 10,
           processedFiles: 2,
@@ -106,9 +105,7 @@ describe("JobsDialog", () => {
     mocks.games.mockResolvedValue([]);
     const wrapper = mountDialog();
     await flushPromises();
-    expect(wrapper.text()).toContain("2 / 10");
-    expect(wrapper.text()).toContain("15 / 80");
-    expect(wrapper.text()).toContain("games/current.kifu");
+    expect(wrapper.text()).toContain("2 / 10 局");
     wrapper.unmount();
   });
 

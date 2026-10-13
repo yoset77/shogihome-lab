@@ -1015,56 +1015,6 @@ export class AnalysisManager {
     return true;
   }
 
-  async cancelListed(job: JobSummary, confirmTakeover: () => Promise<boolean>): Promise<void> {
-    if (
-      this.active &&
-      this.reference?.jobId === job.id &&
-      this.reference.serverInstanceId === job.serverInstanceId
-    ) {
-      this.close();
-      return;
-    }
-    const status = await this.client.status(job.id);
-    if (status.serverInstanceId !== job.serverInstanceId) throw new Error(t.analysisJobExpired);
-    if (isAnalysisTerminal(status.state)) return;
-    if (status.attachment?.attached && !(await confirmTakeover())) return;
-    const ref: Reference = {
-      requestId: job.requestId,
-      serverInstanceId: job.serverInstanceId,
-      jobId: job.id,
-      ownerId: generateSessionId(),
-      cancelRequested: true,
-      cancelRequestId: generateSessionId(),
-    };
-    ref.pendingAttach = {
-      ownerId: ref.ownerId!,
-      epoch: status.attachment?.epoch ?? 0,
-      takeover: status.attachment?.attached ?? false,
-      screenId: SCREEN_ID,
-    };
-    storage.writeJournal(ref);
-    try {
-      ref.binding = await this.client.attach(job.id, ref.pendingAttach);
-      ref.pendingAttach = undefined;
-      storage.forgetOperation(ref, "attachment");
-      ref.cancelBinding = ref.binding;
-      storage.writeJournal(ref);
-      await this.client.cancel(job.id, ref.binding, ref.cancelRequestId);
-      storage.forgetOperation(ref, ref.cancelRequestId!);
-    } finally {
-      if (ref.binding) {
-        storage.writeJournal({
-          ...ref,
-          pendingAttach: undefined,
-          cancelRequested: undefined,
-          pendingDetach: ref.binding,
-        });
-        await this.client.detach(job.id, ref.binding);
-        storage.forgetOperation(ref, "detach");
-      }
-    }
-  }
-
   private async synchronizeBatch(status: AnalysisJobStatus, generation: number): Promise<boolean> {
     const batch = status.batch!;
     if (!batch.recordIndex) return false;
