@@ -51,7 +51,8 @@ export const toEngineConfig = (value: unknown): EngineConfig | null => {
     config.threads = options.Threads;
   }
   const resource = decodeEngineResourceConfig(engine.resource);
-  if (resource.ok && resource.value) config.resource = resource.value;
+  if (!resource.ok) return null;
+  if (resource.value) config.resource = resource.value;
   return config;
 };
 
@@ -64,6 +65,13 @@ export const parseEngineListPayload = (
 } | null => {
   const decoded = decodeEngineDocument(value);
   if (!decoded.ok) return null;
+  // Invalid resource metadata must fail closed, not silently disable accounting.
+  if (
+    decoded.value.engines.some(
+      (entry) => isRecord(entry) && !decodeEngineResourceConfig(entry.resource).ok,
+    )
+  )
+    return null;
   const configs = decoded.value.engines.flatMap((entry: unknown) => {
     const config = toEngineConfig(entry);
     return config && toLanEngineInfo(config) ? [config] : [];

@@ -1012,7 +1012,7 @@ export class GameManager {
         }
       }
       if (snapshot.error && snapshot.error !== "save")
-        this.handlers.error(new Error(gameErrorMessage(snapshot.error)));
+        this.handlers.error(new Error(snapshot.errorMessage || gameErrorMessage(snapshot.error)));
       this.handlers.gameEnd(snapshot.results, snapshot.lastResult ?? SpecialMoveType.INTERRUPT);
     } finally {
       this.finishing = false;

@@ -985,6 +985,10 @@ export const en: Texts = {
   analysisJobDeadline: "The analysis time limit was reached. Partial results have been retained.",
   resourceGroupCapacity: (group, budget, used, cost) =>
     `Resource group "${group}" is at its budget limit. (budget ${budget}, reserved ${used}, requested ${cost})`,
+  resourceThreadsUnavailable: (engine) =>
+    `Cannot resolve Threads for engine "${engine}". Set a manual resource cost in the config editor.`,
+  resourceManualCostRequired: (engine) =>
+    `Set a positive integer manual resource cost for engine "${engine}" in the config editor.`,
   analysisRecover: "Open the retained analysis record? The current record will be replaced.",
   analysisCancelling: "Waiting for analysis cancellation",
   gameInvalid: "Invalid game input or response.",

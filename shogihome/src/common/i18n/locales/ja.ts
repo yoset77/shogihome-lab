@@ -972,6 +972,10 @@ export const ja: Texts = {
   analysisJobDeadline: "解析の実行期限に達しました。途中結果は保持されています。",
   resourceGroupCapacity: (group, budget, used, cost) =>
     `リソースグループ「${group}」の上限に達しました。（予算 ${budget}、使用中 ${used}、追加 ${cost}）`,
+  resourceThreadsUnavailable: (engine) =>
+    `エンジン「${engine}」の Threads を解決できません。設定エディタで消費量を手動指定してください。`,
+  resourceManualCostRequired: (engine) =>
+    `エンジン「${engine}」の消費量を設定エディタで正の整数として手動指定してください。`,
   analysisRecover: "保持されている解析棋譜を開きますか？ 現在の棋譜は置き換えられます。",
   analysisCancelling: "解析の取消を確認中",
   gameInvalid: "対局の入力または応答が不正です。",

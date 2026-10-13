@@ -894,6 +894,8 @@ export type Texts = {
   analysisJobInvalid: string;
   analysisJobDeadline: string;
   resourceGroupCapacity: (group: string, budget: number, used: number, cost: number) => string;
+  resourceThreadsUnavailable: (engine: string) => string;
+  resourceManualCostRequired: (engine: string) => string;
   analysisRecover: string;
   analysisCancelling: string;
   gameInvalid: string;

@@ -95,6 +95,7 @@ export type GameSnapshot = {
   lastMoveId: number;
   lastResult?: SpecialMoveType;
   error?: GameError;
+  errorMessage?: string;
   records: GameRecordSummary[];
 };
 export type GameCommandAction =
@@ -403,6 +404,9 @@ export function decodeGameSnapshot(value: unknown): DecodeResult<GameSnapshot> {
       ...(input.error === undefined
         ? {}
         : { error: v.enumeration(input.error, ["engine", "capacity", "save"] as const) }),
+      ...(input.errorMessage === undefined
+        ? {}
+        : { errorMessage: v.text(input.errorMessage, 2048) }),
       records: v.array(input.records, 10_000).map((value) => {
         const item = v.object(value);
         return {

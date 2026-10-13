@@ -252,7 +252,8 @@ export const decodeEngineResourceConfig = (
   if (value === undefined) return { ok: true, value: undefined };
   if (!isRecord(value)) return { ok: false, error: "invalid engine resource config" };
   const resource: EngineResourceConfig = {};
-  if (value.groupId !== undefined) {
+  // Older editor versions wrote an empty groupId for unmanaged engines.
+  if (value.groupId !== undefined && value.groupId !== "") {
     if (!isValidResourceId(value.groupId)) {
       return { ok: false, error: "invalid engine resource group" };
     }
@@ -269,6 +270,9 @@ export const decodeEngineResourceConfig = (
       return { ok: false, error: "invalid engine resource cost" };
     }
     resource.cost = value.cost;
+  }
+  if (resource.autoThreads === false && resource.cost === undefined) {
+    return { ok: false, error: "manual engine resource cost is required" };
   }
   if (Object.keys(resource).length === 0) return { ok: true, value: undefined };
   return { ok: true, value: resource };

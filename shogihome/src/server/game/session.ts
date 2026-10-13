@@ -108,6 +108,7 @@ export class GameSession {
     close: (code?: number) => void;
   };
   private error?: GameError;
+  private errorMessage?: string;
   private lastResult?: SpecialMoveType;
   private terminal = false;
   private resourceLease?: ResourceLease;
@@ -298,7 +299,9 @@ export class GameSession {
     } catch (error) {
       if (!this.abort.signal.aborted) {
         console.error("Game startup failed", error);
-        this.error = error instanceof HttpError ? "capacity" : "engine";
+        this.error = error instanceof HttpError && error.status === 503 ? "capacity" : "engine";
+        // Only explicitly user-visible errors may cross the protocol boundary.
+        if (error instanceof HttpError) this.errorMessage = error.message;
       }
       this.finish();
     }
@@ -395,6 +398,7 @@ export class GameSession {
       lastMoveId: this.lastMoveId,
       ...(this.lastResult ? { lastResult: this.lastResult } : {}),
       ...(this.error ? { error: this.error } : {}),
+      ...(this.errorMessage ? { errorMessage: this.errorMessage } : {}),
       records: structuredClone(this.summaries),
     };
   }

@@ -18,6 +18,7 @@ import { defaultGameSettings } from "@/common/settings/game";
 import { loadRecordForWebApp } from "@/renderer/store/webapp";
 import { fakeGamePlayer } from "@/tests/server/helpers/game";
 import { useToastStore } from "@/renderer/store/toast";
+import type { GameDependencies } from "@/server/game/session";
 import { t } from "@/common/i18n";
 import api from "@/renderer/ipc/api";
 import { USIMonitor } from "@/renderer/store/usi";
@@ -42,7 +43,7 @@ function storedReference(): string | null {
   return sessionStorage.getItem("shogihome-job-attachment:game");
 }
 
-function setup() {
+function setup(deps: GameDependencies = {}) {
   const fake = fakeGamePlayer();
   const saveRecord = vi.fn(async () => {
     throw new Error("Disk unavailable");
@@ -51,6 +52,7 @@ function setup() {
     playerBuilder: fake.builder,
     saveRecord,
     now: () => Date.now(),
+    ...deps,
   });
   const asHttp = async <T>(call: () => T | Promise<T>): Promise<T> => {
     try {
@@ -205,8 +207,8 @@ function setup() {
 describe("game session client", () => {
   const fixtures: ReturnType<typeof setup>[] = [];
   const extraClients: GameManager[] = [];
-  const fixture = () => {
-    const value = setup();
+  const fixture = (deps: GameDependencies = {}) => {
+    const value = setup(deps);
     fixtures.push(value);
     return value;
   };
@@ -250,6 +252,43 @@ describe("game session client", () => {
     });
     return () => deliver();
   }
+
+  it("displays all budget details from a rejected game startup", async () => {
+    const message = t.resourceGroupCapacity("CPU", 8, 6, 4);
+    const value = fixture({
+      acquireResourceLease: async () => {
+        throw new HttpError(503, message);
+      },
+    });
+    await value.game.start(value.settings);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.error).toHaveBeenCalledWith(expect.objectContaining({ message }));
+  });
+
+  it("displays a manual resource configuration request rather than a generic engine error", async () => {
+    const message = t.resourceThreadsUnavailable("AI");
+    const value = fixture({
+      acquireResourceLease: async () => {
+        throw new HttpError(400, message);
+      },
+    });
+    await value.game.start(value.settings);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.error).toHaveBeenCalledWith(expect.objectContaining({ message }));
+  });
+
+  it("keeps unexpected engine error details private", async () => {
+    const value = fixture({
+      acquireResourceLease: async () => {
+        throw new Error("Private path: /secret/engine");
+      },
+    });
+    await value.game.start(value.settings);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.error).toHaveBeenCalledWith(
+      expect.objectContaining({ message: t.gameEngineError }),
+    );
+  });
 
   it("keeps startup pending until engine readiness, initial position and socket synchronization", async () => {
     const value = fixture();

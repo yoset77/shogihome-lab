@@ -33,11 +33,22 @@ describe("engine list validation", () => {
     expect(toEngineConfig({ id: { nested: true }, name: "bad" })).toBeNull();
     expect(toEngineConfig({ id: "engine-1", name: 123 })).toBeNull();
     expect(toEngineConfig(null)).toBeNull();
-    // Invalid resource settings are dropped silently like other optional fields.
-    expect(toEngineConfig({ id: "e", name: "E", resource: { cost: -1 } })).toEqual({
-      id: "e",
-      name: "E",
-    });
+    expect(toEngineConfig({ id: "e", name: "E", resource: { cost: -1 } })).toBeNull();
+  });
+
+  it.each([
+    { groupId: "g", autoThreads: false, cost: null },
+    { groupId: "g", autoThreads: true, cost: null },
+    { groupId: "g", autoThreads: false },
+  ])("never downgrades an invalid resource assignment to unmanaged: %j", (resource) => {
+    const entry = { id: "test", name: "Test", resource };
+    expect(toEngineConfig(entry)).toBeNull();
+    expect(parseEngineListPayload([entry])).toBeNull();
+  });
+
+  it("keeps old editor entries with an empty group unmanaged", () => {
+    const entry = { id: "test", name: "Test", resource: { groupId: "", autoThreads: true } };
+    expect(parseEngineListPayload([entry])?.configs).toHaveLength(1);
   });
 
   describe("list payload parsing", () => {
