@@ -35,6 +35,11 @@ export interface EngineEntry {
   skipAnalysisDB?: boolean;
   analysisDBGroupId?: string;
   analysisDBGroupName?: string;
+  resource?: {
+    groupId: string;
+    autoThreads: boolean;
+    cost?: number;
+  };
   [key: string]: unknown;
 }
 
@@ -74,8 +79,9 @@ export const api = {
     ),
   migrationStatus: () => invoke<{ needed: boolean; pendingSource: string | null }>("migration_status"),
   migrationRun: (selected: string) => invoke<{ migrated: boolean; reason?: string }>("migration_run", { selected }),
-  editorLoad: () => invoke<{ engines: EngineEntry[] }>("editor_load"),
-  editorSave: (engines: EngineEntry[]) => invoke<void>("editor_save", { engines }),
+  editorLoad: () => invoke<{ engines: EngineEntry[]; resources?: unknown }>("editor_load"),
+  editorSave: (engines: EngineEntry[], resources: unknown) =>
+    invoke<void>("editor_save", { engines, resources }),
   editorBrowse: () => invoke<string | null>("editor_browse"),
   editorProbe: (path: string) => invoke<[number, Record<string, ProbeOptionDef>, string[]]>("editor_probe", { path }),
   editorRefresh: (
@@ -89,4 +95,5 @@ export const api = {
       order,
     }),
   editorProbeCancel: (id: number) => invoke<void>("editor_probe_cancel", { id }),
+  resourceCores: () => invoke<number>("resource_cores"),
 };

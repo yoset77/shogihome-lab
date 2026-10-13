@@ -3,19 +3,25 @@ import type { EngineEntry } from "./api";
 import {
   addGroup,
   applyEngineEdit,
+  collectEngineResource,
   collectOptions,
+  defaultResourceGroup,
   deleteEngineIfConfirmed,
   deleteGroup,
   duplicateEngine,
   generateId,
+  MAX_RESOURCE_BUDGET,
   moveEngine,
   isImeComposingKey,
   normalizeGroupName,
+  normalizeResourceSettings,
   normalizeType,
   ProbeSession,
+  readEngineResource,
   renameGroup,
   uniqueGroups,
   validateRegistry,
+  validateResourceBudget,
 } from "./editor-state";
 
 const engine = (overrides: Partial<EngineEntry> = {}): EngineEntry => ({
@@ -225,5 +231,113 @@ describe("deleteEngineIfConfirmed", () => {
       deleteEngineIfConfirmed(failed, 0, async () => { throw new Error("denied"); }),
     ).resolves.toBe(false);
     expect(failed.map((e) => e.id)).toEqual(["a"]);
+  });
+});
+
+describe("resource settings", () => {
+  it("normalizes saved settings and rejects malformed shapes", () => {
+    expect(normalizeResourceSettings(undefined)).toEqual({ enabled: false, groups: [] });
+    expect(
+      normalizeResourceSettings({
+        enabled: true,
+        groups: [{ id: "local", name: "Local CPU", budget: 16, extra: true }],
+      }),
+    ).toEqual({
+      enabled: true,
+      groups: [{ id: "local", name: "Local CPU", budget: 16, extra: true }],
+    });
+    for (const invalid of [
+      null,
+      { enabled: "yes", groups: [] },
+      { enabled: true, groups: [{ id: "", name: "n", budget: 1 }] },
+      { enabled: true, groups: [{ id: "g", name: "n", budget: 0 }] },
+      { enabled: true, groups: [{ id: "g", name: "n" }] },
+      { enabled: true, groups: "nope" },
+    ]) {
+      expect(normalizeResourceSettings(invalid)).toEqual({ enabled: false, groups: [] });
+    }
+  });
+
+  it("proposes a default local CPU group from the machine's core count", () => {
+    expect(defaultResourceGroup(32, "ja")).toEqual({
+      id: "local-cpu",
+      name: "ローカル CPU",
+      budget: 32,
+    });
+    expect(defaultResourceGroup(0, "en")!.budget).toBe(1);
+    expect(defaultResourceGroup(1_000_000, "en")!.budget).toBe(MAX_RESOURCE_BUDGET);
+  });
+
+  it("collects engine assignments and reports invalid manual costs", () => {
+    const errors: string[] = [];
+    expect(collectEngineResource({ groupId: "", autoThreads: true, cost: 1 }, errors)).toBeUndefined();
+    expect(
+      collectEngineResource({ groupId: "g", autoThreads: true, cost: 0 }, errors),
+    ).toEqual({ groupId: "g", autoThreads: true });
+    expect(errors).toEqual([]);
+    expect(
+      collectEngineResource({ groupId: "g", autoThreads: false, cost: 4 }, errors),
+    ).toEqual({ groupId: "g", autoThreads: false, cost: 4 });
+    expect(
+      collectEngineResource({ groupId: "g", autoThreads: false, cost: 0 }, errors),
+    ).toBeUndefined();
+    expect(errors.length).toBe(1);
+  });
+
+  it("defaults the cost mode to manual for scripts and follows Threads otherwise", () => {
+    expect(readEngineResource({ id: "a", name: "A", path: "run.bat" })).toEqual({
+      groupId: "",
+      autoThreads: false,
+      cost: 1,
+      scriptPath: true,
+    });
+    expect(
+      readEngineResource({
+        id: "a",
+        name: "A",
+        path: "engine.exe",
+        options: { Threads: 8 },
+      }),
+    ).toEqual({ groupId: "", autoThreads: true, cost: 8, scriptPath: false });
+    expect(
+      readEngineResource({
+        id: "a",
+        name: "A",
+        path: "engine.exe",
+        resource: { groupId: "g", autoThreads: false, cost: 3 },
+      }),
+    ).toEqual({ groupId: "g", autoThreads: false, cost: 3, scriptPath: false });
+    // applyEngineEdit carries and clears the resource field.
+    const entry = applyEngineEdit(undefined, {
+      id: "a",
+      name: "A",
+      type: ["game"],
+      path: "engine.exe",
+      options: {},
+      saveAnalysisDB: true,
+      groupId: "",
+      groupName: "",
+      resource: { groupId: "g", autoThreads: true },
+    });
+    expect(entry.resource).toEqual({ groupId: "g", autoThreads: true });
+    const cleared = applyEngineEdit(entry, {
+      id: "a",
+      name: "A",
+      type: ["game"],
+      path: "engine.exe",
+      options: {},
+      saveAnalysisDB: true,
+      groupId: "",
+      groupName: "",
+    });
+    expect(cleared.resource).toBeUndefined();
+  });
+
+  it("validates group budget inputs", () => {
+    expect(validateResourceBudget("16")).toBe(16);
+    expect(validateResourceBudget("0")).toBeUndefined();
+    expect(validateResourceBudget("-1")).toBeUndefined();
+    expect(validateResourceBudget("1.5")).toBeUndefined();
+    expect(validateResourceBudget("100001")).toBeUndefined();
   });
 });

@@ -1,5 +1,6 @@
 // Pure config-editor state logic (no DOM). Unit-tested with vitest.
 import type { EngineEntry } from "./api";
+import type { Lang } from "./i18n";
 
 export const ENGINE_TYPES = ["game", "research", "mate"] as const;
 
@@ -132,6 +133,112 @@ export interface OptionRow {
   max?: number;
 }
 
+// engines.json v2: resource budget settings.
+export interface ResourceGroup {
+  id: string;
+  name: string;
+  budget: number;
+}
+
+export interface ResourceSettings {
+  enabled: boolean;
+  groups: ResourceGroup[];
+}
+
+export interface EngineResourceSetting {
+  groupId: string;
+  autoThreads: boolean;
+  cost?: number;
+}
+
+export const MIN_RESOURCE_BUDGET = 1;
+export const MAX_RESOURCE_BUDGET = 100_000;
+
+export function isResourceSettings(value: unknown): value is ResourceSettings {
+  return (
+    isObject(value) &&
+    typeof value.enabled === "boolean" &&
+    Array.isArray(value.groups) &&
+    value.groups.every(isResourceGroup)
+  );
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isResourceGroup(value: unknown): value is ResourceGroup {
+  return (
+    isObject(value) &&
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.name === "string" &&
+    typeof value.budget === "number" &&
+    Number.isInteger(value.budget) &&
+    value.budget >= MIN_RESOURCE_BUDGET &&
+    value.budget <= MAX_RESOURCE_BUDGET
+  );
+}
+
+/** Sanitize an engines.json `resources` value into editor state. */
+export function normalizeResourceSettings(value: unknown): ResourceSettings {
+  if (!isResourceSettings(value)) return { enabled: false, groups: [] };
+  return { enabled: value.enabled, groups: value.groups.map((group) => ({ ...group })) };
+}
+
+/** Default local CPU group, proposed from the editor machine's core count. */
+export function defaultResourceGroup(cores: number, lang: Lang): ResourceGroup {
+  return {
+    id: "local-cpu",
+    name: lang === "ja" ? "ローカル CPU" : "Local CPU",
+    budget: clampResourceBudget(cores),
+  };
+}
+
+function clampResourceBudget(value: number): number {
+  if (!Number.isFinite(value)) return MIN_RESOURCE_BUDGET;
+  return Math.min(MAX_RESOURCE_BUDGET, Math.max(MIN_RESOURCE_BUDGET, Math.round(value)));
+}
+
+/** Windows/Unix launch scripts must default to a manual cost. */
+export function isLikelyScriptPath(path: string): boolean {
+  return /\.(bat|cmd|sh|ps1)$/i.test(path.trim());
+}
+
+export interface EngineResourcePatch {
+  groupId: string;
+  autoThreads: boolean;
+  cost: number;
+}
+
+/**
+ * Build the engine's `resource` field from the modal. Manual mode requires
+ * a valid cost; an invalid one is reported through `errors` and left unset.
+ */
+export function collectEngineResource(
+  patch: EngineResourcePatch,
+  errors: string[],
+): EngineResourceSetting | undefined {
+  if (!patch.groupId) return undefined;
+  if (patch.autoThreads) return { groupId: patch.groupId, autoThreads: true };
+  const cost = Number(patch.cost);
+  if (!Number.isInteger(cost) || cost < MIN_RESOURCE_BUDGET || cost > MAX_RESOURCE_BUDGET) {
+    errors.push(String(patch.cost));
+    return undefined;
+  }
+  return { groupId: patch.groupId, autoThreads: false, cost };
+}
+
+/** Validate one editable budget input; returns the clamped value or undefined. */
+export function validateResourceBudget(raw: string): number | undefined {
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < MIN_RESOURCE_BUDGET || value > MAX_RESOURCE_BUDGET) {
+    return undefined;
+  }
+  return value;
+}
+
+
 /** Collect option rows into an engines.json `options` object, validating ranges. */
 export function collectOptions(rows: OptionRow[]): { options: Record<string, string | number | boolean>; errors: string[] } {
   const options: Record<string, string | number | boolean> = {};
@@ -163,6 +270,7 @@ export interface EngineEditPatch {
   saveAnalysisDB: boolean;
   groupId: string;
   groupName: string;
+  resource?: EngineResourceSetting;
 }
 
 /**
@@ -178,6 +286,11 @@ export function applyEngineEdit(original: EngineEntry | undefined, patch: Engine
   entry.type = patch.type;
   entry.path = patch.path;
   entry.options = patch.options;
+  if (patch.resource) {
+    entry.resource = patch.resource;
+  } else {
+    delete entry.resource;
+  }
   if (patch.saveAnalysisDB) {
     delete entry.skipAnalysisDB;
   } else {
@@ -195,6 +308,33 @@ export function applyEngineEdit(original: EngineEntry | undefined, patch: Engine
     delete entry.analysisDBGroupName;
   }
   return entry;
+}
+
+/** Read one engine's saved resource assignment for the modal, with defaults. */
+export function readEngineResource(entry: EngineEntry | undefined): EngineResourcePatch & { scriptPath: boolean } {
+  const resource = entry?.resource;
+  const scriptPath = entry ? isLikelyScriptPath(entry.path ?? "") : false;
+  const autoThreads = resource?.autoThreads ?? !scriptPath;
+  const threadsLinkedCost = readThreadsLinkedCost(entry);
+  return {
+    // Scripts launch unknown processes: default to manual cost there.
+    groupId: resource?.groupId ?? "",
+    autoThreads,
+    cost: resource?.autoThreads === false ? (resource?.cost ?? 1) : (threadsLinkedCost ?? 1),
+    scriptPath,
+  };
+}
+
+/** Threads value linked to the engine's own option, when present. */
+export function readThreadsLinkedCost(entry: EngineEntry | undefined): number | undefined {
+  const value = entry?.options?.["Threads"];
+  return typeof value === "number" && value >= 1 ? value : undefined;
+}
+
+/** Rough logical core count of the machine running the editor. */
+export function editorCoreCountFallback(): number {
+  const hardware = typeof navigator !== "undefined" ? navigator.hardwareConcurrency : undefined;
+  return hardware && hardware >= 1 ? hardware : 1;
 }
 
 /**

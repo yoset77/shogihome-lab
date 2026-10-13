@@ -177,7 +177,7 @@ pub fn normalize_engine_entry(
         return Err(invalid("engine path cannot be empty".to_string()));
     }
     let mut out = serde_json::Map::new();
-    // Preserve unknown fields (DB group metadata, future keys).
+    // Preserve unknown fields (DB group metadata, resource config, future keys).
     for (k, v) in obj {
         out.insert(k.clone(), v.clone());
     }
@@ -225,21 +225,166 @@ pub fn normalize_engine_entry(
             return Err(invalid("field 'options' must be an object".to_string()));
         }
     }
+    validate_engine_resource(obj, &out)?;
     Ok(serde_json::Value::Object(out))
+}
+
+pub const MAX_RESOURCE_BUDGET: i64 = 100_000;
+
+fn invalid_resource(message: &str) -> LauncherError {
+    LauncherError::Engines(format!("invalid resource budget: {message}"))
+}
+
+/// Validate one engine's `resource` assignment. Unknown fields are
+/// preserved by the caller's copy; this only checks known shapes and drops
+/// an explicit null cost.
+fn validate_engine_resource(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    _out: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), LauncherError> {
+    let Some(resource) = obj.get("resource") else {
+        return Ok(());
+    };
+    let Some(resource) = resource.as_object() else {
+        return Err(invalid_resource("'resource' must be an object"));
+    };
+    if let Some(group) = resource.get("groupId") {
+        if !group.is_string() {
+            return Err(invalid_resource("'resource.groupId' must be a string"));
+        }
+    }
+    if let Some(auto) = resource.get("autoThreads") {
+        if !auto.is_boolean() {
+            return Err(invalid_resource("'resource.autoThreads' must be a boolean"));
+        }
+    }
+    if let Some(cost) = resource.get("cost") {
+        if cost.is_null() {
+            return Ok(());
+        }
+        if !cost.is_number()
+            || !cost
+                .as_i64()
+                .is_some_and(|v| (1..=MAX_RESOURCE_BUDGET).contains(&v))
+        {
+            return Err(invalid_resource(
+                "'resource.cost' must be an integer within 1..=100000",
+            ));
+        }
+    }
+    // Manual mode requires an explicit cost.
+    if resource.get("autoThreads") == Some(&serde_json::Value::Bool(false))
+        && resource.get("cost").is_none()
+    {
+        return Err(invalid_resource(
+            "manual resource mode requires 'resource.cost'",
+        ));
+    }
+    Ok(())
+}
+
+pub const RESOURCE_GROUP_ID_MAX_BYTES: usize = 100;
+
+/// Validate the `resources` section. Unknown keys are preserved.
+pub fn validate_resources(value: &serde_json::Value) -> Result<serde_json::Value, LauncherError> {
+    if value.is_null() {
+        return Ok(serde_json::json!({ "enabled": false, "groups": [] }));
+    }
+    let obj = value
+        .as_object()
+        .ok_or_else(|| invalid_resource("'resources' must be an object"))?;
+    let enabled = match obj.get("enabled") {
+        None => false,
+        Some(v) if v.is_boolean() => v.as_bool().unwrap(),
+        Some(_) => return Err(invalid_resource("'resources.enabled' must be a boolean")),
+    };
+    let mut groups = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    if let Some(list) = obj.get("groups") {
+        let list = list
+            .as_array()
+            .ok_or_else(|| invalid_resource("'resources.groups' must be an array"))?;
+        for group in list {
+            let group = group
+                .as_object()
+                .ok_or_else(|| invalid_resource("each resource group must be an object"))?;
+            let id = group
+                .get("id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| invalid_resource("resource group 'id' is required"))?;
+            if id.trim().is_empty() || id.len() > RESOURCE_GROUP_ID_MAX_BYTES {
+                return Err(invalid_resource("resource group 'id' must not be empty"));
+            }
+            if !seen.insert(id.to_string()) {
+                return Err(invalid_resource(&format!(
+                    "duplicate resource group id '{id}'"
+                )));
+            }
+            group
+                .get("name")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| invalid_resource("resource group 'name' is required"))?;
+            let budget = group
+                .get("budget")
+                .and_then(|v| v.as_i64())
+                .ok_or_else(|| invalid_resource("resource group 'budget' must be an integer"))?;
+            if !(1..=MAX_RESOURCE_BUDGET).contains(&budget) {
+                return Err(invalid_resource(
+                    "resource group 'budget' must be within 1..=100000",
+                ));
+            }
+            groups.push(serde_json::Value::Object(group.clone()));
+        }
+    }
+    // Rebuild canonical fields but keep unknown keys of each group.
+    let mut out = serde_json::Map::new();
+    for (k, v) in obj {
+        out.insert(k.clone(), v.clone());
+    }
+    out.insert("enabled".to_string(), serde_json::Value::Bool(enabled));
+    out.insert("groups".to_string(), serde_json::Value::Array(groups));
+    Ok(serde_json::Value::Object(out))
+}
+
+/// The full registry document: engine entries plus optional resource
+/// settings. `resources` is `None` for a legacy array root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EngineDocument {
+    pub engines: Vec<serde_json::Value>,
+    pub resources: Option<serde_json::Value>,
 }
 
 /// Validate a full engines document (load AND save paths).
 ///
 /// Engine `id`s must be unique: a colliding edit would otherwise silently
 /// shadow an existing engine at runtime (the wrapper resolves by id).
-pub fn validate_engines(data: &serde_json::Value) -> Result<Vec<serde_json::Value>, LauncherError> {
-    let arr = data
-        .as_array()
-        .ok_or_else(|| LauncherError::Engines("root must be a list".to_string()))?;
-    let mut engines = Vec::with_capacity(arr.len());
+/// The root may be the legacy array or the v2 `{resources, engines}` object.
+pub fn validate_engines(data: &serde_json::Value) -> Result<EngineDocument, LauncherError> {
+    let (engines, resources): (Vec<serde_json::Value>, Option<serde_json::Value>) =
+        if data.is_array() {
+            (data.as_array().unwrap().clone(), None)
+        } else if let Some(obj) = data.as_object() {
+            let engines = obj
+                .get("engines")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| {
+                    LauncherError::Engines("object root must contain 'engines' array".to_string())
+                })?
+                .clone();
+            let resources = match obj.get("resources") {
+                None => None,
+                Some(v) => Some(validate_resources(v)?),
+            };
+            (engines, resources)
+        } else {
+            return Err(LauncherError::Engines(
+                "root must be an array or an object with 'engines'".to_string(),
+            ));
+        };
+    let mut normalized = Vec::with_capacity(engines.len());
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for entry in arr {
-        let engine = normalize_engine_entry(entry)?;
+    for entry in engines {
+        let engine = normalize_engine_entry(&entry)?;
         let id = engine
             .get("id")
             .and_then(|v| v.as_str())
@@ -250,15 +395,21 @@ pub fn validate_engines(data: &serde_json::Value) -> Result<Vec<serde_json::Valu
                 "duplicate engine id '{id}'"
             )));
         }
-        engines.push(engine);
+        normalized.push(engine);
     }
-    Ok(engines)
+    Ok(EngineDocument {
+        engines: normalized,
+        resources,
+    })
 }
 
 /// Load + validate `engines.json`. Missing file → empty list.
-pub fn load_engines_file(path: &Path) -> Result<Vec<serde_json::Value>, LauncherError> {
+pub fn load_engines_file(path: &Path) -> Result<EngineDocument, LauncherError> {
     if !path.exists() {
-        return Ok(Vec::new());
+        return Ok(EngineDocument {
+            engines: Vec::new(),
+            resources: None,
+        });
     }
     let content = std::fs::read_to_string(path)
         .map_err(|e| LauncherError::io(format!("reading {}", path.display()), e))?;
@@ -273,15 +424,50 @@ pub fn load_engines_file(path: &Path) -> Result<Vec<serde_json::Value>, Launcher
 /// concurrent editor sessions (launcher-embedded and standalone
 /// `--config-editor`) cannot truncate each other's file. Last writer still
 /// wins, but the registry is never left half-written.
-pub fn save_engines_file(path: &Path, data: &serde_json::Value) -> Result<(), LauncherError> {
-    let engines = validate_engines(data)?;
+///
+/// The root format is preserved: object roots (resource budgets active)
+/// round-trip, while plain registries stay a bare array so older engine-side
+/// tools keep reading the file.
+pub fn save_engines_file(document: &EngineDocument, path: &Path) -> Result<(), LauncherError> {
+    let data: serde_json::Value = if document.resources.is_some() {
+        let mut obj = serde_json::Map::new();
+        obj.insert("resources".to_string(), document.resources.clone().unwrap());
+        obj.insert(
+            "engines".to_string(),
+            serde_json::Value::Array(document.engines.clone()),
+        );
+        serde_json::Value::Object(obj)
+    } else {
+        serde_json::Value::Array(document.engines.clone())
+    };
+    // The save path validates and normalizes again: entries are canonical,
+    // ids are unique, and the resource section is well-formed.
+    let document = validate_engines(&data)?;
+    let legacy = document.resources.is_none()
+        || document.resources.as_ref().is_some_and(|r| {
+            r.get("enabled").and_then(|v| v.as_bool()) != Some(true)
+                && r.get("groups")
+                    .and_then(|v| v.as_array())
+                    .is_none_or(Vec::is_empty)
+        });
+    let data: serde_json::Value = if legacy {
+        serde_json::Value::Array(document.engines)
+    } else {
+        let mut obj = serde_json::Map::new();
+        obj.insert("resources".to_string(), document.resources.unwrap());
+        obj.insert(
+            "engines".to_string(),
+            serde_json::Value::Array(document.engines),
+        );
+        serde_json::Value::Object(obj)
+    };
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| LauncherError::io(format!("creating {}", parent.display()), e))?;
         }
     }
-    let content = serde_json::to_string_pretty(&engines)
+    let content = serde_json::to_string_pretty(&data)
         .map_err(|e| LauncherError::json("serializing engines.json".to_string(), e))?;
     shogihome_env_file::write_atomic(path, content.as_bytes())
         .map_err(|e| LauncherError::io(format!("writing {}", path.display()), e))
@@ -615,7 +801,9 @@ mod tests {
             {"id": "a", "name": "A", "path": "x", "type": "both", "options": {"Threads": 4}},
             {"id": "b", "name": "B", "path": "y", "type": ["game"]},
         ]);
-        let engines = validate_engines(&data).unwrap();
+        let document = validate_engines(&data).unwrap();
+        assert!(document.resources.is_none());
+        let engines = &document.engines;
         assert_eq!(
             engines[0]["type"],
             serde_json::json!(["game", "mate", "research"])
@@ -634,9 +822,58 @@ mod tests {
         .is_err());
         // Unknown fields survive.
         let data = serde_json::json!([{"id": "a", "name": "A", "path": "x", "skipAnalysisDB": true, "custom": 1}]);
-        let engines = validate_engines(&data).unwrap();
+        let engines = validate_engines(&data).unwrap().engines;
         assert_eq!(engines[0]["skipAnalysisDB"], serde_json::json!(true));
         assert_eq!(engines[0]["custom"], serde_json::json!(1));
+        // A resource assignment round-trips and validates.
+        let managed = serde_json::json!([{
+            "id": "a", "name": "A", "path": "x",
+            "resource": {"groupId": "g", "autoThreads": true},
+        }]);
+        let engines = validate_engines(&managed).unwrap().engines;
+        assert_eq!(engines[0]["resource"], managed[0]["resource"]);
+        assert!(validate_engines(&serde_json::json!([{
+            "id": "a", "name": "A", "path": "x",
+            "resource": {"groupId": "g", "autoThreads": false, "cost": 0},
+        }]))
+        .is_err());
+        assert!(validate_engines(&serde_json::json!([{
+            "id": "a", "name": "A", "path": "x",
+            "resource": {"groupId": "g", "autoThreads": false},
+        }]))
+        .is_err());
+    }
+
+    #[test]
+    fn v2_document_roots_and_resource_sections() {
+        let document = serde_json::json!({
+            "resources": {
+                "enabled": true,
+                "groups": [
+                    {"id": "local", "name": "Local CPU", "budget": 8},
+                    {"id": "remote", "name": "Remote", "budget": 4, "custom": true},
+                ],
+            },
+            "engines": [{"id": "a", "name": "A", "path": "x"}],
+        });
+        let document = validate_engines(&document).unwrap();
+        let resources = document.resources.unwrap();
+        assert_eq!(resources["enabled"], serde_json::json!(true));
+        assert_eq!(resources["groups"][0]["budget"], serde_json::json!(8));
+        // Unknown group keys survive the round-trip.
+        assert_eq!(resources["groups"][1]["custom"], serde_json::json!(true));
+        // Invalid budget / duplicate ids / bad enabled flag fail.
+        for resources in [
+            serde_json::json!({"enabled": true, "groups": [{"id": "g", "name": "G", "budget": 0}]}),
+            serde_json::json!({"enabled": true, "groups": [{"id": "g", "name": "G", "budget": 1}, {"id": "g", "name": "G", "budget": 1}]}),
+            serde_json::json!({"enabled": "yes"}),
+        ] {
+            let data = serde_json::json!({"resources": resources, "engines": []});
+            assert!(validate_engines(&data).is_err(), "{resources}");
+        }
+        // Legacy array and empty document still validate.
+        assert!(validate_engines(&serde_json::json!([])).is_ok());
+        assert!(validate_engines(&serde_json::json!({"resources": null, "engines": []})).is_ok());
     }
 
     #[test]
@@ -658,7 +895,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ed-dup-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("engines.json");
-        assert!(save_engines_file(&path, &dup).is_err());
+        assert!(save_engines_file(
+            &EngineDocument {
+                engines: dup.as_array().unwrap().clone(),
+                resources: None
+            },
+            &path
+        )
+        .is_err());
         assert!(!path.exists());
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -669,8 +913,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("engines.json");
         let data = serde_json::json!([{"id": "a", "name": "A", "path": "x", "type": "both"}]);
-        save_engines_file(&path, &data).unwrap();
-        save_engines_file(&path, &data).unwrap();
+        let document = || EngineDocument {
+            engines: data.as_array().unwrap().clone(),
+            resources: None,
+        };
+        save_engines_file(&document(), &path).unwrap();
+        save_engines_file(&document(), &path).unwrap();
         // No temporary file may survive successful saves. Unique tmp names
         // carry suffixes (`.tmp.1`, …), so anything but the registry itself
         // counts as a leftover.
@@ -683,10 +931,28 @@ mod tests {
         assert_eq!(names, vec!["engines.json".to_string()]);
         let loaded = load_engines_file(&path).unwrap();
         assert_eq!(
-            loaded[0]["type"],
+            loaded.engines[0]["type"],
             serde_json::json!(["game", "mate", "research"])
         );
-        assert!(save_engines_file(&path, &serde_json::json!([{"id": "a"}])).is_err());
+        assert!(loaded.resources.is_none());
+        // A disabled-but-defined resource section keeps the object root.
+        let managed = EngineDocument {
+            engines: data.as_array().unwrap().clone(),
+            resources: Some(serde_json::json!({
+                "enabled": true,
+                "groups": [{"id": "local", "name": "Local", "budget": 8}],
+            })),
+        };
+        save_engines_file(&managed, &path).unwrap();
+        let loaded = load_engines_file(&path).unwrap();
+        assert_eq!(
+            loaded.resources.unwrap()["enabled"],
+            serde_json::json!(true)
+        );
+        // A resource-less document reverts to the legacy array root.
+        save_engines_file(&document(), &path).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.trim_start().starts_with('['));
         std::fs::remove_dir_all(&dir).ok();
     }
 

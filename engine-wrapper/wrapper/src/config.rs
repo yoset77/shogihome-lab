@@ -5,6 +5,10 @@
 //! kept as `serde_json::Value` so unknown fields, entry order, and legacy
 //! `type` forms survive the `list` round-trip untouched; the server (not the
 //! wrapper) strips private fields.
+//!
+//! The root may be a legacy array or a v2 `{ "resources": ..., "engines":
+//! [...] }` object. The wrapper only consumes the engine entries; resource
+//! settings are forwarded verbatim through `list` for the server to enforce.
 
 use serde_json::Value;
 use std::collections::HashMap;
@@ -27,7 +31,28 @@ pub fn resolve_config_dir(exe_path: &Path, override_dir: Option<&Path>) -> PathB
     exe_dir.unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Load the raw engine array. Returns an empty vec when the file is missing
+/// Load the parsed registry document as-is (any JSON value).
+pub fn load_engines_document(config_dir: &Path) -> Result<Value, String> {
+    let path = config_dir.join("engines.json");
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("engines.json not available at {}: {e}", path.display()))?;
+    serde_json::from_str(&content).map_err(|e| format!("failed to parse engines.json: {e}"))
+}
+
+/// Extract the engine array from either root form.
+pub fn extract_engines(document: &Value) -> Result<Vec<Value>, String> {
+    match document {
+        Value::Array(entries) => Ok(entries.clone()),
+        Value::Object(map) => match map.get("engines") {
+            Some(Value::Array(entries)) => Ok(entries.clone()),
+            Some(_) => Err("engines.json 'engines' must be an array".to_string()),
+            None => Err("engines.json object root must contain 'engines'".to_string()),
+        },
+        _ => Err("engines.json root must be an array or an object with 'engines'".to_string()),
+    }
+}
+
+/// Load the engine array. Returns an empty vec when the file is missing
 /// or unparsable (and logs the reason via the returned error string).
 pub fn load_engines(config_dir: &Path) -> Vec<Value> {
     match load_engines_result(config_dir) {
@@ -40,15 +65,8 @@ pub fn load_engines(config_dir: &Path) -> Vec<Value> {
 }
 
 fn load_engines_result(config_dir: &Path) -> Result<Vec<Value>, String> {
-    let path = config_dir.join("engines.json");
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("engines.json not available at {}: {e}", path.display()))?;
-    let value: Value =
-        serde_json::from_str(&content).map_err(|e| format!("failed to parse engines.json: {e}"))?;
-    match value {
-        Value::Array(entries) => Ok(entries),
-        _ => Err("engines.json root must be an array".to_string()),
-    }
+    let document = load_engines_document(config_dir)?;
+    extract_engines(&document)
 }
 
 /// Find an engine entry by id. Entries without a string id never match.
@@ -266,6 +284,34 @@ mod tests {
     #[test]
     fn load_missing_file_yields_empty_list() {
         assert!(load_engines(Path::new("/nonexistent-config-dir-xyz")).is_empty());
+    }
+
+    #[test]
+    fn engines_load_from_legacy_array_and_v2_object_roots() {
+        let dir = std::env::temp_dir().join(format!("wrapper-roots-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Legacy array root.
+        std::fs::write(dir.join("engines.json"), r#"[{"id":"a"},{"id":"b"}]"#).unwrap();
+        let engines = load_engines(&dir);
+        assert_eq!(engines.len(), 2);
+        // v2 object root: engine entries are extracted, resources untouched.
+        std::fs::write(
+            dir.join("engines.json"),
+            r#"{"resources":{"enabled":true,"groups":[{"id":"g","name":"G","budget":8}]},"engines":[{"id":"a"}]}"#,
+        )
+        .unwrap();
+        let engines = load_engines(&dir);
+        assert_eq!(engines.len(), 1);
+        assert_eq!(engines[0]["id"], serde_json::json!("a"));
+        // An object root without an engines array is an error.
+        std::fs::write(dir.join("engines.json"), r#"{"resources":{}}"#).unwrap();
+        assert!(load_engines(&dir).is_empty());
+        // The document loader still forwards the raw object for `list`.
+        assert!(load_engines_document(&dir)
+            .unwrap()
+            .get("resources")
+            .is_some());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     fn str_map(pairs: &[(&str, &str)]) -> HashMap<String, String> {

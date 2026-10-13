@@ -33,6 +33,7 @@
         <h2 id="listTitle">エンジン一覧</h2>
         <div class="row">
           <button class="btn btn-sm btn-info" id="manageGroupsBtn">エンジングループ管理</button>
+          <button class="btn btn-sm btn-info" id="resourceSettingsBtn">リソース制限</button>
           <button class="btn btn-sm btn-primary" id="addEngineBtn">+ エンジン追加</button>
           <button class="btn btn-sm btn-success" id="saveBtn">設定を保存</button>
         </div>
@@ -42,6 +43,31 @@
           <thead><tr><th id="colName">名前 (Name)</th><th id="colType">種類 (Type)</th><th id="colActions">操作</th></tr></thead>
           <tbody></tbody>
         </table>
+      </div>
+    </div>
+
+    <div class="modal" id="resourceModal" style="display:none;">
+      <div class="modal-content">
+        <h2 id="resourceModalTitle">リソース制限 (実験的)</h2>
+        <label class="check"><input type="checkbox" id="resourceEnabled" /> <span id="resourceEnabledLabel">リソース制限を有効にする</span></label>
+        <p class="hint" id="resourceEnabledHint"></p>
+        <p class="hint" id="resourceCoreCountHint"></p>
+        <div class="row">
+          <button class="btn btn-sm" id="resourceApplyCoresBtn">このマシンの論理コア数を設定</button>
+          <button class="btn btn-sm" id="resourceAddGroupBtn">＋ グループ追加</button>
+        </div>
+        <table id="resourceGroupTable">
+          <thead><tr>
+            <th id="resourceGroupColName">グループ名</th>
+            <th id="resourceGroupColBudget">予算</th>
+            <th id="resourceGroupColEngines">エンジン数</th>
+            <th id="resourceGroupColActions">操作</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="modal-footer">
+          <button class="btn" id="closeResourceModalBtn">閉じる</button>
+        </div>
       </div>
     </div>
 
@@ -78,6 +104,16 @@
           <div class="hint" id="groupHint">
             同じグループに設定されたエンジンはデータベース上で単一のエンジンとして集約されます。
           </div>
+        </div>
+        <div class="form-group">
+          <label for="editResourceGroupId" id="resourceGroupLabel">リソースグループ (同時実行の制限)</label>
+          <div class="row">
+            <select id="editResourceGroupId"><option value="" id="noResourceGroupOption">制限しない</option></select>
+            <label class="check"><input type="radio" name="resourceCostMode" id="resourceCostThreads" value="threads" /> <span id="resourceCostThreadsLabel">Threadsに連動</span></label>
+            <label class="check"><input type="radio" name="resourceCostMode" id="resourceCostManual" value="manual" /> <span id="resourceCostManualLabel">手動指定</span></label>
+            <input type="number" id="editResourceCost" min="1" style="width:100px;display:none;" />
+          </div>
+          <div class="hint" id="resourceGroupHint"></div>
         </div>
         <div class="form-group">
           <label for="editPath"><span id="editPathLabel">実行ファイルのパス (Path)</span> <span style="color:red">*</span></label>
