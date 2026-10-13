@@ -975,7 +975,7 @@ export const vi: Texts = {
   resourceThreadsUnavailable: (engine) =>
     `Không thể xác định Threads cho phần mềm "${engine}". Hãy đặt mức tài nguyên thủ công trong trình chỉnh sửa cấu hình.`,
   resourceManualCostRequired: (engine) =>
-    `Hãy đặt mức tài nguyên thủ công là số nguyên dương cho phần mềm "${engine}" trong trình chỉnh sửa cấu hình.`,
+    `Hãy đặt mức tài nguyên thủ công là số nguyên từ 1 đến 100.000 cho phần mềm "${engine}" trong trình chỉnh sửa cấu hình.`,
   analysisRecover: "Mở biên bản phân tích đã lưu? Bản ghi hiện tại sẽ bị thay thế.",
   analysisCancelling: "Đang xác nhận hủy phân tích",
   gameInvalid: "Dữ liệu ván đấu hoặc phản hồi không hợp lệ.",

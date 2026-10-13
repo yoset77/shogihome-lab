@@ -127,14 +127,18 @@ const RESOURCE_ID_PATTERN = /^[a-zA-Z0-9_.-]{1,100}$/;
 export const isValidResourceId = (value: unknown): value is string =>
   typeof value === "string" && RESOURCE_ID_PATTERN.test(value);
 
-const isValidBudget = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+export const MAX_RESOURCE_BUDGET = 100_000;
+export const isValidResourceBudget = (value: unknown): value is number =>
+  typeof value === "number" &&
+  Number.isSafeInteger(value) &&
+  value >= 1 &&
+  value <= MAX_RESOURCE_BUDGET;
 
 export const decodeResourceGroupConfig = (value: unknown): DecodeResult<ResourceGroupConfig> => {
   if (!isRecord(value) || !isValidResourceId(value.id) || typeof value.name !== "string") {
     return { ok: false, error: "invalid resource group" };
   }
-  if (!isValidBudget(value.budget)) {
+  if (!isValidResourceBudget(value.budget)) {
     return { ok: false, error: "invalid resource group budget" };
   }
   return { ok: true, value: { id: value.id, name: value.name, budget: value.budget } };
@@ -142,6 +146,8 @@ export const decodeResourceGroupConfig = (value: unknown): DecodeResult<Resource
 
 export const decodeResourceSettings = (value: unknown): DecodeResult<ResourceSettings> => {
   if (value === undefined) return { ok: true, value: {} };
+  // Match the launcher's legacy null section normalization.
+  if (value === null) return { ok: true, value: { enabled: false, groups: [] } };
   if (!isRecord(value)) return { ok: false, error: "invalid resource settings" };
   const settings: ResourceSettings = {};
   if (value.enabled !== undefined) {
@@ -266,7 +272,7 @@ export const decodeEngineResourceConfig = (
     resource.autoThreads = value.autoThreads;
   }
   if (value.cost !== undefined) {
-    if (!isValidBudget(value.cost)) {
+    if (!isValidResourceBudget(value.cost)) {
       return { ok: false, error: "invalid engine resource cost" };
     }
     resource.cost = value.cost;
@@ -281,7 +287,7 @@ export const decodeEngineResourceConfig = (
 const decodeEngineThreads = (value: unknown): DecodeResult<number | undefined> => {
   if (value === undefined) return { ok: true, value: undefined };
   // Threads=0 means automatic for some engines and is not a valid cost.
-  if (!isCounter(value) || value < 1) return { ok: false, error: "invalid engine threads" };
+  if (!isValidResourceBudget(value)) return { ok: false, error: "invalid engine threads" };
   return { ok: true, value: value };
 };
 

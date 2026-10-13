@@ -1,6 +1,6 @@
 # Engine Resource Budget
 
-この文書は、エンジンの同時実行をグループ予算（リソース予算）で制限する機能の意図、判断理由、対象外を説明します。実装と schema は `shogihome/src/common/engine/relay_protocol.ts`、`shogihome/src/server/engine/resources.ts`、テストを正本とします。
+この文書は、エンジンの同時実行をグループ予算（リソース予算）で制限する機能の意図、判断理由、対象外を説明します。実装と schema は `shogihome/src/common/engine/relay_protocol.ts`、`shogihome/src/server/engine/resources.ts`、`engine-wrapper/launcher/src/editor.rs`、テストを正本とします。Launcher と Server の resource 検証契約は[共有 JSON fixture](../../shogihome/src/tests/testdata/engine/resource-budget.json)で確認します。
 
 ## Purpose and Intent
 

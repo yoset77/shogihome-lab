@@ -1,3 +1,4 @@
+import { isValidResourceBudget } from "@/common/engine/relay_protocol";
 import { t } from "@/common/i18n";
 import { HttpError } from "@/server/errors";
 import type { EngineConfig } from "./types";
@@ -131,7 +132,12 @@ class ResourceRegistry {
       const group = this.groups.get(groupId);
       if (!group) continue; // unmanaged: never blocks acquisition
       const used = group.used + cost;
-      if (this.enabled && group.configured && used > group.budget) {
+      // Keep release arithmetic exact even while budget enforcement is disabled.
+      if (
+        !Number.isSafeInteger(cost) ||
+        !Number.isSafeInteger(used) ||
+        (this.enabled && group.configured && used > group.budget)
+      ) {
         throw new HttpError(
           503,
           t.resourceGroupCapacity(group.name, group.budget, group.used, cost),
@@ -172,13 +178,13 @@ export function engineResourceCost(engine: EngineConfig): number {
   if (!resource?.groupId) return 0;
   if (resource.autoThreads === false) {
     const cost = resource.cost;
-    if (cost === undefined || !Number.isSafeInteger(cost) || cost < 1) {
+    if (!isValidResourceBudget(cost)) {
       throw new HttpError(400, t.resourceManualCostRequired(engine.name));
     }
     return cost;
   }
   const threads = engine.threads;
-  if (threads === undefined || !Number.isSafeInteger(threads) || threads <= 0) {
+  if (!isValidResourceBudget(threads)) {
     throw new HttpError(400, t.resourceThreadsUnavailable(engine.name));
   }
   return threads;

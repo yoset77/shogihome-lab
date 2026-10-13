@@ -230,6 +230,22 @@ pub fn normalize_engine_entry(
 }
 
 pub const MAX_RESOURCE_BUDGET: i64 = 100_000;
+pub const RESOURCE_GROUP_ID_MAX_BYTES: usize = 100;
+
+fn is_valid_resource_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= RESOURCE_GROUP_ID_MAX_BYTES
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'.' | b'-'))
+}
+
+fn is_valid_resource_budget(value: &serde_json::Value) -> bool {
+    // JSON decimal/exponent notation represents the same integer in TS.
+    value
+        .as_f64()
+        .is_some_and(|v| v.fract() == 0.0 && (1.0..=MAX_RESOURCE_BUDGET as f64).contains(&v))
+}
 
 fn invalid_resource(message: &str) -> LauncherError {
     LauncherError::Engines(format!("invalid resource budget: {message}"))
@@ -247,8 +263,13 @@ fn validate_engine_resource(
         return Err(invalid_resource("'resource' must be an object"));
     };
     if let Some(group) = resource.get("groupId") {
-        if !group.is_string() {
-            return Err(invalid_resource("'resource.groupId' must be a string"));
+        if !group
+            .as_str()
+            .is_some_and(|id| id.is_empty() || is_valid_resource_id(id))
+        {
+            return Err(invalid_resource(
+                "'resource.groupId' must be empty or contain 1..=100 ASCII letters, digits, '_', '.', '-'",
+            ));
         }
     }
     if let Some(auto) = resource.get("autoThreads") {
@@ -257,11 +278,7 @@ fn validate_engine_resource(
         }
     }
     if let Some(cost) = resource.get("cost") {
-        if !cost.is_number()
-            || !cost
-                .as_i64()
-                .is_some_and(|v| (1..=MAX_RESOURCE_BUDGET).contains(&v))
-        {
+        if !is_valid_resource_budget(cost) {
             return Err(invalid_resource(
                 "'resource.cost' must be an integer within 1..=100000",
             ));
@@ -277,8 +294,6 @@ fn validate_engine_resource(
     }
     Ok(())
 }
-
-pub const RESOURCE_GROUP_ID_MAX_BYTES: usize = 100;
 
 /// Validate the `resources` section. Unknown keys are preserved.
 pub fn validate_resources(value: &serde_json::Value) -> Result<serde_json::Value, LauncherError> {
@@ -307,8 +322,10 @@ pub fn validate_resources(value: &serde_json::Value) -> Result<serde_json::Value
                 .get("id")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| invalid_resource("resource group 'id' is required"))?;
-            if id.trim().is_empty() || id.len() > RESOURCE_GROUP_ID_MAX_BYTES {
-                return Err(invalid_resource("resource group 'id' must not be empty"));
+            if !is_valid_resource_id(id) {
+                return Err(invalid_resource(
+                    "resource group 'id' must contain 1..=100 ASCII letters, digits, '_', '.', '-'",
+                ));
             }
             if !seen.insert(id.to_string()) {
                 return Err(invalid_resource(&format!(
@@ -321,11 +338,10 @@ pub fn validate_resources(value: &serde_json::Value) -> Result<serde_json::Value
                 .ok_or_else(|| invalid_resource("resource group 'name' is required"))?;
             let budget = group
                 .get("budget")
-                .and_then(|v| v.as_i64())
                 .ok_or_else(|| invalid_resource("resource group 'budget' must be an integer"))?;
-            if !(1..=MAX_RESOURCE_BUDGET).contains(&budget) {
+            if !is_valid_resource_budget(budget) {
                 return Err(invalid_resource(
-                    "resource group 'budget' must be within 1..=100000",
+                    "resource group 'budget' must be an integer within 1..=100000",
                 ));
             }
             groups.push(serde_json::Value::Object(group.clone()));
@@ -837,6 +853,35 @@ mod tests {
             "resource": {"groupId": "g", "autoThreads": false},
         }]))
         .is_err());
+    }
+
+    #[test]
+    fn resource_validation_matches_shared_fixtures() {
+        let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../shogihome/src/tests/testdata/engine/resource-budget.json"
+        ))
+        .unwrap();
+        for section in ["settings", "assignments"] {
+            for case in fixtures[section].as_array().unwrap() {
+                let mut document = serde_json::json!({
+                    "engines": [
+                        {"id": "managed", "name": "Managed", "path": "engine"},
+                        {"id": "unmanaged", "name": "Unmanaged", "path": "engine"},
+                    ],
+                });
+                if section == "settings" {
+                    document["resources"] = case["value"].clone();
+                } else {
+                    document["engines"][0]["resource"] = case["value"].clone();
+                }
+                assert_eq!(
+                    validate_engines(&document).is_ok(),
+                    case["valid"].as_bool().unwrap(),
+                    "{section}: {}",
+                    case["name"],
+                );
+            }
+        }
     }
 
     #[test]

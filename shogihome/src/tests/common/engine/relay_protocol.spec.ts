@@ -284,6 +284,8 @@ describe("engine relay protocol", () => {
       expect(decodeLanEngineInfo({ id: "engine-1", name: "E", threads: 0 })).toMatchObject({
         ok: false,
       });
+      expect(decodeLanEngineInfo({ id: "engine-1", name: "E", threads: 100_000 }).ok).toBe(true);
+      expect(decodeLanEngineInfo({ id: "engine-1", name: "E", threads: 100_001 }).ok).toBe(false);
     });
   });
 });
