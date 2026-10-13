@@ -32,6 +32,7 @@ import {
   type EngineHandle,
   type ExtendedWebSocket,
 } from "@/server/engine/types";
+import { engineRequirements, resourceRegistry, type ResourceLease } from "./resources";
 
 const findLast = (
   commands: string[],
@@ -72,6 +73,14 @@ export class EngineSession {
   private terminalSearch: SearchSnapshot["terminal"] = null;
   private terminalCreatedAt = 0;
   private internalListeners = new Set<(event: SessionRelayPayload) => void>();
+  // Relay-owned sessions reserve their engine's cost while an engine is
+  // running. Internal sessions receive a caller-provided lease instead.
+  private resourceLease?: ResourceLease;
+
+  private releaseResourceLease(): void {
+    this.resourceLease?.release();
+    this.resourceLease = undefined;
+  }
 
   get internalSnapshot() {
     return {
@@ -369,6 +378,7 @@ export class EngineSession {
     this.clearStopTimeout();
     this.messageBuffer = [];
     this.lastInfos.clear();
+    this.releaseResourceLease();
     if (this.connectingSocket) {
       this.connectingSocket.destroy();
       this.connectingSocket = null;
@@ -514,6 +524,7 @@ export class EngineSession {
   }
 
   private onEngineClose() {
+    this.releaseResourceLease();
     if (
       this.engineState === EngineState.STOPPED ||
       this.engineState === EngineState.UNINITIALIZED ||
@@ -691,10 +702,22 @@ export class EngineSession {
       this.sendError("engine already running or starting");
       return;
     }
+    const resolvedConfig = config ??
+      engineConfigCache.get(engineId) ?? { id: engineId, name: engineId };
+    // Reserve the engine's cost before any process is started. Internal
+    // sessions bring their own lease from InternalEngine.
+    if (this.owner === "relay") {
+      try {
+        this.resourceLease = resourceRegistry.acquire(...engineRequirements(resolvedConfig));
+      } catch (error) {
+        console.warn(`Engine start rejected for session ${this.sessionId}:`, error);
+        this.sendError(error instanceof Error ? error.message : String(error));
+        return;
+      }
+    }
     this.engineState = EngineState.STARTING;
     this.currentEngineId = engineId;
-    this.currentEngineConfig = config ??
-      engineConfigCache.get(engineId) ?? { id: engineId, name: engineId };
+    this.currentEngineConfig = resolvedConfig;
 
     console.log(`Connecting to remote engine at ${REMOTE_ENGINE_HOST}:${REMOTE_ENGINE_PORT}`);
     const socket = new net.Socket();

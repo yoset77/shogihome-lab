@@ -3,9 +3,12 @@ import readline from "readline";
 import { WebSocket } from "ws";
 import { REMOTE_ENGINE_HOST, REMOTE_ENGINE_PORT } from "@/server/config";
 import { authenticateSocket } from "@/server/engine/auth";
+import { resourceRegistry } from "@/server/engine/resources";
 import type { EngineConfig } from "@/server/engine/types";
 import {
   LAN_ENGINE_TYPES,
+  decodeEngineDocument,
+  decodeEngineResourceConfig,
   encodeEngineListRelayMessage,
   isLanEngineType,
   isRelayEngineId,
@@ -18,6 +21,9 @@ const isStringArray = (value: unknown): value is string[] => {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 export const toEngineConfig = (value: unknown): EngineConfig | null => {
   if (!value || typeof value !== "object") {
     return null;
@@ -26,7 +32,7 @@ export const toEngineConfig = (value: unknown): EngineConfig | null => {
   if (typeof engine.id !== "string" || engine.id === "" || typeof engine.name !== "string") {
     return null;
   }
-  return {
+  const config: EngineConfig = {
     id: engine.id,
     name: engine.name,
     type: typeof engine.type === "string" || isStringArray(engine.type) ? engine.type : undefined,
@@ -36,6 +42,33 @@ export const toEngineConfig = (value: unknown): EngineConfig | null => {
     analysisDBGroupName:
       typeof engine.analysisDBGroupName === "string" ? engine.analysisDBGroupName : undefined,
   };
+  const options = engine.options;
+  if (
+    isRecord(options) &&
+    typeof options.Threads === "number" &&
+    Number.isFinite(options.Threads)
+  ) {
+    config.threads = options.Threads;
+  }
+  const resource = decodeEngineResourceConfig(engine.resource);
+  if (resource.ok && resource.value) config.resource = resource.value;
+  return config;
+};
+
+/** Parse one `list` response payload: a legacy array or a v2 document. */
+export const parseEngineListPayload = (
+  value: unknown,
+): {
+  configs: EngineConfig[];
+  resourceSettings: Parameters<typeof resourceRegistry.update>[0];
+} | null => {
+  const decoded = decodeEngineDocument(value);
+  if (!decoded.ok) return null;
+  const configs = decoded.value.engines.flatMap((entry: unknown) => {
+    const config = toEngineConfig(entry);
+    return config && toLanEngineInfo(config) ? [config] : [];
+  });
+  return { configs, resourceSettings: decoded.value.resources };
 };
 
 export const toLanEngineInfo = (config: EngineConfig): LanEngineInfo | null => {
@@ -104,17 +137,14 @@ export const fetchEngineConfigs = (): Promise<EngineConfig[]> =>
     socket.on("end", () => {
       if (settled) return;
       try {
-        const engines: unknown = JSON.parse(data.trim());
-        if (!Array.isArray(engines)) throw new Error("Invalid engine list");
-        const configs = engines.flatMap((value: unknown) => {
-          const config = toEngineConfig(value);
-          return config && toLanEngineInfo(config) ? [config] : [];
-        });
+        const payload = parseEngineListPayload(JSON.parse(data.trim()));
+        if (!payload) throw new Error("Invalid engine list");
         engineConfigCache.clear();
-        for (const config of configs) engineConfigCache.set(config.id, config);
+        for (const config of payload.configs) engineConfigCache.set(config.id, config);
+        resourceRegistry.update(payload.resourceSettings);
         settled = true;
         clearTimeout(connectionTimeout);
-        resolve(configs);
+        resolve(payload.configs);
       } catch (e) {
         console.error("Failed to parse engine list from wrapper:", e);
         fail(new Error("Invalid engine list"));

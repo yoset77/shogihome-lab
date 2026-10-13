@@ -969,6 +969,8 @@ export const vi: Texts = {
   analysisJobCapacity: "Đã đạt giới hạn tác vụ. Hãy thử lại sau khi phân tích hiện tại kết thúc.",
   analysisJobInvalid: "Dữ liệu phân tích hoặc phản hồi không hợp lệ.",
   analysisJobDeadline: "Đã đạt thời hạn phân tích. Kết quả một phần đã được giữ lại.",
+  resourceGroupCapacity: (group, budget, used, cost) =>
+    `Nhóm tài nguyên "${group}" đã đạt giới hạn. (Ngân sách ${budget}, đang dùng ${used}, yêu cầu thêm ${cost})`,
   analysisRecover: "Mở biên bản phân tích đã lưu? Bản ghi hiện tại sẽ bị thay thế.",
   analysisCancelling: "Đang xác nhận hủy phân tích",
   gameInvalid: "Dữ liệu ván đấu hoặc phản hồi không hợp lệ.",

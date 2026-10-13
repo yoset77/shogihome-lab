@@ -952,6 +952,8 @@ export const zh_tw: Texts = {
   analysisJobCapacity: "分析工作已達上限，請在現有分析結束後重試。",
   analysisJobInvalid: "分析輸入或回應無效。",
   analysisJobDeadline: "分析已達執行期限，已保留部分結果。",
+  resourceGroupCapacity: (group, budget, used, cost) =>
+    `資源群組「${group}」已達上限。（預算 ${budget}、使用中 ${used}、追加 ${cost}）`,
   analysisRecover: "開啟保留的分析棋譜嗎？目前的棋譜將被取代。",
   analysisCancelling: "正在確認取消分析",
   gameInvalid: "對局輸入或回應無效。",

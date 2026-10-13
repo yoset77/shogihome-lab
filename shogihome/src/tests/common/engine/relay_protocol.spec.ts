@@ -1,5 +1,7 @@
 import {
   decodeClientRelayMessage,
+  decodeEngineDocument,
+  decodeLanEngineInfo,
   decodeServerRelayMessage,
   encodeClientRelayMessage,
   encodeEngineListRelayMessage,
@@ -217,6 +219,71 @@ describe("engine relay protocol", () => {
       "position invalid",
     ])("rejects invalid command %j", (command) => {
       expect(decodeClientRelayMessage(command)).toMatchObject({ ok: false });
+    });
+  });
+
+  describe("engines.json document", () => {
+    const engines = [{ id: "engine-1", name: "Engine 1", type: ["game"] }];
+
+    it("parses a legacy root array", () => {
+      expect(decodeEngineDocument(engines)).toEqual({ ok: true, value: { engines } });
+    });
+
+    it("parses a v2 object with resource settings", () => {
+      const document = {
+        resources: {
+          enabled: true,
+          groups: [{ id: "local", name: "Local", budget: 8 }],
+        },
+        engines: [{ id: "engine-1", name: "E", resource: { groupId: "local", autoThreads: true } }],
+      };
+      expect(decodeEngineDocument(document)).toEqual({ ok: true, value: document });
+    });
+
+    it.each([
+      null,
+      42,
+      { engines: "not-an-array" },
+      {},
+      {
+        resources: {
+          enabled: true,
+          groups: [
+            { id: "dup", name: "A", budget: 1 },
+            { id: "dup", name: "B", budget: 1 },
+          ],
+        },
+        engines: [],
+      },
+      { resources: { enabled: "yes" }, engines: [] },
+    ])("rejects invalid document %j", (value) => {
+      expect(decodeEngineDocument(value)).toMatchObject({ ok: false });
+    });
+
+    it("parses engine summaries with resource fields", () => {
+      expect(
+        decodeLanEngineInfo({
+          id: "engine-1",
+          name: "E",
+          threads: 4,
+          resource: { groupId: "local", autoThreads: true, cost: 2 },
+        }),
+      ).toEqual({
+        ok: true,
+        value: {
+          id: "engine-1",
+          name: "E",
+          threads: 4,
+          resource: { groupId: "local", autoThreads: true, cost: 2 },
+        },
+      });
+      expect(decodeLanEngineInfo({ id: "engine-1", name: "E", resource: {} })).toEqual({
+        ok: true,
+        value: { id: "engine-1", name: "E" },
+      });
+      expect(decodeLanEngineInfo({ id: "engine-1", name: "E", threads: 0 })).toMatchObject({
+        ok: false,
+      });
     });
   });
 });

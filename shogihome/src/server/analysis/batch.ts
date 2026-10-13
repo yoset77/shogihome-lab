@@ -13,6 +13,7 @@ import type {
   AnalysisJobState,
 } from "@/common/analysis/types";
 import type { ResearchEngine } from "@/server/engine/internal";
+import type { ResourceLease } from "@/server/engine/resources";
 import type { EngineConfig } from "@/server/engine/types";
 import { JobAttachment } from "@/server/jobs/attachment";
 import type { JobBinding } from "@/common/jobs/types";
@@ -49,6 +50,7 @@ export class BatchAnalysisJob {
     private readonly engine: ResearchEngine,
     private readonly resolveEngine: (id: string) => Promise<EngineConfig>,
     private readonly files: BatchAnalysisFiles,
+    private resourceLease?: ResourceLease,
   ) {
     this.request = {
       requestId: batchRequest.requestId,
@@ -154,9 +156,11 @@ export class BatchAnalysisJob {
     }, BATCH_ANALYSIS_MAX_RUNTIME_MS);
     try {
       const adapter: ResearchEngine = {
-        launch: async (config, timeout, signal) => {
+        launch: async (config, timeout, signal, lease) => {
           if (!this.launched) {
-            await this.engine.launch(config, timeout, signal);
+            // The batch owns one shared lease for the whole run; per-file
+            // jobs have none of their own.
+            await this.engine.launch(config, timeout, signal, lease ?? this.resourceLease);
             this.launched = true;
           }
         },
@@ -247,7 +251,7 @@ export class BatchAnalysisJob {
       }
     } catch (error) {
       console.error("Batch analysis failed:", error);
-      this.error ??= "engine";
+      this.error ??= error instanceof HttpError ? "capacity" : "engine";
     } finally {
       if (!this.cancelled) this.state = "finishing";
       try {
@@ -256,6 +260,8 @@ export class BatchAnalysisJob {
         console.error("Batch engine cleanup failed:", error);
         this.error ??= "engine";
       }
+      this.resourceLease?.release();
+      this.resourceLease = undefined;
       clearTimeout(deadline);
       this.state = this.error ? "failed" : this.cancelled ? "cancelled" : "completed";
       this.endedAt = Date.now();

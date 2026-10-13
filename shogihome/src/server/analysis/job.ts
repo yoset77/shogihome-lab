@@ -24,6 +24,7 @@ import {
   type AnalysisNodeResult,
 } from "@/common/analysis/types";
 import type { ResearchEngine, ResearchSearch } from "@/server/engine/internal";
+import type { ResourceLease } from "@/server/engine/resources";
 import type { EngineConfig } from "@/server/engine/types";
 
 export const ANALYSIS_MAX_RUNTIME_MS = 24 * 60 * 60 * 1000;
@@ -71,6 +72,7 @@ export class AnalysisJob {
     readonly request: AnalysisJobRequest,
     private readonly engine: ResearchEngine,
     private readonly resolveEngine: (id: string) => Promise<EngineConfig>,
+    private resourceLease?: ResourceLease,
   ) {
     const restored = restoreRecord(request.source);
     this.record = restored.record;
@@ -268,6 +270,7 @@ export class AnalysisJob {
         config,
         this.request.options.engineTimeoutSeconds,
         this.controller.signal,
+        this.resourceLease,
       );
       if (this.controller.signal.aborted) throw new Error("Analysis cancelled");
       if (this.request.options.overrideMultiPV)
@@ -301,7 +304,7 @@ export class AnalysisJob {
     } catch (error) {
       if (!this.controller.signal.aborted) {
         console.error(`Analysis job ${this.id} failed:`, error);
-        this.error = "engine";
+        this.error = error instanceof HttpError ? "capacity" : "engine";
         this.state = "finishing";
       }
     } finally {
@@ -319,6 +322,8 @@ export class AnalysisJob {
         console.error("Analysis cleanup failed:", error);
         this.error ??= "engine";
       }
+      this.resourceLease?.release();
+      this.resourceLease = undefined;
       clearTimeout(deadline);
       this.state = this.error
         ? "failed"
