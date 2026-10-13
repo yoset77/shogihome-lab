@@ -38,6 +38,8 @@ import { HttpError } from "@/server/errors";
 import { t } from "@/common/i18n";
 
 const PLAN_TTL_MS = 10 * 60 * 1000;
+const MAX_RETAINED_PLANS = 10;
+const MAX_PREPARING_PLANS = 10;
 const MAX_PLAN_BYTES = 2 * 1024 * 1024;
 const MAX_SCANNED_ENTRIES = 100_000;
 const PLAN_SCAN_MS = 30_000;
@@ -79,7 +81,7 @@ export class BatchAnalysisFiles {
   constructor(private readonly directory: () => string | undefined | null) {}
   async prepare(source: BatchAnalysisSource): Promise<BatchAnalysisPlan> {
     for (const [id, plan] of this.plans) if (plan.expiresAt <= Date.now()) this.plans.delete(id);
-    if (this.plans.size + this.preparing >= 10) throw new HttpError(503, t.analysisJobCapacity);
+    if (this.preparing >= MAX_PREPARING_PLANS) throw new HttpError(503, t.analysisJobCapacity);
     this.preparing++;
     try {
       return await this.enumerate(source);
@@ -139,6 +141,7 @@ export class BatchAnalysisFiles {
       files: [...new Set(files)],
       expiresAt: Date.now() + PLAN_TTL_MS,
     };
+    if (this.plans.size >= MAX_RETAINED_PLANS) this.plans.delete(this.plans.keys().next().value!);
     this.plans.set(plan.planId, plan);
     return structuredClone(plan);
   }
@@ -147,12 +150,17 @@ export class BatchAnalysisFiles {
     if (!plan || plan.expiresAt <= Date.now()) throw new HttpError(410, t.batchAnalysisPlanExpired);
     return structuredClone(plan);
   }
+  release(id: string): void {
+    this.plans.delete(id);
+  }
   async load(relative: string, autoDetect: boolean): Promise<LoadedBatchFile> {
     const root = this.directory();
     const fullPath = root && resolveIndexableKifuPath(root, relative);
     const format = detectRecordFileFormatByPath(relative);
     if (!root || !fullPath || !getStandardRecordFileFormats().includes(format!))
       throw new BatchFileError("read");
+    if (resolveWritableKifuPath(root, "kifu", relative) !== fullPath)
+      throw new BatchFileError("save");
     let data: Buffer;
     let original: string;
     let originalLocation: string;

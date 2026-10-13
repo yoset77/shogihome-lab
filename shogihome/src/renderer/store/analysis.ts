@@ -299,9 +299,14 @@ export class AnalysisManager {
   }
 
   private bind(token: string): RecordSnapshot {
-    ++this.generation;
     const source = this.recordManager.beginAnalysis(token);
     this.nodeIndex = indexRecordNodes(this.recordManager.record);
+    this.activate();
+    return source;
+  }
+
+  private activate(monitor = true): void {
+    ++this.generation;
     this.lastSearchId = 0;
     this.batchRecordIndex = 0;
     this.revision = 0;
@@ -309,9 +314,8 @@ export class AnalysisManager {
     this.starting = false;
     this._status = undefined;
     this._reconnecting = false;
-    setInfoSessionActive(MONITOR_SESSION_ID, true);
+    setInfoSessionActive(MONITOR_SESSION_ID, monitor);
     this.onStatus(null);
-    return source;
   }
 
   startBatch(
@@ -338,14 +342,16 @@ export class AnalysisManager {
     const requestId = generateSessionId();
     this.background = background;
     this.connection.reset();
-    const source = this.bind(requestId);
+    let source: RecordSnapshot | undefined;
+    if (batch && background) this.activate(false);
+    else source = this.bind(requestId);
     this.starting = !background;
     const generation = this.generation;
     try {
       const app = useAppSettings();
       const options = { ...settings };
       delete options.usi;
-      const input: AnalysisJobRequest = {
+      const input = {
         requestId,
         serverInstanceId: "pending",
         source,
@@ -401,7 +407,7 @@ export class AnalysisManager {
         requestId,
         serverInstanceId: capabilities.serverInstanceId,
         ownerId: generateSessionId(),
-        content: recordContent(source),
+        ...(source ? { content: recordContent(source) } : {}),
       };
       if ("planId" in request) {
         this.pendingBatchRequest = request;
@@ -431,7 +437,7 @@ export class AnalysisManager {
       }
       if (generation !== this.generation) return;
       if (background) {
-        this.recordManager.endAnalysis(requestId);
+        if (source) this.recordManager.endAnalysis(requestId);
         this.active = false;
         setInfoSessionActive(MONITOR_SESSION_ID, false);
         this.onStatus(null);

@@ -56,7 +56,10 @@ import { SearchInfo } from "@/renderer/players/player";
 import { useAppSettings } from "./settings.js";
 import { t } from "@/common/i18n/index";
 import { MateSearchManager } from "./mate.js";
-import { detectUnsupportedRecordProperties } from "@/renderer/helpers/record";
+import {
+  detectUnsupportedRecordProperties,
+  getRecordDocumentContent,
+} from "@/renderer/helpers/record";
 import {
   RecordFileFormat,
   detectRecordFileFormatByPath,
@@ -78,8 +81,6 @@ import { guardJobRecovery, releaseJobTab } from "./job_tab_guard";
 import type { BatchAnalysisSource, BatchAnalysisPlan } from "@/common/analysis/batch";
 import type { BatchAnalysisSettings } from "@/common/settings/batch_analysis";
 import { saveBatchAnalysisSettings } from "./batch_analysis";
-import { snapshotRecord } from "@/common/record/snapshot";
-import { jobRecordContent } from "./job_record";
 
 const puzzleHistoryKey = "shogihome-puzzle-history";
 const puzzleHistoryExpirationDays = 28;
@@ -1616,15 +1617,15 @@ class Store {
     if (!this.canAttachJob) return false;
     if (this.recordManager.unsaved && !(await this.confirmJob(t.analysisRecover))) return false;
     if (!this.canAttachJob) return false;
-    const record = this.recordManager.record;
-    const content = jobRecordContent(snapshotRecord(record));
     useBusyState().retain();
     try {
+      const record = this.recordManager.record;
+      const content = getRecordDocumentContent(record, false);
       const uri = "server://" + path;
       const data = await api.openRecord(uri);
       if (
         record !== this.recordManager.record ||
-        content !== jobRecordContent(snapshotRecord(this.recordManager.record))
+        content !== getRecordDocumentContent(this.recordManager.record, false)
       )
         throw new Error(t.analysisJobInvalid);
       await this.recordManager.openSavedRecord(

@@ -5,11 +5,12 @@ import path from "node:path";
 import { Record } from "tsshogi";
 import { BatchAnalysisFiles } from "@/server/analysis/files";
 import { AnalysisJobManager } from "@/server/analysis/jobManager";
+import { ANALYSIS_MAX_RUNTIME_MS } from "@/server/analysis/job";
 import {
   exportRecordAsBuffer,
+  detectRecordFileFormatByPath,
   importRecordFromBuffer,
   getStandardRecordFileFormats,
-  RecordFileFormat,
 } from "@/common/file/record";
 import { FakeResearchEngine, requestFor } from "./helpers/analysis";
 import * as kifuIndex from "@/server/database/kifu_index";
@@ -46,16 +47,16 @@ describe("server batch analysis", () => {
   ) {
     await fs.writeFile(
       path.join(directory, name),
-      exportRecordAsBuffer(record, RecordFileFormat.KIFU, {}).data,
+      exportRecordAsBuffer(record, detectRecordFileFormatByPath(name)!, {}).data,
     );
   }
-  async function start(skipAnalyzed = false) {
+  async function start(skipAnalyzed = false, requestId = "batch-1", maxSeconds = 0) {
     const plan = await files.prepare({ kind: "folder", directory: "", subdirectories: true });
     return manager.createBatch({
-      requestId: "batch-1",
+      requestId,
       serverInstanceId: manager.serverInstanceId,
       planId: plan.planId,
-      options: { ...requestFor().options, perMoveCriteria: { maxSeconds: 0 } },
+      options: { ...requestFor().options, perMoveCriteria: { maxSeconds } },
       skipAnalyzed,
       fileOptions: {
         autoDetect: true,
@@ -113,6 +114,114 @@ describe("server batch analysis", () => {
     expect(engine.launch).not.toHaveBeenCalled();
     expect(await fs.readFile(path.join(directory, "a.kifu"))).toEqual(before);
   });
+
+  it("keeps target checks available by evicting the oldest retained plan", async () => {
+    await write("a.kifu");
+    const source = { kind: "folder" as const, directory: "", subdirectories: false };
+    const oldest = await files.prepare(source);
+    let newest = oldest;
+    for (let index = 0; index < 10; index++) newest = await files.prepare(source);
+    expect(newest.files).toEqual(["a.kifu"]);
+    expect(files.get(newest.planId)).toEqual(newest);
+    expect(() => files.get(oldest.planId)).toThrow(t.batchAnalysisPlanExpired);
+  });
+
+  it("retains confirmed plans when another target check fails", async () => {
+    await write("a.kifu");
+    const source = { kind: "folder" as const, directory: "", subdirectories: false };
+    const plans = [];
+    for (let index = 0; index < 10; index++) plans.push(await files.prepare(source));
+    vi.spyOn(fs, "opendir").mockRejectedValueOnce(new Error("permission denied"));
+    await expect(files.prepare(source)).rejects.toThrow("permission denied");
+    for (const plan of plans) expect(files.get(plan.planId)).toEqual(plan);
+  });
+
+  it("keeps concurrent target checks bounded independently of retained plans", async () => {
+    await write("a.kifu");
+    const source = { kind: "folder" as const, directory: "", subdirectories: false };
+    for (let index = 0; index < 10; index++) await files.prepare(source);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const openDirectory = fs.opendir.bind(fs);
+    vi.spyOn(fs, "opendir").mockImplementation(async (...args) => {
+      await gate;
+      return openDirectory(...args);
+    });
+    const pending = Array.from({ length: 10 }, () => files.prepare(source));
+    try {
+      await expect(files.prepare(source)).rejects.toThrow(t.analysisJobCapacity);
+    } finally {
+      release();
+    }
+    const plans = await Promise.all(pending);
+    for (const plan of plans) expect(files.get(plan.planId)).toEqual(plan);
+  });
+
+  it("releases accepted plans while resolving creation retries through the request ledger", async () => {
+    const record = Record.newByUSI("position startpos moves 7g7f") as Record;
+    record.current.comment = "#評価値=50";
+    await write("a.kifu", record);
+    const job = await start(true);
+    expect(() => files.get(job.batchRequest.planId)).toThrow(t.batchAnalysisPlanExpired);
+    await job.completion;
+    expect(manager.createBatch(structuredClone(job.batchRequest))).toBe(job);
+    expect(() => manager.createBatch({ ...job.batchRequest, skipAnalyzed: false })).toThrow(
+      t.analysisJobInvalid,
+    );
+    for (let index = 1; index <= 10; index++) {
+      const next = await start(true, `batch-${index + 1}`);
+      await next.completion;
+      expect(next.status().state).toBe("completed");
+    }
+    expect(engine.launch).not.toHaveBeenCalled();
+  });
+
+  async function rejectsUnwritableBeforeAnalysis(name: string) {
+    await fs.mkdir(path.dirname(path.join(directory, name)), { recursive: true });
+    await write(name);
+    const before = await fs.readFile(path.join(directory, name));
+    const job = await start();
+    await job.completion;
+    expect(job.fileResults()).toEqual([{ index: 1, path: name, state: "failed", reason: "save" }]);
+    expect(engine.launch).not.toHaveBeenCalled();
+    expect(engine.positions).toEqual([]);
+    expect(await fs.readFile(path.join(directory, name))).toEqual(before);
+  }
+
+  it.each([".hidden.kif", ".stversions/game.kifu"])(
+    "rejects unwritable hidden path %s before launching the engine",
+    rejectsUnwritableBeforeAnalysis,
+  );
+
+  it
+    .skipIf(process.platform === "win32")
+    .each(["対局: 先手.kif", "棋聖戦 第1局?.kif", 'a"b.csa', "退避: 対局/game.kifu"])(
+    "rejects unwritable POSIX path %s before launching the engine",
+    rejectsUnwritableBeforeAnalysis,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "analyzes only writable records when a colon-named file precedes them",
+    async () => {
+      await write("a: 対局.kif");
+      await write("b.kifu");
+      const before = await fs.readFile(path.join(directory, "a: 対局.kif"));
+      const job = await start();
+      await job.completion;
+      expect(job.status().batch).toMatchObject({ failedTotal: 1, successTotal: 1 });
+      expect(job.fileResults()).toEqual([
+        { index: 1, path: "a: 対局.kif", state: "failed", reason: "save" },
+        { index: 2, path: "b.kifu", state: "saved", reason: undefined },
+      ]);
+      expect(engine.launch).toHaveBeenCalledOnce();
+      expect(engine.readyNewGame).toHaveBeenCalledOnce();
+      expect(engine.positions).toHaveLength(2);
+      expect(await fs.readFile(path.join(directory, "a: 対局.kif"))).toEqual(before);
+      expect(await fs.readFile(path.join(directory, "b.kifu"), "utf8")).toContain("#評価値=");
+    },
+  );
   it("rejects oversized searches rather than silently truncating them", async () => {
     vi.spyOn(kifuIndex, "getKifuSearchFilePaths").mockReturnValue(
       Array.from({ length: 10_001 }, (_, index) => `${index}.kifu`),
@@ -298,6 +407,175 @@ describe("server batch analysis", () => {
     expect(job.status().state).toBe("cancelled");
     expect(engine.positions).toHaveLength(2);
   });
+
+  describe("runtime limits", () => {
+    const hourMs = 60 * 60 * 1000;
+    const batchRuntimeMs = 14 * 24 * hourMs;
+    const recordRuntimeMs = 13 * hourMs;
+    beforeEach(() => vi.useFakeTimers());
+
+    function nextRecord(): Promise<void> {
+      return new Promise((resolve) => {
+        engine.readyNewGame.mockImplementationOnce(() => resolve());
+      });
+    }
+    async function writeLongRecords(count: number) {
+      const moves = Array(3).fill("5i5h 5a5b 5h5i 5b5a").join(" ");
+      const record = Record.newByUSI(`position startpos moves ${moves} resign`) as Record;
+      for (let index = 1; index <= count; index++)
+        await write(`${String(index).padStart(2, "0")}.kifu`, record);
+    }
+
+    it("continues past 24 hours when each record stays within its own limit", async () => {
+      await writeLongRecords(2);
+      const first = nextRecord();
+      const job = await start(false, "long-batch", 3600);
+      await first;
+      const second = nextRecord();
+      await vi.advanceTimersByTimeAsync(recordRuntimeMs);
+      await second;
+      await vi.advanceTimersByTimeAsync(ANALYSIS_MAX_RUNTIME_MS - recordRuntimeMs + 1);
+      expect(job.status()).toMatchObject({
+        state: "running",
+        totalPositions: 13,
+        batch: { successTotal: 1, processedFiles: 1 },
+      });
+      expect(job.status().error).toBeUndefined();
+      expect(engine.cancellations).not.toHaveBeenCalled();
+      expect(engine.close).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2 * hourMs);
+      await job.completion;
+      expect(job.status()).toMatchObject({ state: "completed", batch: { successTotal: 2 } });
+      expect(engine.launch).toHaveBeenCalledOnce();
+      expect(engine.close).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("stops at 14 days without saving the active record or starting pending records", async () => {
+      await writeLongRecords(27);
+      const before = await fs.readFile(path.join(directory, "26.kifu"));
+      const pending = await fs.readFile(path.join(directory, "27.kifu"));
+      const first = nextRecord();
+      const job = await start(false, "batch-deadline", 3600);
+      await first;
+      for (let index = 0; index < 25; index++) {
+        const next = nextRecord();
+        await vi.advanceTimersByTimeAsync(recordRuntimeMs);
+        expect(job.status().error).toBeUndefined();
+        await next;
+      }
+      await vi.advanceTimersByTimeAsync(batchRuntimeMs - 25 * recordRuntimeMs - 1);
+      expect(job.status()).toMatchObject({ state: "running", batch: { successTotal: 25 } });
+      expect(engine.cancellations).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await job.completion;
+      expect(job.status()).toMatchObject({
+        state: "failed",
+        error: "deadline",
+        batch: { processedFiles: 25, successTotal: 25, failedTotal: 0 },
+      });
+      expect(
+        job
+          .fileResults()
+          .slice(0, 25)
+          .every((file) => file.state === "saved"),
+      ).toBe(true);
+      expect(job.fileResults().slice(25)).toEqual([
+        { index: 26, path: "26.kifu", state: "cancelled" },
+        { index: 27, path: "27.kifu", state: "pending" },
+      ]);
+      expect(await fs.readFile(path.join(directory, "01.kifu"), "utf8")).toContain("#評価値=");
+      expect(await fs.readFile(path.join(directory, "26.kifu"))).toEqual(before);
+      expect(await fs.readFile(path.join(directory, "27.kifu"))).toEqual(pending);
+      expect(engine.readyNewGame).toHaveBeenCalledTimes(26);
+      expect(engine.cancellations).toHaveBeenCalledOnce();
+      expect(engine.close).toHaveBeenCalledOnce();
+      expect(job.endedAt).toBe(job.createdAt + batchRuntimeMs);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("still stops an individual record at 24 hours", async () => {
+      await write("a.kifu");
+      await write("b.kifu");
+      const before = await fs.readFile(path.join(directory, "a.kifu"));
+      engine.prepareDelay = ANALYSIS_MAX_RUNTIME_MS * 2;
+      const first = nextRecord();
+      const job = await start();
+      await first;
+      await vi.advanceTimersByTimeAsync(ANALYSIS_MAX_RUNTIME_MS);
+      await job.completion;
+      expect(job.status()).toMatchObject({ state: "failed", error: "deadline" });
+      expect(job.fileResults()).toEqual([
+        { index: 1, path: "a.kifu", state: "failed", reason: "engine" },
+        { index: 2, path: "b.kifu", state: "pending" },
+      ]);
+      expect(await fs.readFile(path.join(directory, "a.kifu"))).toEqual(before);
+      expect(engine.positions).toHaveLength(1);
+      expect(engine.close).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("waits for an in-flight save at the 14-day deadline and preserves its result", async () => {
+      await write("a.kifu");
+      await write("b.kifu");
+      const before = await fs.readFile(path.join(directory, "b.kifu"));
+      let entered!: () => void;
+      let finishSave!: () => void;
+      const saving = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const wait = new Promise<void>((resolve) => {
+        finishSave = resolve;
+      });
+      const original = files.save.bind(files);
+      vi.spyOn(files, "save").mockImplementationOnce(async (...args) => {
+        entered();
+        await wait;
+        await original(...args);
+      });
+      const first = nextRecord();
+      const job = await start();
+      await first;
+      await vi.advanceTimersByTimeAsync(1000);
+      await saving;
+      let completed = false;
+      void job.completion.then(() => {
+        completed = true;
+      });
+      try {
+        await vi.advanceTimersByTimeAsync(job.createdAt + batchRuntimeMs - Date.now() - 1);
+        expect(job.status()).toMatchObject({ state: "running" });
+        expect(job.status().error).toBeUndefined();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(job.status()).toMatchObject({
+          state: "cancelling",
+          error: "deadline",
+          batch: { successTotal: 0 },
+        });
+        expect(completed).toBe(false);
+        expect(engine.close).not.toHaveBeenCalled();
+      } finally {
+        finishSave();
+        await job.completion;
+      }
+      expect(job.status()).toMatchObject({
+        state: "failed",
+        error: "deadline",
+        batch: { successTotal: 1 },
+      });
+      expect(job.fileResults()).toEqual([
+        { index: 1, path: "a.kifu", state: "saved", reason: undefined },
+        { index: 2, path: "b.kifu", state: "pending" },
+      ]);
+      expect(await fs.readFile(path.join(directory, "a.kifu"), "utf8")).toContain("#評価値=");
+      expect(await fs.readFile(path.join(directory, "b.kifu"))).toEqual(before);
+      expect(engine.positions).toHaveLength(2);
+      expect(engine.cancellations).not.toHaveBeenCalled();
+      expect(engine.close).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+  });
+
   it("stops the batch on engine failure and leaves originals unchanged", async () => {
     await write("a.kifu");
     await write("b.kifu");

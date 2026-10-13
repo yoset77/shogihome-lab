@@ -22,6 +22,8 @@ MultiPVはジョブ単位の指定とし、エンジンの登録設定や通常�
 
 バッチ全体を1ジョブとして扱い、単一解析と同じ実行枠を占有します。エンジンは再利用しますが、棋譜境界で評価比較を切り離します。画面追従を外してもServerの解析・保存は継続します。アタッチ中は閲覧を受け付けないため、局面追従と棋譜切替は常にServerの進行に従います。過去の全棋譜snapshotをメモリへ蓄積せず、保存済み結果は元ファイルから回収し、処理中または最後に解析した棋譜だけをジョブの保持対象にします。
 
+バッチ全体には棋譜単位より長い独立した期限を設け、大量棋譜の処理を許容しつつ実行枠の無期限占有を防ぎます。この期限は安全上限であり、全対象の完走を保証するものではありません。
+
 実行・原本保護・通信境界は [batch tests](../../shogihome/src/tests/server/batch_analysis.spec.ts)、TCP/DB経路は [integration tests](../../shogihome/src/tests/server/analysis_job_integration.spec.ts)、画面追従と未保存保護は [renderer tests](../../shogihome/src/tests/renderer/store/analysis.spec.ts) を参照してください。
 
 ## Cancellation and Recovery

@@ -1,5 +1,14 @@
 import api, { API } from "@/renderer/ipc/api";
-import { exportKI2, ImmutablePosition, InitialPositionSFEN, Move, Position } from "tsshogi";
+import {
+  exportKI2,
+  exportKIF,
+  ImmutablePosition,
+  InitialPositionSFEN,
+  Move,
+  Position,
+  Record,
+  RecordMetadataKey,
+} from "tsshogi";
 import fs from "node:fs";
 import { ref } from "vue";
 import { createStore } from "@/renderer/store/index";
@@ -30,6 +39,7 @@ import { t } from "@/common/i18n";
 import type { AnalysisJobStatus } from "@/common/analysis/types";
 import type { GameSnapshot } from "@/common/game/protocol";
 import type { JobSummary } from "@/common/jobs/types";
+import { snapshotRecord } from "@/common/record/snapshot";
 
 vi.mock("@/renderer/devices/audio.js");
 vi.mock("@/renderer/ipc/api.js");
@@ -1295,6 +1305,131 @@ describe("store/index", () => {
     expect(store.serverKifuPath).toBe("games/saved.kifu");
     expect(store.record.moves[2].comment).toContain("#評価値=108");
     expect(store.isRecordFileUnsaved).toBe(false);
+  });
+  it.each(["ply", "nodes"])(
+    "opens a saved batch result after backing up a document exceeding the analysis %s limit",
+    async (limit) => {
+      const record = new Record();
+      if (limit === "ply") {
+        for (let index = 0; index < 513; index++) {
+          for (const move of ["5i5h", "5a5b", "5h5i", "5b5a"])
+            record.append(record.position.createMoveByUSI(move)!);
+        }
+        expect(record.current.ply).toBe(2052);
+      } else {
+        for (const first of [
+          "1g1f",
+          "2g2f",
+          "3g3f",
+          "4g4f",
+          "5g5f",
+          "6g6f",
+          "7g7f",
+          "8g8f",
+          "9g9f",
+          "6i6h",
+        ]) {
+          record.goto(0);
+          record.append(record.position.createMoveByUSI(first)!);
+          for (let index = 0; index < 250; index++) {
+            for (const move of ["5a5b", "5i5h", "5b5a", "5h5i"])
+              record.append(record.position.createMoveByUSI(move)!);
+          }
+        }
+        let nodeCount = 0;
+        record.forEach(() => nodeCount++);
+        expect(nodeCount).toBe(10011);
+        expect(record.current.ply).toBe(1001);
+      }
+      const store = createStore();
+      store.pasteRecord(exportKIF(record));
+      store.updateRecordComment("large unsaved draft");
+      expect(() => snapshotRecord(store.record)).toThrow("Record is too large");
+      mockAPI.saveRecordFileBackup.mockClear();
+      mockAPI.saveRecordFileBackup.mockResolvedValue(undefined);
+      mockAPI.openRecord.mockResolvedValue(new TextEncoder().encode(sampleKIF));
+
+      const opening = store.openBatchAnalysisFile("games/saved.kifu");
+      useConfirmationStore().ok();
+
+      expect(await opening).toBe(true);
+      expect(mockAPI.saveRecordFileBackup).toHaveBeenCalledOnce();
+      expect(mockAPI.saveRecordFileBackup.mock.calls[0][0]).toContain("large unsaved draft");
+      expect(store.serverKifuPath).toBe("games/saved.kifu");
+      expect(store.record.moves[2].comment).toContain("#評価値=108");
+      expect(store.isRecordFileUnsaved).toBe(false);
+      expect(useErrorStore().hasError).toBe(false);
+      expect(useBusyState().isBusy).toBe(false);
+    },
+  );
+  it("preserves local edits made while fetching a saved batch result", async () => {
+    const store = createStore();
+    const original = store.record;
+    mockAPI.openRecord.mockImplementationOnce(async () => {
+      store.updateRecordComment("edited while fetching");
+      return new TextEncoder().encode(sampleKIF);
+    });
+
+    expect(await store.openBatchAnalysisFile("saved.kifu")).toBe(false);
+    expect(store.record).toBe(original);
+    expect(store.record.first.comment).toBe("edited while fetching");
+    expect(useErrorStore().errors).toEqual([{ message: t.analysisJobInvalid, count: 1 }]);
+    expect(useBusyState().isBusy).toBe(false);
+  });
+  it("does not overwrite a replacement document with identical content while fetching a saved batch result", async () => {
+    const store = createStore();
+    const original = store.record;
+    mockAPI.openRecord.mockImplementationOnce(async () => {
+      store.pasteRecord("position startpos");
+      return new TextEncoder().encode(sampleKIF);
+    });
+
+    expect(await store.openBatchAnalysisFile("saved.kifu")).toBe(false);
+    expect(store.record).not.toBe(original);
+    expect(store.record.moves).toHaveLength(1);
+    expect(store.serverKifuPath).toBeUndefined();
+    expect(useBusyState().isBusy).toBe(false);
+  });
+  it("preserves local metadata edits made while backing up before opening a saved batch result", async () => {
+    const store = createStore();
+    store.updateRecordComment("draft");
+    const original = store.record;
+    mockAPI.openRecord.mockResolvedValue(new TextEncoder().encode(sampleKIF));
+    mockAPI.saveRecordFileBackup.mockImplementationOnce(async () => {
+      store.updateStandardRecordMetadata({ key: RecordMetadataKey.TITLE, value: "new title" });
+    });
+
+    const opening = store.openBatchAnalysisFile("saved.kifu");
+    useConfirmationStore().ok();
+
+    expect(await opening).toBe(false);
+    expect(store.record).toBe(original);
+    expect(store.record.metadata.getStandardMetadata(RecordMetadataKey.TITLE)).toBe("new title");
+    expect(store.record.first.comment).toBe("draft");
+    expect(store.isRecordFileUnsaved).toBe(true);
+    expect(useBusyState().isBusy).toBe(false);
+  });
+  it("allows navigation while fetching and backing up before opening a saved batch result", async () => {
+    const store = createStore();
+    store.pasteRecord(sampleBranchKIF);
+    mockAPI.openRecord.mockImplementationOnce(async () => {
+      store.changePly(7);
+      store.changeBranch(1);
+      return new TextEncoder().encode(sampleKIF);
+    });
+    mockAPI.saveRecordFileBackup.mockImplementationOnce(async () => {
+      store.changePly(0);
+      store.backToMainBranch();
+    });
+
+    const opening = store.openBatchAnalysisFile("saved.kifu");
+    useConfirmationStore().ok();
+
+    expect(await opening).toBe(true);
+    expect(store.serverKifuPath).toBe("saved.kifu");
+    expect(store.isRecordFileUnsaved).toBe(false);
+    expect(useErrorStore().hasError).toBe(false);
+    expect(useBusyState().isBusy).toBe(false);
   });
   it("requires confirmation and a successful backup before opening a saved batch result", async () => {
     const store = createStore();
