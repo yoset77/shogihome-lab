@@ -102,6 +102,17 @@ describe("relay resource admission", () => {
     expect(connect).not.toHaveBeenCalled();
   });
 
+  it("rejects unresolved Threads before connecting and asks for a manual cost", async () => {
+    resourceRegistry.resetForTest(true, [{ id: "g", name: "G", budget: 8 }]);
+    vi.mocked(fetchEngineConfigs).mockResolvedValue([{ ...config, threads: undefined }]);
+    socket.emit("message", "start_engine test");
+    await vi.waitFor(() =>
+      expect(socket.send).toHaveBeenCalledWith(expect.stringContaining("手動指定")),
+    );
+    expect(connect).not.toHaveBeenCalled();
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+  });
+
   it("retains a single reservation across disconnect, reconnect and redundant starts", async () => {
     discover(4);
     socket.emit("message", "start_engine test");

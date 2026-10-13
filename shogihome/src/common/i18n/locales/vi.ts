@@ -972,6 +972,10 @@ export const vi: Texts = {
   analysisJobDeadline: "Đã đạt thời hạn phân tích. Kết quả một phần đã được giữ lại.",
   resourceGroupCapacity: (group, budget, used, cost) =>
     `Nhóm tài nguyên "${group}" đã đạt giới hạn. (Ngân sách ${budget}, đang dùng ${used}, yêu cầu thêm ${cost})`,
+  resourceThreadsUnavailable: (engine) =>
+    `Không thể xác định Threads cho phần mềm "${engine}". Hãy đặt mức tài nguyên thủ công trong trình chỉnh sửa cấu hình.`,
+  resourceManualCostRequired: (engine) =>
+    `Hãy đặt mức tài nguyên thủ công là số nguyên dương cho phần mềm "${engine}" trong trình chỉnh sửa cấu hình.`,
   analysisRecover: "Mở biên bản phân tích đã lưu? Bản ghi hiện tại sẽ bị thay thế.",
   analysisCancelling: "Đang xác nhận hủy phân tích",
   gameInvalid: "Dữ liệu ván đấu hoặc phản hồi không hợp lệ.",

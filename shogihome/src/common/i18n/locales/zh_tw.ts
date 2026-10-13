@@ -955,6 +955,10 @@ export const zh_tw: Texts = {
   analysisJobDeadline: "分析已達執行期限，已保留部分結果。",
   resourceGroupCapacity: (group, budget, used, cost) =>
     `資源群組「${group}」已達上限。（預算 ${budget}、使用中 ${used}、追加 ${cost}）`,
+  resourceThreadsUnavailable: (engine) =>
+    `無法解析引擎「${engine}」的 Threads。請在設定編輯器中手動指定資源消耗量。`,
+  resourceManualCostRequired: (engine) =>
+    `請在設定編輯器中將引擎「${engine}」的手動資源消耗量設為正整數。`,
   analysisRecover: "開啟保留的分析棋譜嗎？目前的棋譜將被取代。",
   analysisCancelling: "正在確認取消分析",
   gameInvalid: "對局輸入或回應無效。",

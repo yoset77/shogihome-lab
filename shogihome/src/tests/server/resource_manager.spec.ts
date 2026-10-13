@@ -15,6 +15,8 @@ import { GameSession } from "@/server/game/session";
 import { acquireGameResourceLease } from "@/server/game/manager";
 import * as engineList from "@/server/engine/list";
 import type { GameEngine } from "@/server/engine/internal";
+import { decodeGameSnapshot } from "@/common/game/protocol";
+import { t } from "@/common/i18n";
 
 vi.mock("@/server/file/history", () => ({
   addHistory: vi.fn(async () => {}),
@@ -33,13 +35,19 @@ afterEach(() => {
 });
 
 describe("engine resource cost", () => {
-  it("uses the Threads option in automatic mode and falls back to 1", () => {
+  it("uses the Threads option in automatic mode", () => {
     resourceRegistry.resetForTest(true, [{ id: "g", name: "G", budget: 8 }]);
     expect(engineResourceCost(engine({ threads: 4, resource: { groupId: "g" } }))).toBe(4);
-    // Unresolvable Threads falls back to 1 instead of bypassing the budget.
-    expect(engineResourceCost(engine({ resource: { groupId: "g" } }))).toBe(1);
-    expect(engineResourceCost(engine({ threads: 0, resource: { groupId: "g" } }))).toBe(1);
   });
+
+  it.each([undefined, 0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
+    "requires a manual cost for unresolvable Threads %s",
+    (threads) => {
+      const config = engine({ threads, resource: { groupId: "g" } });
+      expect(() => engineResourceCost(config)).toThrow(HttpError);
+      expect(() => engineResourceCost(config)).toThrow(/Engine 1.*Threads/);
+    },
+  );
 
   it("uses the manual cost in manual mode", () => {
     expect(
@@ -47,10 +55,23 @@ describe("engine resource cost", () => {
         engine({ threads: 2, resource: { groupId: "g", autoThreads: false, cost: 6 } }),
       ),
     ).toBe(6);
+    expect(
+      engineResourceCost(engine({ resource: { groupId: "g", autoThreads: false, cost: 3 } })),
+    ).toBe(3);
+  });
+
+  it("requires a valid manual cost rather than silently substituting 1", () => {
+    for (const cost of [undefined, 0, -1, 1.5, NaN, Infinity]) {
+      expect(() =>
+        engineResourceCost(engine({ resource: { groupId: "g", autoThreads: false, cost } })),
+      ).toThrow(HttpError);
+    }
   });
 
   it("treats engines without a resource assignment as unmanaged", () => {
     expect(engineResourceCost(engine({ threads: 4 }))).toBe(0);
+    expect(engineResourceCost(engine({ resource: {} }))).toBe(0);
+    expect(engineResourceCost(engine({ resource: { groupId: "" } }))).toBe(0);
   });
 
   it("skips unmanaged engines in requirements", () => {
@@ -69,6 +90,7 @@ describe("engine resource cost", () => {
     expect(engineRequirements(engine({ threads: 4, resource: { groupId: "g" } }))).toEqual([
       { groupId: "g", cost: 4 },
     ]);
+    expect(() => engineRequirements(engine({ resource: { groupId: "g" } }))).toThrow(HttpError);
   });
 });
 
@@ -358,13 +380,20 @@ describe("owner integration", () => {
     const session = new GameSession("session", request, {
       playerBuilder: fake.builder,
       acquireResourceLease: async () => {
-        throw new HttpError(503, "over budget");
+        throw new HttpError(503, t.resourceGroupCapacity("CPU", 4, 3, 8));
       },
     });
     session.start();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(session.snapshot().state).toBe("failed");
     expect(session.snapshot().error).toBe("capacity");
+    const decoded = decodeGameSnapshot(session.snapshot());
+    expect(decoded.ok && decoded.value).toMatchObject({
+      errorMessage: t.resourceGroupCapacity("CPU", 4, 3, 8),
+    });
+    for (const errorMessage of [42, "x".repeat(2049)]) {
+      expect(decodeGameSnapshot({ ...session.snapshot(), errorMessage }).ok).toBe(false);
+    }
     await session.close();
   });
 });

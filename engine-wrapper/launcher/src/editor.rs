@@ -225,7 +225,7 @@ pub fn normalize_engine_entry(
             return Err(invalid("field 'options' must be an object".to_string()));
         }
     }
-    validate_engine_resource(obj, &out)?;
+    validate_engine_resource(obj)?;
     Ok(serde_json::Value::Object(out))
 }
 
@@ -236,11 +236,9 @@ fn invalid_resource(message: &str) -> LauncherError {
 }
 
 /// Validate one engine's `resource` assignment. Unknown fields are
-/// preserved by the caller's copy; this only checks known shapes and drops
-/// an explicit null cost.
+/// preserved by the caller's copy; this only checks known shapes.
 fn validate_engine_resource(
     obj: &serde_json::Map<String, serde_json::Value>,
-    _out: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), LauncherError> {
     let Some(resource) = obj.get("resource") else {
         return Ok(());
@@ -259,9 +257,6 @@ fn validate_engine_resource(
         }
     }
     if let Some(cost) = resource.get("cost") {
-        if cost.is_null() {
-            return Ok(());
-        }
         if !cost.is_number()
             || !cost
                 .as_i64()
@@ -842,6 +837,18 @@ mod tests {
             "resource": {"groupId": "g", "autoThreads": false},
         }]))
         .is_err());
+    }
+
+    #[test]
+    fn null_resource_costs_are_rejected_on_load_and_save() {
+        for auto in [true, false] {
+            let entry = serde_json::json!({
+                "id": "a", "name": "A", "path": "x",
+                "resource": {"groupId": "g", "autoThreads": auto, "cost": null},
+            });
+            assert!(normalize_engine_entry(&entry).is_err(), "{entry}");
+            assert!(validate_engines(&serde_json::json!([entry])).is_err());
+        }
     }
 
     #[test]

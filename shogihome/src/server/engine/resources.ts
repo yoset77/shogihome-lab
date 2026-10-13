@@ -163,20 +163,23 @@ export const resourceRegistry = new ResourceRegistry();
 /**
  * Cost of one engine in thread units. `autoThreads` (the default when the
  * resource config exists) follows the configured `Threads` option; an
- * unresolvable value falls back to 1 with a warning. Manual mode uses the
+ * unresolvable value requires an explicit manual cost. Manual mode uses the
  * configured cost. Threads=0 means an automatic setting and is not a valid
  * cost either.
  */
 export function engineResourceCost(engine: EngineConfig): number {
   const resource = engine.resource;
-  if (!resource) return 0;
-  if (resource.autoThreads === false) return Math.max(1, resource.cost ?? 1);
+  if (!resource?.groupId) return 0;
+  if (resource.autoThreads === false) {
+    const cost = resource.cost;
+    if (cost === undefined || !Number.isSafeInteger(cost) || cost < 1) {
+      throw new HttpError(400, t.resourceManualCostRequired(engine.name));
+    }
+    return cost;
+  }
   const threads = engine.threads;
-  if (threads === undefined || threads <= 0) {
-    console.warn(
-      `Engine "${engine.id}" has no resolvable Threads option; assuming a cost of 1. Set a manual cost in the config editor.`,
-    );
-    return 1;
+  if (threads === undefined || !Number.isSafeInteger(threads) || threads <= 0) {
+    throw new HttpError(400, t.resourceThreadsUnavailable(engine.name));
   }
   return threads;
 }
