@@ -88,24 +88,34 @@ describe("Server engine startup cancellation", () => {
     let authReceived = false;
 
     const wrapperConnected = new Promise<net.Socket>((resolve) => {
+      // Complete authenticated discovery before delaying engine authentication.
       mockWrapperServer.once("connection", (socket) => {
         socket.write("auth_cram_sha256 deadbeefdeadbeefdeadbeefdeadbeef\n");
+        let buffer = "";
         socket.on("data", (data) => {
-          const commands = data.toString().split("\n");
-          for (const raw of commands) {
-            const command = raw.trim();
-            if (!command) {
-              continue;
-            }
-            if (command.startsWith("auth ")) {
-              authReceived = true;
-            }
-            if (command === "run test-engine") {
-              runReceived = true;
+          buffer += data.toString();
+          let newline: number;
+          while ((newline = buffer.indexOf("\n")) !== -1) {
+            const command = buffer.slice(0, newline).trim();
+            buffer = buffer.slice(newline + 1);
+            if (command.startsWith("auth ")) socket.write("auth_ok\n");
+            if (command === "list") {
+              socket.end(JSON.stringify([{ id: "test-engine", name: "Test Engine" }]) + "\n");
             }
           }
         });
-        resolve(socket);
+        mockWrapperServer.once("connection", (engineSocket) => {
+          engineSocket.write("auth_cram_sha256 deadbeefdeadbeefdeadbeefdeadbeef\n");
+          engineSocket.on("data", (data) => {
+            const commands = data.toString().split("\n");
+            for (const raw of commands) {
+              const command = raw.trim();
+              if (command.startsWith("auth ")) authReceived = true;
+              if (command === "run test-engine") runReceived = true;
+            }
+          });
+          resolve(engineSocket);
+        });
       });
     });
 

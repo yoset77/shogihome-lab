@@ -478,6 +478,7 @@ export const vi: Texts = {
   defaultValue: "Giá trị mặc định",
   freeTextUnsafe: "Nhập tự do (không hỗ trợ)",
   noEngineRegistered: "Không có phần mềm",
+  remoteEngineUnavailable: "Không thể sử dụng phần mềm đã chọn. Hãy làm mới danh sách phần mềm.",
   duplicate: "Sao chép",
   add: "Thêm",
   compareAndMerge: "So sánh/sáp nhập",

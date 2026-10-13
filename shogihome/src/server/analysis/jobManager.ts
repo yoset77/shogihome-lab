@@ -67,11 +67,20 @@ export class AnalysisJobManager {
     return job;
   }
 
-  private async resolveEngineQuietly(id: string): Promise<EngineConfig | undefined> {
+  private async resolveEngineSnapshot(id: string): Promise<{
+    config?: EngineConfig;
+    resolve: () => Promise<EngineConfig>;
+  }> {
     try {
-      return await this.engineResolver(id);
-    } catch {
-      return undefined;
+      const config = structuredClone(await this.engineResolver(id));
+      return { config, resolve: async () => structuredClone(config) };
+    } catch (error) {
+      // Preserve startup failures as job results, without retrying resolution.
+      return {
+        resolve: async () => {
+          throw error;
+        },
+      };
     }
   }
 
@@ -93,7 +102,7 @@ export class AnalysisJobManager {
     if (existing) return existing as AnalysisJob;
     // Resolve the engine outside the synchronous tail so the resource
     // reservation can be rejected at the HTTP boundary.
-    const engineConfig = await this.resolveEngineQuietly(request.options.engineId);
+    const snapshot = await this.resolveEngineSnapshot(request.options.engineId);
     const reaccepted = this.resolveExisting(this.requests.get(request.requestId), hash, false);
     if (reaccepted) return reaccepted as AnalysisJob;
     if (
@@ -102,15 +111,15 @@ export class AnalysisJobManager {
     ) {
       throw new HttpError(503, t.analysisJobCapacity);
     }
-    const lease = engineConfig
-      ? resourceRegistry.acquire(...engineRequirements(engineConfig))
+    const lease = snapshot.config
+      ? resourceRegistry.acquire(...engineRequirements(snapshot.config))
       : undefined;
     const job = this.buildJob(() => {
       const created = new AnalysisJob(
         randomUUID(),
         structuredClone(request),
         this.createEngine(lease),
-        this.engineResolver,
+        snapshot.resolve,
         lease,
       );
       this.jobs.set(created.id, created);
@@ -133,7 +142,7 @@ export class AnalysisJobManager {
     const hash = createHash("sha256").update(JSON.stringify(request)).digest("hex");
     const existing = this.resolveExisting(this.requests.get(request.requestId), hash, true);
     if (existing) return existing as BatchAnalysisJob;
-    const engineConfig = await this.resolveEngineQuietly(request.options.engineId);
+    const snapshot = await this.resolveEngineSnapshot(request.options.engineId);
     const reaccepted = this.resolveExisting(this.requests.get(request.requestId), hash, true);
     if (reaccepted) return reaccepted as BatchAnalysisJob;
     if (
@@ -142,8 +151,8 @@ export class AnalysisJobManager {
     )
       throw new HttpError(503, t.analysisJobCapacity);
     const plan = this.batchFiles.get(request.planId);
-    const lease = engineConfig
-      ? resourceRegistry.acquire(...engineRequirements(engineConfig))
+    const lease = snapshot.config
+      ? resourceRegistry.acquire(...engineRequirements(snapshot.config))
       : undefined;
     const batch = this.buildJob(() => {
       const created = new BatchAnalysisJob(
@@ -151,7 +160,7 @@ export class AnalysisJobManager {
         structuredClone(request),
         plan,
         this.createEngine(lease),
-        this.engineResolver,
+        snapshot.resolve,
         this.batchFiles,
         lease,
       );

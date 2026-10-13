@@ -19,6 +19,7 @@ import { createAnalysisJobRoutes } from "@/server/routes/analysis_jobs";
 import { handleError } from "@/server/errors";
 import type { BatchAnalysisJobRequest } from "@/common/analysis/batch";
 import { t } from "@/common/i18n";
+import { resourceRegistry } from "@/server/engine/resources";
 
 describe("server batch analysis", () => {
   let directory: string;
@@ -37,6 +38,7 @@ describe("server batch analysis", () => {
   });
   afterEach(async () => {
     await manager.close();
+    resourceRegistry.resetForTest();
     vi.useRealTimers();
     vi.restoreAllMocks();
     await fs.rm(directory, { recursive: true, force: true });
@@ -66,6 +68,22 @@ describe("server batch analysis", () => {
       },
     });
   }
+  it("keeps the reserved engine configuration through batch startup", async () => {
+    resourceRegistry.resetForTest(true, [{ id: "g", name: "G", budget: 8 }]);
+    const config = { id: "test", name: "Test", threads: 4, resource: { groupId: "g" } };
+    const resolver = vi
+      .fn()
+      .mockResolvedValueOnce(config)
+      .mockResolvedValue({ ...config, threads: 12 });
+    manager = new AnalysisJobManager(() => engine, resolver, files);
+    await write("game.kifu");
+    const job = await start();
+    await job.completion;
+    expect(job.status().state).toBe("completed");
+    expect(resolver).toHaveBeenCalledOnce();
+    expect(engine.launch.mock.calls[0][0]).toMatchObject({ threads: 4 });
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+  });
   it("enumerates all six formats, fixes the list, and rejects unsafe folders", async () => {
     await fs.mkdir(path.join(directory, "sub"));
     for (const extension of ["kif", "KIFU", "ki2", "ki2u", "csa", "jkf", "sfen", "db"])

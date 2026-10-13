@@ -481,6 +481,7 @@ export const en: Texts = {
   defaultValue: "Default Value",
   freeTextUnsafe: "Free Text (Unsafe)",
   noEngineRegistered: "No engine",
+  remoteEngineUnavailable: "The selected engine is unavailable. Refresh the engine list.",
   duplicate: "Copy",
   add: "Add",
   compareAndMerge: "Compare & Merge",

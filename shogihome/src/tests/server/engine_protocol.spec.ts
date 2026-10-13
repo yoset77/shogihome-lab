@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import WebSocket from "ws";
 import net from "net";
 import { spawn, ChildProcess } from "child_process";
@@ -16,12 +16,34 @@ describe("Server USI Protocol & Implicit Stop", () => {
   let mockWrapperServer: net.Server;
   let ws: WebSocket | null = null;
   const activeSockets = new Set<net.Socket>();
+  let listPayload: unknown;
+
+  beforeEach(() => {
+    listPayload = [{ id: "test-engine", name: "Test Engine", type: "both" }];
+  });
+
+  function onEngineConnection(listener: (socket: net.Socket) => void): void {
+    mockWrapperServer.once("engineConnection", listener);
+  }
 
   beforeAll(async () => {
     mockWrapperServer = net.createServer();
     mockWrapperServer.on("connection", (socket) => {
       activeSockets.add(socket);
       socket.on("close", () => activeSockets.delete(socket));
+      let initial = "";
+      const firstCommand = (data: Buffer) => {
+        initial += data.toString();
+        if (!initial.includes("\n")) return;
+        socket.off("data", firstCommand);
+        if (initial.trim() === "list") {
+          socket.end(JSON.stringify(listPayload) + "\n");
+        } else {
+          mockWrapperServer.emit("engineConnection", socket);
+          socket.emit("data", Buffer.from(initial));
+        }
+      };
+      socket.on("data", firstCommand);
     });
 
     await new Promise<void>((resolve) => {
@@ -104,7 +126,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
 
     let stopReceived = false;
     const testFinished = new Promise<void>((resolve) => {
-      mockWrapperServer.once("connection", (socket) => {
+      onEngineConnection((socket) => {
         socket.on("data", (data) => {
           const cmds = data.toString().split("\n");
           for (const cmd of cmds) {
@@ -142,7 +164,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
 
     const receivedCommands: string[] = [];
     const testFinished = new Promise<void>((resolve) => {
-      mockWrapperServer.once("connection", (socket) => {
+      onEngineConnection((socket) => {
         socket.on("data", (data) => {
           const cmds = data.toString().split("\n");
           for (const c of cmds) {
@@ -174,7 +196,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
     await new Promise<void>((resolve) => ws!.on("open", resolve));
 
     const testFinished = new Promise<void>((resolve) => {
-      mockWrapperServer.once("connection", (socket) => {
+      onEngineConnection((socket) => {
         socket.on("data", (data) => {
           const cmds = data.toString().split("\n");
           for (const cmd of cmds) {
@@ -248,7 +270,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
     });
 
     const wrapperFinished = new Promise<void>((resolve) => {
-      mockWrapperServer.once("connection", (socket) => {
+      onEngineConnection((socket) => {
         socket.on("data", (data) => {
           const cmds = data.toString().split("\n");
           for (const raw of cmds) {
@@ -297,7 +319,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
     const receivedAfterStop: string[] = [];
     let bestmoveSent = false;
     const testFinished = new Promise<void>((resolve) => {
-      mockWrapperServer.once("connection", (socket) => {
+      onEngineConnection((socket) => {
         socket.on("data", (data) => {
           const cmds = data.toString().split("\n");
           for (const c of cmds) {
@@ -360,7 +382,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
     const receivedCommands: string[] = [];
     let commandsQueued = false;
     const testFinished = new Promise<void>((resolve) => {
-      mockWrapperServer.once("connection", (socket) => {
+      onEngineConnection((socket) => {
         socket.on("data", (data) => {
           const cmds = data.toString().split("\n");
           for (const c of cmds) {
@@ -405,7 +427,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
     const receivedAfterQuit: string[] = [];
     let quitProcessed = false;
     const testFinished = new Promise<void>((resolve) => {
-      mockWrapperServer.once("connection", (socket) => {
+      onEngineConnection((socket) => {
         socket.on("data", (data) => {
           const cmds = data.toString().split("\n");
           for (const c of cmds) {
@@ -449,7 +471,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
     await new Promise<void>((resolve) => ws!.on("open", resolve));
 
     let stopReceived = false;
-    mockWrapperServer.once("connection", (socket) => {
+    onEngineConnection((socket) => {
       socket.on("data", (data) => {
         const cmds = data.toString().split("\n");
         for (const cmd of cmds) {
@@ -521,25 +543,12 @@ describe("Server USI Protocol & Implicit Stop", () => {
     });
     await new Promise<void>((resolve) => ws!.on("open", resolve));
 
-    const testFinished = new Promise<void>((resolve) => {
-      mockWrapperServer.once("connection", (socket) => {
-        socket.on("data", (data) => {
-          const cmd = data.toString().trim();
-          if (cmd === "list") {
-            socket.write(
-              JSON.stringify([
-                { id: "engine1", name: "Engine 1", type: "game", path: "/secret/path/1" },
-                { id: "engine2", name: "Engine 2", type: "research", path: "/secret/path/2" },
-                { id: "invalid type", name: "Invalid ID", type: "game" },
-                { id: "engine3", name: "Invalid Type", type: "unsupported" },
-              ]) + "\n",
-            );
-            setTimeout(() => socket.end(), 10);
-            resolve();
-          }
-        });
-      });
-    });
+    listPayload = [
+      { id: "engine1", name: "Engine 1", type: "game", path: "/secret/path/1" },
+      { id: "engine2", name: "Engine 2", type: "research", path: "/secret/path/2" },
+      { id: "invalid type", name: "Invalid ID", type: "game" },
+      { id: "engine3", name: "Invalid Type", type: "unsupported" },
+    ];
 
     ws.send("get_engine_list");
 
@@ -553,8 +562,6 @@ describe("Server USI Protocol & Implicit Stop", () => {
     });
 
     const list = await engineListPromise;
-    await testFinished;
-
     expect(list).toHaveLength(2);
     expect(list[0].id).toBe("engine1");
     expect(list[0].type).toEqual(["game"]);
