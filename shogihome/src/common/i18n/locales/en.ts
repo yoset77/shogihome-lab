@@ -404,7 +404,6 @@ export const en: Texts = {
   batchAnalysisConfirm: (count) => `Analyze up to ${count} records in order. Start?`,
   batchAnalysisSummary: (success, failed, skipped) =>
     `Success ${success} / Failed ${failed} / Skipped ${skipped}`,
-  batchAnalysisFollow: "Resume following the current record",
   batchAnalysisDetails: "Per-file results",
   batchAnalysisReason: (reason) =>
     ({

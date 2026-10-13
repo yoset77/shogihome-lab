@@ -784,6 +784,22 @@ describe("store/index", () => {
     expect(mockAnalysisManager.prototype.start.mock.calls[0][0]).toBe(analysisSettings);
   });
 
+  it("startAnalysis/browsingLockedWhileAttached", async () => {
+    mockAPI.saveAnalysisSettings.mockResolvedValue();
+    mockAnalysisManager.prototype.start.mockResolvedValue();
+    const store = createStore();
+    store.pasteRecord(sampleBranchKIF);
+    store.changePly(8);
+    store.showAnalysisDialog();
+    store.startAnalysis(analysisSettings);
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(store.appState).toBe(AppState.ANALYSIS);
+    store.goBack();
+    store.changePly(0);
+    store.changeBranch(1);
+    expect(store.record.current.ply).toBe(8);
+  });
+
   it("startAnalysis/invalidState", () => {
     const store = createStore();
     store.startAnalysis(analysisSettings);

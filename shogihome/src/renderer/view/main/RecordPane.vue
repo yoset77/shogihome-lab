@@ -1,6 +1,5 @@
 <template>
   <div ref="root" class="column record-pane">
-    <BatchAnalysisProgress />
     <div class="auto record">
       <RecordView
         :record="store.record"
@@ -72,7 +71,6 @@ import BookPanel from "./BookPanel.vue";
 import { getRecordShortcutKeys } from "@/renderer/view/primitive/board/shortcut";
 import DuplicatePositionsDialog from "@/renderer/view/dialog/DuplicatePositionsDialog.vue";
 import { ImmutableNode } from "tsshogi";
-import BatchAnalysisProgress from "./BatchAnalysisProgress.vue";
 
 defineProps({
   showElapsedTime: {
@@ -116,9 +114,7 @@ onBeforeUnmount(() => {
 const positionCounts = computed(() =>
   appSettings.liveDuplicatePositionDetection ? store.positionCounts : undefined,
 );
-const isRecordOperational = computed(
-  () => store.appState === AppState.NORMAL || store.appState === AppState.ANALYSIS,
-);
+const isRecordOperational = computed(() => store.appState === AppState.NORMAL);
 
 const showDuplicatePositions = (sfen: string) => {
   duplicatePositionsDialog.value = sfen;

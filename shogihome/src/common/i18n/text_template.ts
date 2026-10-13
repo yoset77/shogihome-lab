@@ -394,7 +394,6 @@ export type Texts = {
   batchAnalysisPreparing: string;
   batchAnalysisConfirm: (count: number) => string;
   batchAnalysisSummary: (success: number, failed: number, skipped: number) => string;
-  batchAnalysisFollow: string;
   batchAnalysisDetails: string;
   batchAnalysisReason: (reason: string) => string;
   startPosition: string;

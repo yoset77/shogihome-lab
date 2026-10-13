@@ -202,8 +202,6 @@ export class AnalysisManager {
   private _status?: AnalysisJobStatus;
   private _reconnecting = false;
   private nodeIndex = new Map<string, ImmutableNode>();
-  private lastNavigationRevision = 0;
-  private following = true;
   private lastSearchId = 0;
   private onFinish: FinishCallback = () => {};
   private onError: ErrorCallback = () => {};
@@ -304,8 +302,6 @@ export class AnalysisManager {
     ++this.generation;
     const source = this.recordManager.beginAnalysis(token);
     this.nodeIndex = indexRecordNodes(this.recordManager.record);
-    this.lastNavigationRevision = this.recordManager.navigationRevision;
-    this.following = true;
     this.lastSearchId = 0;
     this.batchRecordIndex = 0;
     this.revision = 0;
@@ -562,7 +558,6 @@ export class AnalysisManager {
       if (status.batch) {
         this.recordManager.switchBatchAnalysis(ref.requestId, source, status.batch.recordPath);
         this.nodeIndex = indexRecordNodes(this.recordManager.record);
-        this.lastNavigationRevision = this.recordManager.navigationRevision;
         this.batchRecordIndex = status.batch.recordIndex;
         ref.recordIndex = this.batchRecordIndex;
       }
@@ -813,7 +808,7 @@ export class AnalysisManager {
     this._status = status;
     this.onStatus(status);
     if (status.batch && status.batch.recordIndex !== this.batchRecordIndex) {
-      if (!this.following || isAnalysisTerminal(status.state)) this.starting = false;
+      if (isAnalysisTerminal(status.state)) this.starting = false;
       return;
     }
     const current = status.current;
@@ -823,15 +818,10 @@ export class AnalysisManager {
     }
     const record = ShogiRecord.newByUSI(current.position);
     if (record instanceof Error) throw record;
-    if (this.recordManager.navigationRevision !== this.lastNavigationRevision)
-      this.following = false;
     const node = this.nodeIndex.get(current.nodeId);
     if (!node || normalizeSfen(node.sfen) !== normalizeSfen(record.position.sfen))
       throw new Error(t.analysisJobInvalid);
-    if (this.following) {
-      this.recordManager.changeNode(node);
-      this.lastNavigationRevision = this.recordManager.navigationRevision;
-    }
+    this.recordManager.changeNode(node);
     if (current.searchId !== this.lastSearchId) {
       triggerOnStartSearch(MONITOR_SESSION_ID, record.position);
       this.lastSearchId = current.searchId;
@@ -943,8 +933,6 @@ export class AnalysisManager {
       }
       if (generation !== this.generation) return;
       this.checkStatus(status);
-      if (this.recordManager.navigationRevision !== this.lastNavigationRevision)
-        this.following = false;
       const apply = !status.batch || (await this.synchronizeBatch(status, generation));
       if (generation !== this.generation) return;
       if (apply && status.resultRevision > this.revision) {
@@ -995,11 +983,6 @@ export class AnalysisManager {
         this.schedule();
       }
     }
-  }
-
-  resumeFollowing(): void {
-    this.following = true;
-    this.lastNavigationRevision = this.recordManager.navigationRevision;
   }
 
   private async protectPendingBatch(
@@ -1080,7 +1063,6 @@ export class AnalysisManager {
     const batch = status.batch!;
     if (!batch.recordIndex) return false;
     if (batch.recordIndex === this.batchRecordIndex) return true;
-    if (!this.following) return false;
     const ref = this.reference!;
     const source = await this.client.source(status.jobId, batch.recordIndex);
     const result = await this.client.result(status.jobId, 0, ref.binding, batch.recordIndex);
@@ -1088,23 +1070,14 @@ export class AnalysisManager {
     this.checkResult(result.jobId, result.serverInstanceId, status.jobId, result.attachment);
     if (result.recordIndex !== batch.recordIndex)
       throw new ApiResponseError(423, t.batchAnalysisPreparing);
-    if (this.recordManager.navigationRevision !== this.lastNavigationRevision) {
-      this.following = false;
-      return false;
-    }
     if (!this.batchRecordIndex) {
       await this.recordManager.saveBackup();
       if (generation !== this.generation) return false;
-      if (this.recordManager.navigationRevision !== this.lastNavigationRevision) {
-        this.following = false;
-        return false;
-      }
     }
     this.recordManager.switchBatchAnalysis(ref.requestId, source, batch.recordPath);
     this.nodeIndex = indexRecordNodes(this.recordManager.record);
     this.batchRecordIndex = batch.recordIndex;
     ref.recordIndex = batch.recordIndex;
-    this.lastNavigationRevision = this.recordManager.navigationRevision;
     this.lastSearchId = 0;
     if (!this.recordManager.applyAnalysisResults(ref.requestId, result.nodes))
       throw new Error(t.analysisJobInvalid);
