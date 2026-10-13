@@ -20,7 +20,9 @@ use tokio::net::TcpStream;
 use tokio::sync::watch;
 
 use crate::auth;
-use crate::config::{find_engine, format_option, load_engines, log, resolve_engine_path};
+use crate::config::{
+    find_engine, format_option, load_engines, load_engines_document, log, resolve_engine_path,
+};
 use crate::encoding::{decode_line, MAX_LINE_BYTES};
 use crate::line_reader::read_line_bounded;
 use crate::process::{is_not_found, spawn_engine, EngineChild};
@@ -71,8 +73,15 @@ pub async fn handle_connection(stream: TcpStream, ctx: RelayContext) {
     };
 
     if command == "list" {
-        let engines = load_engines(&ctx.config_dir);
-        let body = serde_json::to_string(&engines).unwrap_or_else(|_| "[]".to_string());
+        // Forward the document verbatim so the server can read resource
+        // settings; legacy array roots still arrive as an array.
+        let body = match load_engines_document(&ctx.config_dir) {
+            Ok(document) => serde_json::to_string(&document).unwrap_or_else(|_| "[]".to_string()),
+            Err(err) => {
+                log::warn_compat(&err);
+                "[]".to_string()
+            }
+        };
         let mut payload = body.into_bytes();
         payload.push(b'\n');
         let _ = socket_write(&mut writer, &payload, &mut shutdown).await;

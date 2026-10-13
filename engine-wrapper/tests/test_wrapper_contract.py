@@ -170,6 +170,52 @@ def test_list_returns_json_and_closes(wrapper):
     sock.close()
 
 
+def test_v2_document_registry_forwarded_verbatim(tmp_path):
+    """The v2 object root is returned as-is; engine selection still works."""
+    (tmp_path / "engines.json").write_text(
+        json.dumps(
+            {
+                "resources": {
+                    "enabled": True,
+                    "groups": [{"id": "local", "name": "Local CPU", "budget": 8}],
+                },
+                "engines": [
+                    {
+                        "id": "test-engine",
+                        "name": "Fake Engine",
+                        "path": str(_fake_engine_path()),
+                        "type": ["game", "research"],
+                        "options": {"Threads": 4},
+                        "resource": {"groupId": "local", "autoThreads": True},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    port = _free_port()
+    proc = _start_wrapper(tmp_path, port, None)
+    try:
+        _wait_port(port)
+        sock = _connect(port)
+        f = sock.makefile("r", encoding="utf-8", newline="\n")
+        sock.sendall(b"list\n")
+        document = json.loads(_readline(f, "no list response"))
+        assert document["resources"]["enabled"] is True
+        assert document["engines"][0]["resource"] == {"groupId": "local", "autoThreads": True}
+        rest = f.read()
+        assert rest == "", f"expected EOF after list, got {rest!r}"
+        sock.close()
+        # Engine resolution goes through the extracted entries.
+        sock, f = _run_and_wait_usiok(port)
+        sock.sendall(b"isready\n")
+        assert _readline(f).strip() == "readyok"
+        sock.close()
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+
+
 def test_run_with_pipelined_usi(wrapper):
     sock, f = _run_and_wait_usiok(wrapper["port"])
     sock.sendall(b"isready\n")

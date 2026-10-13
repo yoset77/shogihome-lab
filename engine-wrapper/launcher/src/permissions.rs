@@ -36,6 +36,7 @@ const EDITOR_COMMANDS: &[&str] = &[
     "editor_probe",
     "editor_refresh",
     "editor_probe_cancel",
+    "resource_cores",
     "get_ui_language",
     "set_ui_language",
 ];

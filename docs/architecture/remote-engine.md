@@ -33,7 +33,8 @@ Remote engine は `sessionId` で識別される論理sessionに属します。M
 - [`websocket.ts`](../../shogihome/src/server/websocket.ts) はHost、Origin、session IDを検証し、socketを論理sessionへ接続します。
 - [`sessionManager.ts`](../../shogihome/src/server/engine/sessionManager.ts) は `sessionId` と [`EngineSession`](../../shogihome/src/server/engine/session.ts) の対応を管理します。
 - [`session.ts`](../../shogihome/src/server/engine/session.ts) はengine起動、USI handshake、探索状態、stop sequencing、command queue、出力の局面帰属、終了、再接続bufferを所有します。
-- [`list.ts`](../../shogihome/src/server/engine/list.ts) は短命なTCP接続でwrapperから設定を取得します。設定の取得はWebSocket送信から独立し、Browserへは公開可能なengine情報だけを返します。
+- [`list.ts`](../../shogihome/src/server/engine/list.ts) は短命なTCP接続でwrapperから設定を取得します。設定の取得はWebSocket送信から独立し、Browserへは公開可能なengine情報だけを返します。取得した文書からリソース予算の設定を解決し、共通のresource managerへ反映します。
+- [`resources.ts`](../../shogihome/src/server/engine/resources.ts) はグループ予算と予約の共通実装です。relay session（起動時）、対局・解析ジョブ（作成時）が所有者単位で予約し、終了収束で解放します。
 - [`internal.ts`](../../shogihome/src/server/engine/internal.ts) はServer所有sessionの型付きadapterです。USI遷移は `session.ts` を共有し、状態遷移完了後に内部subscriberへ通知します。
 - [`auth.ts`](../../shogihome/src/server/engine/auth.ts) は任意設定のwrapper challenge-response認証を実装します。
 
@@ -41,11 +42,11 @@ Remote engine は `sessionId` で識別される論理sessionに属します。M
 
 Rust 実装 [`wrapper/`](../../engine-wrapper/wrapper/) が唯一の実装であり、配布の正本です。contract suite [`test_wrapper_contract.py`](../../engine-wrapper/tests/test_wrapper_contract.py) が wrapper を検証します。
 
-Wrapperはengine定義・optionを解決し、必要に応じてMiddle Serverを認証してprocessを起動します。TCP/stdio relayとcleanupを所有しますが、USI session stateやBrowserの再接続状態は所有しません。
+Wrapperはengine定義・optionを解決し、必要に応じてMiddle Serverを認証してprocessを起動します。TCP/stdio relayとcleanupを所有しますが、USI session stateやBrowserの再接続状態は所有しません。`engines.json` は v2 オブジェクト（`resources` と `engines`）または旧配列ルートを受け入れ、`list` で文書をそのまま返します。リソース予算の解釈と強制はすべてMiddle Serverが行い、Wrapperはエントリー抽出のみを行います。判断理由は [Engine Resource Budget](../features/resource-budget.md) を参照してください。
 
 Process treeの所有と回収は共有 [`process/`](../../engine-wrapper/process/) に集約します。親processが先に終了しても子孫の所有権を失わず、接続終了やrelay失敗時に回収します。
 
-設定値と解決規則は [`wrapper/`](../../engine-wrapper/wrapper/) と [`.env.example`](../../engine-wrapper/.env.example) を正本とします。Launcherからの起動・設定編集の境界は [Launcher Architecture](launcher.md) を参照してください。
+設定値と解決規則は [`wrapper/`](../../engine-wrapper/wrapper/) と [`.env.example`](../../engine-wrapper/.env.example) を正本とします。Launcherからの起動・設定編集の境界は [Launcher Architecture](launcher.md) を参照してください。設定エディタはリソース予算を GUI から編集でき、初期値として実行マシンの論理コア数を提案します。
 
 ## Lifecycle
 

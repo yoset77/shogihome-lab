@@ -130,6 +130,7 @@ pub fn run() {
             editor::editor_probe,
             editor::editor_refresh,
             editor::editor_probe_cancel,
+            editor::resource_cores,
             launcher::migration_plan,
             launcher::migration_run,
             launcher::migration_status,

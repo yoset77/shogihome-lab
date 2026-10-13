@@ -145,3 +145,4 @@ Browser 再接続による作業状態の復元と Server 再起動を越えた�
 - [Launcher / Config Editor Architecture](docs/architecture/launcher.md)
 - [Vision Architecture](docs/architecture/vision.md)
 - [Storage Architecture](docs/architecture/storage.md)
+- [Engine Resource Budget](docs/features/resource-budget.md)

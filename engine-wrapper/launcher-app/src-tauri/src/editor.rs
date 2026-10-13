@@ -132,8 +132,11 @@ pub fn editor_load(
     handle: tauri::AppHandle,
 ) -> Result<serde_json::Value, String> {
     check(&window, "editor_load")?;
-    let engines = editor::load_engines_file(&engines_path(&handle))?;
-    Ok(serde_json::json!({"engines": engines}))
+    let document = editor::load_engines_file(&engines_path(&handle))?;
+    Ok(match document.resources {
+        Some(resources) => serde_json::json!({ "engines": document.engines, "resources": resources }),
+        None => serde_json::json!({ "engines": document.engines }),
+    })
 }
 
 #[tauri::command]
@@ -141,13 +144,23 @@ pub fn editor_save(
     window: tauri::Window,
     handle: tauri::AppHandle,
     engines: serde_json::Value,
+    resources: Option<serde_json::Value>,
 ) -> Result<(), String> {
     check(&window, "editor_save")?;
     // Keep the session lock alive through the entire atomic save.
     let st = state(&handle);
     let session = st.editor.session.lock().unwrap();
     session.ensure_open()?;
-    editor::save_engines_file(&engines_path(&handle), &engines).map_err(|e| e.to_string())
+    let document = editor::EngineDocument {
+        engines: match engines.as_array() {
+            Some(list) => list.clone(),
+            None => return Err("engines must be an array".into()),
+        },
+        resources,
+    };
+    editor::save_engines_file(&document, &engines_path(&handle))
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -280,11 +293,21 @@ pub fn editor_refresh(
 
 #[tauri::command]
 pub fn editor_probe_cancel(
-    window: tauri::Window,
-    handle: tauri::AppHandle,
+    window: tauri::Window,    handle: tauri::AppHandle,
     id: u64,
 ) -> Result<(), String> {
     check(&window, "editor_probe_cancel")?;
     state(&handle).editor.session.lock().unwrap().cancel(id);
     Ok(())
+}
+
+/// Logical core count of the machine running the config editor. Used to
+/// propose the local CPU group's budget; it is only a default proposal and
+/// the stored value is never refreshed automatically.
+#[tauri::command]
+pub fn resource_cores(window: tauri::Window) -> Result<u32, String> {
+    check(&window, "resource_cores")?;
+    Ok(std::thread::available_parallelism()
+        .map(|n| n.get() as u32)
+        .unwrap_or(1))
 }

@@ -140,6 +140,33 @@ const ja: Record<string, Entry> = {
   "editor.apply": "反映",
   "editor.groupTitle": "エンジングループ管理",
   "editor.groupDesc": "ここでは既存グループの名前を一括変更できます。エンジンへの割り当てはエンジン編集画面で行ってください。",
+  "editor.resourceTitle": "リソース制限 (実験的)",
+  "editor.resourceEnable": "リソース制限を有効にする",
+  "editor.resourceEnableHint":
+    "有効にすると、エンジンの同時実行数をグループごとの予算（論理コア数の目安）で制限します。制限を超えるエンジン起動はサーバーが拒否します。",
+  "editor.resourceDisabledHint":
+    "無効の間はエンジンの同時実行数を制限しません。設定は保存されます。",
+  "editor.resourceCoreCount": (n) => `このマシンの論理コア数: ${n}`,
+  "editor.resourceApplyCores": "このマシンの論理コア数を設定",
+  "editor.resourceAddGroup": "＋ グループ追加",
+  "editor.resourceGroupColName": "グループ名",
+  "editor.resourceGroupColBudget": "予算 (スレッド数の合計上限)",
+  "editor.resourceGroupColEngines": "エンジン数",
+  "editor.resourceGroupColActions": "操作",
+  "editor.resourceBudgetInvalid": (group) =>
+    `グループ「${group}」の予算は 1 〜 100000 の整数で入力してください。`,
+  "editor.resourceCostInvalid": (engine) =>
+    `エンジン「${engine}」の手動消費量は 1 〜 100000 の整数で入力してください。`,
+  "editor.resourceLabel": "リソースグループ (同時実行の制限)",
+  "editor.resourceNoGroup": "制限しない",
+  "editor.resourceCostMode": "消費量",
+  "editor.resourceCostThreads": "Threadsに連動",
+  "editor.resourceCostManual": "手動指定",
+  "editor.resourceCostLabel": "手動消費量",
+  "editor.resourceHint":
+    "エンジンを同時に起動する数を、所属グループの予算で制限します。対局では両エンジンの消費量の大きい方が計上されます。",
+  "editor.resourceScriptHint":
+    "スクリプト (.bat / .cmd / .sh) を登録する場合は、実行内容に応じて消費量を手動指定してください。",
   "editor.groupColName": "グループ名",
   "editor.groupColCount": "所属エンジン数",
   "editor.close": "閉じる",
@@ -296,6 +323,33 @@ const en: Record<string, Entry> = {
   "editor.apply": "Apply",
   "editor.groupTitle": "Engine Group Management",
   "editor.groupDesc": "Rename existing groups here. Assign engines to groups in the engine edit dialog.",
+  "editor.resourceTitle": "Resource Limits (experimental)",
+  "editor.resourceEnable": "Enable resource limits",
+  "editor.resourceEnableHint":
+    "When enabled, concurrent engine launches are limited by each group's budget (a rough logical-core count). The server rejects launches that would exceed a budget.",
+  "editor.resourceDisabledHint":
+    "While disabled, concurrent engine launches are not limited. Settings are still saved.",
+  "editor.resourceCoreCount": (n) => `Logical cores on this machine: ${n}`,
+  "editor.resourceApplyCores": "Set from this machine's logical cores",
+  "editor.resourceAddGroup": "+ Add Group",
+  "editor.resourceGroupColName": "Group Name",
+  "editor.resourceGroupColBudget": "Budget (max total threads)",
+  "editor.resourceGroupColEngines": "Engines",
+  "editor.resourceGroupColActions": "Actions",
+  "editor.resourceBudgetInvalid": (group) =>
+    `The budget of group "${group}" must be an integer between 1 and 100000.`,
+  "editor.resourceCostInvalid": (engine) =>
+    `The manual cost of engine "${engine}" must be an integer between 1 and 100000.`,
+  "editor.resourceLabel": "Resource Group (concurrency limit)",
+  "editor.resourceNoGroup": "Unlimited",
+  "editor.resourceCostMode": "Cost",
+  "editor.resourceCostThreads": "Follow Threads",
+  "editor.resourceCostManual": "Manual",
+  "editor.resourceCostLabel": "Manual Cost",
+  "editor.resourceHint":
+    "Concurrent engine launches are limited by the group's budget. A game reserves the larger cost of its two engines.",
+  "editor.resourceScriptHint":
+    "When registering a script (.bat / .cmd / .sh), set the cost manually according to what it launches.",
   "editor.groupColName": "Group name",
   "editor.groupColCount": "Engines",
   "editor.close": "Close",
