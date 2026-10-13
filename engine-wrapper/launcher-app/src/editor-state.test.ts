@@ -6,9 +6,12 @@ import {
   collectEngineResource,
   collectOptions,
   defaultResourceGroup,
+  defaultResourceGroupName,
   deleteEngineIfConfirmed,
   deleteGroup,
+  deleteResourceGroupIfConfirmed,
   duplicateEngine,
+  engineDisplayCost,
   generateId,
   MAX_RESOURCE_BUDGET,
   moveEngine,
@@ -18,10 +21,12 @@ import {
   normalizeType,
   ProbeSession,
   readEngineResource,
+  readThreadsLinkedCost,
   renameGroup,
   uniqueGroups,
   validateRegistry,
   validateResourceBudget,
+  withDefaultResourceGroup,
 } from "./editor-state";
 
 const engine = (overrides: Partial<EngineEntry> = {}): EngineEntry => ({
@@ -284,21 +289,20 @@ describe("resource settings", () => {
     expect(errors.length).toBe(1);
   });
 
-  it("defaults the cost mode to manual for scripts and follows Threads otherwise", () => {
-    expect(readEngineResource({ id: "a", name: "A", path: "run.bat" })).toEqual({
+  it("follows Threads for the default cost mode regardless of file type", () => {
+    expect(readEngineResource({ id: "a", name: "A", path: "engine.exe" })).toEqual({
       groupId: "",
       autoThreads: false,
       cost: 1,
-      scriptPath: true,
     });
     expect(
       readEngineResource({
         id: "a",
         name: "A",
-        path: "engine.exe",
+        path: "run.bat",
         options: { Threads: 8 },
       }),
-    ).toEqual({ groupId: "", autoThreads: true, cost: 8, scriptPath: false });
+    ).toEqual({ groupId: "", autoThreads: true, cost: 8 });
     expect(
       readEngineResource({
         id: "a",
@@ -306,7 +310,7 @@ describe("resource settings", () => {
         path: "engine.exe",
         resource: { groupId: "g", autoThreads: false, cost: 3 },
       }),
-    ).toEqual({ groupId: "g", autoThreads: false, cost: 3, scriptPath: false });
+    ).toEqual({ groupId: "g", autoThreads: false, cost: 3 });
     // applyEngineEdit carries and clears the resource field.
     const entry = applyEngineEdit(undefined, {
       id: "a",
@@ -339,5 +343,99 @@ describe("resource settings", () => {
     expect(validateResourceBudget("-1")).toBeUndefined();
     expect(validateResourceBudget("1.5")).toBeUndefined();
     expect(validateResourceBudget("100001")).toBeUndefined();
+  });
+
+  it("reports the effective cost of each engine", () => {
+    expect(engineDisplayCost(engine())).toBeUndefined();
+    expect(engineDisplayCost(engine({ resource: { groupId: "g", autoThreads: true }, options: { Threads: 4 } }))).toBe(4);
+    expect(engineDisplayCost(engine({ resource: { groupId: "g", autoThreads: true }, options: { Threads: 0 } }))).toBeUndefined();
+    expect(engineDisplayCost(engine({ resource: { groupId: "g", autoThreads: false, cost: 2 } }))).toBe(2);
+    expect(engineDisplayCost(engine({ resource: { groupId: "g", autoThreads: false } }))).toBeUndefined();
+    // The Threads option only counts as a number (a string cannot be costed).
+    expect(engineDisplayCost(engine({ resource: { groupId: "g", autoThreads: true }, options: { Threads: "4" } }))).toBeUndefined();
+  });
+
+  it.each([0, -1, 1.5, NaN, Infinity, MAX_RESOURCE_BUDGET + 1, "4"])(
+    "does not resolve invalid Threads %s for defaults or display",
+    (threads) => {
+      const entry = engine({ options: { Threads: threads } });
+      expect(readThreadsLinkedCost(entry)).toBeUndefined();
+      expect(readEngineResource(entry).autoThreads).toBe(false);
+      entry.resource = { groupId: "g", autoThreads: true };
+      expect(engineDisplayCost(entry)).toBeUndefined();
+    },
+  );
+
+  it.each([1, MAX_RESOURCE_BUDGET])("accepts valid linked Threads boundary %s", (threads) => {
+    const entry = engine({ options: { Threads: threads } });
+    expect(readThreadsLinkedCost(entry)).toBe(threads);
+    expect(readEngineResource(entry).autoThreads).toBe(true);
+    entry.resource = { groupId: "g", autoThreads: true };
+    expect(engineDisplayCost(entry)).toBe(threads);
+  });
+
+  it("names new resource groups per language", () => {
+    expect(defaultResourceGroupName(1, "ja")).toBe("グループ 1");
+    expect(defaultResourceGroupName(2, "en")).toBe("Group 2");
+  });
+
+  it("seeds a default group only while none exists", () => {
+    expect(withDefaultResourceGroup({ enabled: false, groups: [] }, 8, "en")).toEqual({
+      enabled: false,
+      groups: [{ id: "local-cpu", name: "Local CPU", budget: 8 }],
+    });
+    const existing = normalizeResourceSettings({
+      enabled: true,
+      groups: [{ id: "g", name: "GPU", budget: 2 }],
+    });
+    expect(withDefaultResourceGroup(existing, 8, "en")).toEqual(existing);
+  });
+});
+
+describe("deleteResourceGroupIfConfirmed", () => {
+  const setup = () => {
+    const resources = normalizeResourceSettings({
+      enabled: true,
+      groups: [{ id: "g", name: "CPU", budget: 8 }],
+    });
+    const engines = [
+      engine({ id: "managed", resource: { groupId: "g", autoThreads: true } }),
+      engine({ id: "free" }),
+    ];
+    return { resources, engines };
+  };
+
+  it("keeps the group and its assignments while confirmation is pending", async () => {
+    const { resources, engines } = setup();
+    let settle: (ok: boolean) => void = () => undefined;
+    const pending = deleteResourceGroupIfConfirmed(resources, engines, "g", () =>
+      new Promise<boolean>((resolve) => { settle = resolve; }),
+    );
+    await Promise.resolve();
+    expect(resources.groups).toHaveLength(1);
+    expect(engines[0].resource).toEqual({ groupId: "g", autoThreads: true });
+    settle(true);
+    expect(await pending).toBe(true);
+  });
+
+  it("removes the group and unassigns its engines once confirmed", async () => {
+    const { resources, engines } = setup();
+    expect(await deleteResourceGroupIfConfirmed(resources, engines, "g", async () => true)).toBe(true);
+    expect(resources.groups).toEqual([]);
+    expect(engines[0].resource).toBeUndefined();
+    expect(engines[1].resource).toBeUndefined();
+  });
+
+  it("keeps everything on decline, dialog error, or unknown group", async () => {
+    const { resources, engines } = setup();
+    expect(await deleteResourceGroupIfConfirmed(resources, engines, "g", async () => false)).toBe(false);
+    expect(
+      await deleteResourceGroupIfConfirmed(resources, engines, "g", async () => {
+        throw new Error("dialog failed");
+      }),
+    ).toBe(false);
+    expect(await deleteResourceGroupIfConfirmed(resources, engines, "missing", async () => true)).toBe(false);
+    expect(resources.groups).toHaveLength(1);
+    expect(engines[0].resource).toEqual({ groupId: "g", autoThreads: true });
   });
 });

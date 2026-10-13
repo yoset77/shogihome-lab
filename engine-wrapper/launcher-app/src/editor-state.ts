@@ -195,14 +195,23 @@ export function defaultResourceGroup(cores: number, lang: Lang): ResourceGroup {
   };
 }
 
+/**
+ * Prepare the default local CPU group when the registry has no group yet,
+ * so a first-time user can assign engines without creating one by hand.
+ * Deleting the seeded group is not undone until the next load.
+ */
+export function withDefaultResourceGroup(
+  settings: ResourceSettings,
+  cores: number,
+  lang: Lang,
+): ResourceSettings {
+  if (settings.groups.length > 0) return settings;
+  return { enabled: settings.enabled, groups: [defaultResourceGroup(cores, lang)] };
+}
+
 function clampResourceBudget(value: number): number {
   if (!Number.isFinite(value)) return MIN_RESOURCE_BUDGET;
   return Math.min(MAX_RESOURCE_BUDGET, Math.max(MIN_RESOURCE_BUDGET, Math.round(value)));
-}
-
-/** Windows/Unix launch scripts must default to a manual cost. */
-export function isLikelyScriptPath(path: string): boolean {
-  return /\.(bat|cmd|sh|ps1)$/i.test(path.trim());
 }
 
 export interface EngineResourcePatch {
@@ -311,24 +320,67 @@ export function applyEngineEdit(original: EngineEntry | undefined, patch: Engine
 }
 
 /** Read one engine's saved resource assignment for the modal, with defaults. */
-export function readEngineResource(entry: EngineEntry | undefined): EngineResourcePatch & { scriptPath: boolean } {
+export function readEngineResource(entry: EngineEntry | undefined): EngineResourcePatch {
   const resource = entry?.resource;
-  const scriptPath = entry ? isLikelyScriptPath(entry.path ?? "") : false;
-  const autoThreads = resource?.autoThreads ?? !scriptPath;
   const threadsLinkedCost = readThreadsLinkedCost(entry);
+  const autoThreads = resource?.autoThreads ?? threadsLinkedCost !== undefined;
   return {
-    // Scripts launch unknown processes: default to manual cost there.
     groupId: resource?.groupId ?? "",
     autoThreads,
     cost: resource?.autoThreads === false ? (resource?.cost ?? 1) : (threadsLinkedCost ?? 1),
-    scriptPath,
   };
 }
 
+/**
+ * Effective cost shown in the engine list and used for budget warnings.
+ * Undefined while the engine is unmanaged or its cost cannot be resolved.
+ */
+export function engineDisplayCost(entry: EngineEntry): number | undefined {
+  const resource = entry.resource;
+  if (!resource?.groupId) return undefined;
+  if (resource.autoThreads === false) {
+    const cost = resource.cost;
+    return validateResourceBudget(cost === undefined ? "" : String(cost));
+  }
+  return readThreadsLinkedCost(entry);
+}
+
+/** Suggested name for a newly added resource group. */
+export function defaultResourceGroupName(index: number, lang: Lang): string {
+  return lang === "ja" ? `グループ ${index}` : `Group ${index}`;
+}
+
+/**
+ * Confirm-gated resource group removal. Deleting a group also unassigns its
+ * engines, so the confirmation must settle before either side changes; a
+ * dialog failure fails closed.
+ */
+export async function deleteResourceGroupIfConfirmed(
+  resources: ResourceSettings,
+  engines: EngineEntry[],
+  groupId: string,
+  confirm: () => Promise<boolean>,
+): Promise<boolean> {
+  let ok = false;
+  try {
+    ok = await confirm();
+  } catch {
+    return false;
+  }
+  if (!ok) return false;
+  const index = resources.groups.findIndex((group) => group.id === groupId);
+  if (index < 0) return false;
+  for (const eng of engines) {
+    if (eng.resource?.groupId === groupId) delete eng.resource;
+  }
+  resources.groups.splice(index, 1);
+  return true;
+}
+
 /** Threads value linked to the engine's own option, when present. */
-export function readThreadsLinkedCost(entry: EngineEntry | undefined): number | undefined {
+export function readThreadsLinkedCost(entry: Pick<EngineEntry, "options"> | undefined): number | undefined {
   const value = entry?.options?.["Threads"];
-  return typeof value === "number" && value >= 1 ? value : undefined;
+  return typeof value === "number" ? validateResourceBudget(String(value)) : undefined;
 }
 
 /** Rough logical core count of the machine running the editor. */

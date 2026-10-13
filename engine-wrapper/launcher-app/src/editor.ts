@@ -8,24 +8,27 @@ import {
   applyEngineEdit,
   collectEngineResource,
   collectOptions,
-  defaultResourceGroup,
+  defaultResourceGroupName,
   deleteEngineIfConfirmed,
   deleteGroup,
+  deleteResourceGroupIfConfirmed,
   duplicateEngine,
   editorCoreCountFallback,
+  engineDisplayCost,
   generateId,
   moveEngine,
   isImeComposingKey,
-  isLikelyScriptPath,
   normalizeGroupName,
   normalizeResourceSettings,
   normalizeType,
   ProbeSession,
   readEngineResource,
+  readThreadsLinkedCost,
   renameGroup,
   uniqueGroups,
   validateRegistry,
   validateResourceBudget,
+  withDefaultResourceGroup,
   type EngineResourcePatch,
   type EngineResourceSetting,
   type Group,
@@ -43,7 +46,6 @@ export function initEditor(): void {
   let editingIndex = -1;
   let resources: ResourceSettings = { enabled: false, groups: [] };
   let machineCores = editorCoreCountFallback();
-  let nextGroupId = 1;
   let resourceModeEdited = false;
   const resourceBudgetDrafts = new Map<string, string>();
   const probeSession = new ProbeSession();
@@ -89,10 +91,17 @@ export function initEditor(): void {
     }
   }
 
-  function badge(label: string, background: string): HTMLSpanElement {
+  const typeLabelKeys = new Map([
+    ["game", "editor.typeNameGame"],
+    ["research", "editor.typeNameResearch"],
+    ["mate", "editor.typeNameMate"],
+  ]);
+
+  function badge(label: string, className: string): HTMLSpanElement {
     const span = document.createElement("span");
+    span.className = `engine-badge ${className}`;
     span.textContent = label;
-    span.style.cssText = `font-size:0.75rem;background:${background};color:white;padding:2px 4px;border-radius:3px;margin-left:5px;`;
+    span.title = label;
     return span;
   }
 
@@ -110,6 +119,7 @@ export function initEditor(): void {
   }
 
   function renderTable(): void {
+    updateResourceStatus();
     const tbody = document.querySelector("#engineTable tbody");
     if (!tbody) return;
     tbody.replaceChildren();
@@ -117,22 +127,26 @@ export function initEditor(): void {
       const tr = document.createElement("tr");
       const nameTd = document.createElement("td");
       nameTd.textContent = eng.name;
-      if (eng.skipAnalysisDB) nameTd.append(badge("No DB", "#dc3545"));
+      const badges = document.createElement("div");
+      badges.className = "engine-badges";
+      if (eng.skipAnalysisDB) badges.append(badge("No DB", "engine-badge-no-db"));
       if (eng.analysisDBGroupId) {
-        nameTd.append(badge(`Group: ${eng.analysisDBGroupName || eng.name}`, "#6f42c1"));
+        badges.append(badge(`Group: ${eng.analysisDBGroupName || eng.name}`, "engine-badge-group"));
       }
-      const assigned = eng.resource?.groupId;
-      if (assigned) {
-        const group = resources.groups.find((g) => g.id === assigned);
-        const cost = eng.resource?.autoThreads
-          ? (typeof eng.options?.["Threads"] === "number" ? `Threads ${eng.options["Threads"]}` : null)
-          : `cost ${eng.resource?.cost ?? "?"}`;
-        nameTd.append(badge(group?.name ?? assigned, "#198754"));
-        if (cost) nameTd.append(badge(cost, "#198754"));
-      }
+      if (badges.childElementCount > 0) nameTd.append(badges);
       const typeTd = document.createElement("td");
-      typeTd.textContent = Array.isArray(eng.type) ? eng.type.join(", ") : String(eng.type ?? "");
+      const types = Array.isArray(eng.type) ? eng.type : [String(eng.type ?? "")];
+      typeTd.textContent = types
+        .map((type) => {
+          const key = typeLabelKeys.get(type);
+          return key ? text(key, lang) : type;
+        })
+        .join(text("editor.typeListSeparator", lang));
+      const resourceTd = document.createElement("td");
+      resourceTd.className = "engine-resource";
+      resourceTd.append(resourceDetails(eng));
       const actionTd = document.createElement("td");
+      actionTd.className = "engine-actions";
       actionTd.append(
         actionButton(text("editor.moveUp", lang), "", () => { moveEngine(engines, idx, -1); renderTable(); }, idx === 0),
         document.createTextNode(" "),
@@ -148,9 +162,41 @@ export function initEditor(): void {
           }
         }),
       );
-      tr.append(nameTd, typeTd, actionTd);
+      tr.append(nameTd, typeTd, resourceTd, actionTd);
       tbody.append(tr);
     });
+  }
+
+  /** Show the editor's configured state, not live server usage. */
+  function updateResourceStatus(): void {
+    const status = $("resourceStatus");
+    const label = text(resources.enabled ? "editor.resourceStatusEnabled" : "editor.resourceStatusDisabled", lang);
+    if (status.textContent !== label) status.textContent = label;
+    status.dataset.enabled = String(resources.enabled);
+  }
+
+  /** Plain, two-line resource details; assignments remain visible while disabled. */
+  function resourceDetails(eng: EngineEntry): DocumentFragment {
+    const fragment = document.createDocumentFragment();
+    const assigned = eng.resource?.groupId;
+    if (!assigned) return fragment;
+    const group = resources.groups.find((g) => g.id === assigned);
+    const label = group?.name ?? assigned;
+    const groupName = document.createElement("div");
+    groupName.className = "resource-group";
+    groupName.textContent = label;
+    groupName.title = label;
+    const cost = engineDisplayCost(eng);
+    const costLabel = document.createElement("div");
+    costLabel.className = "resource-cost";
+    costLabel.textContent =
+      eng.resource?.autoThreads === false
+        ? text("editor.resourceCellManual", lang, String(cost ?? "?"))
+        : cost === undefined
+          ? text("editor.resourceCellAutoUnknown", lang)
+          : text("editor.resourceCellAuto", lang, String(cost));
+    fragment.append(groupName, costLabel);
+    return fragment;
   }
 
   function updateGroupSelect(selectedGroupId = ""): void {
@@ -286,8 +332,14 @@ export function initEditor(): void {
       div.classList.toggle("modified-option", modified);
       resetBtn.style.display = modified ? "inline-block" : "none";
     };
-    input.addEventListener("input", checkModified);
-    input.addEventListener("change", checkModified);
+    const onOptionChange = (): void => {
+      checkModified();
+      updateResourcePathDefaults();
+    };
+    for (const field of [keyInput, input]) {
+      field.addEventListener("input", onOptionChange);
+      field.addEventListener("change", onOptionChange);
+    }
     resetBtn.addEventListener("click", () => {
       if (type === "boolean") {
         (input as HTMLInputElement).checked = String(extra.default).toLowerCase() === "true";
@@ -306,10 +358,14 @@ export function initEditor(): void {
     const delBtn = document.createElement("button");
     delBtn.className = "btn btn-sm btn-danger";
     delBtn.textContent = "×";
-    delBtn.addEventListener("click", () => div.remove());
+    delBtn.addEventListener("click", () => {
+      div.remove();
+      updateResourcePathDefaults();
+    });
     div.append(delBtn);
     list.append(div);
     checkModified();
+    updateResourcePathDefaults();
   }
 
   function openEngineModal(index = -1): void {
@@ -340,6 +396,8 @@ export function initEditor(): void {
           addOptionRow(k, v, type);
         }
       }
+      // The added option rows may resolve the Threads-linked cost now.
+      updateResourcePathDefaults();
       if (eng.path) void analyzeEngine(false);
     } else {
       resourceModeEdited = false;
@@ -354,56 +412,72 @@ export function initEditor(): void {
       $("editSaveAnalysisDBLabel").textContent = "true";
       updateGroupSelect("");
       $<HTMLInputElement>("editPath").value = "";
-      updateResourceFields({ groupId: "", autoThreads: true, cost: 1, scriptPath: false });
+      updateResourceFields(readEngineResource(undefined));
     }
     $("engineModal").style.display = "block";
   }
 
   /** Fill the modal's resource fields from a saved or default assignment. */
-  function updateResourceFields(patch: EngineResourcePatch & { scriptPath?: boolean }): void {
+  function updateResourceFields(patch: EngineResourcePatch): void {
     updateResourceGroupSelect(patch.groupId);
     const manual = !patch.autoThreads;
     $<HTMLInputElement>("resourceCostManual").checked = manual;
     $<HTMLInputElement>("resourceCostThreads").checked = !manual;
-    const input = $<HTMLInputElement>("editResourceCost");
-    input.value = String(patch.cost);
-    input.dataset.defaultThreads = String(readModalDefaultThreadsCost());
-    $("resourceGroupHint").textContent =
-      patch.scriptPath && resources.groups.length > 0
-        ? text("editor.resourceScriptHint", lang)
-        : text("editor.resourceHint", lang);
-    syncResourceCostVisibility();
+    $<HTMLInputElement>("editResourceCost").value = String(patch.cost);
+    syncResourceCostFields();
+  }
+
+  /** Resolve Threads from the same collected options that will be saved. */
+  function readModalThreadsCost(options = collectOptions(readOptionRows()).options): number | undefined {
+    return readThreadsLinkedCost({ options });
   }
 
   function readModalDefaultThreadsCost(): number {
-    // The Threads option row, when it exists, is the natural default cost.
-    for (const row of readOptionRows()) {
-      if (row.key === "Threads" && row.type === "spin") {
-        const value = Number(row.value);
-        if (Number.isInteger(value) && value >= 1) return value;
-      }
-    }
-    return 1;
+    return readModalThreadsCost() ?? 1;
   }
 
-  function syncResourceCostVisibility(): void {
+  function syncResourceCostFields(): void {
     const select = $<HTMLSelectElement>("editResourceGroupId");
     const manual = $<HTMLInputElement>("resourceCostManual");
     const assigned = select.value !== "";
-    $<HTMLInputElement>("resourceCostThreads").disabled = !assigned;
-    $<HTMLInputElement>("resourceCostManual").disabled = !assigned;
-    const visible = assigned && manual.checked;
-    $("editResourceCost").style.display = visible ? "inline-block" : "none";
+    $("resourceCostRow").style.display = assigned ? "" : "none";
+    $("editResourceCost").style.display = assigned && manual.checked ? "inline-block" : "none";
+    $("editResourceCost").setAttribute("aria-label", text("editor.resourceCostLabel", lang));
+    const threadsCost = readModalThreadsCost();
+    $("resourceCostPreview").textContent =
+      assigned && !manual.checked && threadsCost !== undefined
+        ? text("editor.resourceThreadsLinked", lang, String(threadsCost))
+        : "";
+    updateResourceHint();
+  }
+
+  /** Compose the hint under the resource fields; explanations stack up. */
+  function updateResourceHint(): void {
+    const select = $<HTMLSelectElement>("editResourceGroupId");
+    const manual = $<HTMLInputElement>("resourceCostManual");
+    const assigned = select.value !== "";
+    const parts = [text("editor.resourceHint", lang)];
+    if (!assigned) {
+      parts.push(text("editor.resourceNoGroupHint", lang));
+    } else if (!manual.checked && readModalThreadsCost() === undefined) {
+      parts.push(text("editor.resourceThreadsUnresolved", lang));
+    }
+    $("resourceGroupHint").replaceChildren(
+      ...parts.map((part) => {
+        const div = document.createElement("div");
+        div.textContent = part;
+        return div;
+      }),
+    );
   }
 
   function updateResourcePathDefaults(): void {
-    const scriptPath = isLikelyScriptPath($<HTMLInputElement>("editPath").value);
     if (!resourceModeEdited) {
-      $<HTMLInputElement>("resourceCostManual").checked = scriptPath;
-      $<HTMLInputElement>("resourceCostThreads").checked = !scriptPath;
+      const auto = readModalThreadsCost() !== undefined;
+      $<HTMLInputElement>("resourceCostManual").checked = !auto;
+      $<HTMLInputElement>("resourceCostThreads").checked = auto;
     }
-    $("resourceGroupHint").textContent = text(scriptPath ? "editor.resourceScriptHint" : "editor.resourceHint", lang);
-    syncResourceCostVisibility();
+    syncResourceCostFields();
   }
 
   function collectModalResource(errors: string[]): EngineResourceSetting | undefined {
@@ -436,6 +510,35 @@ export function initEditor(): void {
     return true;
   }
 
+  /**
+   * Non-blocking warning for the whole save when a single engine's cost
+   * exceeds its group budget, since that engine can never launch. The sum of
+   * costs is not checked: engines in one group may legitimately exceed the
+   * budget in total.
+   */
+  function warnOverBudgetGroups(): void {
+    if (!resources.enabled) return;
+    for (const group of resources.groups) {
+      const definite = engines
+        .filter((eng) => eng.resource?.groupId === group.id)
+        .map((eng) => ({ eng, cost: engineDisplayCost(eng) }))
+        .find((m): m is { eng: EngineEntry; cost: number } => m.cost !== undefined && m.cost > group.budget);
+      if (!definite) continue;
+      toast(
+        text(
+          "editor.resourceCostOverBudget",
+          lang,
+          definite.eng.name,
+          String(definite.cost),
+          group.name,
+          String(group.budget),
+        ),
+        "error",
+        8000,
+      );
+    }
+  }
+
   function renderResourceModal(): void {
     $<HTMLInputElement>("resourceEnabled").checked = resources.enabled;
     $("resourceEnabledHint").textContent = resources.enabled
@@ -449,10 +552,10 @@ export function initEditor(): void {
       const tr = document.createElement("tr");
       const nameTd = document.createElement("td");
       const nameInput = document.createElement("input");
+      // The type attribute must be set explicitly: the stylesheet selects on
+      // `input[type="text"]`, which a dynamically created input misses.
+      nameInput.type = "text";
       nameInput.value = group.name;
-      nameInput.addEventListener("input", () => {
-        group.name = nameInput.value;
-      });
       nameTd.append(nameInput);
       const budgetTd = document.createElement("td");
       const budgetInput = document.createElement("input");
@@ -461,31 +564,48 @@ export function initEditor(): void {
       budgetInput.max = "100000";
       budgetInput.dataset.groupId = group.id;
       budgetInput.value = resourceBudgetDrafts.get(group.id) ?? String(group.budget);
-      budgetInput.dataset.invalid = validateResourceBudget(budgetInput.value) === undefined ? "true" : "false";
+      const budgetError = document.createElement("div");
+      budgetError.className = "field-error";
+      const syncBudgetError = (): void => {
+        const invalid = validateResourceBudget(budgetInput.value) === undefined;
+        budgetInput.dataset.invalid = invalid ? "true" : "false";
+        budgetError.textContent = invalid ? text("editor.resourceBudgetInvalid", lang, group.name) : "";
+      };
+      nameInput.addEventListener("input", () => {
+        group.name = nameInput.value;
+        syncBudgetError();
+      });
       budgetInput.addEventListener("input", () => {
         resourceBudgetDrafts.set(group.id, budgetInput.value);
-        budgetInput.dataset.invalid = validateResourceBudget(budgetInput.value) === undefined ? "true" : "false";
+        syncBudgetError();
       });
       budgetInput.addEventListener("change", () => {
         resourceBudgetDrafts.set(group.id, budgetInput.value);
+        syncBudgetError();
         const budget = validateResourceBudget(budgetInput.value);
         if (budget !== undefined) group.budget = budget;
       });
-      budgetTd.append(budgetInput);
+      budgetTd.append(budgetInput, budgetError);
+      syncBudgetError();
       const countTd = document.createElement("td");
       countTd.textContent = String(engineCountOfGroup(group.id));
       const actionTd = document.createElement("td");
       const delBtn = document.createElement("button");
       delBtn.className = "btn btn-sm btn-danger";
       delBtn.textContent = text("editor.delete", lang);
+      // Deleting a group unassigns its engines, so it is confirm-gated.
       delBtn.addEventListener("click", () => {
-        for (const eng of engines) {
-          if (eng.resource?.groupId === group.id) delete eng.resource;
-        }
-        resources.groups = resources.groups.filter((entry) => entry.id !== group.id);
-        resourceBudgetDrafts.delete(group.id);
-        renderResourceModal();
-        renderTable();
+        void (async () => {
+          const count = engineCountOfGroup(group.id);
+          const deleted = await deleteResourceGroupIfConfirmed(resources, engines, group.id, () =>
+            confirmAction(text("editor.resourceGroupDeleteConfirm", lang, group.name, String(count))),
+          );
+          if (!deleted) return;
+          resourceBudgetDrafts.delete(group.id);
+          renderResourceModal();
+          renderTable();
+          toast(text("editor.groupDeleted", lang), "success");
+        })();
       });
       actionTd.append(delBtn);
       tr.append(nameTd, budgetTd, countTd, actionTd);
@@ -493,13 +613,17 @@ export function initEditor(): void {
     }
   }
 
-  async function openResourceModal(): Promise<void> {
+  async function refreshMachineCores(): Promise<void> {
     try {
       machineCores = await api.resourceCores();
     } catch {
       // Dev mode without the backend: keep the WebView's estimate.
       machineCores = editorCoreCountFallback();
     }
+  }
+
+  async function openResourceModal(): Promise<void> {
+    await refreshMachineCores();
     renderResourceModal();
     $("resourceModal").style.display = "block";
   }
@@ -507,25 +631,17 @@ export function initEditor(): void {
   function closeResourceModal(): void {
     if (!collectResourceBudgets()) return;
     $("resourceModal").style.display = "none";
+    // Group renames must reach the list badges without another edit.
+    renderTable();
   }
 
   function addResourceGroup(): void {
     const group: ResourceGroup = {
-      id: `resource-${nextGroupId++}-${generateId().substring(0, 8)}`,
-      name: text("editor.newGroup", lang).replace(/^＋\s*/, "") || `Group ${nextGroupId}`,
+      id: `resource-${generateId()}`,
+      name: defaultResourceGroupName(resources.groups.length + 1, lang),
       budget: machineCores,
     };
     resources.groups.push(group);
-    renderResourceModal();
-  }
-
-  function applyMachineCoresToFirstGroup(): void {
-    if (!resources.groups.length) {
-      resources.groups.push(defaultResourceGroup(machineCores, lang));
-    } else {
-      resources.groups[0].budget = machineCores;
-      resourceBudgetDrafts.set(resources.groups[0].id, String(machineCores));
-    }
     renderResourceModal();
   }
 
@@ -572,6 +688,8 @@ export function initEditor(): void {
         addOptionRow(name, val, type, { default: def.default, min: def.min, max: def.max, vars: def.vars });
       }
       $("resetAllBtn").style.display = "block";
+      // A discovered Threads option may resolve the cost default now.
+      updateResourcePathDefaults();
       if (showAlert) toast(text("editor.probeOk", lang, String(Object.keys(discovered).length)), "success");
     } catch (e) {
       if (showAlert) toast(text("editor.probeFailed", lang, e instanceof Error ? e.message : String(e)), "error");
@@ -608,6 +726,11 @@ export function initEditor(): void {
       toast(text("editor.resourceCostInvalid", lang, name), "error", 5000);
       return;
     }
+    // Automatic costing requires a resolvable Threads option at launch time.
+    if (resourceSetting?.autoThreads && readModalThreadsCost(options) === undefined) {
+      toast(text("editor.resourceThreadsRequired", lang, name), "error", 5000);
+      return;
+    }
 
     const original = editingIndex >= 0 ? engines[editingIndex] : undefined;
     const entry = applyEngineEdit(original, {
@@ -623,6 +746,19 @@ export function initEditor(): void {
     });
     if (editingIndex >= 0) engines[editingIndex] = entry;
     else engines.push(entry);
+    // A cost above the group budget can never launch: warn loudly but keep
+    // the edit so the user can raise the budget afterwards.
+    if (resources.enabled && entry.resource) {
+      const group = resources.groups.find((g) => g.id === entry.resource?.groupId);
+      const cost = engineDisplayCost(entry);
+      if (group && cost !== undefined && cost > group.budget) {
+        toast(
+          text("editor.resourceCostOverBudget", lang, name, String(cost), group.name, String(group.budget)),
+          "error",
+          8000,
+        );
+      }
+    }
     renderTable();
     closeEngineModal();
   }
@@ -718,12 +854,13 @@ export function initEditor(): void {
     $("saveBtn").textContent = text("editor.save", lang);
     $("colName").textContent = text("editor.colName", lang);
     $("colType").textContent = text("editor.colType", lang);
+    $("colResource").textContent = text("editor.colResource", lang);
     $("colActions").textContent = text("editor.colActions", lang);
     $("editNameLabel").textContent = text("editor.nameLabel", lang);
     $("editTypeLabel").textContent = text("editor.typeLabel", lang);
-    $("typeGameLabel").textContent = text("editor.typeGame", lang);
-    $("typeResearchLabel").textContent = text("editor.typeResearch", lang);
-    $("typeMateLabel").textContent = text("editor.typeMate", lang);
+    $("typeGameLabel").textContent = text("editor.typeNameGame", lang);
+    $("typeResearchLabel").textContent = text("editor.typeNameResearch", lang);
+    $("typeMateLabel").textContent = text("editor.typeNameMate", lang);
     $("editPathLabel").textContent = text("editor.pathLabel", lang);
     $("pathHint").textContent = text("editor.pathHint", lang);
     $("browseBtn").textContent = text("editor.browse", lang);
@@ -758,15 +895,16 @@ export function initEditor(): void {
     $("resourceSettingsBtn").textContent = text("editor.resourceTitle", lang);
     $("resourceModalTitle").textContent = text("editor.resourceTitle", lang);
     $("resourceEnabledLabel").textContent = text("editor.resourceEnable", lang);
-    $("resourceApplyCoresBtn").textContent = text("editor.resourceApplyCores", lang);
     $("resourceAddGroupBtn").textContent = text("editor.resourceAddGroup", lang);
     $("resourceGroupColName").textContent = text("editor.resourceGroupColName", lang);
     $("resourceGroupColBudget").textContent = text("editor.resourceGroupColBudget", lang);
+    $("resourceBudgetColumnHint").textContent = text("editor.resourceBudgetColumnHint", lang);
     $("resourceGroupColEngines").textContent = text("editor.resourceGroupColEngines", lang);
     $("resourceGroupColActions").textContent = text("editor.colActions", lang);
     $("closeResourceModalBtn").textContent = text("editor.close", lang);
     $("resourceGroupLabel").textContent = text("editor.resourceLabel", lang);
     $("noResourceGroupOption").textContent = text("editor.resourceNoGroup", lang);
+    $("resourceCostModeLabel").textContent = text("editor.resourceCostMode", lang);
     $("resourceCostThreadsLabel").textContent = text("editor.resourceCostThreads", lang);
     $("resourceCostManualLabel").textContent = text("editor.resourceCostManual", lang);
     if ($("resourceModal").style.display === "block") renderResourceModal();
@@ -805,7 +943,11 @@ export function initEditor(): void {
     try {
       const data = await api.editorLoad();
       engines = data.engines || [];
-      resources = normalizeResourceSettings(data.resources);
+      resources = withDefaultResourceGroup(
+        normalizeResourceSettings(data.resources),
+        machineCores,
+        lang,
+      );
       resourceBudgetDrafts.clear();
       renderResourceModal();
       virtualGroups = [];
@@ -839,10 +981,13 @@ export function initEditor(): void {
       const next = normalizeLang((e.target as HTMLSelectElement).value) ?? "ja";
       void setLang(next);
     });
+    // The seeded default group takes the backend's core count as its budget.
+    await refreshMachineCores();
     await loadRegistry();
 
     $("saveBtn").addEventListener("click", async () => {
       if (!loaded || !collectResourceBudgets()) return;
+      warnOverBudgetGroups();
       const btn = $<HTMLButtonElement>("saveBtn");
       btn.disabled = true;
       try {
@@ -859,7 +1004,7 @@ export function initEditor(): void {
       if (!(await confirmAction(text("editor.confirmNew", lang)))) return;
       engines = [];
       virtualGroups = [];
-      resources = { enabled: false, groups: [] };
+      resources = withDefaultResourceGroup({ enabled: false, groups: [] }, machineCores, lang);
       resourceBudgetDrafts.clear();
       renderResourceModal();
       renderTable();
@@ -870,6 +1015,9 @@ export function initEditor(): void {
     $("addStringOptionBtn").addEventListener("click", () => addOptionRow("", "", "string"));
     $("addSpinOptionBtn").addEventListener("click", () => addOptionRow("", 0, "spin"));
     $("addBoolOptionBtn").addEventListener("click", () => addOptionRow("", true, "boolean"));
+    $<HTMLInputElement>("editSaveAnalysisDB").addEventListener("change", (e) => {
+      $("editSaveAnalysisDBLabel").textContent = (e.target as HTMLInputElement).checked ? "true" : "false";
+    });
     $("browseBtn").addEventListener("click", async () => {
       try {
         const path = await api.editorBrowse();
@@ -913,13 +1061,13 @@ export function initEditor(): void {
     $("resourceSettingsBtn").addEventListener("click", () => void openResourceModal());
     $("closeResourceModalBtn").addEventListener("click", closeResourceModal);
     $("resourceAddGroupBtn").addEventListener("click", addResourceGroup);
-    $("resourceApplyCoresBtn").addEventListener("click", () => void applyMachineCoresToFirstGroup());
     $("resourceEnabled").addEventListener("change", () => {
       resources.enabled = $<HTMLInputElement>("resourceEnabled").checked;
+      updateResourceStatus();
       renderResourceModal();
     });
     $("editResourceGroupId").addEventListener("change", () => {
-      syncResourceCostVisibility();
+      syncResourceCostFields();
     });
     for (const radio of ["resourceCostThreads", "resourceCostManual"] as const) {
       $(radio).addEventListener("change", () => {
@@ -928,7 +1076,7 @@ export function initEditor(): void {
           && $<HTMLInputElement>("editResourceCost").value === "") {
           $<HTMLInputElement>("editResourceCost").value = String(readModalDefaultThreadsCost());
         }
-        syncResourceCostVisibility();
+        syncResourceCostFields();
       });
     }
     $("editPath").addEventListener("input", updateResourcePathDefaults);
@@ -945,7 +1093,6 @@ export function initEditor(): void {
       else if (key === "Escape") closeGroupNameModal();
     });
     window.addEventListener("click", (event) => {
-      if (event.target === $("engineModal")) closeEngineModal();
       if (event.target === $("groupModal")) $("groupModal").style.display = "none";
       if (event.target === $("groupNameModal")) closeGroupNameModal();
       if (event.target === $("resourceModal")) closeResourceModal();
