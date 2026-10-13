@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
 import { decodeGameRequest, isGameTerminal, type GameSessionRequest } from "@/common/game/protocol";
-import type { PlayerSettings } from "@/common/settings/player";
 import { LARGE_BODY_LIMIT } from "@/server/hono";
 import { t } from "@/common/i18n";
 import { HttpError } from "@/server/errors";
@@ -10,43 +9,22 @@ import {
   resourceRegistry,
   type ResourceLease,
 } from "@/server/engine/resources";
-import {
-  GameSession,
-  GAME_HEARTBEAT_MS,
-  resolveGameEngine,
-  type GameDependencies,
-} from "./session";
+import { GameSession, GAME_HEARTBEAT_MS, type GameDependencies } from "./session";
 import { validateGameSaveDirectory } from "./files";
 import type { JobSummary } from "@/common/jobs/types";
 import { ES_HUMAN } from "@/common/uri";
-
-function engineIdOf(settings: PlayerSettings): string | null {
-  if (settings.uri === ES_HUMAN) return null;
-  return settings.uri === "lan-engine" ? "game" : settings.uri.substring(11);
-}
+import type { EngineConfig } from "@/server/engine/types";
 
 /**
  * Reserve the shared budget for a game before either engine starts. AI
  * engines search alternately (no ponder), so the reservation is the
- * per-group maximum of both engines, held for the whole session. An engine
- * that cannot be resolved leaves the reservation to the session startup,
- * which fails with its own error anyway.
+ * per-group maximum of both engines, held for the whole session. The
+ * session supplies the same frozen configurations used to launch players.
  */
 export async function acquireGameResourceLease(
-  settings: GameSessionRequest["settings"],
+  configs: readonly EngineConfig[],
 ): Promise<ResourceLease | undefined> {
-  try {
-    const ids = [
-      ...new Set([settings.black, settings.white].map(engineIdOf).filter((id) => id !== null)),
-    ];
-    const configs = await Promise.all(ids.map((id) => resolveGameEngine(id as string)));
-    return resourceRegistry.acquire(...maxRequirements(...configs.map(engineRequirements)));
-  } catch (error) {
-    // Capacity rejection must surface at the HTTP boundary; other
-    // resolution failures are deferred to the session startup path.
-    if (error instanceof HttpError) throw error;
-    return undefined;
-  }
+  return resourceRegistry.acquire(...maxRequirements(...configs.map(engineRequirements)));
 }
 
 export class GameSessionManager {

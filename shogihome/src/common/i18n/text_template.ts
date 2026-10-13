@@ -462,6 +462,7 @@ export type Texts = {
   defaultValue: string;
   freeTextUnsafe: string;
   noEngineRegistered: string;
+  remoteEngineUnavailable: string;
   duplicate: string;
   add: string;
   compareAndMerge: string;

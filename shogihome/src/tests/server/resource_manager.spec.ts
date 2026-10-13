@@ -12,6 +12,14 @@ import { AnalysisJobManager } from "@/server/analysis/jobManager";
 import { FakeResearchEngine, requestFor } from "./helpers/analysis";
 import { fakeGamePlayer, gameRequest } from "./helpers/game";
 import { GameSession } from "@/server/game/session";
+import { acquireGameResourceLease } from "@/server/game/manager";
+import * as engineList from "@/server/engine/list";
+import type { GameEngine } from "@/server/engine/internal";
+
+vi.mock("@/server/file/history", () => ({
+  addHistory: vi.fn(async () => {}),
+  saveBackup: vi.fn(async () => {}),
+}));
 
 const engine = (overrides: Partial<EngineConfig> = {}): EngineConfig => ({
   id: "engine-1",
@@ -19,7 +27,10 @@ const engine = (overrides: Partial<EngineConfig> = {}): EngineConfig => ({
   ...overrides,
 });
 
-afterEach(() => resourceRegistry.resetForTest());
+afterEach(() => {
+  vi.restoreAllMocks();
+  resourceRegistry.resetForTest();
+});
 
 describe("engine resource cost", () => {
   it("uses the Threads option in automatic mode and falls back to 1", () => {
@@ -53,9 +64,11 @@ describe("engine resource cost", () => {
     ]);
   });
 
-  it("returns no requirements while the budget is disabled", () => {
+  it("keeps accounting requirements while enforcement is disabled", () => {
     resourceRegistry.resetForTest(false, [{ id: "g", name: "G", budget: 8 }]);
-    expect(engineRequirements(engine({ threads: 4, resource: { groupId: "g" } }))).toEqual([]);
+    expect(engineRequirements(engine({ threads: 4, resource: { groupId: "g" } }))).toEqual([
+      { groupId: "g", cost: 4 },
+    ]);
   });
 });
 
@@ -105,16 +118,57 @@ describe("resource reservation", () => {
 
   it("keeps reservations across list refetches and restores them on release", () => {
     resourceRegistry.resetForTest(true, [{ id: "g", name: "G", budget: 8 }]);
-    resourceRegistry.acquire(
+    const lease = resourceRegistry.acquire(
       ...engineRequirements(engine({ threads: 4, resource: { groupId: "g" } })),
     );
     // Refresh with the same group: usage is carried over.
     resourceRegistry.update({ enabled: true, groups: [{ id: "g", name: "G", budget: 16 }] });
     expect(resourceRegistry.groupSnapshot()).toEqual([{ id: "g", name: "G", budget: 16, used: 4 }]);
-    // Refresh without the group: the reservation loses its accounting.
+    // Removing and restoring a group must not lose its active leases.
     resourceRegistry.update({ enabled: true, groups: [] });
     expect(resourceRegistry.isEnabled()).toBe(false);
+    expect(resourceRegistry.groupSnapshot()).toEqual([]);
     resourceRegistry.update({ enabled: true, groups: [{ id: "g", name: "G", budget: 8 }] });
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(4);
+    lease!.release();
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+  });
+
+  it("rejects additional work after enabling budgets with engines started while disabled", () => {
+    const groups = [{ id: "g", name: "G", budget: 4 }];
+    resourceRegistry.resetForTest(false, groups);
+    const requirement = engineRequirements(engine({ threads: 8, resource: { groupId: "g" } }));
+    const lease = resourceRegistry.acquire(...requirement);
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(8);
+    resourceRegistry.update({ enabled: true, groups });
+    expect(() => resourceRegistry.acquire({ groupId: "g", cost: 1 })).toThrow(HttpError);
+    lease!.release();
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+  });
+
+  it("keeps a full reservation when its group is removed and restored", () => {
+    const groups = [{ id: "g", name: "G", budget: 8 }];
+    resourceRegistry.resetForTest(true, groups);
+    const lease = resourceRegistry.acquire({ groupId: "g", cost: 8 });
+    resourceRegistry.update(undefined);
+    resourceRegistry.update({ enabled: true, groups });
+    expect(() => resourceRegistry.acquire({ groupId: "g", cost: 1 })).toThrow(HttpError);
+    lease!.release();
+    lease!.release();
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+  });
+
+  it("releases deleted groups before reusing their ids without corrupting later leases", () => {
+    const groups = [{ id: "g", name: "G", budget: 8 }];
+    resourceRegistry.resetForTest(true, groups);
+    const old = resourceRegistry.acquire({ groupId: "g", cost: 8 });
+    resourceRegistry.update(undefined);
+    old!.release();
+    resourceRegistry.update({ enabled: true, groups });
+    const current = resourceRegistry.acquire({ groupId: "g", cost: 8 });
+    old!.release();
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(8);
+    current!.release();
     expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
   });
 
@@ -151,6 +205,96 @@ describe("owner integration", () => {
     name: "my usi engine",
     threads: 8,
     resource: { groupId: "g" },
+  });
+
+  it("launches analysis with the same configuration snapshot used for its reservation", async () => {
+    resourceRegistry.resetForTest(true, [{ id: "g", name: "G", budget: 8 }]);
+    const original = { ...(await managedEngine()), threads: 4 };
+    const resolver = vi
+      .fn()
+      .mockResolvedValueOnce(original)
+      .mockResolvedValue({ ...original, threads: 12 });
+    const research = new FakeResearchEngine();
+    const manager = new AnalysisJobManager(() => research, resolver);
+    const request = { ...requestFor(), serverInstanceId: manager.serverInstanceId };
+    try {
+      await manager.create(request);
+      await vi.waitFor(() => expect(research.launch).toHaveBeenCalled());
+      expect(resolver).toHaveBeenCalledOnce();
+      expect(research.launch.mock.calls[0][0]).toMatchObject({ threads: 4 });
+      expect(resourceRegistry.groupSnapshot()[0].used).toBe(4);
+    } finally {
+      await manager.close();
+    }
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+  });
+
+  it("uses one game registry snapshot for both reservation and player launch", async () => {
+    resourceRegistry.resetForTest(true, [{ id: "g", name: "G", budget: 8 }]);
+    const original = { ...(await managedEngine()), threads: 4, type: ["game"] };
+    const white = { ...original, id: "white", threads: 6 };
+    const fetch = vi
+      .spyOn(engineList, "fetchEngineConfigs")
+      .mockResolvedValueOnce([original, white])
+      .mockResolvedValue([
+        { ...original, threads: 12 },
+        { ...white, threads: 12 },
+      ]);
+    const gameEngine: GameEngine = {
+      launch: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      setMultiPV: vi.fn(),
+      readyNewGame: vi.fn(),
+      startResearch: vi.fn(),
+      startSearch: vi.fn(async () => ({
+        finished: new Promise<void>(() => {}),
+        stop: async () => {},
+        cancel: async () => {},
+      })),
+      cancelAll: vi.fn(async () => {}),
+      gameover: vi.fn(),
+    };
+    const request = gameRequest();
+    request.settings.black = { uri: "lan-engine:test", name: "AI" };
+    request.settings.white = { uri: "lan-engine:white", name: "White AI" };
+    const session = new GameSession("snapshot", request, {
+      createEngine: () => gameEngine,
+      acquireResourceLease: acquireGameResourceLease,
+    });
+    session.start();
+    try {
+      await vi.waitFor(() => expect(gameEngine.launch).toHaveBeenCalledTimes(2));
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(vi.mocked(gameEngine.launch).mock.calls[0][0]).toMatchObject({ threads: 4 });
+      expect(vi.mocked(gameEngine.launch).mock.calls[1][0]).toMatchObject({ threads: 6 });
+      expect(resourceRegistry.groupSnapshot()[0].used).toBe(6);
+    } finally {
+      await session.close();
+    }
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+  });
+
+  it("does not retry a failed analysis resolution and launch without a reservation", async () => {
+    resourceRegistry.resetForTest(true, [{ id: "g", name: "G", budget: 4 }]);
+    const resolver = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Unavailable"))
+      .mockResolvedValue(await managedEngine());
+    const research = new FakeResearchEngine();
+    const manager = new AnalysisJobManager(() => research, resolver);
+    try {
+      const job = await manager.create({
+        ...requestFor(),
+        serverInstanceId: manager.serverInstanceId,
+      });
+      await job.completion;
+      expect(job.status()).toMatchObject({ state: "failed", error: "engine" });
+      expect(resolver).toHaveBeenCalledOnce();
+      expect(research.launch).not.toHaveBeenCalled();
+      expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+    } finally {
+      await manager.close();
+    }
   });
 
   it("rejects analysis job creation at the HTTP boundary and frees the slot", async () => {

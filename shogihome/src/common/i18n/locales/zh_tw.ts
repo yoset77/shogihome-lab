@@ -476,6 +476,7 @@ export const zh_tw: Texts = {
   defaultValue: "預設値",
   freeTextUnsafe: "自由輸入（不建議）",
   noEngineRegistered: "尚未登錄引擎。",
+  remoteEngineUnavailable: "無法使用所選引擎。請重新整理引擎清單。",
   duplicate: "複製",
   add: "追加",
   compareAndMerge: "比較並合併",

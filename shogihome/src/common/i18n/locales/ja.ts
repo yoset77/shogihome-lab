@@ -476,6 +476,7 @@ export const ja: Texts = {
   defaultValue: "既定値",
   freeTextUnsafe: "自由入力(非推奨)",
   noEngineRegistered: "エンジンが登録されていません。",
+  remoteEngineUnavailable: "選択したエンジンを利用できません。エンジン一覧を更新してください。",
   duplicate: "複製",
   add: "追加",
   compareAndMerge: "比較・マージ",

@@ -25,7 +25,8 @@ import {
   REMOTE_ENGINE_PORT,
 } from "@/server/config";
 import { authenticateSocket } from "@/server/engine/auth";
-import { engineConfigCache, getEngineList } from "@/server/engine/list";
+import { fetchEngineConfigs, getEngineList } from "@/server/engine/list";
+import { t } from "@/common/i18n";
 import {
   EngineState,
   type EngineConfig,
@@ -112,7 +113,7 @@ export class EngineSession {
       encodeClientRelayMessage({ type: "startEngine", engineId: config.id }),
     );
     if (!decoded.ok) throw new Error(decoded.error);
-    this.startEngine(config.id, { ...config });
+    void this.startEngine(config.id, structuredClone(config));
   }
 
   destroyInternal(): void {
@@ -697,27 +698,31 @@ export class EngineSession {
     });
   }
 
-  private startEngine(engineId: string, config?: EngineConfig) {
+  private async startEngine(engineId: string, config?: EngineConfig): Promise<void> {
     if (this.engineHandle || this.engineState === EngineState.STARTING) {
       this.sendError("engine already running or starting");
       return;
     }
-    const resolvedConfig = config ??
-      engineConfigCache.get(engineId) ?? { id: engineId, name: engineId };
-    // Reserve the engine's cost before any process is started. Internal
-    // sessions bring their own lease from InternalEngine.
-    if (this.owner === "relay") {
-      try {
-        this.resourceLease = resourceRegistry.acquire(...engineRequirements(resolvedConfig));
-      } catch (error) {
-        console.warn(`Engine start rejected for session ${this.sessionId}:`, error);
-        this.sendError(error instanceof Error ? error.message : String(error));
-        return;
-      }
-    }
     this.engineState = EngineState.STARTING;
     this.currentEngineId = engineId;
-    this.currentEngineConfig = resolvedConfig;
+    const instanceId = this.instanceId;
+    try {
+      // Relay starts resolve their own catalog, independently of browser discovery.
+      const resolvedConfig =
+        config ?? (await fetchEngineConfigs()).find((entry) => entry.id === engineId);
+      if (this.instanceId !== instanceId || this.isExplicitlyTerminated) return;
+      if (!resolvedConfig) throw new Error(t.remoteEngineUnavailable);
+      if (this.owner === "relay") {
+        this.resourceLease = resourceRegistry.acquire(...engineRequirements(resolvedConfig));
+      }
+      this.currentEngineConfig = structuredClone(resolvedConfig);
+    } catch (error) {
+      if (this.instanceId !== instanceId || this.isExplicitlyTerminated) return;
+      console.warn(`Engine start rejected for session ${this.sessionId}:`, error);
+      this.sendError(error instanceof Error ? error.message : String(error));
+      this.onEngineClose();
+      return;
+    }
 
     console.log(`Connecting to remote engine at ${REMOTE_ENGINE_HOST}:${REMOTE_ENGINE_PORT}`);
     const socket = new net.Socket();
@@ -855,7 +860,7 @@ export class EngineSession {
           this.sendError("engine already running or starting");
           return;
         }
-        this.startEngine(engineId);
+        void this.startEngine(engineId);
         return;
       }
       case "stopEngine": {

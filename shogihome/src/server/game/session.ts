@@ -60,9 +60,7 @@ export type GameDependencies = {
   // Reserves the shared budget for both engines before the game starts.
   // The production manager wires the default provider; tests without it
   // skip resource accounting.
-  acquireResourceLease?: (
-    settings: GameSessionRequest["settings"],
-  ) => Promise<ResourceLease | undefined>;
+  acquireResourceLease?: (configs: readonly EngineConfig[]) => Promise<ResourceLease | undefined>;
   loadPositions?: (uri: string) => Promise<string[]>;
   saveRecord?: typeof saveGameRecord;
   addHistory?: typeof addHistory;
@@ -71,13 +69,12 @@ export type GameDependencies = {
   now?: () => number;
 };
 
-async function resolveEngine(id: string): Promise<EngineConfig> {
-  const engine = (await fetchEngineConfigs()).find((config) => config.id === id);
+function resolveEngine(id: string, configs: EngineConfig[]): EngineConfig {
+  const engine = configs.find((config) => config.id === id);
   if (!engine || !toLanEngineInfo(engine)?.type?.includes("game"))
     throw new Error("Unknown game engine");
   return engine;
 }
-export { resolveEngine as resolveGameEngine };
 
 export class GameSession {
   private readonly records: GameRecord;
@@ -214,18 +211,41 @@ export class GameSession {
       return;
     }
     try {
+      const configs = new Map<string, EngineConfig>();
+      if (!this.deps.playerBuilder) {
+        const ids = [
+          ...new Set(
+            [this.request.settings.black, this.request.settings.white]
+              .filter((settings) => settings.uri !== ES_HUMAN)
+              .map((settings) =>
+                settings.uri === "lan-engine" ? "game" : settings.uri.substring(11),
+              ),
+          ),
+        ];
+        if (ids.length > 0) {
+          const catalog = this.deps.resolveEngine ? undefined : await fetchEngineConfigs();
+          for (const id of ids) {
+            const config = this.deps.resolveEngine
+              ? await this.deps.resolveEngine(id)
+              : resolveEngine(id, catalog!);
+            configs.set(id, structuredClone(config));
+          }
+        }
+      }
+      if (this.abort.signal.aborted) throw new Error("Game startup cancelled");
       // Reserve the shared budget before either engine is launched. AI
       // engines search alternately (no ponder), so the reservation is the
       // per-group maximum of both engines, held for the whole session.
       if (this.deps.acquireResourceLease) {
-        this.resourceLease = await this.deps.acquireResourceLease(this.request.settings);
+        this.resourceLease = await this.deps.acquireResourceLease([...configs.values()]);
       }
+      if (this.abort.signal.aborted) throw new Error("Game startup cancelled");
       const builder: PlayerBuilder = this.deps.playerBuilder ?? {
         build: async (settings, onInfo) => {
           if (settings.uri === ES_HUMAN) return new HumanPlayer();
-          const config = await (this.deps.resolveEngine ?? resolveEngine)(
+          const config = configs.get(
             settings.uri === "lan-engine" ? "game" : settings.uri.substring(11),
-          );
+          )!;
           if (this.abort.signal.aborted) throw new Error("Game startup cancelled");
           settings.name = config.name;
           const extra = settings.usi?.extraBook;
