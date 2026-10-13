@@ -81,7 +81,7 @@ export const createAnalysisJobRoutes = (manager: AnalysisJobManager = analysisJo
         if (!decoded.ok) throw new HttpError(400, t.batchAnalysisInvalid);
         return decoded.value;
       }),
-      (c) => c.json(manager.createBatch(c.req.valid("json")).status(), 202),
+      async (c) => c.json((await manager.createBatch(c.req.valid("json"))).status(), 202),
     )
     .get("/:jobId/files", (c) => {
       const job = manager.get(id(c.req.param("jobId")));
@@ -99,7 +99,7 @@ export const createAnalysisJobRoutes = (manager: AnalysisJobManager = analysisJo
         if (!decoded.ok) throw new HttpError(400, t.analysisJobInvalid);
         return decoded.value;
       }),
-      (c) => c.json(manager.create(c.req.valid("json")).status(), 202),
+      async (c) => c.json((await manager.create(c.req.valid("json"))).status(), 202),
     )
     .get("/by-request/:requestId", (c) =>
       c.json(manager.byRequest(id(c.req.param("requestId"))).status()),

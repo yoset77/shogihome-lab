@@ -14,6 +14,8 @@ export type LanEngineInfo = {
   id: string;
   name: string;
   type?: LanEngineType[];
+  resource?: EngineResourceConfig;
+  threads?: number;
 };
 
 export type RelayNotice = "pong" | "engineReady" | "engineStopped";
@@ -24,6 +26,26 @@ export type SearchRequest = {
   searchId: number;
   position: string;
   go: string;
+};
+
+// engines.json v2: resource budget groups. The wrapper owns the file and
+// forwards the document verbatim through `list`; the server (not the
+// wrapper or the launcher editor) enforces budgets.
+export type ResourceGroupConfig = {
+  id: string;
+  name: string;
+  budget: number;
+};
+
+export type EngineResourceConfig = {
+  groupId?: string;
+  autoThreads?: boolean;
+  cost?: number;
+};
+
+export type ResourceSettings = {
+  enabled?: boolean;
+  groups?: ResourceGroupConfig[];
 };
 
 export type CancelSearchRequest = { type: "cancelSearch"; instanceId: string; through: number };
@@ -101,6 +123,52 @@ const isCounter = (value: unknown): value is number =>
 const isInstanceId = (value: unknown): value is string =>
   typeof value === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
 
+const RESOURCE_ID_PATTERN = /^[a-zA-Z0-9_.-]{1,100}$/;
+export const isValidResourceId = (value: unknown): value is string =>
+  typeof value === "string" && RESOURCE_ID_PATTERN.test(value);
+
+const isValidBudget = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+
+export const decodeResourceGroupConfig = (value: unknown): DecodeResult<ResourceGroupConfig> => {
+  if (!isRecord(value) || !isValidResourceId(value.id) || typeof value.name !== "string") {
+    return { ok: false, error: "invalid resource group" };
+  }
+  if (!isValidBudget(value.budget)) {
+    return { ok: false, error: "invalid resource group budget" };
+  }
+  return { ok: true, value: { id: value.id, name: value.name, budget: value.budget } };
+};
+
+export const decodeResourceSettings = (value: unknown): DecodeResult<ResourceSettings> => {
+  if (value === undefined) return { ok: true, value: {} };
+  if (!isRecord(value)) return { ok: false, error: "invalid resource settings" };
+  const settings: ResourceSettings = {};
+  if (value.enabled !== undefined) {
+    if (typeof value.enabled !== "boolean") {
+      return { ok: false, error: "invalid resource enabled flag" };
+    }
+    settings.enabled = value.enabled;
+  }
+  if (value.groups !== undefined) {
+    if (!Array.isArray(value.groups)) return { ok: false, error: "invalid resource groups" };
+    const groups: ResourceGroupConfig[] = [];
+    for (const item of value.groups) {
+      const decoded = decodeResourceGroupConfig(item);
+      if (!decoded.ok) return decoded;
+      groups.push(decoded.value);
+    }
+    // Group IDs must be unique: a duplicated ID would silently merge budgets.
+    const ids = new Set<string>();
+    for (const group of groups) {
+      if (ids.has(group.id)) return { ok: false, error: "duplicate resource group id" };
+      ids.add(group.id);
+    }
+    settings.groups = groups;
+  }
+  return { ok: true, value: settings };
+};
+
 const isSearchSnapshot = (value: Record<string, unknown>): value is SearchSnapshot => {
   const terminal = value.terminal;
   return (
@@ -157,16 +225,60 @@ export const decodeLanEngineInfo = (value: unknown): DecodeResult<LanEngineInfo>
   if (!isRecord(value) || !isRelayEngineId(value.id) || typeof value.name !== "string") {
     return { ok: false, error: "invalid engine summary" };
   }
+  let types: LanEngineInfo["type"];
   if (value.type !== undefined) {
     if (!Array.isArray(value.type) || !value.type.every(isLanEngineType)) {
       return { ok: false, error: "invalid engine type" };
     }
-    return {
-      ok: true,
-      value: { id: value.id, name: value.name, type: [...value.type] },
-    };
+    types = [...value.type];
   }
-  return { ok: true, value: { id: value.id, name: value.name } };
+  const resource = decodeEngineResourceConfig(value.resource);
+  if (!resource.ok) return resource;
+  const threads = decodeEngineThreads(value.threads);
+  if (!threads.ok) return threads;
+  const info: LanEngineInfo = {
+    id: value.id,
+    name: value.name,
+    ...(types ? { type: types } : {}),
+    ...(resource.value ? { resource: resource.value } : {}),
+    ...(threads.value !== undefined ? { threads: threads.value } : {}),
+  };
+  return { ok: true, value: info };
+};
+
+export const decodeEngineResourceConfig = (
+  value: unknown,
+): DecodeResult<EngineResourceConfig | undefined> => {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (!isRecord(value)) return { ok: false, error: "invalid engine resource config" };
+  const resource: EngineResourceConfig = {};
+  if (value.groupId !== undefined) {
+    if (!isValidResourceId(value.groupId)) {
+      return { ok: false, error: "invalid engine resource group" };
+    }
+    resource.groupId = value.groupId;
+  }
+  if (value.autoThreads !== undefined) {
+    if (typeof value.autoThreads !== "boolean") {
+      return { ok: false, error: "invalid engine resource mode" };
+    }
+    resource.autoThreads = value.autoThreads;
+  }
+  if (value.cost !== undefined) {
+    if (!isValidBudget(value.cost)) {
+      return { ok: false, error: "invalid engine resource cost" };
+    }
+    resource.cost = value.cost;
+  }
+  if (Object.keys(resource).length === 0) return { ok: true, value: undefined };
+  return { ok: true, value: resource };
+};
+
+const decodeEngineThreads = (value: unknown): DecodeResult<number | undefined> => {
+  if (value === undefined) return { ok: true, value: undefined };
+  // Threads=0 means automatic for some engines and is not a valid cost.
+  if (!isCounter(value) || value < 1) return { ok: false, error: "invalid engine threads" };
+  return { ok: true, value: value };
 };
 
 const NOTICE_BY_INFO: Record<string, RelayNotice> = {
@@ -321,6 +433,26 @@ export const encodeSessionRelayMessage = (payload: SessionRelayPayload, delay: n
 
 export const encodeEngineListRelayMessage = (engines: LanEngineInfo[]): string =>
   JSON.stringify({ engineList: engines });
+
+// engines.json may be a legacy root array or a v2 `{ resources, engines }`
+// object. The wrapper forwards either form verbatim through `list`.
+export type EngineDocument = {
+  engines: unknown[];
+  resources?: ResourceSettings;
+};
+
+export const decodeEngineDocument = (value: unknown): DecodeResult<EngineDocument> => {
+  if (Array.isArray(value)) return { ok: true, value: { engines: value } };
+  if (!isRecord(value)) return { ok: false, error: "invalid engine document" };
+  if (!Array.isArray(value.engines)) return { ok: false, error: "invalid engine document" };
+  const resources = value.resources;
+  if (resources !== undefined) {
+    const decoded = decodeResourceSettings(resources);
+    if (!decoded.ok) return decoded;
+    return { ok: true, value: { engines: value.engines, resources: decoded.value } };
+  }
+  return { ok: true, value: { engines: value.engines } };
+};
 
 export const isValidUsiCommand = (command: unknown): command is string => {
   if (typeof command !== "string" || /[\r\n]/.test(command)) return false;

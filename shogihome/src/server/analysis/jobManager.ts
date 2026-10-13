@@ -10,6 +10,11 @@ import { HttpError } from "@/server/errors";
 import { LARGE_BODY_LIMIT } from "@/server/hono";
 import { InternalEngine, type ResearchEngine } from "@/server/engine/internal";
 import { fetchEngineConfigs, toLanEngineInfo } from "@/server/engine/list";
+import {
+  engineRequirements,
+  resourceRegistry,
+  type ResourceLease,
+} from "@/server/engine/resources";
 import type { EngineConfig } from "@/server/engine/types";
 import { AnalysisJob } from "./job";
 import type { JobSummary } from "@/common/jobs/types";
@@ -35,7 +40,8 @@ export class AnalysisJobManager {
   private requests = new Map<string, { hash: string; jobId: string }>();
 
   constructor(
-    private readonly createEngine: () => ResearchEngine = () => new InternalEngine(),
+    private readonly createEngine: (resourceLease?: ResourceLease) => ResearchEngine = (lease) =>
+      new InternalEngine(lease),
     private readonly engineResolver: (id: string) => Promise<EngineConfig> = resolveEngine,
     private readonly batchFiles = new BatchAnalysisFiles(() => KIFU_DIR),
   ) {}
@@ -49,34 +55,70 @@ export class AnalysisJobManager {
     };
   }
 
-  create(request: AnalysisJobRequest): AnalysisJob {
+  private resolveExisting(
+    entry: { hash: string; jobId: string } | undefined,
+    hash: string,
+    batch: boolean,
+  ): AnalysisJob | BatchAnalysisJob | undefined {
+    if (!entry) return undefined;
+    if (entry.hash !== hash) throw new HttpError(409, t.analysisJobInvalid);
+    const job = this.get(entry.jobId);
+    if (batch !== job instanceof BatchAnalysisJob) throw new HttpError(409, t.analysisJobInvalid);
+    return job;
+  }
+
+  private async resolveEngineQuietly(id: string): Promise<EngineConfig | undefined> {
+    try {
+      return await this.engineResolver(id);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private buildJob<T>(build: () => T, lease?: ResourceLease): T {
+    try {
+      return build();
+    } catch (error) {
+      lease?.release();
+      throw error;
+    }
+  }
+
+  async create(request: AnalysisJobRequest): Promise<AnalysisJob> {
     this.cleanup();
     if (request.serverInstanceId !== this.serverInstanceId)
       throw new HttpError(410, t.analysisJobExpired);
     const hash = createHash("sha256").update(JSON.stringify(request)).digest("hex");
-    const accepted = this.requests.get(request.requestId);
-    if (accepted) {
-      if (accepted.hash !== hash) throw new HttpError(409, t.analysisJobInvalid);
-      const job = this.get(accepted.jobId);
-      if (!(job instanceof AnalysisJob)) throw new HttpError(409, t.analysisJobInvalid);
-      return job;
-    }
+    const existing = this.resolveExisting(this.requests.get(request.requestId), hash, false);
+    if (existing) return existing as AnalysisJob;
+    // Resolve the engine outside the synchronous tail so the resource
+    // reservation can be rejected at the HTTP boundary.
+    const engineConfig = await this.resolveEngineQuietly(request.options.engineId);
+    const reaccepted = this.resolveExisting(this.requests.get(request.requestId), hash, false);
+    if (reaccepted) return reaccepted as AnalysisJob;
     if (
       [...this.jobs.values()].some((job) => !isAnalysisTerminal(job.status().state)) ||
       this.requests.size >= MAX_REQUEST_LEDGER
     ) {
       throw new HttpError(503, t.analysisJobCapacity);
     }
-    const job = new AnalysisJob(
-      randomUUID(),
-      structuredClone(request),
-      this.createEngine(),
-      this.engineResolver,
-    );
-    this.jobs.set(job.id, job);
-    this.requests.set(request.requestId, { hash, jobId: job.id });
-    void job.completion.then(() => this.cleanup());
-    job.start();
+    const lease = engineConfig
+      ? resourceRegistry.acquire(...engineRequirements(engineConfig))
+      : undefined;
+    const job = this.buildJob(() => {
+      const created = new AnalysisJob(
+        randomUUID(),
+        structuredClone(request),
+        this.createEngine(lease),
+        this.engineResolver,
+        lease,
+      );
+      this.jobs.set(created.id, created);
+      this.requests.set(request.requestId, { hash, jobId: created.id });
+      void created.completion.then(() => this.cleanup());
+      created.start();
+      return created;
+    }, lease);
     return job;
   }
 
@@ -84,38 +126,43 @@ export class AnalysisJobManager {
     return this.batchFiles.prepare(source);
   }
 
-  createBatch(request: BatchAnalysisJobRequest): BatchAnalysisJob {
+  async createBatch(request: BatchAnalysisJobRequest): Promise<BatchAnalysisJob> {
     this.cleanup();
     if (request.serverInstanceId !== this.serverInstanceId)
       throw new HttpError(410, t.analysisJobExpired);
     const hash = createHash("sha256").update(JSON.stringify(request)).digest("hex");
-    const accepted = this.requests.get(request.requestId);
-    if (accepted) {
-      if (accepted.hash !== hash) throw new HttpError(409, t.analysisJobInvalid);
-      const job = this.get(accepted.jobId);
-      if (!(job instanceof BatchAnalysisJob)) throw new HttpError(409, t.analysisJobInvalid);
-      return job;
-    }
+    const existing = this.resolveExisting(this.requests.get(request.requestId), hash, true);
+    if (existing) return existing as BatchAnalysisJob;
+    const engineConfig = await this.resolveEngineQuietly(request.options.engineId);
+    const reaccepted = this.resolveExisting(this.requests.get(request.requestId), hash, true);
+    if (reaccepted) return reaccepted as BatchAnalysisJob;
     if (
       [...this.jobs.values()].some((job) => !isAnalysisTerminal(job.status().state)) ||
       this.requests.size >= MAX_REQUEST_LEDGER
     )
       throw new HttpError(503, t.analysisJobCapacity);
     const plan = this.batchFiles.get(request.planId);
-    const job = new BatchAnalysisJob(
-      randomUUID(),
-      structuredClone(request),
-      plan,
-      this.createEngine(),
-      this.engineResolver,
-      this.batchFiles,
-    );
-    this.jobs.set(job.id, job);
-    this.requests.set(request.requestId, { hash, jobId: job.id });
-    this.batchFiles.release(request.planId);
-    void job.completion.then(() => this.cleanup());
-    job.start();
-    return job;
+    const lease = engineConfig
+      ? resourceRegistry.acquire(...engineRequirements(engineConfig))
+      : undefined;
+    const batch = this.buildJob(() => {
+      const created = new BatchAnalysisJob(
+        randomUUID(),
+        structuredClone(request),
+        plan,
+        this.createEngine(lease),
+        this.engineResolver,
+        this.batchFiles,
+        lease,
+      );
+      this.jobs.set(created.id, created);
+      this.requests.set(request.requestId, { hash, jobId: created.id });
+      this.batchFiles.release(request.planId);
+      void created.completion.then(() => this.cleanup());
+      created.start();
+      return created;
+    }, lease);
+    return batch;
   }
 
   get(id: string): AnalysisJob | BatchAnalysisJob {

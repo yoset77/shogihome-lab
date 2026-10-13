@@ -1,4 +1,5 @@
 import type { WebSocket } from "ws";
+import type { EngineResourceConfig } from "@/common/engine/relay_protocol";
 
 export type EngineConfig = {
   id: string;
@@ -7,6 +8,8 @@ export type EngineConfig = {
   skipAnalysisDB?: boolean;
   analysisDBGroupId?: string;
   analysisDBGroupName?: string;
+  threads?: number;
+  resource?: EngineResourceConfig;
 };
 
 export enum EngineState {

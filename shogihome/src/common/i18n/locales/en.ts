@@ -982,6 +982,8 @@ export const en: Texts = {
     "The analysis job limit has been reached. Retry after the existing analysis finishes.",
   analysisJobInvalid: "Invalid analysis input or response.",
   analysisJobDeadline: "The analysis time limit was reached. Partial results have been retained.",
+  resourceGroupCapacity: (group, budget, used, cost) =>
+    `Resource group "${group}" is at its budget limit. (budget ${budget}, reserved ${used}, requested ${cost})`,
   analysisRecover: "Open the retained analysis record? The current record will be replaced.",
   analysisCancelling: "Waiting for analysis cancellation",
   gameInvalid: "Invalid game input or response.",

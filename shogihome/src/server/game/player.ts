@@ -7,6 +7,7 @@ import { parseUSIPV } from "@/common/game/usi";
 import { parseAnalysisInfo } from "@/common/analysis/types";
 import type { USIEngineExtraBookConfig } from "@/common/settings/usi";
 import type { EngineConfig } from "@/server/engine/types";
+import type { ResourceLease } from "@/server/engine/resources";
 import { InternalEngine, type GameEngine, type ResearchSearch } from "@/server/engine/internal";
 import { searchGameBook, type GameBook } from "./book";
 
@@ -43,8 +44,13 @@ export class GamePlayer implements Player {
       info: ReturnType<typeof parseAnalysisInfo>,
     ) => void = () => {},
   ) {}
-  async launch(config: EngineConfig, timeout: number, signal: AbortSignal): Promise<void> {
-    await this.engine.launch(config, timeout, signal);
+  async launch(
+    config: EngineConfig,
+    timeout: number,
+    signal: AbortSignal,
+    resourceLease?: ResourceLease,
+  ): Promise<void> {
+    await this.engine.launch(config, timeout, signal, resourceLease);
   }
   isEngine(): boolean {
     return true;

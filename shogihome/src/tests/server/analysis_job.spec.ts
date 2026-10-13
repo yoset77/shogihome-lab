@@ -365,20 +365,20 @@ describe("server analysis jobs", () => {
     const manager = new AnalysisJobManager(() => new FakeResearchEngine(), config);
     const request = requestFor();
     request.serverInstanceId = manager.serverInstanceId;
-    const job = manager.create(request);
-    expect(manager.create(request)).toBe(job);
-    expect(() =>
+    const job = await manager.create(request);
+    expect(await manager.create(request)).toBe(job);
+    await expect(
       manager.create({ ...request, options: { ...request.options, descending: true } }),
-    ).toThrow();
-    expect(() => manager.create({ ...request, requestId: "another" })).toThrow();
+    ).rejects.toThrow();
+    await expect(manager.create({ ...request, requestId: "another" })).rejects.toThrow();
     await vi.advanceTimersByTimeAsync(6000);
     await job.completion;
     await vi.advanceTimersByTimeAsync(ANALYSIS_MAX_RUNTIME_MS);
     expect(() => manager.get(job.id)).toThrow();
-    expect(() => manager.create(request)).toThrow();
-    expect(() =>
+    await expect(manager.create(request)).rejects.toThrow();
+    await expect(
       manager.create({ ...request, requestId: "new", serverInstanceId: "old-server" }),
-    ).toThrow();
+    ).rejects.toThrow();
   });
 
   it("keeps at most ten terminal jobs and freezes caller-owned input", async () => {
@@ -388,7 +388,7 @@ describe("server analysis jobs", () => {
       const request = requestFor();
       request.serverInstanceId = manager.serverInstanceId;
       request.requestId = `request-${index}`;
-      const job = manager.create(request);
+      const job = await manager.create(request);
       ids.push(job.id);
       request.source.nodes[0].comment = "caller edit";
       expect(job.request.source.nodes[0].comment).toBe("");

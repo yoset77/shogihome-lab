@@ -24,6 +24,7 @@ import { ES_HUMAN } from "@/common/uri";
 import { t } from "@/common/i18n";
 import { fetchEngineConfigs, toLanEngineInfo } from "@/server/engine/list";
 import { InternalEngine, type GameEngine } from "@/server/engine/internal";
+import type { ResourceLease } from "@/server/engine/resources";
 import type { EngineConfig } from "@/server/engine/types";
 import { HttpError } from "@/server/errors";
 import type { USIInfoCommand } from "@/common/game/usi";
@@ -56,6 +57,12 @@ export const MAX_GAME_SNAPSHOT_BYTES = 16 * 1024 * 1024;
 export type GameDependencies = {
   createEngine?: () => GameEngine;
   resolveEngine?: (id: string) => Promise<EngineConfig>;
+  // Reserves the shared budget for both engines before the game starts.
+  // The production manager wires the default provider; tests without it
+  // skip resource accounting.
+  acquireResourceLease?: (
+    settings: GameSessionRequest["settings"],
+  ) => Promise<ResourceLease | undefined>;
   loadPositions?: (uri: string) => Promise<string[]>;
   saveRecord?: typeof saveGameRecord;
   addHistory?: typeof addHistory;
@@ -70,6 +77,7 @@ async function resolveEngine(id: string): Promise<EngineConfig> {
     throw new Error("Unknown game engine");
   return engine;
 }
+export { resolveEngine as resolveGameEngine };
 
 export class GameSession {
   private readonly records: GameRecord;
@@ -105,6 +113,7 @@ export class GameSession {
   private error?: GameError;
   private lastResult?: SpecialMoveType;
   private terminal = false;
+  private resourceLease?: ResourceLease;
   private summaries: GameRecordSummary[] = [];
   private commands = new Map<
     string,
@@ -205,6 +214,12 @@ export class GameSession {
       return;
     }
     try {
+      // Reserve the shared budget before either engine is launched. AI
+      // engines search alternately (no ponder), so the reservation is the
+      // per-group maximum of both engines, held for the whole session.
+      if (this.deps.acquireResourceLease) {
+        this.resourceLease = await this.deps.acquireResourceLease(this.request.settings);
+      }
       const builder: PlayerBuilder = this.deps.playerBuilder ?? {
         build: async (settings, onInfo) => {
           if (settings.uri === ES_HUMAN) return new HumanPlayer();
@@ -249,6 +264,7 @@ export class GameSession {
               config,
               this.request.options.engineTimeoutSeconds,
               this.abort.signal,
+              this.resourceLease,
             );
           } catch (error) {
             await player.close().catch(() => {});
@@ -262,7 +278,7 @@ export class GameSession {
     } catch (error) {
       if (!this.abort.signal.aborted) {
         console.error("Game startup failed", error);
-        this.error = "engine";
+        this.error = error instanceof HttpError ? "capacity" : "engine";
       }
       this.finish();
     }
@@ -722,6 +738,9 @@ export class GameSession {
     this.endedAt = Date.now();
     this.blackClock.pause();
     this.whiteClock.pause();
+    // Engine cleanup has converged at this point in every terminal path.
+    this.resourceLease?.release();
+    this.resourceLease = undefined;
     this.publish();
     this.complete();
   }

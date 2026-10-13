@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SessionRelayPayload } from "@/common/engine/relay_protocol";
 import { EngineSession } from "./session";
 import { EngineState, type EngineConfig } from "./types";
+import { engineRequirements, resourceRegistry, type ResourceLease } from "./resources";
 import { ENGINE_STOP_TIMEOUT_MS } from "@/server/config";
 
 export interface ResearchSearch {
@@ -11,7 +12,12 @@ export interface ResearchSearch {
 }
 
 export interface ResearchEngine {
-  launch(config: EngineConfig, timeoutSeconds: number, signal: AbortSignal): Promise<void>;
+  launch(
+    config: EngineConfig,
+    timeoutSeconds: number,
+    signal: AbortSignal,
+    resourceLease?: ResourceLease,
+  ): Promise<void>;
   setMultiPV(value: number): void;
   readyNewGame(): void;
   startResearch(
@@ -37,6 +43,12 @@ export class InternalEngine implements ResearchEngine {
   private session = new EngineSession(`internal-${randomUUID()}`, undefined, "internal");
   private nextSearchId = 0;
   private closing?: Promise<void>;
+  // Caller-provided leases are owned by the caller (game session, job
+  // manager) and must not be released here. Only leases acquired by this
+  // engine itself are released on close.
+  private ownLease?: ResourceLease;
+
+  constructor(private readonly sharedLease?: ResourceLease) {}
 
   private wait(predicate: () => boolean, timeoutMs: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -63,14 +75,32 @@ export class InternalEngine implements ResearchEngine {
     });
   }
 
-  async launch(config: EngineConfig, timeoutSeconds: number, signal: AbortSignal): Promise<void> {
+  async launch(
+    config: EngineConfig,
+    timeoutSeconds: number,
+    signal: AbortSignal,
+    resourceLease?: ResourceLease,
+  ): Promise<void> {
     if (signal.aborted) throw new Error("Engine operation cancelled");
-    this.session.startInternalEngine(config);
-    await this.wait(
-      () => this.session.internalSnapshot.state === EngineState.READY,
-      timeoutSeconds * 1000,
-      signal,
-    );
+    this.ownLease?.release();
+    this.ownLease = undefined;
+    const lease = resourceLease ?? this.sharedLease;
+    // Reserve the engine's cost when no owner-provided lease exists. The
+    // reservation throws (503) before the engine process is started.
+    const own = lease ? undefined : resourceRegistry.acquire(...engineRequirements(config));
+    try {
+      this.session.startInternalEngine(config);
+      await this.wait(
+        () => this.session.internalSnapshot.state === EngineState.READY,
+        timeoutSeconds * 1000,
+        signal,
+      );
+    } catch (error) {
+      // The owner may not call close() when launch itself fails.
+      own?.release();
+      throw error;
+    }
+    this.ownLease = own;
   }
 
   setMultiPV(value: number): void {
@@ -171,6 +201,8 @@ export class InternalEngine implements ResearchEngine {
         );
       } finally {
         this.session.destroyInternal();
+        this.ownLease?.release();
+        this.ownLease = undefined;
       }
     })();
     return this.closing;

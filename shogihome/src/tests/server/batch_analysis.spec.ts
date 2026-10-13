@@ -166,8 +166,8 @@ describe("server batch analysis", () => {
     const job = await start(true);
     expect(() => files.get(job.batchRequest.planId)).toThrow(t.batchAnalysisPlanExpired);
     await job.completion;
-    expect(manager.createBatch(structuredClone(job.batchRequest))).toBe(job);
-    expect(() => manager.createBatch({ ...job.batchRequest, skipAnalyzed: false })).toThrow(
+    expect(await manager.createBatch(structuredClone(job.batchRequest))).toBe(job);
+    await expect(manager.createBatch({ ...job.batchRequest, skipAnalyzed: false })).rejects.toThrow(
       t.analysisJobInvalid,
     );
     for (let index = 1; index <= 10; index++) {
@@ -232,9 +232,9 @@ describe("server batch analysis", () => {
     await write("a.kifu");
     await write("b.kifu");
     const job = await start();
-    expect(() =>
+    await expect(
       manager.create({ ...requestFor(), serverInstanceId: manager.serverInstanceId }),
-    ).toThrow();
+    ).rejects.toThrow();
     await job.completion;
     expect(job.status().batch).toMatchObject({ successTotal: 2, failedTotal: 0, skippedTotal: 0 });
     expect(engine.launch).toHaveBeenCalledTimes(1);
@@ -279,7 +279,7 @@ describe("server batch analysis", () => {
       await write("b.kifu", Record.newByUSI("position startpos moves 2g2f resign") as Record);
       await write("new.kifu");
     });
-    const job = manager.createBatch({
+    const job = await manager.createBatch({
       requestId: "fixed-targets",
       serverInstanceId: manager.serverInstanceId,
       planId: plan.planId,
@@ -327,7 +327,7 @@ describe("server batch analysis", () => {
     await write("a.kifu", record);
     await write("b.kifu");
     const plan = await files.prepare({ kind: "folder", directory: "", subdirectories: true });
-    const job = manager.createBatch({
+    const job = await manager.createBatch({
       requestId: "batch-pv",
       serverInstanceId: manager.serverInstanceId,
       planId: plan.planId,

@@ -892,6 +892,7 @@ export type Texts = {
   analysisJobCapacity: string;
   analysisJobInvalid: string;
   analysisJobDeadline: string;
+  resourceGroupCapacity: (group: string, budget: number, used: number, cost: number) => string;
   analysisRecover: string;
   analysisCancelling: string;
   gameInvalid: string;
