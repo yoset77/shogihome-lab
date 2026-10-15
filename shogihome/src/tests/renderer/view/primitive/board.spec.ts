@@ -1,7 +1,9 @@
 import { enableAutoUnmount, shallowMount } from "@vue/test-utils";
 import BoardView from "@/renderer/view/primitive/BoardView.vue";
-import { Color, Piece, PieceType, Position, Square } from "tsshogi";
+import { Color, handPieceTypes, Move, Piece, PieceType, Position, Square } from "tsshogi";
 import { RectSize } from "@/common/assets/geometry";
+import { BoardLayoutType } from "@/common/settings/layout";
+import { boardParams } from "@/renderer/view/primitive/board/params";
 import {
   BoardImageType,
   BoardLabelType,
@@ -67,6 +69,122 @@ describe("BoardView", () => {
     expect(
       imgs.filter((img) => img.attributes()["src"] === "./piece/hitomoji_gothic/black_gold.png"),
     ).toHaveLength(0);
+  });
+
+  describe("candidate arrows", () => {
+    const centerInFrame = (parent: Element, child: Element) => {
+      const parentStyle = (parent as HTMLElement).style;
+      const childStyle = (child as HTMLElement).style;
+      return {
+        x:
+          parseFloat(parentStyle.left) +
+          parseFloat(childStyle.left) +
+          parseFloat(childStyle.width) / 2,
+        y:
+          parseFloat(parentStyle.top) +
+          parseFloat(childStyle.top) +
+          parseFloat(childStyle.height) / 2,
+      };
+    };
+
+    const expectArrow = (wrapper: ReturnType<typeof mountEditable>, candidate: Move) => {
+      const arrows = wrapper.findAll("svg.arrows");
+      expect(arrows).toHaveLength(1);
+      expect(wrapper.find("img.arrows").exists()).toBe(false);
+      const arrow = arrows[0];
+      const style = (arrow.element as SVGElement).style;
+      const width = parseFloat(style.width);
+      const height = parseFloat(style.height);
+      expect(arrow.element.namespaceURI).toBe("http://www.w3.org/2000/svg");
+      expect(arrow.attributes("viewBox")?.split(" ").map(Number)).toEqual([0, 0, width, height]);
+      expect(style.objectFit).toBe("");
+      expect(style.objectPosition).toBe("");
+
+      const polygon = arrow.get("polygon");
+      expect(polygon.attributes("fill")).toBe("#fe0000");
+      const points = polygon
+        .attributes("points")
+        ?.split(" ")
+        .map((point) => point.split(",").map(Number));
+      const headLength = Math.min(height * 0.79, width);
+      expect(points).toEqual([
+        [0, height / 2],
+        [headLength, 0],
+        [headLength, height * 0.31],
+        [width, height * 0.31],
+        [width, height * 0.665],
+        [headLength, height * 0.665],
+        [headLength, height],
+      ]);
+
+      const board = wrapper.get(".board.operation");
+      const squares = board.findAll("div");
+      const squareCenter = (square: Square) =>
+        centerInFrame(board.element, squares[square.index].element);
+      const end = squareCenter(candidate.to);
+      let start;
+      if (candidate.from instanceof Square) {
+        start = squareCenter(candidate.from);
+      } else {
+        const hand = wrapper.findAll(".hand.operation")[candidate.color === Color.BLACK ? 0 : 1];
+        const index =
+          wrapper.props("layoutType") === BoardLayoutType.STANDARD
+            ? handPieceTypes.indexOf(candidate.from)
+            : 0;
+        start = centerInFrame(hand.element, hand.findAll("div")[index + 1].element);
+      }
+      const distance = Math.hypot(end.x - start.x, end.y - start.y);
+      expect(width).toBeCloseTo(distance, 6);
+      const squareWidth = parseFloat((squares[0].element as HTMLElement).style.width);
+      expect(height).toBeCloseTo((30 * squareWidth) / boardParams.squareWidth, 6);
+
+      // CSS rotates around the SVG center; its left tip must land on the destination.
+      const angle = Number(style.transform.match(/^rotate\((.*)rad\)$/)?.[1]);
+      const centerX = parseFloat(style.left) + width / 2;
+      const centerY = parseFloat(style.top) + height / 2;
+      expect(centerX - (width / 2) * Math.cos(angle)).toBeCloseTo(end.x, 6);
+      expect(centerY - (width / 2) * Math.sin(angle)).toBeCloseTo(end.y, 6);
+      expect(centerX + (width / 2) * Math.cos(angle)).toBeCloseTo(start.x, 6);
+      expect(centerY + (width / 2) * Math.sin(angle)).toBeCloseTo(start.y, 6);
+    };
+
+    describe.each(Object.values(BoardLayoutType))("%s layout", (layoutType) => {
+      const cases = [
+        { usi: "6g6f", color: Color.BLACK },
+        { usi: "2h6h", color: Color.BLACK },
+        { usi: "8h3c+", color: Color.BLACK },
+        { usi: "2i1g", color: Color.BLACK },
+        { usi: "P*5f", color: Color.BLACK },
+        { usi: "P*5d", color: Color.WHITE },
+      ].flatMap((candidate) => [false, true].map((flip) => ({ ...candidate, flip })));
+
+      it.each(cases)(
+        "renders $usi and follows resizing (flip=$flip)",
+        async ({ usi, color, flip }) => {
+          const position = Position.newBySFEN("4k4/9/6p2/9/9/9/3P5/1B5R1/4K2N1 b Pp 1") as Position;
+          position.setColor(color);
+          const candidate = position.createMoveByUSI(usi) as Move;
+          expect(position.isValidMove(candidate)).toBe(true);
+          const wrapper = mountEditable(position);
+          await wrapper.setProps({ layoutType, flip, candidates: [candidate] });
+
+          expectArrow(wrapper, candidate);
+          await wrapper.setProps({ maxSize: new RectSize(320, 480) });
+          expectArrow(wrapper, candidate);
+        },
+      );
+    });
+
+    it("removes arrows when candidates are cleared", async () => {
+      const position = new Position();
+      const wrapper = mountEditable(position);
+      expect(wrapper.find(".arrows").exists()).toBe(false);
+
+      await wrapper.setProps({ candidates: [position.createMoveByUSI("7g7f") as Move] });
+      expect(wrapper.findAll("svg.arrows")).toHaveLength(1);
+      await wrapper.setProps({ candidates: [] });
+      expect(wrapper.find(".arrows").exists()).toBe(false);
+    });
   });
 
   describe("piece rotation", () => {
