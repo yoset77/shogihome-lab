@@ -182,8 +182,12 @@ export function initSettingsWindow(): void {
       // Backend returns a JSON map of id -> error code on validation failure.
       try {
         const codes = JSON.parse(msg) as Record<string, string>;
-        const first = Object.entries(codes)[0];
-        alert(text(`settingsError_${first[1]}`, lang, first[0], "", ""));
+        const [id, code] = Object.entries(codes)[0];
+        const setting = schema?.settings.find((s) => s.id === id);
+        alert(text(
+          `settingsError_${code}`, lang, id,
+          String(setting?.min ?? ""), String(setting?.max ?? ""),
+        ));
       } catch {
         alert(msg);
       }
