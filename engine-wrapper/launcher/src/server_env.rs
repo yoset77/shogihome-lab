@@ -2,11 +2,10 @@
 //!
 //! The Middle Server reads its `.env` with Node's `process.loadEnvFile()`
 //! (`node:util.parseEnv`), which interprets quoted backslashes differently
-//! from python-dotenv (e.g. `"C:\temp"` keeps a literal backslash in Node
-//! but becomes tab + CR in python-dotenv). The launcher must resolve the
-//! same values it hands to the supervised server, otherwise an existing
-//! `.env` means one directory under direct launch and another under the
-//! launcher.
+//! from the shared wrapper parser. For example, Node preserves `\t` in a
+//! quoted Windows path while the wrapper reader decodes it as a tab. The
+//! launcher must resolve the same values it hands to the supervised server,
+//! otherwise direct and supervised launches can use different directories.
 //!
 //! This module shells out to the portable `shogihome-server[.exe]` binary
 //! (a renamed Node runtime) with a short `-e` script that prints
@@ -41,7 +40,7 @@ pub fn load_server_env(
 ) -> Result<HashMap<String, String>, LauncherError> {
     // No fast path: even micro-syntax (`export` prefixes, backquotes,
     // empty values, `#` handling) diverges between Node `parseEnv` and the
-    // python-dotenv shape, so the Node runtime is authoritative whenever it
+    // shared wrapper parser, so the Node runtime is authoritative whenever it
     // exists. The helper maps a missing file to `{}` (parseEnv on ENOENT).
     if let Some(map) = try_node_parse(server_program, env_path)? {
         return Ok(map);
@@ -49,8 +48,8 @@ pub fn load_server_env(
     if let Some(map) = try_node_parse(Path::new("node"), env_path)? {
         return Ok(map);
     }
-    // No Node runtime available: python-dotenv shape (missing file reads
-    // as empty, matching the helper's ENOENT mapping).
+    // Without Node, use the shared wrapper parser. Missing files read as
+    // empty, matching the helper's ENOENT mapping.
     let content = crate::env_codec::read_env_file(env_path)
         .map_err(|e| LauncherError::io(format!("reading {}", env_path.display()), e))?;
     Ok(crate::env_codec::parse_env(&content))
@@ -180,8 +179,8 @@ fn wait_output(
 /// Merge old server values onto a new template, resolving the old file the
 /// way the server sees it (Node `parseEnv` when a runtime is available).
 /// New-file structure wins; old values overlay matching keys via the shared
-/// formatter (single-quote-first, so the result reads back identically in
-/// Node and python-dotenv). Old-only keys are dropped.
+/// formatter so the result reads back identically in Node and the wrapper.
+/// Old-only keys are dropped.
 pub fn merge_server_env(
     old_path: &Path,
     new_path: &Path,
@@ -255,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn quoted_windows_path_matches_node_not_python_shape() {
+    fn quoted_windows_path_matches_node_reader() {
         if !node_available() {
             return;
         }
@@ -263,8 +262,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(".env");
-        // Quoted Windows path: Node keeps `\t` literal, python-dotenv (and
-        // the legacy launcher parser) expands it to TAB.
+        // Node keeps quoted path backslashes literal; the wrapper reader
+        // decodes `\t` and `\r` as control characters.
         std::fs::write(&path, "KIFU_DIR=\"C:\\temp\\records\"\nPORT=8140\n").unwrap();
         let map = load_server_env(&path, Path::new("definitely-missing-shogihome-server")).unwrap();
         assert_eq!(
@@ -272,14 +271,13 @@ mod tests {
             Some("C:\\temp\\records")
         );
         assert_eq!(map.get("PORT").map(String::as_str), Some("8140"));
-        // The legacy shared parser disagrees here by design (python shape).
-        let legacy = crate::env_codec::parse_env(&std::fs::read_to_string(&path).unwrap());
-        assert_ne!(legacy.get("KIFU_DIR"), map.get("KIFU_DIR"));
+        let wrapper = crate::env_codec::parse_env(&std::fs::read_to_string(&path).unwrap());
+        assert_ne!(wrapper.get("KIFU_DIR"), map.get("KIFU_DIR"));
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn micro_syntax_matches_node_not_python_shape() {
+    fn micro_syntax_matches_node_reader() {
         if !node_available() {
             return;
         }

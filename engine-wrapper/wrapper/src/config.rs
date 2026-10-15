@@ -131,7 +131,7 @@ pub struct RuntimeConfig {
 /// CLI > process environment > `<config_dir>/.env` > defaults.
 ///
 /// An environment variable that is already set — even to the empty
-/// string — always wins over the `.env` file (`load_dotenv` without override). An empty
+/// string — always wins over the `.env` file. An empty
 /// `WRAPPER_ACCESS_TOKEN` disables authentication and an empty
 /// `ENGINE_HIGH_QOS` disables HighQoS from any source.
 /// `${VAR}` interpolation is NOT expanded; file values are literal.

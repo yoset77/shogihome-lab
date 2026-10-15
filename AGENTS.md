@@ -19,7 +19,7 @@ Run commands from the indicated directory.
 - Start (Rust): `cargo run -p shogihome-engine-wrapper -- --config-dir .`
 - Lint: `cargo clippy --all-targets`
 - Format: `cargo fmt --check`
-- Test: `cargo test` (parser parity tests require `pip install python-dotenv`)
+- Test: `cargo test` (server configuration and saved-value round-trip tests require Node.js; Unix editor-lock tests require Python 3)
 - Contract tests (Rust wrapper): `python -m pytest tests/test_wrapper_contract.py` (requires `pip install pytest`)
 - GUI/CLI/runtime tests: `python -m pytest tests/test_launcher_gui.py tests/test_launcher_cli.py tests/test_server_runtime.py` (requires `pip install pytest playwright` and `SHOGIHOME_GUI_EXE`)
 

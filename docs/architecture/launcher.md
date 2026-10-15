@@ -26,6 +26,7 @@ Tauri shell は GUI システム依存を通常の backend test から切り離�
 - 現在の native 起動は書き込み可能な portable layout を対象とします。設定フォーム、editor、service 起動、ログ、移行は同じ root を使用し、bundle 内の assets を書き込み可能な設定の所在と混同しません。
 - Service ごとに解決した設定 snapshot を起動環境と readiness の双方に使い、Wrapper 側で設定ファイルを再読込して snapshot がずれることを防ぎます。
 - Server の `.env` は同梱 Node runtime、Wrapper の `.env` は共有 `env-file` codec で解決します。親環境変数の優先順位や OS ごとの扱いも直接起動と一致させます。解決に失敗した場合はエラーを返し、既定値への置換で表示・保存を続けません。
+- Wrapper の設定構文はアプリ固有の契約とし、他の dotenv 実装への追従は行いません。保存値が Wrapper と Server の両方で保持されることは [実 reader による往復テスト](../../engine-wrapper/launcher/tests/env_parity.rs) で検証します。
 - 設定保存は controller の操作 lock 内で現在値の解決・検証・書込を完結させます。既存のカスタム値を別項目の編集で暗黙に置き換えません。
 - 接続表示はフォーム用の型変換ではなく Server の生の設定値から解決し、実際の待受・Origin policy と一致させます。
 - 初回移行と未完了移行の再開は service 起動前に処理します。未完了の移行中は起動を拒否し、既存データの上書き移行は提供しません。
