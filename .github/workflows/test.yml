@@ -48,6 +48,24 @@ jobs:
         working-directory: .
         run: python3 engine-wrapper/scripts/check_versions.py
 
+  audit-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        lockfile:
+          - engine-wrapper/Cargo.lock
+          - engine-wrapper/launcher-app/src-tauri/Cargo.lock
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit (pinned)
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      # Fail on vulnerabilities; keep informational advisories as warnings.
+      - name: Security Audit (Rust dependencies)
+        run: cargo audit --file "${{ matrix.lockfile }}"
+
   test-rust:
     runs-on: ubuntu-latest
     timeout-minutes: 15
