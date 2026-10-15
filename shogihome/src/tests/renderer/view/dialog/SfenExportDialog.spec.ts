@@ -1,10 +1,10 @@
-import { readFileSync } from "node:fs";
 import { flushPromises, shallowMount } from "@vue/test-utils";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { SfenExportJobStatus } from "@/common/file/sfen_export";
 import { ApiResponseError } from "@/renderer/api/client";
 import { useServerKifuStore } from "@/renderer/store/serverKifu";
 import SfenExportDialog from "@/renderer/view/dialog/SfenExportDialog.vue";
+import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 
 const startExport = vi.hoisted(() => vi.fn());
 const getExport = vi.hoisted(() => vi.fn());
@@ -23,8 +23,6 @@ vi.mock("@/renderer/store/message", () => ({ useMessageStore: () => ({ enqueue }
 vi.mock("@/renderer/store/error", () => ({ useErrorStore: () => ({ add: addError }) }));
 
 describe("SfenExportDialog", () => {
-  const source = readFileSync("src/renderer/view/dialog/SfenExportDialog.vue", "utf-8");
-
   beforeEach(() => {
     vi.useFakeTimers();
     startExport.mockReset();
@@ -35,10 +33,12 @@ describe("SfenExportDialog", () => {
     const store = useServerKifuStore();
     store.lastExecutedSearch.value = { keyword: "target" };
     store.sfenExportJob.value = undefined;
+    store.sfenExportStandardInitialOnly.value = false;
   });
 
   afterEach(() => {
     useServerKifuStore().sfenExportJob.value = undefined;
+    useServerKifuStore().sfenExportStandardInitialOnly.value = false;
     vi.useRealTimers();
   });
 
@@ -47,7 +47,7 @@ describe("SfenExportDialog", () => {
       global: {
         stubs: {
           DialogFrame: { template: "<div><slot /></div>" },
-          ToggleButton: { template: "<button />" },
+          ToggleButton: false,
         },
       },
     });
@@ -63,40 +63,36 @@ describe("SfenExportDialog", () => {
     ...extra,
   });
 
-  it("shows progress immediately and polls frequently", () => {
-    expect(source).toContain("const POLL_INTERVAL_MS = 250");
-    expect(source).toContain("showProgress.value = true");
-    expect(source).toContain('<template v-if="showProgress">');
-    expect(source).not.toContain("PROGRESS_DELAY_MS");
-  });
+  it.each([false, true])(
+    "starts an export using the edited persisted setting (initial=%s) and shows progress",
+    async (initial) => {
+      const store = useServerKifuStore();
+      store.sfenExportStandardInitialOnly.value = initial;
+      startExport.mockResolvedValue(status("queued"));
+      getExport.mockResolvedValue(status("running"));
+      const wrapper = mountDialog();
+      const setting = wrapper.findAllComponents(ToggleButton)[0];
+      expect((setting.find("input").element as HTMLInputElement).checked).toBe(initial);
+      await setting.find("input").setValue(!initial);
+      await wrapper.find(".settings input").setValue("selected");
+      await wrapper.findAll(".main-buttons button")[1].trigger("click");
+      await flushPromises();
 
-  it("supports resuming an active export after reopening", () => {
-    expect(source).toContain("if (isRunning.value)");
-    expect(source).toContain("poll();");
-  });
-
-  it("uses the shared dialog form-group style", () => {
-    expect(source).toContain('class="settings form-group column"');
-    expect(source).toContain('class="progress form-group column"');
-  });
-
-  it("uses the persisted standard-initial-position setting", () => {
-    expect(source).toContain('v-model:value="sfenExportStandardInitialOnly"');
-    expect(source).not.toContain("const standardInitialOnly = ref(false)");
-  });
-
-  it("reports partial exports instead of unconditional success", () => {
-    expect(source).toContain("sfenExportCompletedWithWarnings");
-    expect(source).toContain("job.value.failedFiles > 0");
-    expect(source).not.toContain("job.value.failedFiles > 0 ||");
-  });
-
-  it("recovers polling after transient errors and clears expired jobs", () => {
-    expect(source).toContain("schedulePoll(getPollRetryDelay())");
-    expect(source).toContain("e.status === 404");
-    expect(source).toContain("job.value = undefined");
-    expect(source).toContain("schedulePoll(0)");
-  });
+      expect(startExport).toHaveBeenCalledWith({
+        filename: "selected.sfen",
+        search: { keyword: "target" },
+        maxMoves: undefined,
+        standardInitialOnly: !initial,
+        overwrite: false,
+      });
+      expect(localStorage.getItem("serverKifuSfenExportStandardInitialOnly")).toBe(
+        String(!initial),
+      );
+      expect(wrapper.find(".progress").exists()).toBe(true);
+      expect(getExport).toHaveBeenCalledWith("job-1");
+      wrapper.unmount();
+    },
+  );
 
   it("retries a transient polling failure and reports a partial completion", async () => {
     const store = useServerKifuStore();
@@ -109,6 +105,7 @@ describe("SfenExportDialog", () => {
     const wrapper = mountDialog();
     await flushPromises();
     expect(getExport).toHaveBeenCalledTimes(1);
+    expect(wrapper.find(".progress").exists()).toBe(true);
 
     await vi.advanceTimersByTimeAsync(250);
     await flushPromises();

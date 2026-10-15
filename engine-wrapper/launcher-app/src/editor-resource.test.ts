@@ -42,7 +42,7 @@ const resources = {
   groups: [{ id: "g", name: "CPU", budget: 8 }],
 };
 
-describe("resource editor DOM", () => {
+describe("editor DOM", () => {
   let listeners: MockInstance<Window["addEventListener"]>;
   beforeEach(() => {
     vi.useFakeTimers();
@@ -702,5 +702,62 @@ describe("resource editor DOM", () => {
     expect($("toastContainer").textContent).not.toContain(
       text("editor.groupDeleted", "en"),
     );
+  });
+
+  it("creates, assigns, and renames a group through the in-app input", async () => {
+    // Wry on macOS cannot display a native JavaScript text-input panel.
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue(null);
+    await load();
+    $("addEngineBtn").click();
+    $<HTMLInputElement>("editName").value = "Engine";
+    changePath("engine.exe");
+    $("addGroupBtn").click();
+    expect($("groupNameModal").style.display).toBe("block");
+    $<HTMLInputElement>("groupNameInput").value = " New group ";
+    $("groupNameSaveBtn").click();
+    expect($("groupNameModal").style.display).toBe("none");
+    const saved = await saveEngine();
+    expect(saved.analysisDBGroupName).toBe("New group");
+    expect(saved.analysisDBGroupId).toBeTruthy();
+
+    $("manageGroupsBtn").click();
+    document.querySelector<HTMLButtonElement>("#groupTable .btn-primary")!.click();
+    expect($<HTMLInputElement>("groupNameInput").value).toBe("New group");
+    $<HTMLInputElement>("groupNameInput").value = "Renamed";
+    $("groupNameSaveBtn").click();
+    $("closeGroupModalBtn").click();
+    $("saveBtn").click();
+    await vi.waitFor(() => expect(api.editorSave).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.editorSave).mock.calls[1][0][0]).toMatchObject({
+      analysisDBGroupId: saved.analysisDBGroupId,
+      analysisDBGroupName: "Renamed",
+    });
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { key: "Enter", isComposing: true },
+    { key: "Escape", isComposing: true },
+    { key: "Enter", keyCode: 229 },
+    { key: "Escape", keyCode: 229 },
+  ])("ignores composing group-name input before handling a normal $key (%j)", async (event) => {
+    await load();
+    $("addEngineBtn").click();
+    $("addGroupBtn").click();
+    const input = $<HTMLInputElement>("groupNameInput");
+    const groups = $<HTMLSelectElement>("editAnalysisDBGroupId");
+    const initialCount = groups.options.length;
+    input.value = "Group";
+    input.dispatchEvent(new KeyboardEvent("keydown", event));
+    expect($("groupNameModal").style.display).toBe("block");
+    expect(groups.options).toHaveLength(initialCount);
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: event.key }));
+    expect($("groupNameModal").style.display).toBe("none");
+    if (event.key === "Enter") {
+      expect(groups.selectedOptions[0].textContent).toBe("Group");
+    } else {
+      expect(groups.options).toHaveLength(initialCount);
+    }
   });
 });
