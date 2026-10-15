@@ -56,7 +56,7 @@ fn portable_plan_uses_native_names_and_one_config_snapshot() {
 fn server_snapshot_uses_node_parseenv_for_quoted_paths() {
     use std::process::Command;
     // Requires Node for the parseEnv reference; the shared parser alone
-    // would expand `\t`/`\r` python-dotenv style.
+    // would decode `\t`/`\r` as control characters.
     let node_ok = Command::new("node")
         .args(["-e", "process.exit(0)"])
         .output()
@@ -83,7 +83,7 @@ fn server_snapshot_uses_node_parseenv_for_quoted_paths() {
     std::fs::remove_dir_all(&root).ok();
     let server_env: std::collections::HashMap<_, _> =
         plan.specs[0].env.clone().into_iter().collect();
-    // Node keeps `\t` literal; the legacy python shape would be TAB + CR.
+    // Node keeps `\t` literal; the shared wrapper reader would decode TAB + CR.
     assert_eq!(
         server_env.get("KIFU_DIR").map(String::as_str),
         Some("C:\\temp\\records")

@@ -130,7 +130,7 @@ fn main() {
         "WRAPPER_ACCESS_TOKEN",
         "ENGINE_HIGH_QOS",
     ] {
-        // Presence (even empty) beats the file, like load_dotenv.
+        // Presence (even empty) beats the file.
         if let Ok(value) = std::env::var(key) {
             env_values.insert(key.to_string(), value);
         }

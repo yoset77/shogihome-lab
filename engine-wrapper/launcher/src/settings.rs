@@ -135,7 +135,7 @@ impl EnvPaths {
 /// Load current values (first mapping wins) plus linked-key mismatches that
 /// already exist on disk, e.g. `LISTEN_PORT=1` vs `REMOTE_ENGINE_PORT=2`.
 ///
-/// The server file is interpreted with the shared python-dotenv-compatible
+/// The server file is interpreted with the shared wrapper
 /// parser here to keep unit tests hermetic. Production callers (Tauri
 /// shell) should use [`load_settings_with_program`] so quoted Windows
 /// paths and other Node `parseEnv` divergences resolve exactly as the
@@ -992,7 +992,7 @@ mod tests {
     }
 
     #[test]
-    fn save_round_trip_keeps_kifu_dir_readable_by_both_parsers() {
+    fn save_round_trip_keeps_kifu_dir_readable_by_wrapper_and_node() {
         use std::collections::HashMap;
         let (base, paths) = dirs("set-roundtrip");
         let mut values = full_values();

@@ -1,22 +1,13 @@
 //! `.env` formatting, upsert, and merge.
 //!
-//! Decoding and parsing live in the shared `shogihome-env-file` crate so
-//! the wrapper reuses the exact same contract (re-exported here for
-//! compatibility):
-//! - Decoding fallback: UTF-8 BOM → UTF-8 → CP932 → lossy UTF-8
-//!   (mirrors `common.py`).
-//! - Load parsing follows python-dotenv: quotes, `export `, blank lines,
-//!   `#` comments, and ` #`-suffix stripping for *unquoted* values.
-//! - Known divergence: Node's `parseEnv` strips `#` even without a
-//!   preceding space (`A=B#C` → `B`, python keeps `B#C`). The launcher
-//!   therefore always quotes values containing `#`, so files it writes
-//!   parse identically in both.
-//! - Known divergence: POSIX `${VAR}` interpolation is NOT expanded;
-//!   values are literal.
-//! - Formatting strategy (ported from `_format_env_value`): bare, then
-//!   single-quoted, then double-quoted; each candidate is verified by
-//!   parsing it back. Unrepresentable values are an error, raised before
-//!   any file is touched.
+//! Decoding and parsing are re-exported from `shogihome-env-file`, shared
+//! with the wrapper. Saved values must also round-trip through the server's
+//! Node `parseEnv` reader. In particular, values containing `#` are quoted
+//! because Node also strips hashes without a preceding space.
+//!
+//! Formatting tries bare, single-quoted, then double-quoted values, checking
+//! each candidate with the shared parser. Node round-trips are covered by
+//! integration tests. Unrepresentable values fail before any file is touched.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -118,7 +109,7 @@ pub fn overlay_parent_vars_with(
     }
 }
 
-/// Render a value so python-dotenv and Node `parseEnv` read it back
+/// Render a value so the wrapper and Node `parseEnv` read it back
 /// identically. Errors before writing when no representation round-trips.
 pub fn format_env_value(key: &str, value: &str) -> Result<String, LauncherError> {
     if value.contains('\n') || value.contains('\r') {
@@ -146,7 +137,7 @@ pub fn format_env_value(key: &str, value: &str) -> Result<String, LauncherError>
         }
     }
     Err(LauncherError::msg(format!(
-        "Value for '{key}' cannot be represented consistently in Python and Node .env files"
+        "Value for '{key}' cannot be represented consistently in wrapper and Node .env files"
     )))
 }
 
@@ -330,43 +321,6 @@ pub fn smart_merge_env(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn decode_prefers_utf8_and_falls_back() {
-        assert_eq!(decode_env_bytes("PORT=8140\n".as_bytes()), "PORT=8140\n");
-        assert_eq!(
-            decode_env_bytes(&[0xEF, 0xBB, 0xBF, b'A', b'=', b'1', b'\n']),
-            "A=1\n"
-        );
-        // 0x82 0xA0 is CP932 "あ"; lone 0xFF is invalid everywhere → lossy.
-        assert_eq!(decode_env_bytes(&[b'N', b'=', 0x82, 0xA0, b'\n']), "N=あ\n");
-        assert_eq!(decode_env_bytes(&[b'N', b'=', 0xFF, b'\n']), "N=�\n");
-    }
-
-    #[test]
-    fn parse_quotes_export_comments() {
-        let map = parse_env("A=1\n# B=2\nC=\"q #1\"\nD='s'\nexport E=5\nEMPTY=\n");
-        assert_eq!(map["A"], "1");
-        assert!(!map.contains_key("B"));
-        assert_eq!(map["C"], "q #1");
-        assert_eq!(map["D"], "s");
-        assert_eq!(map["E"], "5");
-        assert_eq!(map["EMPTY"], "");
-        // Last active definition wins.
-        let map = parse_env("A=1\nA=2\n");
-        assert_eq!(map["A"], "2");
-    }
-
-    #[test]
-    fn reads_existing_quoted_values_and_comments() {
-        let map = parse_env(
-            "PORT=\"9000\" # custom port\nKIFU_DIR=\"C:\\Users\\someone\\kifu\"\nTOKEN='a # b' # note\n",
-        );
-        assert_eq!(map["PORT"], "9000");
-        assert_eq!(map["KIFU_DIR"], r"C:\Users\someone\kifu");
-        assert_eq!(map["TOKEN"], "a # b");
-        assert_eq!(parse_env("A='it\\'s'\n")["A"], "it's");
-    }
 
     #[test]
     fn bool_before_int_fix() {

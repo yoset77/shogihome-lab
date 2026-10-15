@@ -66,8 +66,8 @@ pub struct ServicePlan {
 ///
 /// The server `.env` is resolved with Node's `parseEnv` (via
 /// `server_env::load_server_env`) so the snapshot, readiness check, and the
-/// supervised server observe identical values. The wrapper keeps its
-/// python-dotenv-compatible parser. For both services an already-exported
+/// supervised server observe identical values. The wrapper uses the shared
+/// application-specific parser. For both services an already-exported
 /// process environment variable wins over the file, matching Node's
 /// `loadEnvFile` (server) and the standalone wrapper precedence
 /// (CLI > env > file).

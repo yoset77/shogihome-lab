@@ -91,9 +91,9 @@ portable/
 `engine-wrapper/` で:
 
 ```sh
-python -m pip install "pytest==9.1.1" playwright python-dotenv
+python -m pip install "pytest==9.1.1" playwright
 cargo test --locked --workspace
-# server `.env` の Node 互換解決を含む backend integration test は Node を使います（CI の test-rust と同様）。
+# server `.env` の解決と保存値の往復検証には Node を使います（CI の test-rust と同様）。
 cargo clippy --workspace --all-targets -- -D warnings
 python -m pytest tests/test_server_runtime.py
 ```

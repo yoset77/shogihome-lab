@@ -1,15 +1,13 @@
 //! Shared `.env` decoding and parsing for the wrapper and launcher.
 //!
-//! Compatibility contract (verified against real parsers):
-//! - Decoding fallback: UTF-8 BOM → UTF-8 → CP932 → lossy UTF-8
-//!   (mirrors `common.py`).
-//! - Parsing follows python-dotenv: quotes, `export `, blank lines,
-//!   `#` comments, and ` #`-suffix stripping for *unquoted* values.
-//! - Known divergence: Node's `parseEnv` strips `#` even without a
-//!   preceding space (`A=B#C` → `B`, python keeps `B#C`).
-//! - Known divergence: POSIX `${VAR}` interpolation is NOT expanded;
-//!   values are literal (python-dotenv would expand them). Files relying
-//!   on interpolation must be resolved before use.
+//! This application-specific format preserves existing wrapper settings;
+//! it does not track an external parser's compatibility contract.
+//! - Decoding fallback: UTF-8 BOM → UTF-8 → CP932 → lossy UTF-8.
+//! - Single-line assignments support quotes, an optional `export` prefix,
+//!   blank lines, `#` comments, and unquoted ` #` suffix comments.
+//! - `$VAR` and `${VAR}` remain literal; multiline values are unsupported.
+//! - Node's `parseEnv` differs in quoting, escapes, and comment handling.
+//!   The launcher formats saved values to round-trip through both readers.
 //!
 //! Higher-level read/write helpers (formatting, upsert, merge) stay in
 //! `shogihome-launcher::env_codec`.
@@ -98,7 +96,7 @@ fn parse_line(line: &str) -> Option<(String, String)> {
         }
         return None;
     }
-    // Unquoted: trim trailing whitespace, strip ` #` comments (python-dotenv).
+    // Unquoted: trim trailing whitespace and strip ` #` comments.
     let mut value = value.trim_end().to_string();
     if let Some(pos) = value.find(" #") {
         value.truncate(pos);
@@ -236,10 +234,39 @@ mod tests {
     }
 
     #[test]
+    fn reads_existing_quoted_values_and_comments() {
+        for (input, expected) in [
+            ("KIFU_DIR=\"9000\" # custom port\n", "9000"),
+            (
+                "KIFU_DIR=\"C:\\Users\\someone\\kifu\"\n",
+                r"C:\Users\someone\kifu",
+            ),
+            (
+                "export KIFU_DIR='C:\\new\\棋譜 #1' # comment\n",
+                r"C:\new\棋譜 #1",
+            ),
+            ("KIFU_DIR='it\\'s a path'\n", "it's a path"),
+            ("KIFU_DIR=\"a\\tb\\nc\\q\"\n", "a\tb\nc\\q"),
+            ("KIFU_DIR='a # b' # note\n", "a # b"),
+        ] {
+            assert_eq!(parse_env(input)["KIFU_DIR"], expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn unquoted_hashes_and_windows_paths_stay_literal() {
+        let map = parse_env("TOKEN=abc#def\nNOTE=abc # comment\nPATH=C:\\temp\\records\n");
+        assert_eq!(map["TOKEN"], "abc#def");
+        assert_eq!(map["NOTE"], "abc");
+        assert_eq!(map["PATH"], r"C:\temp\records");
+    }
+
+    #[test]
     fn interpolation_is_literal() {
-        // python-dotenv would expand ${HOME}; this parser keeps it literal.
-        let map = parse_env("A=${HOME}/kifu\n");
+        let map = parse_env("A=${HOME}/kifu\nB=$HOME/kifu\nWRAPPER_ACCESS_TOKEN=${TOKEN}\n");
         assert_eq!(map["A"], "${HOME}/kifu");
+        assert_eq!(map["B"], "$HOME/kifu");
+        assert_eq!(map["WRAPPER_ACCESS_TOKEN"], "${TOKEN}");
     }
 
     #[test]
