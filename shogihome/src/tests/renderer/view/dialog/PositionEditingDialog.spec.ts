@@ -1,5 +1,5 @@
-import { shallowMount, flushPromises } from "@vue/test-utils";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { shallowMount, flushPromises, mount } from "@vue/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   Color,
   exportBOD,
@@ -12,6 +12,7 @@ import {
 } from "tsshogi";
 import PositionEditingDialog from "@/renderer/view/dialog/PositionEditingDialog.vue";
 import PositionEditorCore from "@/renderer/view/dialog/PositionEditorCore.vue";
+import BoardView from "@/renderer/view/primitive/BoardView.vue";
 import { BoardLayoutType } from "@/common/settings/layout";
 
 const closePositionEditingDialog = vi.hoisted(() => vi.fn());
@@ -47,6 +48,8 @@ const expectBefore = (before: Element, after: Element) => {
 };
 
 describe("PositionEditingDialog", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   beforeEach(() => {
     closePositionEditingDialog.mockReset();
     addError.mockReset();
@@ -166,6 +169,48 @@ describe("PositionEditingDialog", () => {
 
     expect(wrapper.find('[data-test="redo"]').attributes("disabled")).toBeDefined();
   });
+
+  it.each([false, true])(
+    "undoes and redoes a capture as one operation (mobile=%s)",
+    async (mobile) => {
+      isMobileWebApp.mockReturnValue(mobile);
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          observe() {}
+          disconnect() {}
+        },
+      );
+      const wrapper = mount(PositionEditingDialog, {
+        global: {
+          stubs: {
+            DialogFrame: { template: "<div><slot /></div>" },
+            InitialPositionMenu: true,
+            PieceBox: true,
+          },
+        },
+      });
+      const squares = wrapper.findComponent(BoardView).findAll(".board.operation > div");
+      const core = wrapper.findComponent(PositionEditorCore);
+      const originalSFEN = store.record.position.sfen;
+      const editedSFEN = "lnsgkgsnl/1r5b1/pBppppppp/9/9/9/PPPPPPPPP/7R1/LNSGKGSNL b P 1";
+
+      await squares[new Square(8, 8).index].trigger("click");
+      await squares[new Square(8, 3).index].trigger("click");
+
+      expect(core.props("position").sfen).toBe(editedSFEN);
+      expect(store.record.position.sfen).toBe(originalSFEN);
+      await wrapper.find('[data-test="undo"]').trigger("click");
+      expect(core.props("position").sfen).toBe(originalSFEN);
+      expect(wrapper.find('[data-test="undo"]').attributes("disabled")).toBeDefined();
+      await wrapper.find('[data-test="redo"]').trigger("click");
+      expect(core.props("position").sfen).toBe(editedSFEN);
+      expect(wrapper.find('[data-test="redo"]').attributes("disabled")).toBeDefined();
+      await wrapper.find('[data-test="ok"]').trigger("click");
+      expect(closePositionEditingDialog).toHaveBeenCalledWith(editedSFEN);
+      wrapper.unmount();
+    },
+  );
 
   it("cancels without returning a position", async () => {
     const wrapper = mountDialog();

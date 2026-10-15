@@ -150,9 +150,11 @@ const updatePosition = (position: Position) => {
   emit("change", markRaw(position));
 };
 
-const onEdit = (change: PositionChange) => {
+const onEdit = (changes: PositionChange[]) => {
   const position = props.position.clone();
-  position.edit(change);
+  for (const change of changes) {
+    position.edit(change);
+  }
   updatePosition(position);
 };
 

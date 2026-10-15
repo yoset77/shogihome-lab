@@ -1,6 +1,17 @@
 import { enableAutoUnmount, shallowMount } from "@vue/test-utils";
 import BoardView from "@/renderer/view/primitive/BoardView.vue";
-import { Color, handPieceTypes, Move, Piece, PieceType, Position, Square } from "tsshogi";
+import {
+  Color,
+  handPieceTypes,
+  InitialPositionSFEN,
+  Move,
+  Piece,
+  PieceType,
+  Position,
+  PositionChange,
+  reverseColor,
+  Square,
+} from "tsshogi";
 import { RectSize } from "@/common/assets/geometry";
 import { BoardLayoutType } from "@/common/settings/layout";
 import { boardParams } from "@/renderer/view/primitive/board/params";
@@ -187,6 +198,108 @@ describe("BoardView", () => {
     });
   });
 
+  describe("position editing", () => {
+    const editSquares = async (position: Position, from: Square, to: Square) => {
+      const wrapper = mountEditable(position);
+      const squares = wrapper.findAll(".board.operation > div");
+      await squares[from.index].trigger("click");
+      await squares[to.index].trigger("click");
+      const events = wrapper.emitted<[PositionChange[]]>("edit");
+      expect(events).toHaveLength(1);
+      return events![0][0];
+    };
+
+    it.each([
+      { movingColor: Color.BLACK, capturedColor: Color.WHITE, capturedType: PieceType.PAWN },
+      { movingColor: Color.BLACK, capturedColor: Color.BLACK, capturedType: PieceType.PAWN },
+      { movingColor: Color.WHITE, capturedColor: Color.BLACK, capturedType: PieceType.PAWN },
+      { movingColor: Color.BLACK, capturedColor: Color.WHITE, capturedType: PieceType.PROM_PAWN },
+    ])(
+      "moves $capturedColor $capturedType to the $movingColor hand before moving the piece",
+      async ({ movingColor, capturedColor, capturedType }) => {
+        const position = Position.newBySFEN(InitialPositionSFEN.EMPTY) as Position;
+        const from = new Square(5, 5);
+        const to = new Square(5, 4);
+        const movingPiece = new Piece(movingColor, PieceType.BISHOP);
+        position.board.set(from, movingPiece);
+        position.board.set(to, new Piece(capturedColor, capturedType));
+        position.setColor(reverseColor(movingColor));
+
+        const changes = await editSquares(position, from, to);
+
+        expect(changes).toEqual([{ move: { from: to, to: movingColor } }, { move: { from, to } }]);
+        const edited = position.clone();
+        for (const change of changes) {
+          expect(edited.edit(change)).toBe(true);
+        }
+        expect(edited.board.at(from)).toBeNull();
+        expect(edited.board.at(to)).toEqual(movingPiece);
+        expect(edited.hand(movingColor).count(PieceType.PAWN)).toBe(1);
+        expect(edited.hand(reverseColor(movingColor)).count(PieceType.PAWN)).toBe(0);
+        expect(edited.color).toBe(position.color);
+      },
+    );
+
+    it("swaps pieces when the destination contains a king", async () => {
+      const position = new Position();
+      const from = new Square(8, 8);
+      const to = new Square(5, 1);
+      const changes = await editSquares(position, from, to);
+
+      expect(changes).toEqual([{ move: { from, to } }]);
+      const edited = position.clone();
+      expect(edited.edit(changes[0])).toBe(true);
+      expect(edited.board.at(from)).toEqual(position.board.at(to));
+      expect(edited.board.at(to)).toEqual(position.board.at(from));
+    });
+
+    it("emits only the move when the destination is empty", async () => {
+      const from = new Square(8, 8);
+      const to = new Square(5, 5);
+
+      expect(await editSquares(new Position(), from, to)).toEqual([{ move: { from, to } }]);
+    });
+
+    it("captures a piece by dragging without emitting a second edit on click", async () => {
+      const wrapper = mountEditable();
+      const squares = wrapper.findAll(".board.operation > div");
+      const from = new Square(8, 8);
+      const to = new Square(8, 3);
+      const center = (square: Square) => {
+        const style = (squares[square.index].element as HTMLElement).style;
+        return {
+          x: parseFloat(style.left) + parseFloat(style.width) / 2,
+          y: parseFloat(style.top) + parseFloat(style.height) / 2,
+        };
+      };
+      const start = center(from);
+      const end = center(to);
+
+      squares[from.index].element.dispatchEvent(pointerEvent("pointerdown", start.x, start.y));
+      document.dispatchEvent(pointerEvent("pointermove", end.x, end.y));
+      document.dispatchEvent(pointerEvent("pointerup", end.x, end.y));
+      await squares[to.index].trigger("click");
+
+      expect(wrapper.emitted("edit")).toEqual([
+        [[{ move: { from: to, to: Color.BLACK } }, { move: { from, to } }]],
+      ]);
+    });
+
+    it.each([false, true])("preserves hand placement rules (occupied=%s)", async (occupied) => {
+      const position = new Position();
+      position.blackHand.add(PieceType.PAWN, 1);
+      const wrapper = mountEditable(position);
+      const from = new Piece(Color.BLACK, PieceType.PAWN);
+      const to = occupied ? new Square(8, 3) : new Square(5, 5);
+      const hand = wrapper.findAll(".hand.operation")[0];
+
+      await hand.findAll("div")[handPieceTypes.indexOf(PieceType.PAWN) + 1].trigger("click");
+      await wrapper.findAll(".board.operation > div")[to.index].trigger("click");
+
+      expect(wrapper.emitted("edit")).toEqual(occupied ? undefined : [[[{ move: { from, to } }]]]);
+    });
+  });
+
   describe("piece rotation", () => {
     it.each([false, true])("rotates on a same-square double-click (mobile=%s)", async (mobile) => {
       const wrapper = mountEditable(new Position(), mobile);
@@ -197,7 +310,7 @@ describe("BoardView", () => {
       await target.trigger("click");
       await target.trigger("dblclick");
 
-      expect(wrapper.emitted("edit")).toEqual([[{ rotate: square }]]);
+      expect(wrapper.emitted("edit")).toEqual([[[{ rotate: square }]]]);
     });
 
     it.each([false, true])(
@@ -213,7 +326,7 @@ describe("BoardView", () => {
         await squares[to.index].trigger("click");
         await squares[to.index].trigger("dblclick");
 
-        expect(wrapper.emitted("edit")).toEqual([[{ move: { from, to } }]]);
+        expect(wrapper.emitted("edit")).toEqual([[[{ move: { from, to } }]]]);
       },
     );
 
@@ -231,7 +344,7 @@ describe("BoardView", () => {
       await wrapper.setProps({ position: updated });
       await squares[to.index].trigger("dblclick");
 
-      expect(wrapper.emitted("edit")).toEqual([[{ move: { from, to } }]]);
+      expect(wrapper.emitted("edit")).toEqual([[[{ move: { from, to } }]]]);
     });
 
     it("rotates on right-click without preceding clicks", async () => {
@@ -240,7 +353,7 @@ describe("BoardView", () => {
 
       await wrapper.findAll(".board.operation > div")[square.index].trigger("contextmenu");
 
-      expect(wrapper.emitted("edit")).toEqual([[{ rotate: square }]]);
+      expect(wrapper.emitted("edit")).toEqual([[[{ rotate: square }]]]);
     });
 
     it.each([".frame", ".hand.operation > div:first-child", ".hand.operation > div:nth-child(2)"])(
@@ -255,7 +368,7 @@ describe("BoardView", () => {
         await target.trigger("click");
         await target.trigger("dblclick");
 
-        expect(wrapper.emitted("edit") ?? []).not.toContainEqual([{ rotate: square }]);
+        expect(wrapper.emitted("edit") ?? []).not.toContainEqual([[{ rotate: square }]]);
       },
     );
 
@@ -286,7 +399,7 @@ describe("BoardView", () => {
       await squares[next.index].trigger("click");
       await squares[next.index].trigger("dblclick");
 
-      expect(wrapper.emitted("edit")).toEqual([[{ move: { from, to } }]]);
+      expect(wrapper.emitted("edit")).toEqual([[[{ move: { from, to } }]]]);
     });
 
     it("does not rotate on an unintended double-click when placing from the piece box", async () => {
