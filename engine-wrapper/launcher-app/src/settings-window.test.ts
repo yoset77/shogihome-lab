@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { URL as NodeURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emit } from "@tauri-apps/api/event";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { ask, message } from "@tauri-apps/plugin-dialog";
 import { api, type SettingsSchema } from "./api";
 import { initSettingsWindow } from "./settings-window";
 
@@ -39,7 +39,7 @@ const schema: SettingsSchema = {
   ],
 };
 
-describe.each(["ja", "en"] as const)("server settings validation (%s)", (lang) => {
+describe.each(["ja", "en"] as const)("server settings (%s)", (lang) => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.resetAllMocks();
@@ -54,6 +54,73 @@ describe.each(["ja", "en"] as const)("server settings validation (%s)", (lang) =
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  async function openSettings() {
+    initSettingsWindow();
+    await vi.waitFor(() => expect(document.querySelector("#settingsForm input")).not.toBeNull());
+  }
+
+  it("hands off the restart and closes without waiting for it to finish", async () => {
+    vi.mocked(ask).mockResolvedValue(true);
+    vi.mocked(api.restartServices).mockReturnValue(new Promise(() => {}));
+    await openSettings();
+    document.getElementById("saveSettingsBtn")!.click();
+
+    await vi.waitFor(() => expect(api.closeSettingsWindow).toHaveBeenCalledOnce());
+    expect(emit).toHaveBeenCalledExactlyOnceWith("settings-saved", { restart: true });
+    expect(api.restartServices).not.toHaveBeenCalled();
+    expect(vi.mocked(emit).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(api.closeSettingsWindow).mock.invocationCallOrder[0],
+    );
+  });
+
+  it("notifies the dashboard and closes when restart is declined", async () => {
+    vi.mocked(ask).mockResolvedValue(false);
+    await openSettings();
+    document.getElementById("saveSettingsBtn")!.click();
+
+    await vi.waitFor(() => expect(api.closeSettingsWindow).toHaveBeenCalledOnce());
+    expect(emit).toHaveBeenCalledExactlyOnceWith("settings-saved", { restart: false });
+    expect(api.restartServices).not.toHaveBeenCalled();
+  });
+
+  it("waits for the handoff before closing", async () => {
+    let handoff!: () => void;
+    vi.mocked(emit).mockReturnValue(new Promise<void>((resolve) => { handoff = resolve; }));
+    vi.mocked(ask).mockResolvedValue(true);
+    await openSettings();
+    document.getElementById("saveSettingsBtn")!.click();
+
+    await vi.waitFor(() => expect(emit).toHaveBeenCalled());
+    expect(api.closeSettingsWindow).not.toHaveBeenCalled();
+    expect(api.restartServices).not.toHaveBeenCalled();
+    handoff();
+    await vi.waitFor(() => expect(api.closeSettingsWindow).toHaveBeenCalledOnce());
+  });
+
+  it("keeps the window open if handing off the restart fails", async () => {
+    vi.mocked(ask).mockResolvedValue(true);
+    vi.mocked(emit).mockRejectedValue("event failed");
+    await openSettings();
+    document.getElementById("saveSettingsBtn")!.click();
+
+    await vi.waitFor(() => expect(alert).toHaveBeenCalledWith("event failed"));
+    expect(api.closeSettingsWindow).not.toHaveBeenCalled();
+    expect(api.restartServices).not.toHaveBeenCalled();
+  });
+
+  it("reports a close failure after handing off the restart", async () => {
+    vi.mocked(ask).mockResolvedValue(true);
+    vi.mocked(api.closeSettingsWindow).mockRejectedValue("close failed");
+    await openSettings();
+    document.getElementById("saveSettingsBtn")!.click();
+
+    await vi.waitFor(() => expect(message).toHaveBeenCalledWith("close failed", {
+      title: lang === "ja" ? "エラー" : "Error", kind: "error",
+    }));
+    expect(emit).toHaveBeenCalledExactlyOnceWith("settings-saved", { restart: true });
+    expect(api.restartServices).not.toHaveBeenCalled();
   });
 
   async function saveInvalid(id: string, value: string, error: unknown) {

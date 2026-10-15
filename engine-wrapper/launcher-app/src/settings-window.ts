@@ -1,8 +1,8 @@
 // Server settings in a dedicated window.
 // Reads/writes through backend commands; notifies the dashboard via the
-// "settings-saved" event so it can refresh the QR/URL panel. Closing goes
-// through the backend (close_settings_window); failures are reported,
-// never swallowed.
+// "settings-saved" event so it owns the optional restart and QR/URL refresh.
+// Closing goes through the backend (close_settings_window); failures are
+// reported, never swallowed.
 import { ask, message, open as openDialog } from "@tauri-apps/plugin-dialog";
 import { emit } from "@tauri-apps/api/event";
 import { api, type SettingsSchema, type SettingValues } from "./api";
@@ -174,8 +174,7 @@ export function initSettingsWindow(): void {
     try {
       await api.saveSettings(values);
       const restart = await ask(text("settingsRestartPrompt", lang), { title: text("serverSettings", lang) });
-      if (restart) await api.restartServices();
-      await emit("settings-saved", {});
+      await emit("settings-saved", { restart });
       await closeWindow();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

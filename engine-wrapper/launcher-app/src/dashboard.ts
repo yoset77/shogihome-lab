@@ -16,6 +16,7 @@ export function initDashboard(): void {
   let lang: Lang = detectLang();
   let lastUpdate: { version: string; tag: string; url: string } | null = null;
   let preparing = true;
+  let pendingRestarts = 0;
   const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
     const el = document.getElementById(id);
     if (!el) throw new Error(`missing element #${id}`);
@@ -55,16 +56,18 @@ export function initDashboard(): void {
       const status = await api.getStatus();
       const label = $("statusLabel");
       label.textContent =
-        status.state === "running"
-          ? `● ${text("statusRunning", lang)}`
-          : status.state === "starting"
-            ? `⟳ ${text("statusStarting", lang)}`
-            : status.state === "stopping"
-              ? text("statusStopping", lang)
-              : status.state === "failed"
-                ? `● ${text("statusError", lang)}`
-                : `○ ${text("statusStopped", lang)}`;
-      $("restartBtn").toggleAttribute("disabled", preparing || status.state === "starting" || status.state === "stopping");
+        pendingRestarts > 0
+          ? text("restarting", lang)
+          : status.state === "running"
+            ? `● ${text("statusRunning", lang)}`
+            : status.state === "starting"
+              ? `⟳ ${text("statusStarting", lang)}`
+              : status.state === "stopping"
+                ? text("statusStopping", lang)
+                : status.state === "failed"
+                  ? `● ${text("statusError", lang)}`
+                  : `○ ${text("statusStopped", lang)}`;
+      $("restartBtn").toggleAttribute("disabled", preparing || pendingRestarts > 0 || status.state === "starting" || status.state === "stopping");
     } catch {
       $("statusLabel").textContent = `● ${text("statusError", lang)}`;
     }
@@ -171,6 +174,19 @@ export function initDashboard(): void {
     await refreshPcUrl();
   }
 
+  async function restartServices(): Promise<void> {
+    // A later settings save may need another restart with its new values.
+    pendingRestarts++;
+    $("restartBtn").toggleAttribute("disabled", true);
+    $("statusLabel").textContent = text("restarting", lang);
+    try {
+      await api.restartServices();
+    } finally {
+      pendingRestarts--;
+      await refreshAll();
+    }
+  }
+
   async function refreshUpdate(): Promise<void> {
     try {
       const info = await api.checkUpdate();
@@ -270,15 +286,18 @@ export function initDashboard(): void {
       }
     }
     $("openPcBtn").addEventListener("click", () => void openPcBrowser());
-    $("restartBtn").addEventListener("click", () => void api.restartServices().then(refreshAll).catch(showError));
+    $("restartBtn").addEventListener("click", () => void restartServices().catch(showError));
     $("logsBtn").addEventListener("click", () => void openLogsWindow());
     $("editorBtn").addEventListener("click", () => void api.openEditor());
     $("settingsBtn").addEventListener("click", () => void openSettingsWindow());
     $("exitBtn").addEventListener("click", () => void api.stopAndExit().catch(showError));
 
     await listen("launcher-status", () => void refreshAll());
-    // The settings window emits this after saving (and an optional restart).
-    await listen("settings-saved", () => void refreshAll());
+    // Own the restart so closing settings cannot interrupt completion or errors.
+    await listen<{ restart: boolean }>("settings-saved", ({ payload }) => {
+      if (payload?.restart === true) void restartServices().catch(showError);
+      else void refreshAll();
+    });
     await listen("tray-open-browser", () => void openPcBrowser());
     await listen("tray-open-editor", () => void api.openEditor());
     await listen("tray-exit", () => void api.stopAndExit().catch(showError));
