@@ -251,7 +251,7 @@ export class BatchAnalysisJob {
       }
     } catch (error) {
       console.error("Batch analysis failed:", error);
-      this.error ??= error instanceof HttpError ? "capacity" : "engine";
+      this.error ??= error instanceof HttpError && error.status === 503 ? "capacity" : "engine";
     } finally {
       if (!this.cancelled) this.state = "finishing";
       try {

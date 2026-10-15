@@ -6,6 +6,7 @@ import { Mock } from "vitest";
 import { BookMoveSelectionRule } from "@/common/settings/usi";
 import type { BookMove } from "@/common/book";
 import { decodeServerRelayMessage, type ServerRelayMessage } from "@/common/engine/relay_protocol";
+import { t } from "@/common/i18n";
 
 vi.mock("@/renderer/network/lan_engine");
 vi.mock("@/renderer/ipc/api");
@@ -423,6 +424,9 @@ describe("LanPlayer resilience", () => {
     sendMsg({ state: "stopped", engineId: null });
 
     expect(onError).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith(
+      new Error("Engine did not respond to stop command. Session reset."),
+    );
     await expect(
       player.startResearch(
         (Record.newByUSI("position startpos") as Record).position,
@@ -448,6 +452,32 @@ describe("LanPlayer resilience", () => {
 
     expect(onError).toHaveBeenCalledOnce();
   });
+
+  it.each([t.resourceGroupCapacity("CPU", 8, 6, 4), "Engine startup failed"])(
+    "reports startup errors only through the launch promise: %s",
+    async (message) => {
+      const onError = vi.fn();
+      const player = new LanPlayer(
+        "research_main",
+        "test-engine",
+        "Test Engine",
+        10,
+        undefined,
+        onError,
+      );
+      const launchPromise = player.launch();
+      const result = expect(launchPromise).rejects.toThrow(message);
+      await vi.advanceTimersByTimeAsync(100);
+
+      sendMsg({ error: message });
+
+      await result;
+      expect(onError).not.toHaveBeenCalled();
+      expect(isActiveLanPlayerSession(player.sessionID)).toBe(false);
+      expect(LanEngine.prototype.stopEngine).toHaveBeenCalledOnce();
+      expect(LanEngine.prototype.disconnect).toHaveBeenCalledOnce();
+    },
+  );
 
   it("should accept uninitialized and starting states while launching", async () => {
     const onError = vi.fn();

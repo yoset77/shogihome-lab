@@ -93,6 +93,15 @@ export class AnalysisJobManager {
     }
   }
 
+  private ensureCapacity(): void {
+    if (
+      [...this.jobs.values()].some((job) => !isAnalysisTerminal(job.status().state)) ||
+      this.requests.size >= MAX_REQUEST_LEDGER
+    ) {
+      throw new HttpError(503, t.analysisJobCapacity);
+    }
+  }
+
   async create(request: AnalysisJobRequest): Promise<AnalysisJob> {
     this.cleanup();
     if (request.serverInstanceId !== this.serverInstanceId)
@@ -100,17 +109,13 @@ export class AnalysisJobManager {
     const hash = createHash("sha256").update(JSON.stringify(request)).digest("hex");
     const existing = this.resolveExisting(this.requests.get(request.requestId), hash, false);
     if (existing) return existing as AnalysisJob;
+    this.ensureCapacity();
     // Resolve the engine outside the synchronous tail so the resource
     // reservation can be rejected at the HTTP boundary.
     const snapshot = await this.resolveEngineSnapshot(request.options.engineId);
     const reaccepted = this.resolveExisting(this.requests.get(request.requestId), hash, false);
     if (reaccepted) return reaccepted as AnalysisJob;
-    if (
-      [...this.jobs.values()].some((job) => !isAnalysisTerminal(job.status().state)) ||
-      this.requests.size >= MAX_REQUEST_LEDGER
-    ) {
-      throw new HttpError(503, t.analysisJobCapacity);
-    }
+    this.ensureCapacity();
     const lease = snapshot.config
       ? resourceRegistry.acquire(...engineRequirements(snapshot.config))
       : undefined;
@@ -142,14 +147,11 @@ export class AnalysisJobManager {
     const hash = createHash("sha256").update(JSON.stringify(request)).digest("hex");
     const existing = this.resolveExisting(this.requests.get(request.requestId), hash, true);
     if (existing) return existing as BatchAnalysisJob;
+    this.ensureCapacity();
     const snapshot = await this.resolveEngineSnapshot(request.options.engineId);
     const reaccepted = this.resolveExisting(this.requests.get(request.requestId), hash, true);
     if (reaccepted) return reaccepted as BatchAnalysisJob;
-    if (
-      [...this.jobs.values()].some((job) => !isAnalysisTerminal(job.status().state)) ||
-      this.requests.size >= MAX_REQUEST_LEDGER
-    )
-      throw new HttpError(503, t.analysisJobCapacity);
+    this.ensureCapacity();
     const plan = this.batchFiles.get(request.planId);
     const lease = snapshot.config
       ? resourceRegistry.acquire(...engineRequirements(snapshot.config))

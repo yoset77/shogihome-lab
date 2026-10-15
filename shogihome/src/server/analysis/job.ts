@@ -304,7 +304,7 @@ export class AnalysisJob {
     } catch (error) {
       if (!this.controller.signal.aborted) {
         console.error(`Analysis job ${this.id} failed:`, error);
-        this.error = error instanceof HttpError ? "capacity" : "engine";
+        this.error = error instanceof HttpError && error.status === 503 ? "capacity" : "engine";
         this.state = "finishing";
       }
     } finally {

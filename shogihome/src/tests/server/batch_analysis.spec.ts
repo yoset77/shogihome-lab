@@ -5,7 +5,7 @@ import path from "node:path";
 import { Record } from "tsshogi";
 import { BatchAnalysisFiles } from "@/server/analysis/files";
 import { AnalysisJobManager } from "@/server/analysis/jobManager";
-import { ANALYSIS_MAX_RUNTIME_MS } from "@/server/analysis/job";
+import { AnalysisJob, ANALYSIS_MAX_RUNTIME_MS } from "@/server/analysis/job";
 import {
   exportRecordAsBuffer,
   detectRecordFileFormatByPath,
@@ -16,7 +16,7 @@ import { FakeResearchEngine, requestFor } from "./helpers/analysis";
 import * as kifuIndex from "@/server/database/kifu_index";
 import { Hono } from "hono";
 import { createAnalysisJobRoutes } from "@/server/routes/analysis_jobs";
-import { handleError } from "@/server/errors";
+import { handleError, HttpError } from "@/server/errors";
 import type { BatchAnalysisJobRequest } from "@/common/analysis/batch";
 import { t } from "@/common/i18n";
 import { resourceRegistry } from "@/server/engine/resources";
@@ -609,6 +609,25 @@ describe("server batch analysis", () => {
     expect(await fs.readFile(path.join(directory, "a.kifu"), "utf8")).not.toContain("#評価値=");
     expect(engine.close).toHaveBeenCalledOnce();
   });
+
+  it.each([400, 423, 503])(
+    "classifies batch startup HTTP %s as capacity only for 503",
+    async (status) => {
+      await write("a.kifu");
+      vi.spyOn(AnalysisJob.prototype, "start").mockImplementationOnce(() => {
+        throw new HttpError(status, "Startup rejected");
+      });
+      const job = await start();
+      await job.completion;
+
+      expect(job.status()).toMatchObject({
+        state: "failed",
+        error: status === 503 ? "capacity" : "engine",
+      });
+      expect(engine.launch).not.toHaveBeenCalled();
+      expect(engine.close).toHaveBeenCalledOnce();
+    },
+  );
   it("continues after save failure and records the reason", async () => {
     await write("a.kifu");
     await write("b.kifu");
