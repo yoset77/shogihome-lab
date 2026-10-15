@@ -1,6 +1,6 @@
 # ---- Builder Stage ----
 # ビルドに必要な依存関係をインストールし、アプリケーションをビルドするステージ
-FROM node:24-slim AS builder
+FROM node:26-slim AS builder
 
 # 作業ディレクトリを設定
 WORKDIR /app
@@ -24,7 +24,7 @@ RUN npm run build && npm run server:build
 
 # ---- Production Stage ----
 # 実行に必要な最小限のファイルのみを含む本番用イメージを作成するステージ
-FROM node:24-slim AS production
+FROM node:26-slim AS production
 
 # 作業ディレクトリを設定
 WORKDIR /app
