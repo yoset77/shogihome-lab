@@ -476,9 +476,11 @@ function onSearchBoardMove(move: Move) {
   }
 }
 
-function onEditPosition(change: PositionChange) {
+function onEditPosition(changes: PositionChange[]) {
   const position = searchRecord.value.position.clone();
-  position.edit(change);
+  for (const change of changes) {
+    position.edit(change);
+  }
   searchRecord.value.clear(position);
   triggerSearchRecord();
 }

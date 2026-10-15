@@ -1,8 +1,10 @@
 import { flushPromises, shallowMount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Color, Position, Square } from "tsshogi";
 import { t } from "@/common/i18n";
 import { useServerKifuStore } from "@/renderer/store/serverKifu";
 import ServerKifuDialog from "@/renderer/view/dialog/ServerKifuDialog.vue";
+import BoardView from "@/renderer/view/primitive/BoardView.vue";
 
 vi.mock("@/renderer/ipc/api", () => ({
   default: {
@@ -56,6 +58,26 @@ describe("ServerKifuDialog search result behavior", () => {
     state.searchResults.value = [];
     state.searchResultCount.value = 0;
     state.lastExecutedSearch.value = undefined;
+    state.searchRecord.value.clear(new Position());
+  });
+
+  it("applies the entire capture sequence to the search position", async () => {
+    const state = useServerKifuStore();
+    state.activeTab.value = "search";
+    state.searchRecord.value.clear(new Position());
+    const wrapper = mountDialog();
+    await flushPromises();
+    const board = wrapper.findComponent(BoardView);
+    const from = new Square(8, 8);
+    const to = new Square(8, 3);
+
+    board.vm.$emit("edit", [{ move: { from: to, to: Color.BLACK } }, { move: { from, to } }]);
+    await wrapper.vm.$nextTick();
+
+    const expectedSFEN = "lnsgkgsnl/1r5b1/pBppppppp/9/9/9/PPPPPPPPP/7R1/LNSGKGSNL b P 1";
+    expect(state.searchRecord.value.position.sfen).toBe(expectedSFEN);
+    expect(board.props("position").sfen).toBe(expectedSFEN);
+    wrapper.unmount();
   });
 
   it("shows moves, special endings, absent continuations and unavailable data separately", async () => {

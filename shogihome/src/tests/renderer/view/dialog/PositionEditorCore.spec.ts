@@ -77,6 +77,27 @@ describe("PositionEditorCore", () => {
     expect(wrapper.findComponent(BoardView).props("ghostTeleportTarget")).toBe("#dialog");
   });
 
+  it("applies a capture sequence to one clone and publishes a single change", async () => {
+    const position = new Position();
+    const originalSFEN = position.sfen;
+    const wrapper = createWrapper(position);
+    const from = new Square(8, 8);
+    const to = new Square(8, 3);
+
+    wrapper
+      .findComponent(BoardView)
+      .vm.$emit("edit", [{ move: { from: to, to: Color.BLACK } }, { move: { from, to } }]);
+    await wrapper.vm.$nextTick();
+
+    const events = wrapper.emitted<[Position]>("change");
+    expect(events).toHaveLength(1);
+    expect(events![0][0].sfen).toBe(
+      "lnsgkgsnl/1r5b1/pBppppppp/9/9/9/PPPPPPPPP/7R1/LNSGKGSNL b P 1",
+    );
+    expect(position.sfen).toBe(originalSFEN);
+    wrapper.unmount();
+  });
+
   it.each([false, true])("passes mobile=%s to PieceBox", async (mobile) => {
     const position = Position.newBySFEN(InitialPositionSFEN.EMPTY) as Position;
     const wrapper = createWrapper(position);

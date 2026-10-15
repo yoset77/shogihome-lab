@@ -431,7 +431,8 @@ const props = defineProps({
 const emit = defineEmits<{
   resize: [size: RectSize];
   move: [move: Move];
-  edit: [change: PositionChange];
+  // Ordered changes for a single undoable edit.
+  edit: [changes: PositionChange[]];
   pieceBoxDrop: [pieceType: PieceType, to: Square | Color];
   dropOutside: [source: Square | Piece, clientX: number, clientY: number];
   externalDragEnd: [];
@@ -800,6 +801,19 @@ const clickFrame = () => {
   emit("editSelectionChange", null);
 };
 
+const buildEditChanges = (from: Square | Piece, to: Square | Color): PositionChange[] => {
+  const changes = [{ move: { from, to } }];
+  if (!(from instanceof Square) || !(to instanceof Square)) {
+    return changes;
+  }
+  const movingPiece = props.position.board.at(from);
+  const capturedPiece = props.position.board.at(to);
+  if (!movingPiece || !capturedPiece || capturedPiece.type === PieceType.KING) {
+    return changes;
+  }
+  return [{ move: { from: to, to: movingPiece.color } }, ...changes];
+};
+
 const updatePointer = (newPointer: Square | Piece, empty: boolean, color: Color | undefined) => {
   const prevPointer = state.pointer;
   resetState();
@@ -829,12 +843,7 @@ const updatePointer = (newPointer: Square | Piece, empty: boolean, color: Color 
     const editFrom = prevPointer;
     const editTo = newPointer instanceof Square ? newPointer : newPointer.color;
     if (props.allowEdit && props.position.isValidEditing(editFrom, editTo)) {
-      emit("edit", {
-        move: {
-          from: prevPointer,
-          to: editTo,
-        },
-      });
+      emit("edit", buildEditChanges(editFrom, editTo));
       return;
     }
     if (props.allowMove && newPointer instanceof Square) {
@@ -911,7 +920,7 @@ const clickSquareR = (file: number, rank: number) => {
   resetState();
   const square = new Square(file, rank);
   if (props.allowEdit && props.position.board.at(square)) {
-    emit("edit", { rotate: square });
+    emit("edit", [{ rotate: square }]);
   }
 };
 
