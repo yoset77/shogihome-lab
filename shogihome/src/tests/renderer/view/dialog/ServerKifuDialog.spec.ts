@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   getServerKifuBoardControlScale,
@@ -30,37 +29,5 @@ describe("ServerKifuDialog", () => {
 
   it("keeps search board controls at the mobile size", () => {
     expect(getServerKifuBoardControlScale(539, true)).toBe(1);
-  });
-
-  it("renders the search board edit overlay within the dialog layer", () => {
-    const source = readFileSync("src/renderer/view/dialog/ServerKifuDialog.vue", "utf-8");
-
-    expect(source).toContain(':ghost-teleport-target="ghostTeleportTarget"');
-    expect(source).toContain('dialogFrame.value?.dialog ?? "body"');
-  });
-
-  it("opens SFEN conversion settings in a dedicated dialog", () => {
-    const source = readFileSync("src/renderer/view/dialog/ServerKifuDialog.vue", "utf-8");
-
-    expect(source).toContain("<SfenExportDialog");
-    expect(source).not.toContain('class="sfen-export-panel');
-  });
-
-  it("adds a sente/gote swap button that is enabled only for strict turn searches", () => {
-    const source = readFileSync("src/renderer/view/dialog/ServerKifuDialog.vue", "utf-8");
-
-    expect(source).toContain('@click="swapPlayers"');
-    expect(source).toContain(':disabled="!isStrictTurn"');
-    expect(source).toContain("[player1.value, player2.value] = [player2.value, player1.value]");
-  });
-
-  it("provides a closed strategy filter without exposing inference scores", () => {
-    const source = readFileSync("src/renderer/view/dialog/ServerKifuDialog.vue", "utf-8");
-
-    expect(source).toContain('v-model="searchStrategy"');
-    expect(source).toContain(':allow-free-text="false"');
-    expect(source).toContain("getStrategyName(entry.strategy)");
-    expect(source).toContain("t.automaticallyInferredStrategy");
-    expect(source).not.toContain("strategy_score");
   });
 });

@@ -27,7 +27,7 @@ Run commands from the indicated directory.
 
 - Use the Composition API with `<script setup>` for new Vue components.
 - Write concise code comments in English.
-- Add or update tests for behavior changes. For bug fixes, add a regression test that reproduces the problem before applying the fix.
+- Verify changes with checks appropriate to their scope and risk; add or update tests when they provide meaningful coverage of changed behavior.
 - Keep complex state and business logic out of UI components and in the appropriate store or domain module.
 - Preserve the enforced boundaries between `src/renderer/`, `src/common/`, `src/node/`, and `src/server/`.
 - Keep the USI state machine in `src/server/engine/session.ts`. Engine wrappers should remain process/TCP bridges and must not own session state.

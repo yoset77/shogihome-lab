@@ -1,10 +1,12 @@
 import { flushPromises, shallowMount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ref } from "vue";
 import { Color, Position, Square } from "tsshogi";
 import { t } from "@/common/i18n";
 import { useServerKifuStore } from "@/renderer/store/serverKifu";
 import ServerKifuDialog from "@/renderer/view/dialog/ServerKifuDialog.vue";
 import BoardView from "@/renderer/view/primitive/BoardView.vue";
+import ComboBox from "@/renderer/view/primitive/ComboBox.vue";
 
 vi.mock("@/renderer/ipc/api", () => ({
   default: {
@@ -30,7 +32,10 @@ const mountDialog = () =>
   shallowMount(ServerKifuDialog, {
     global: {
       stubs: {
-        DialogFrame: { template: "<div><slot /></div>" },
+        DialogFrame: {
+          setup: () => ({ dialog: ref<HTMLDialogElement>() }),
+          template: '<dialog ref="dialog"><slot /></dialog>',
+        },
       },
     },
   });
@@ -39,6 +44,10 @@ describe("ServerKifuDialog search result behavior", () => {
   beforeEach(() => {
     const state = useServerKifuStore();
     state.activeTab.value = "results";
+    state.player1.value = "";
+    state.player2.value = "";
+    state.isStrictTurn.value = false;
+    state.searchStrategy.value = "";
     state.lastExecutedSearch.value = { sfen: state.searchRecord.value.position.sfen };
     state.searchResultCount.value = 4;
     state.searchResults.value = ["☗７六歩", "投了", "", null].map((next_move, id) => ({
@@ -58,6 +67,10 @@ describe("ServerKifuDialog search result behavior", () => {
     state.searchResults.value = [];
     state.searchResultCount.value = 0;
     state.lastExecutedSearch.value = undefined;
+    state.player1.value = "";
+    state.player2.value = "";
+    state.isStrictTurn.value = false;
+    state.searchStrategy.value = "";
     state.searchRecord.value.clear(new Position());
   });
 
@@ -68,6 +81,7 @@ describe("ServerKifuDialog search result behavior", () => {
     const wrapper = mountDialog();
     await flushPromises();
     const board = wrapper.findComponent(BoardView);
+    expect(board.props("ghostTeleportTarget")).toBe(wrapper.find("dialog").element);
     const from = new Square(8, 8);
     const to = new Square(8, 3);
 
@@ -141,6 +155,71 @@ describe("ServerKifuDialog search result behavior", () => {
       search: state.lastExecutedSearch.value,
     });
     expect(state.searchResults.value).toHaveLength(4);
+    wrapper.unmount();
+  });
+
+  it("swaps players only when their turns are distinguished", async () => {
+    const state = useServerKifuStore();
+    state.activeTab.value = "search";
+    state.player1.value = "Black";
+    state.player2.value = "White";
+    const wrapper = mountDialog();
+    await flushPromises();
+    const swap = wrapper.find(".swap-players-btn");
+    expect(swap.attributes("disabled")).toBeDefined();
+    await swap.trigger("click");
+    expect([state.player1.value, state.player2.value]).toEqual(["Black", "White"]);
+
+    state.isStrictTurn.value = true;
+    await flushPromises();
+    expect(swap.attributes("disabled")).toBeUndefined();
+    await swap.trigger("click");
+    expect([state.player1.value, state.player2.value]).toEqual(["White", "Black"]);
+    wrapper.unmount();
+  });
+
+  it("binds strategy selection to a closed set and labels inferred results", async () => {
+    const state = useServerKifuStore();
+    state.activeTab.value = "search";
+    const wrapper = mountDialog();
+    await flushPromises();
+    const filter = wrapper
+      .findAll(".search-row")
+      .find((row) => row.find(".label").text() === t.strategy)!
+      .findComponent(ComboBox);
+    expect(filter.props("allowFreeText")).toBe(false);
+    filter.vm.$emit("update:modelValue", "矢倉");
+    await flushPromises();
+    expect(state.searchStrategy.value).toBe("矢倉");
+
+    state.searchResults.value[0] = {
+      ...state.searchResults.value[0],
+      strategy: "矢倉",
+      strategy_source: "inferred",
+    };
+    state.activeTab.value = "results";
+    await flushPromises();
+    const metadata = wrapper.find(".kifu-metadata").text();
+    expect(metadata).toContain("矢倉");
+    expect(metadata).toContain(t.automaticallyInferredStrategy);
+    wrapper.unmount();
+  });
+
+  it("opens and closes SFEN export without clearing the search results", async () => {
+    const state = useServerKifuStore();
+    const wrapper = mountDialog();
+    await flushPromises();
+    await wrapper
+      .findAll(".results-tools button")
+      .find((button) => button.text() === t.exportSearchResultsAsSfen)!
+      .trigger("click");
+    const dialog = wrapper.findComponent({ name: "SfenExportDialog" });
+    expect(dialog.exists()).toBe(true);
+    dialog.vm.$emit("close");
+    await flushPromises();
+    expect(wrapper.findComponent({ name: "SfenExportDialog" }).exists()).toBe(false);
+    expect(state.searchResults.value).toHaveLength(4);
+    expect(closeModalDialog).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 });
