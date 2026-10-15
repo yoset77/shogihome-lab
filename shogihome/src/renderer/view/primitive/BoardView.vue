@@ -82,7 +82,7 @@
           :key="square.id"
           :style="square.style"
           @click.stop.prevent="clickSquare(square.file, square.rank)"
-          @dblclick.stop.prevent="clickSquareR(square.file, square.rank)"
+          @dblclick.stop.prevent="dblclickSquare(square.file, square.rank)"
           @contextmenu.stop.prevent="clickSquareR(square.file, square.rank)"
           @pointerdown="onSquarePointerDown($event, square.file, square.rank)"
         ></div>
@@ -474,6 +474,15 @@ const resetDrag = () => {
 // ドラッグ完了後に click イベントを無効化するフラグ（非リアクティブ）
 let dragCompletedFlag = false;
 
+// Mobile browsers may emit dblclick for taps on different squares.
+let lastClickedSquare: Square | null = null;
+let secondLastClickedSquare: Square | null = null;
+
+const recordClick = (square: Square | null) => {
+  secondLastClickedSquare = lastClickedSquare;
+  lastClickedSquare = square;
+};
+
 const boardOpEl = ref<HTMLElement | null>(null);
 const blackHandOpEl = ref<HTMLElement | null>(null);
 const whiteHandOpEl = ref<HTMLElement | null>(null);
@@ -777,6 +786,7 @@ onUnmounted(() => {
 });
 
 const clickFrame = () => {
+  recordClick(null);
   if (dragCompletedFlag) {
     dragCompletedFlag = false;
     return;
@@ -860,17 +870,19 @@ const updatePointer = (newPointer: Square | Piece, empty: boolean, color: Color 
 };
 
 const clickSquare = (file: number, rank: number) => {
+  const square = new Square(file, rank);
+  recordClick(square);
   if (dragCompletedFlag) {
     dragCompletedFlag = false;
     return;
   }
-  const square = new Square(file, rank);
   const piece = props.position.board.at(square);
   const empty = !piece;
   updatePointer(square, empty, piece?.color);
 };
 
 const clickHandArea = (color: Color) => {
+  recordClick(null);
   if (dragCompletedFlag) {
     dragCompletedFlag = false;
     return;
@@ -881,6 +893,7 @@ const clickHandArea = (color: Color) => {
 };
 
 const clickHand = (color: Color, type: PieceType) => {
+  recordClick(null);
   if (dragCompletedFlag) {
     dragCompletedFlag = false;
     return;
@@ -899,6 +912,14 @@ const clickSquareR = (file: number, rank: number) => {
   if (props.allowEdit && props.position.board.at(square)) {
     emit("edit", { rotate: square });
   }
+};
+
+const dblclickSquare = (file: number, rank: number) => {
+  const square = new Square(file, rank);
+  if (!lastClickedSquare?.equals(square) || !secondLastClickedSquare?.equals(square)) {
+    return;
+  }
+  clickSquareR(file, rank);
 };
 
 const clickPromote = () => {
