@@ -66,14 +66,15 @@
         </div>
       </div>
 
-      <img
+      <svg
         v-for="arrow in arrows"
         :key="arrow.id"
         class="arrows"
-        src="/arrow/arrow.svg"
         :style="arrow.style"
-        style="object-fit: cover; object-position: left top"
-      />
+        :viewBox="arrow.viewBox"
+      >
+        <polygon :points="arrow.points" fill="#fe0000" />
+      </svg>
 
       <!-- 操作用レイヤー -->
       <div ref="boardOpEl" class="board operation" :style="main.boardStyle">
@@ -1059,8 +1060,25 @@ const arrows = computed(() => {
     const angle = start.angleTo(end) - Math.PI;
     const x = middle.x - distance / 2;
     const y = middle.y - arrowWidth / 2;
+    // The left tip is the destination; size the polygon directly to avoid SVG image cropping.
+    const headLength = Math.min(arrowWidth * 0.79, distance);
+    const shaftTop = arrowWidth * 0.31;
+    const shaftBottom = arrowWidth * 0.665;
+    const points = [
+      [0, arrowWidth / 2],
+      [headLength, 0],
+      [headLength, shaftTop],
+      [distance, shaftTop],
+      [distance, shaftBottom],
+      [headLength, shaftBottom],
+      [headLength, arrowWidth],
+    ]
+      .map(([px, py]) => `${px},${py}`)
+      .join(" ");
     return {
       id: candidate.usi,
+      viewBox: `0 0 ${distance} ${arrowWidth}`,
+      points,
       style: {
         left: x + "px",
         top: y + "px",
