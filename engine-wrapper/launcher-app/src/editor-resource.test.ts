@@ -655,7 +655,8 @@ describe("resource editor DOM", () => {
     expect(options.map((o) => o.textContent)).toContain("Local CPU");
     $("saveBtn").click();
     await vi.waitFor(() => expect(api.editorSave).toHaveBeenCalledOnce());
-    expect(vi.mocked(api.editorSave).mock.calls[0][1]).toMatchObject({
+    expect(vi.mocked(api.editorSave).mock.calls[0][1]).toEqual({
+      enabled: false,
       groups: [{ id: "local-cpu", name: "Local CPU", budget: 8 }],
     });
   });

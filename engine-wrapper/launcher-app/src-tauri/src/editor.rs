@@ -134,7 +134,9 @@ pub fn editor_load(
     check(&window, "editor_load")?;
     let document = editor::load_engines_file(&engines_path(&handle))?;
     Ok(match document.resources {
-        Some(resources) => serde_json::json!({ "engines": document.engines, "resources": resources }),
+        Some(resources) => {
+            serde_json::json!({ "engines": document.engines, "resources": resources })
+        }
         None => serde_json::json!({ "engines": document.engines }),
     })
 }
@@ -293,7 +295,8 @@ pub fn editor_refresh(
 
 #[tauri::command]
 pub fn editor_probe_cancel(
-    window: tauri::Window,    handle: tauri::AppHandle,
+    window: tauri::Window,
+    handle: tauri::AppHandle,
     id: u64,
 ) -> Result<(), String> {
     check(&window, "editor_probe_cancel")?;

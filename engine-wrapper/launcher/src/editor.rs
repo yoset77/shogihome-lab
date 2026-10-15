@@ -436,9 +436,9 @@ pub fn load_engines_file(path: &Path) -> Result<EngineDocument, LauncherError> {
 /// `--config-editor`) cannot truncate each other's file. Last writer still
 /// wins, but the registry is never left half-written.
 ///
-/// The root format is preserved: object roots (resource budgets active)
-/// round-trip, while plain registries stay a bare array so older engine-side
-/// tools keep reading the file.
+/// Resource-less, disabled registries use the legacy array root. Defined
+/// groups use an object root even when enforcement is off; editor-proposed
+/// groups can therefore change a legacy input's format on explicit save.
 pub fn save_engines_file(document: &EngineDocument, path: &Path) -> Result<(), LauncherError> {
     let data: serde_json::Value = if document.resources.is_some() {
         let mut obj = serde_json::Map::new();
@@ -991,7 +991,7 @@ mod tests {
         let managed = EngineDocument {
             engines: data.as_array().unwrap().clone(),
             resources: Some(serde_json::json!({
-                "enabled": true,
+                "enabled": false,
                 "groups": [{"id": "local", "name": "Local", "budget": 8}],
             })),
         };
@@ -999,7 +999,7 @@ mod tests {
         let loaded = load_engines_file(&path).unwrap();
         assert_eq!(
             loaded.resources.unwrap()["enabled"],
-            serde_json::json!(true)
+            serde_json::json!(false)
         );
         // A resource-less document reverts to the legacy array root.
         save_engines_file(&document(), &path).unwrap();

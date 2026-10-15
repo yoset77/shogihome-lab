@@ -57,6 +57,7 @@ export class EngineSession {
   private commandQueue: string[] = [];
   private postStopCommandQueue: string[] = [];
   private stopTimeout: NodeJS.Timeout | null = null;
+  private terminationTimeout: NodeJS.Timeout | null = null;
   private currentEngineSfen: string | null = null;
   private pendingGoSfen: string | null = null;
   private isExplicitlyTerminated = false;
@@ -379,13 +380,18 @@ export class EngineSession {
     this.clearStopTimeout();
     this.messageBuffer = [];
     this.lastInfos.clear();
-    this.releaseResourceLease();
     if (this.connectingSocket) {
       this.connectingSocket.destroy();
       this.connectingSocket = null;
     }
     if (this.engineHandle && this.engineState !== EngineState.TERMINATING) {
       this.engineState = EngineState.TERMINATING;
+      // Keep the lease until close, but bound a peer that never finishes shutdown.
+      this.terminationTimeout = setTimeout(() => {
+        this.terminationTimeout = null;
+        this.engineHandle?.destroy?.();
+        this.onEngineClose();
+      }, ENGINE_STOP_TIMEOUT_MS);
       this.engineHandle.close();
     } else {
       // A repeated termination must release the transport, not only its state.
@@ -525,6 +531,10 @@ export class EngineSession {
   }
 
   private onEngineClose() {
+    if (this.terminationTimeout) {
+      clearTimeout(this.terminationTimeout);
+      this.terminationTimeout = null;
+    }
     this.releaseResourceLease();
     if (
       this.engineState === EngineState.STOPPED ||

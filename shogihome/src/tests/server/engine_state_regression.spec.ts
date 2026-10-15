@@ -1,5 +1,7 @@
 import { EngineSession } from "@/server/engine/session";
 import { EngineState } from "@/server/engine/types";
+import { resourceRegistry, type ResourceLease } from "@/server/engine/resources";
+import { CONNECTION_PROTECTION_TIMEOUT, ENGINE_STOP_TIMEOUT_MS } from "@/server/config";
 import { saveAnalysisResults } from "@/server/database/sqlite";
 import type { ClientRelayMessage, SessionRelayPayload } from "@/common/engine/relay_protocol";
 import { vi, describe, it, expect, beforeEach, type Mock } from "vitest";
@@ -14,6 +16,7 @@ const mockSaveAnalysisResults = vi.mocked(saveAnalysisResults);
 // Define a type that matches the internal structure of EngineSession for testing
 type TestableEngineSession = {
   engineState: EngineState;
+  resourceLease?: ResourceLease;
   engineHandle: {
     write: Mock<(command: string) => void>;
     close: Mock<() => void>;
@@ -112,6 +115,68 @@ describe("Engine State Regression Tests", () => {
     expect(engine.destroy).toHaveBeenCalledOnce();
     expect(tSession.engineHandle).toBeNull();
     expect(tSession.engineState).toBe(EngineState.STOPPED);
+  });
+
+  describe("resource release during termination", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      resourceRegistry.resetForTest(true, [{ id: "g", name: "G", budget: 4 }]);
+      tSession.resourceLease = resourceRegistry.acquire({ groupId: "g", cost: 4 });
+      tSession.engineState = EngineState.READY;
+      tSession.engineHandle = {
+        write: vi.fn(),
+        close: vi.fn(),
+        destroy: vi.fn(),
+        removeAllListeners: vi.fn(),
+      };
+    });
+
+    afterEach(() => {
+      tSession.onEngineClose();
+      resourceRegistry.resetForTest();
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    });
+
+    it("holds the reservation after protection expires until the transport closes", () => {
+      const engine = tSession.engineHandle!;
+      tSession.handleDisconnect(mockWs);
+      vi.advanceTimersByTime(CONNECTION_PROTECTION_TIMEOUT);
+
+      expect(engine.close).toHaveBeenCalledOnce();
+      expect(engine.destroy).not.toHaveBeenCalled();
+      expect(tSession.engineState).toBe(EngineState.TERMINATING);
+      expect(resourceRegistry.groupSnapshot()[0].used).toBe(4);
+      expect(() => resourceRegistry.acquire({ groupId: "g", cost: 1 })).toThrow();
+
+      tSession.onEngineClose();
+      expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+      vi.advanceTimersByTime(ENGINE_STOP_TIMEOUT_MS);
+      expect(engine.destroy).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("destroys a stalled transport before releasing its reservation at the deadline", () => {
+      const engine = tSession.engineHandle!;
+      tSession.handleDisconnect(mockWs);
+      vi.advanceTimersByTime(CONNECTION_PROTECTION_TIMEOUT + ENGINE_STOP_TIMEOUT_MS - 1);
+
+      expect(engine.destroy).not.toHaveBeenCalled();
+      expect(resourceRegistry.groupSnapshot()[0].used).toBe(4);
+      vi.mocked(engine.destroy!).mockImplementation(() => {
+        expect(resourceRegistry.groupSnapshot()[0].used).toBe(4);
+      });
+      vi.advanceTimersByTime(1);
+
+      expect(engine.destroy).toHaveBeenCalledOnce();
+      expect(tSession.engineState).toBe(EngineState.STOPPED);
+      expect(tSession.engineHandle).toBeNull();
+      expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+      tSession.onEngineClose();
+      expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 
   it("should include the active engine ID in state frames", () => {

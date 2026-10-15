@@ -6,6 +6,7 @@ import { AnalysisJob, ANALYSIS_MAX_RUNTIME_MS } from "@/server/analysis/job";
 import { AnalysisJobManager } from "@/server/analysis/jobManager";
 import { CommentBehavior } from "@/common/settings/comment";
 import { restoreRecord } from "@/common/record/snapshot";
+import { HttpError } from "@/server/errors";
 import { FakeResearchEngine, requestFor } from "./helpers/analysis";
 
 const config = async () => ({ id: "test", name: "my usi engine" });
@@ -52,6 +53,25 @@ describe("server analysis jobs", () => {
     expect(engine.positions).toEqual([]);
     expect(engine.close).toHaveBeenCalledOnce();
   });
+
+  it.each([400, 423, 503])(
+    "classifies startup HTTP %s as capacity only for 503",
+    async (status) => {
+      const engine = new FakeResearchEngine();
+      engine.launch.mockRejectedValue(new HttpError(status, "Startup rejected"));
+      const job = new AnalysisJob("job", requestFor(), engine, config);
+      job.start();
+      await vi.advanceTimersByTimeAsync(0);
+      await job.completion;
+
+      expect(job.status()).toMatchObject({
+        state: "failed",
+        error: status === 503 ? "capacity" : "engine",
+      });
+      expect(engine.positions).toEqual([]);
+      expect(engine.close).toHaveBeenCalledOnce();
+    },
+  );
 
   it("reports preparation until the first search starts and preserves its initial output", async () => {
     const engine = new FakeResearchEngine();
@@ -398,6 +418,82 @@ describe("server analysis jobs", () => {
     expect(() => manager.get(ids[0])).toThrow();
     expect(ids.slice(1).map((id) => manager.get(id).status().state)).toEqual(
       Array(10).fill("completed"),
+    );
+  });
+
+  describe("admission before engine discovery", () => {
+    function submit(manager: AnalysisJobManager, kind: "single" | "batch", requestId: string) {
+      const request = { ...requestFor(), serverInstanceId: manager.serverInstanceId, requestId };
+      return kind === "single"
+        ? manager.create(request)
+        : manager.createBatch({
+            requestId,
+            serverInstanceId: manager.serverInstanceId,
+            planId: "unused-plan",
+            options: request.options,
+            skipAnalyzed: false,
+            fileOptions: {
+              autoDetect: true,
+              returnCode: "\n",
+              useCSAV3: false,
+              useUTF8ForKifAndKi2: false,
+            },
+          });
+    }
+
+    it.each(["single", "batch"] as const)(
+      "rejects %s requests without discovery when another job is active",
+      async (kind) => {
+        const resolver = vi.fn(config);
+        const manager = new AnalysisJobManager(() => new FakeResearchEngine(), resolver);
+        try {
+          const job = await submit(manager, "single", "running");
+          expect(await submit(manager, "single", "running")).toBe(job);
+          resolver.mockClear();
+
+          await expect(submit(manager, kind, "rejected")).rejects.toMatchObject({ status: 503 });
+          expect(resolver).not.toHaveBeenCalled();
+        } finally {
+          await manager.close();
+        }
+      },
+    );
+
+    it.each(["single", "batch"] as const)(
+      "rejects %s requests without discovery when the request ledger is full",
+      async (kind) => {
+        const resolver = vi.fn(config);
+        const manager = new AnalysisJobManager(() => new FakeResearchEngine(), resolver);
+        const { requests } = manager as unknown as {
+          requests: Map<string, { hash: string; jobId: string }>;
+        };
+        for (let index = 0; index < 10_000; index++)
+          requests.set(`expired-${index}`, { hash: "expired", jobId: "expired" });
+
+        await expect(submit(manager, kind, "rejected")).rejects.toMatchObject({ status: 503 });
+        expect(resolver).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["single", "batch"] as const)(
+      "rechecks capacity after pending %s discovery",
+      async (kind) => {
+        const discovery = Promise.withResolvers<Awaited<ReturnType<typeof config>>>();
+        const resolver = vi.fn(config).mockReturnValueOnce(discovery.promise);
+        const manager = new AnalysisJobManager(() => new FakeResearchEngine(), resolver);
+        const pending = submit(manager, kind, "pending");
+        const rejected = expect(pending).rejects.toMatchObject({ status: 503 });
+        try {
+          await submit(manager, "single", "winner");
+          discovery.resolve(await config());
+          await rejected;
+          expect(resolver).toHaveBeenCalledTimes(2);
+          expect(manager.list()).toHaveLength(1);
+        } finally {
+          discovery.resolve(await config());
+          await manager.close();
+        }
+      },
     );
   });
 });

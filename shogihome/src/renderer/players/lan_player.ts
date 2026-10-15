@@ -611,6 +611,10 @@ export class LanPlayer implements Player {
         this.clearHandlers();
         this.clearPendingInfo();
         this.rejectStopPromise(error);
+        // Startup errors are reported through the launch() promise.
+        if (!this.hasLaunched) {
+          return;
+        }
         if (handler) {
           handler.onError(error);
         } else if (onErrorCallback) {

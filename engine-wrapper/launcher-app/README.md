@@ -69,7 +69,7 @@ portable/
     └── .env
 ```
 
-`shogihome/` で `npm ci`、`npm run build`、`npm run server:runtime` を実行します。`dist/bin/` の内容を上図の `shogihome/` に、`docs/webapp/` を同じ相対位置に配置します。設定のひな型は server／wrapper 各 `.env.example` と `engine-wrapper/engines.json.default` です。Unix ではコピー時に実行権限を保持します。runtime はビルドした OS／architecture の Node 実行ファイルです。`engines.json` は旧配列ルートと、リソース制限設定（`resources` + `engines`）を持つオブジェクトルートの両方を読み込みます。リソース制限を無効のまま保存すると配列ルートへ書き戻されます。詳細は [設計文書](../../docs/features/resource-budget.md) を参照してください。
+`shogihome/` で `npm ci`、`npm run build`、`npm run server:runtime` を実行します。`dist/bin/` の内容を上図の `shogihome/` に、`docs/webapp/` を同じ相対位置に配置します。設定のひな型は server／wrapper 各 `.env.example` と `engine-wrapper/engines.json.default` です。Unix ではコピー時に実行権限を保持します。runtime はビルドした OS／architecture の Node 実行ファイルです。`engines.json` は旧配列ルートと、リソース制限設定（`resources` + `engines`）を持つオブジェクトルートの両方を読み込みます。新版エディタで保存した設定は、制限が無効でも旧 Wrapper で読めるとは限りません。形式と互換方針は [設計文書](../../docs/features/resource-budget.md) を参照してください。
 配置後、`ShogiHomeLab[.exe]` を起動すると migration の確認後に services が起動します。起動時 CWD に依存せず、編集・監視・readiness は同じ portable root を使います。
 
 | モード | 閉じる操作 |
