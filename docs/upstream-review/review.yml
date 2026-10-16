@@ -1,0 +1,277 @@
+# Handoff state only; workflow: ../../.agents/skills/upstream-review/SKILL.md.
+upstream: https://github.com/sunfish-shogi/shogihome
+
+# Exclusive start and inclusive first-pass cursor, not an integration baseline.
+coverage:
+  after: 467aad070af14799801e3cb4b0ecae8b0ab2d1bf
+  through: 3c112be4bc85f2fbb84ccd9edf68bc294433f80f
+
+last_review:
+  date: "2026-10-16"
+  lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+
+candidates:
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1768
+    summary: 起動時の評価値復元
+    status: candidate
+    priority: high
+    effort: small
+    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    targets:
+      - shogihome/src/renderer/store/record.ts
+      - shogihome/src/tests/renderer/store/record.spec.ts
+    evidence: >-
+      RecordManagerのconstructorにコメントからの評価値復元がない。
+      KIF→JKF→読込→実際のmanagerで、コメントの評価値は残るがcustomDataに復元されないことを再現。
+      上流PRの主題はビルドプロファイル追加だが、この小修正はLabにも関係する。
+    next: 起動時の復元を適応し、回帰テストを追加する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1752
+    summary: 局面編集のredoショートカット修正
+    status: candidate
+    priority: medium
+    effort: small
+    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    targets:
+      - shogihome/src/renderer/view/dialog/PositionEditingDialog.vue
+    evidence: >-
+      redoがMod+Shift+z。インストール済みhotkeyによるブラウザー試験で
+      Ctrl+Shift+Zは一致せず、上流のMod+yは動作した。
+    next: >-
+      redoのキーを修正し、対応OSで確認する。LabのMod+tは盤反転に使用済みなので、
+      上流の手番変更キーを重ねない。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1811
+    summary: メッセージ表示・切替時のスクロール位置リセット
+    status: candidate
+    priority: medium
+    effort: small
+    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    targets:
+      - shogihome/src/renderer/view/dialog/InfoMessage.vue
+    evidence: >-
+      表示・message切替時の先頭復帰がない。native dialogの最小再現で
+      autofocusによる末尾移動と切替後のscroll位置残存を確認。実アプリE2Eは未実施。
+    next: 初期表示と連続messageを実アプリで確認し、先頭復帰と回帰テストを追加する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1787
+    summary: 狭幅画面での設定項目のレイアウト改善
+    status: candidate
+    priority: medium
+    effort: small
+    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    targets:
+      - shogihome/src/renderer/view/dialog/AppSettingsDialog.vue
+    evidence: >-
+      USI形式などに余計なform-item rowが残る。現行CSSの狭幅最小再現で、
+      除去するとselectorの不要な2段表示が解消した。実アプリE2Eは未実施。
+    next: >-
+      desktop/mobileで検証して局所修正する。Labでresponsive化済みの
+      ファイル名設定は重複変更しない。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1727
+    summary: 暗黙のinstallスクリプトの監査
+    status: candidate
+    priority: medium
+    effort: medium
+    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    targets:
+      - shogihome/scripts/audit-scripts.ts
+    evidence: >-
+      binding.gyp由来の暗黙installを見逃す。一時fixtureで検出されず正常終了することを確認。
+      再帰走査は既存。ignore-scriptsは有効で、現行依存に該当例は未検出。
+      稼働中の脆弱性を確認したものではなく、予防的な監査強化。
+    next: 暗黙installの監査を追加し、Lab固有の許可を維持してテストする。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1827
+    summary: 既存機能の繁体字・ベトナム語翻訳
+    status: candidate
+    priority: low
+    effort: small-to-medium
+    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    targets:
+      - shogihome/src/common/i18n/locales/vi.ts
+      - shogihome/src/common/i18n/locales/zh_tw.ts
+    evidence: 既存機能のキーに未翻訳が残る。
+    next: Labに存在するキーと意味を照合して翻訳を取り込み、上流専用機能のキーは追加しない。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1813
+    summary: 外部URLを開く境界の検証
+    status: investigate
+    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    targets:
+      - shogihome/src/renderer/ipc/web.ts
+    evidence: >-
+      browser側のwindow.openとTauri openerはElectronとは異なる。
+      現行経路で到達可能な脆弱性は未確定。
+    next: >-
+      入力の信頼源とschemeを確認する。相対URLのライセンス導線を壊す
+      一律http/https限定チェックは避ける。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1814
+    summary: 公開直後のリリースを通知しない待機期間
+    status: investigate
+    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    targets:
+      - engine-wrapper/launcher/src/update.rs
+    evidence: >-
+      Rust更新通知はGitHub APIを直接使うが、公開後の待機期間はない。
+      既存snoozeとは別の保証。
+    next: 通知を遅らせる利点・欠点を判断し、採用する場合だけLab側に適応する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1784
+    summary: 分岐アイコンのSafari表示対策
+    status: investigate
+    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    targets:
+      - shogihome/src/renderer/view/primitive/RecordView.vue
+    evidence: >-
+      分岐アイコンのSafari対策は未反映だが、実アプリのWebKit確認は未実施。
+      解析ペインの高さはLabで補正済み。現行リストのscrollと本譜復帰ボタンは最小再現で枠内に収まる。
+    next: >-
+      WebKitの実アプリで確認する。absolute化するなら、その後続修正
+      https://github.com/sunfish-shogi/shogihome/pull/1792 も合わせて評価する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1785
+    summary: タブ・棋譜情報の高さ管理
+    status: investigate
+    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    targets:
+      - shogihome/src/renderer/view/main/TabPane.vue
+      - shogihome/src/renderer/view/tab/RecordInfo.vue
+    evidence: Labのフッター補正を含む最小再現では枠内に収まり、不具合を再現できていない。
+    next: 実アプリのリサイズ等で確認し、不要なら閉じる。差分だけを理由に移植しない。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1726
+    summary: 依存の入手元・identityの監査方針
+    status: investigate
+    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    evidence: Labには前提のverify-lockfileがなく、alias禁止だけの移植では完結しない。
+    next: 監査方針と、既存の依存更新・監査との役割分担を判断する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1798
+    summary: 盤・駒台の任意色
+    status: optional
+    next: 要望が出たら現行の配色設定と照合し、追加設定の必要性を判断する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1793
+    summary: 合法な移動可能マスの表示
+    status: optional
+    next: 要望が出たら現行の盤操作・表示と照合し、採否を判断する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1790
+    summary: 履歴保持数・内容フィルタ
+    status: optional
+    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    evidence: Labの履歴はServer共有であり、その所有境界への適応が必要。
+    next: 要望が出たらServer共有履歴での保持方針とフィルタの採否を判断する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1791
+    summary: 検討画面からの本譜復帰
+    status: optional
+    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    evidence: 上流PRに含まれるグラフタブ自体はLabに既存。本譜復帰の導線は別の任意改善。
+    next: 要望が出たら現行の検討UIで本譜復帰の導線を評価する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1788
+    summary: 起動URLの言語指定
+    status: optional
+    next: 要望が出たら保存済み言語設定との優先関係を含め、採否を判断する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1765
+    summary: 正方形マスのポートレイト
+    status: optional
+    next: 要望が出たら現行の盤レイアウトと照合し、追加形式の必要性を判断する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1764
+    summary: 局面図の最終手の色指定
+    status: optional
+    next: 要望が出たら現行の局面図出力と照合し、設定追加の採否を判断する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1757
+    summary: 局面図へのコメント表示
+    status: optional
+    next: 要望が出たら現行の局面図出力と照合し、表示方法と採否を判断する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1756
+    summary: 局面図の見出し形式
+    status: optional
+    next: 要望が出たら現行の見出し設定と照合し、追加形式の必要性を判断する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1762
+    summary: モバイル棋譜での累積時間省略
+    status: optional
+    next: 要望が出たら現行のモバイル棋譜表示で情報量と読みやすさを評価する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1761
+    summary: モバイル操作領域の寸法調整
+    status: optional
+    next: 要望が出たらLab独自のモバイルUIで操作性を評価する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1760
+    summary: モバイルセレクターのアイコン化
+    status: optional
+    next: 要望が出たらLab独自のモバイルUIで視認性と採否を判断する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1751
+    summary: SFENコピーのグローバルショートカット
+    status: optional
+    next: 要望が出たら既存キーとの競合と対応OSでの操作を評価する。
+
+# Fixed historical reference, independent of the evolving candidate list.
+initial_audit:
+  date: "2026-10-16"
+  after: 467aad070af14799801e3cb4b0ecae8b0ab2d1bf
+  through: 3c112be4bc85f2fbb84ccd9edf68bc294433f80f
+  lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+  pr_counts:
+    candidate: 6
+    already_satisfied: 30
+    irrelevant: 46
+    optional: 13
+    investigate: 5
+  direct_commits: 12
+  notes:
+    - >-
+      first-parentで遡った100 PRと同範囲の直接コミット12件を確認。
+      PRのmerge日時は2026-08-08〜2026-10-15（UTC）。全PRのGitHub mergeCommitとGitのSHA、
+      および範囲内のfirst-parent 112件を照合。PR内の細分コミットは重複計上していない。
+    - >-
+      直接コミットは上流サイト、生成bundle、版番号、ライセンス出力、集計スクリプト等で追加候補なし。
+      6%はこの範囲の当時の残件率であり、固定的な採用率ではない。
+      開始以前、未merge PR、他branchのみの修正は対象外で、全履歴の残件数には外挿しない。
+    - >-
+      https://github.com/sunfish-shogi/shogihome/pull/1777 の思考中option変更は、
+      Labのshogihome/src/server/engine/session.tsがstopとqueueで同等の保証を持つ。
+      WASMの実装そのものを移植する必要はない。
+    - >-
+      盤面の誤反転・テーマ・SVG修正はLabの既存変更で充足。
+      https://github.com/yoset77/shogihome-lab/commit/7bdb32b74 と
+      https://github.com/yoset77/shogihome-lab/commit/613b3254c を参照。
+      依存更新も当時のlockfileと照合した。
+    - >-
+      実アプリ通しのE2E・WebKit試験・修正の移植は未実施。
