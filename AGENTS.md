@@ -3,6 +3,8 @@
 ShogiHome Lab consists of a Vue frontend, a Node.js middle server, a Rust engine wrapper, and a Tauri launcher.
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the system map and module ownership. Detailed subsystem documents are under `docs/architecture/`.
 
+For reviewing or selectively porting changes from `sunfish-shogi/shogihome`, use the [upstream-review skill](.agents/skills/upstream-review/SKILL.md).
+
 ## Development Commands
 
 Run commands from the indicated directory.
