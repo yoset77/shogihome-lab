@@ -1,5 +1,5 @@
 import { Color, Move, type Node, type Record as ShogiRecord } from "tsshogi";
-import { parseUSIPV, type USIInfoCommand } from "@/common/game/usi";
+import { parseUSIPV, toBlackSearchScore, type USIInfoCommand } from "@/common/game/usi";
 import { getMoveAccuracyText } from "@/common/game/score";
 import { getTranslationTable } from "@/common/i18n/translation_table";
 import { t } from "@/common/i18n";
@@ -186,15 +186,11 @@ export class AnalysisJob {
       !merged.pv?.length
     )
       return;
-    const sign = this.record.position.color === Color.BLACK ? 1 : -1;
     const pv = merged.pv && parseUSIPV(this.record.position, merged.pv);
     const info: SearchInfo = {
       depth: merged.depth,
       nodes: merged.nodes,
-      score: merged.scoreCP === undefined ? undefined : merged.scoreCP * sign,
-      mate: merged.scoreMate === undefined ? undefined : merged.scoreMate * sign,
-      lowerBound: merged.lowerbound,
-      upperBound: merged.upperbound,
+      ...toBlackSearchScore(merged, this.record.position.color),
       pv,
     };
     this.searchInfo = info;

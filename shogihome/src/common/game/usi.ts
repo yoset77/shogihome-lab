@@ -1,4 +1,5 @@
-import { ImmutablePosition, Move } from "tsshogi";
+import { Color, ImmutablePosition, Move } from "tsshogi";
+import type { SearchInfo } from "./player";
 
 // SCORE_MATE_INFINITE は詰みを発見したが手数までは確定していない場合に使用する値です。
 export const SCORE_MATE_INFINITE = 10000;
@@ -21,6 +22,21 @@ export type USIInfoCommand = {
   nps?: number;
   string?: string;
 };
+
+export function toBlackSearchScore(
+  info: USIInfoCommand,
+  color: Color,
+): Pick<SearchInfo, "score" | "mate" | "lowerBound" | "upperBound"> {
+  // Score-less updates must preserve the previous evaluation when merged.
+  if (info.scoreCP === undefined && info.scoreMate === undefined) return {};
+  const sign = color === Color.BLACK ? 1 : -1;
+  return {
+    score: info.scoreCP === undefined ? undefined : info.scoreCP === 0 ? 0 : info.scoreCP * sign,
+    mate: info.scoreMate === undefined ? undefined : info.scoreMate * sign,
+    lowerBound: color === Color.BLACK ? info.lowerbound : info.upperbound,
+    upperBound: color === Color.BLACK ? info.upperbound : info.lowerbound,
+  };
+}
 
 export function parseUSIPV(position: ImmutablePosition, usiPv: string[]): Move[] {
   const pv: Move[] = [];

@@ -1,5 +1,5 @@
 import api from "@/renderer/ipc/api";
-import { parseUSIPV, USIInfoCommand } from "@/common/game/usi";
+import { parseUSIPV, toBlackSearchScore, USIInfoCommand } from "@/common/game/usi";
 import {
   getUSIEngineMultiPV,
   getUSIEnginePonder,
@@ -10,7 +10,7 @@ import {
   USIEngineLaunchOptions,
   USIMultiPV,
 } from "@/common/settings/usi";
-import { Color, ImmutablePosition, Move, Position } from "tsshogi";
+import { ImmutablePosition, Move, Position } from "tsshogi";
 import { Player, SearchInfo, SearchHandler, MateHandler } from "./player.js";
 import { GameResult } from "@/common/game/result";
 import { TimeStates } from "@/common/game/time";
@@ -338,7 +338,6 @@ export class USIPlayer implements Player {
     if (infoCommand.multipv && infoCommand.multipv !== 1) {
       return;
     }
-    const sign = this.position.color === Color.BLACK ? 1 : -1;
     const pv =
       infoCommand.pv && infoCommand.pv.length >= 1
         ? infoCommand.pv
@@ -347,11 +346,11 @@ export class USIPlayer implements Player {
           : undefined;
     // 情報を更新する。
     this.info = {
+      ...this.info,
       usi: usi,
       depth: infoCommand.depth ?? this.info?.depth,
       nodes: infoCommand.nodes ?? this.info?.nodes,
-      score: (infoCommand.scoreCP && infoCommand.scoreCP * sign) ?? this.info?.score,
-      mate: (infoCommand.scoreMate && infoCommand.scoreMate * sign) ?? this.info?.mate,
+      ...toBlackSearchScore(infoCommand, this.position.color),
       pv: (pv && parseUSIPV(this.position, pv)) ?? this.info?.pv,
     };
     // Ponder 中はハンドラーを呼ばない。

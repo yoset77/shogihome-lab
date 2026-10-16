@@ -1,9 +1,9 @@
-import { Color, type ImmutablePosition } from "tsshogi";
+import type { ImmutablePosition } from "tsshogi";
 import type { Player, SearchHandler, SearchInfo } from "@/common/game/player";
 import type { TimeStates } from "@/common/game/time";
 import type { GameResult } from "@/common/game/result";
 import { gameGoCommand } from "@/common/game/usi_time";
-import { parseUSIPV } from "@/common/game/usi";
+import { parseUSIPV, toBlackSearchScore } from "@/common/game/usi";
 import { parseAnalysisInfo } from "@/common/analysis/types";
 import type { USIEngineExtraBookConfig } from "@/common/settings/usi";
 import type { EngineConfig } from "@/server/engine/types";
@@ -98,20 +98,12 @@ export class GamePlayer implements Player {
           if (parsed) {
             this.onLiveInfo(usi, parsed);
             if ((parsed.multipv ?? 1) !== 1) return;
-            const sign = position.color === Color.BLACK ? 1 : -1;
             info = {
               ...info,
               usi,
               ...(parsed.depth === undefined ? {} : { depth: parsed.depth }),
               ...(parsed.nodes === undefined ? {} : { nodes: parsed.nodes }),
-              ...(parsed.scoreCP === undefined && parsed.scoreMate === undefined
-                ? {}
-                : {
-                    score: parsed.scoreCP === undefined ? undefined : sign * parsed.scoreCP,
-                    mate: parsed.scoreMate === undefined ? undefined : sign * parsed.scoreMate,
-                    lowerBound: parsed.lowerbound,
-                    upperBound: parsed.upperbound,
-                  }),
+              ...toBlackSearchScore(parsed, position.color),
               ...(parsed.pv ? { pv: parseUSIPV(position, parsed.pv) } : {}),
             };
             this.onInfo(info);

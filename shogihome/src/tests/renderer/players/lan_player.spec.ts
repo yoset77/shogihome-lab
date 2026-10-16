@@ -151,6 +151,114 @@ describe("LanPlayer", () => {
     expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ score: 120 }));
   });
 
+  describe.each([
+    { usi: "position startpos", sign: 1, move: "7g7f" },
+    { usi: "position startpos moves 7g7f", sign: -1, move: "3c3d" },
+  ])("search scores for $usi", ({ usi, sign, move }) => {
+    it.each(["cp", "mate"])("normalizes %s scores and bounds atomically", async (kind) => {
+      const onSearchInfo = vi.fn();
+      const player = new LanPlayer("test-session", "test-engine", "Test Engine", 10, onSearchInfo);
+      await launchPlayer(player);
+      const record = Record.newByUSI(usi) as Record;
+      await player.startResearch(record.position, usi);
+      const emit = (info: string) => {
+        sendMsg({ sfen: usi, info });
+        vi.advanceTimersByTime(500);
+      };
+
+      emit(`info depth 10 score ${kind} 100 lowerbound pv ${move}`);
+      const bounded = {
+        score: kind === "cp" ? sign * 100 : undefined,
+        mate: kind === "mate" ? sign * 100 : undefined,
+        lowerBound: sign === 1 ? true : undefined,
+        upperBound: sign === -1 ? true : undefined,
+      };
+      expect(onSearchInfo).toHaveBeenLastCalledWith(expect.objectContaining(bounded));
+      expect(dispatchUSIInfoUpdate).toHaveBeenLastCalledWith(
+        player.sessionID,
+        record.position,
+        "Test Engine",
+        expect.objectContaining({
+          lowerbound: true,
+          [kind === "cp" ? "scoreCP" : "scoreMate"]: 100,
+        }),
+      );
+
+      emit("info depth 11 nodes 200");
+      expect(onSearchInfo).toHaveBeenLastCalledWith(
+        expect.objectContaining({ ...bounded, depth: 11 }),
+      );
+
+      const otherKind = kind === "cp" ? "mate" : "cp";
+      emit(`info score ${otherKind} 200 upperbound`);
+      expect(onSearchInfo).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          score: otherKind === "cp" ? sign * 200 : undefined,
+          mate: otherKind === "mate" ? sign * 200 : undefined,
+          lowerBound: sign === -1 ? true : undefined,
+          upperBound: sign === 1 ? true : undefined,
+        }),
+      );
+
+      emit("info score cp 0");
+      expect(onSearchInfo).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          score: 0,
+          mate: undefined,
+          lowerBound: undefined,
+          upperBound: undefined,
+        }),
+      );
+    });
+  });
+
+  it.each([
+    "depth",
+    "seldepth",
+    "time",
+    "nodes",
+    "nps",
+    "hashfull",
+    "multipv",
+    "score cp",
+    "score mate",
+  ])("rejects non-finite %s updates before publishing", async (field) => {
+    const onSearchInfo = vi.fn();
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine", 10, onSearchInfo);
+    await launchPlayer(player);
+    const usi = "position startpos";
+    const record = Record.newByUSI(usi) as Record;
+    await player.startResearch(record.position, usi);
+    const emit = (info: string) => {
+      sendMsg({ sfen: usi, info });
+      vi.advanceTimersByTime(500);
+    };
+
+    emit("info depth 10 score mate 3 lowerbound pv 7g7f");
+    expect(onSearchInfo).toHaveBeenCalledOnce();
+    onSearchInfo.mockClear();
+    vi.mocked(dispatchUSIInfoUpdate).mockClear();
+
+    for (const value of ["abc", "NaN", "Infinity", "-Infinity"]) {
+      emit(`info ${field} ${value}`);
+      emit(`info depth 11 score cp 200 ${field} ${value}`);
+    }
+    expect(onSearchInfo).not.toHaveBeenCalled();
+    expect(dispatchUSIInfoUpdate).not.toHaveBeenCalled();
+
+    emit("info depth 12 nodes 200");
+    expect(onSearchInfo).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        depth: 12,
+        nodes: 200,
+        score: undefined,
+        mate: 3,
+        lowerBound: true,
+        upperBound: undefined,
+      }),
+    );
+  });
+
   it("updateInfo should ignore stale messages with wrong SFEN", async () => {
     const onSearchInfo = vi.fn();
     const player = new LanPlayer("test-session", "test-engine", "Test Engine", 10, onSearchInfo);
@@ -620,7 +728,7 @@ describe("LanPlayer", () => {
     expect(LanEngine.prototype.sendUsiCommand).not.toHaveBeenCalledWith(record.usi);
   });
 
-  it("parseInfoCommand should handle mate score and currmove", async () => {
+  it("accepts indefinite mate scores, bounds, and currmove", async () => {
     interface LanPlayerInternals {
       currentSfen: string;
       position: ImmutablePosition;
@@ -637,19 +745,20 @@ describe("LanPlayer", () => {
     internals.position = record.position;
     internals.isThinking = true;
 
-    // Mate +
-    internals.onMessage(parseMessage({ sfen: usi, info: "info depth 10 score mate + pv 7g7f" }));
-    vi.advanceTimersByTime(500);
-    expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ mate: 10000 }));
-
-    onSearchInfo.mockClear();
-
-    // Mate -
-    internals.onMessage(parseMessage({ sfen: usi, info: "info depth 10 score mate - pv 7g7f" }));
-    vi.advanceTimersByTime(500);
-    expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ mate: -10000 }));
-
-    onSearchInfo.mockClear();
+    for (const [value, mate] of [
+      ["+", 10000],
+      ["+0", 10000],
+      ["0", 10000],
+      ["-", -10000],
+      ["-0", -10000],
+    ] as const) {
+      internals.onMessage(
+        parseMessage({ sfen: usi, info: `info depth 10 score mate ${value} pv 7g7f` }),
+      );
+      vi.advanceTimersByTime(500);
+      expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ mate }));
+      onSearchInfo.mockClear();
+    }
 
     // lowerbound
     internals.onMessage(

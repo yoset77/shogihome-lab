@@ -1,4 +1,5 @@
-import { parseInfoCommand, SCORE_MATE_INFINITE } from "@/common/game/usi";
+import { Color } from "tsshogi";
+import { parseInfoCommand, SCORE_MATE_INFINITE, toBlackSearchScore } from "@/common/game/usi";
 
 describe("common/game/usi", () => {
   it("parses depth, time, nodes, centipawn score, and PV", () => {
@@ -44,4 +45,53 @@ describe("common/game/usi", () => {
     expect(parseInfoCommand("score mate -").scoreMate).toBe(-SCORE_MATE_INFINITE);
     expect(parseInfoCommand("score mate -0").scoreMate).toBe(-SCORE_MATE_INFINITE);
   });
+
+  describe.each([
+    { color: Color.BLACK, bound: "lowerbound", lowerBound: true, upperBound: undefined, sign: 1 },
+    { color: Color.BLACK, bound: "upperbound", lowerBound: undefined, upperBound: true, sign: 1 },
+    { color: Color.WHITE, bound: "lowerbound", lowerBound: undefined, upperBound: true, sign: -1 },
+    { color: Color.WHITE, bound: "upperbound", lowerBound: true, upperBound: undefined, sign: -1 },
+  ])(
+    "black-perspective scores for $color $bound",
+    ({ color, bound, lowerBound, upperBound, sign }) => {
+      it.each(["cp", "mate"])("converts %s scores together with their bounds", (kind) => {
+        for (const score of [-100, 0, 100]) {
+          const mate = score === 0 ? SCORE_MATE_INFINITE : score;
+          expect(
+            toBlackSearchScore(parseInfoCommand(`score ${kind} ${score} ${bound}`), color),
+          ).toStrictEqual({
+            score: kind === "cp" ? (score === 0 ? 0 : score * sign) : undefined,
+            mate: kind === "mate" ? mate * sign : undefined,
+            lowerBound,
+            upperBound,
+          });
+        }
+      });
+    },
+  );
+
+  it.each([Color.BLACK, Color.WHITE])("normalizes signed centipawn zeros for %s", (color) => {
+    for (const scoreCP of [0, -0]) {
+      expect(toBlackSearchScore({ scoreCP }, color).score).toBe(0);
+    }
+  });
+
+  it.each([Color.BLACK, Color.WHITE])(
+    "returns a score patch with explicit resets for %s",
+    (color) => {
+      expect(toBlackSearchScore({ scoreCP: 100 }, color)).toStrictEqual({
+        score: color === Color.BLACK ? 100 : -100,
+        mate: undefined,
+        lowerBound: undefined,
+        upperBound: undefined,
+      });
+      expect(toBlackSearchScore({ scoreMate: 3 }, color)).toStrictEqual({
+        score: undefined,
+        mate: color === Color.BLACK ? 3 : -3,
+        lowerBound: undefined,
+        upperBound: undefined,
+      });
+      expect(toBlackSearchScore({ depth: 10, nodes: 200 }, color)).toStrictEqual({});
+    },
+  );
 });
