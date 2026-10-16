@@ -3,8 +3,8 @@
 [![AI-Driven Development](https://img.shields.io/badge/AI%20Driven-Development-9b59b6.svg)](https://github.com/yoset77/shogihome-lab/blob/main/AGENTS.md)
 [![CI](https://github.com/yoset77/shogihome-lab/actions/workflows/test.yml/badge.svg)](https://github.com/yoset77/shogihome-lab/actions/workflows/test.yml)
 
-[ShogiHome](https://github.com/sunfish-shogi/shogihome) をフォークし、サーバーサイドでUSIエンジンを実行する機能を追加した改造版です。  
-PC上のUSI将棋エンジンをスマートフォンやタブレットからWebブラウザ経由で利用し、ShogiHomeの快適なUIで局面の検討や対局を行うことができます。
+[ShogiHome](https://github.com/sunfish-shogi/shogihome) をフォークし、クライアント・サーバー型にした改造版です。  
+USIエンジンの実行や、棋譜・定跡などのデータをサーバーサイドに集約することで、デバイスを選ばずブラウザから将棋研究が行えます。
 
 > **セキュリティに関する注意**
 > 
@@ -29,11 +29,12 @@ PC上のUSI将棋エンジンをスマートフォンやタブレットからWeb
 
 ## 主な機能
 
-- **エンジン対局・検討:** PC上の強力なUSIエンジンを、スマホやタブレットのブラウザから利用できます。
-- **セッション継続機能:** ネットワークの一時的な切断が発生しても、サーバー側でエンジンプロセスを一定時間（デフォルト60秒）維持し、再接続時に状態を復元します。クライアント側で切断を検知した場合は自動で再接続を試みます。
-- **思考結果データベース:** 検討・対局時の評価値や読み筋をサーバー側（SQLite）に自動蓄積します。思考結果は、別の棋譜やデバイスでその局面を表示した際にも即座に参照できます。
-- **サーバー側棋譜・定跡管理:** サーバー上の特定のディレクトリにある棋譜・定跡ファイルを、スマホやタブレットから閲覧・編集することができます。棋譜ファイルは、局面やヘッダー情報で検索することも可能です。
-- **次の一手問題:** SFEN形式の局面データをJSONファイルとして配置することで、アプリ上で次の一手問題を出題・解答できます。
+- **エンジン対局・検討:** PC上のUSIエンジンを、スマホやタブレットのブラウザから利用できます。
+- **セッション継続:** ネットワークの一時的な切断が発生しても、サーバー側でエンジンプロセスを一定時間維持し、再接続時に状態を復元します。クライアント側で切断を検知した場合は自動で再接続を試みます。
+- **バックグラウンド実行:** 棋譜解析やエンジンどうしの対局をバックグラウンドジョブとして実行できます。別のデバイスからジョブに接続（アタッチ）することも可能です。
+- **思考結果データベース:** 検討・対局時の評価値や読み筋をサーバー側（SQLite）に自動蓄積します。思考結果は、別の棋譜やデバイスでその局面を表示した際にも参照できます。
+- **サーバー側棋譜・定跡管理:** サーバー上の特定のディレクトリにある棋譜・定跡ファイルを、スマホやタブレットから閲覧・編集することができます。
+- **棋譜検索:** サーバー上の棋譜ファイルを、局面やヘッダー情報で検索できます。
 - **盤面画像スキャン:** 盤面を撮影して、画像認識によりアプリ内に局面を取り込むことができます。
 
 ---
@@ -43,7 +44,7 @@ PC上のUSI将棋エンジンをスマートフォンやタブレットからWeb
 本リポジトリは、以下の2つの主要なモジュールで構成されています。
 
 - **`shogihome/`**: Webサーバーおよびフロントエンド（TypeScript/Vue.js）。
-- **`engine-wrapper/`**: 将棋エンジンを制御するエンジンラッパー（Rust）。`engines.json` で複数のエンジンを管理します。設定編集・常駐 UI は Tauri 製ランチャー（`launcher-app/` + `launcher/`）です。
+- **`engine-wrapper/`**: USIエンジンのプロセス管理とTCP公開を担うエンジンラッパー（Rust）。設定編集・常駐UIは Tauri 製ランチャー（`launcher-app/` + `launcher/`）です。
 
 ---
 
@@ -54,7 +55,7 @@ PC上のUSI将棋エンジンをスマートフォンやタブレットからWeb
 [Releases](https://github.com/yoset77/shogihome-lab/releases) からWindows用のビルド済みファイルをダウンロードできます。
 
 1. ダウンロードしたファイルを展開し、ルートディレクトリの **`ShogiHomeLab.exe`**（ランチャー）を実行すると、Webサーバーとエンジンラッパーがバックグラウンドで起動します。
-2. ランチャーの「Engine Settings」をクリックして、エンジンの登録を行ってください。
+2. ランチャーの「エンジン設定」をクリックして、エンジンの登録を行ってください。
 3. 表示されているQRコードをスマホで読み取るか、ブラウザで `http://localhost:8140` にアクセスしてください。
 
 詳細なセットアップ手順やトラブルシューティングについては、同梱の **[ユーザーガイド (README.txt)](./assets/release/README.txt)** を参照してください。
@@ -66,7 +67,7 @@ PC上のUSI将棋エンジンをスマートフォンやタブレットからWeb
 - **Rust:** stable
 - **Git LFS:** 画像認識モデルの取得に必要
 
-#### 1. インストール
+#### 1. リポジトリのクローン
 
 ```shell
 git clone https://github.com/yoset77/shogihome-lab.git
@@ -81,7 +82,7 @@ npm ci
 
 # 設定ファイルの作成
 cp .env.example .env
-# .env を編集して PORT=8140 等を設定
+# .env を編集
 
 # フロントエンドのビルド
 npm run build
@@ -89,7 +90,7 @@ npm run build
 
 #### 3. エンジンラッパー (engine-wrapper) のセットアップ
 
-Rust 版 wrapper と Tauri 版設定エディタは Windows／Linux／macOS でビルドできます。GUI の前提環境、単独起動、launcher の portable 配置は **[Launcher / Config editor](engine-wrapper/launcher-app/README.md)** を参照してください。
+エンジンラッパー（Rust）と設定エディタ（Tauri）は Windows / Linux / macOS でビルドできます。GUI の前提環境、単独起動、ランチャーのポータブル配置は **[Launcher / Config editor](engine-wrapper/launcher-app/README.md)** を参照してください。
 
 #### 4. サーバーの起動
 
@@ -112,7 +113,7 @@ cargo run --locked -p shogihome-engine-wrapper -- --config-dir .
 ```shell
 cd shogihome
 cp .env.example .env
-# .env の編集 (REMOTE_ENGINE_HOST 等)
+# .env を編集
 docker compose up -d --build
 ```
 ※ エンジンラッパー (`engine-wrapper/`) は別途ホストマシン等で起動する必要があります。
@@ -121,7 +122,7 @@ docker compose up -d --build
 
 ## アーキテクチャ概要
 
-本アプリケーションは、Webサーバーとエンジンラッパーの役割が分離されています。
+本アプリケーションは、Webサーバーとエンジンラッパーの役割を分離しています。
 
 ```mermaid
 graph LR
@@ -131,18 +132,19 @@ graph LR
 ```
 
 - **エンジンラッパー (`engine-wrapper`):**
-  - 将棋エンジン（`YaneuraOu`など）を管理し、TCPソケット(4082番)で待ち受けます。
+  - USIエンジン（`YaneuraOu`など）を管理し、TCPソケットで待ち受けます。
   - フロントエンドからのリクエストに応じてエンジンを起動・操作します。
 
 - **Webサーバー (`shogihome`):**
-  - ブラウザ向けにShogiHomeのアプリ画面（HTML/JS）を配信します(8140番)。
+  - ブラウザ向けにShogiHomeのアプリ画面（HTML/JS）を配信します。
   - ブラウザからのWebSocket通信を、TCP通信に変換してエンジンラッパーに中継します。
 
 モジュール境界、信頼境界、Vision worker、データストアを含む詳細は [ARCHITECTURE.md](ARCHITECTURE.md) を参照してください。
 
-### セキュリティ機能
+### セキュリティ
 
-本アプリケーションは、以下のセキュリティ対策を実装しています。
+本アプリケーションは以下のセキュリティ対策を実装していますが、ユーザー認証（ログイン）機能はありません。
+信頼できるプライベートネットワーク内でのみ利用してください。
 
 - **USIコマンドバリデーション:** サーバー側でコマンドを検証し、コマンドインジェクションを防ぎます。
 - **オリジン制限:** WebSocket接続と状態を変更するHTTPリクエストでオリジンを検証し、許可されたオリジン以外からの接続・操作を拒否します。ブラウザ以外のAPIクライアントも、unsafe HTTP methodでは許可済みの`Origin`ヘッダーが必要です。
@@ -153,13 +155,25 @@ graph LR
 
 ## 応用
 
-### 外部からのアクセス (VPN / PWA)
+### ネットワークの設定
+
+#### VPN
 
 [Tailscale](https://tailscale.com/) などのVPNサービスを利用することで、外出先からもアクセスすることができます。
+以下では、Tailscale を使った手順を説明します。
 
-1.  **VPN接続:** PCとスマホをVPN（Tailscale等）で接続します。
-2.  **アクセス:** スマホのブラウザから `http://[PCのIPアドレス]:8140` にアクセスします。
-3.  **HTTPS化 (オプション):** `tailscale serve` などを使うことで、HTTPS化してPWAとしてインストールすることも可能です。
+1.  **VPN接続:** PCとスマホに Tailscale をインストールして、同じアカウントでログインします。
+2.  **アクセス:** スマホのブラウザから `http://[PCのTailscale IP]:8140` にアクセスします。
+
+#### リバースプロキシ / HTTPS
+
+`tailscale serve` などのリバースプロキシを使うことで、HTTPS化が行えます。
+HTTPS化により、以下のことが可能になります。
+
+- クリップボードやカメラなど、Secure Context でのみ利用できる Web API へのアクセス
+- PWA としてインストール
+
+※ `localhost` ではHTTPでも Secure Context になるため、上記の機能が利用できます。
 
 ---
 
