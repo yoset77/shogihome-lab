@@ -4,7 +4,8 @@ import { TimeStates } from "@/common/game/time";
 import { LanEngine } from "@/renderer/network/lan_engine";
 import type { ServerRelayMessage, SearchSnapshot } from "@/common/engine/relay_protocol";
 import { GameResult } from "@/common/game/result";
-import { parseUSIPV, USIInfoCommand, parseInfoCommand } from "@/common/game/usi";
+import { parseUSIPV, USIInfoCommand, toBlackSearchScore } from "@/common/game/usi";
+import { parseAnalysisInfo } from "@/common/analysis/types";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "./usi_events";
 import { t } from "@/common/i18n";
 import api from "@/renderer/ipc/api";
@@ -744,9 +745,8 @@ export class LanPlayer implements Player {
             this.mateHandler = undefined;
           }
         } else if (infoStr.startsWith("info") && this.position) {
-          // Parse info string for research
-          const infoCommand = parseInfoCommand(infoStr);
-          this.updateInfo(infoCommand, positionCommand);
+          const infoCommand = parseAnalysisInfo(infoStr);
+          if (infoCommand) this.updateInfo(infoCommand, positionCommand);
         }
         return;
       }
@@ -836,15 +836,14 @@ export class LanPlayer implements Player {
       return;
     }
 
-    const sign = this.position.color === Color.BLACK ? 1 : -1;
     const pv = pvToValidate;
 
     // Only update if we have meaningful data
     if (
-      !infoCommand.depth &&
-      !infoCommand.nodes &&
-      !infoCommand.scoreCP &&
-      !infoCommand.scoreMate &&
+      infoCommand.depth === undefined &&
+      infoCommand.nodes === undefined &&
+      infoCommand.scoreCP === undefined &&
+      infoCommand.scoreMate === undefined &&
       !pv
     ) {
       return;
@@ -854,17 +853,11 @@ export class LanPlayer implements Player {
     const resolvedPv = parsedPv && parsedPv.length > 0 ? parsedPv : undefined;
 
     this.info = {
+      ...this.info,
       usi: this.currentSfen,
       depth: infoCommand.depth ?? this.info?.depth,
       nodes: infoCommand.nodes ?? this.info?.nodes,
-      score:
-        (infoCommand.scoreCP !== undefined ? infoCommand.scoreCP * sign : undefined) ??
-        this.info?.score,
-      mate:
-        (infoCommand.scoreMate !== undefined ? infoCommand.scoreMate * sign : undefined) ??
-        this.info?.mate,
-      lowerBound: infoCommand.lowerbound ?? this.info?.lowerBound,
-      upperBound: infoCommand.upperbound ?? this.info?.upperBound,
+      ...toBlackSearchScore(infoCommand, this.position.color),
       pv: resolvedPv ?? this.info?.pv,
     };
 

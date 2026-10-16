@@ -10,6 +10,7 @@ import {
 import { Move, parsePV, Record } from "tsshogi";
 import { testUSIEngine, testUSIEngineWithPonder } from "@/tests/mock/usi";
 import { Mocked } from "vitest";
+import { parseInfoCommand } from "@/common/game/usi";
 
 vi.mock("@/renderer/ipc/api.js");
 
@@ -213,6 +214,74 @@ describe("usi", () => {
     } finally {
       await player.close();
     }
+  });
+
+  describe.each([
+    { usi: "position startpos", sign: 1, move: "7g7f" },
+    { usi: "position startpos moves 7g7f", sign: -1, move: "3c3d" },
+  ])("search scores for $usi", ({ usi, sign, move }) => {
+    it.each(["cp", "mate"])("normalizes %s scores and bounds atomically", async (kind) => {
+      vi.useFakeTimers();
+      mockAPI.usiLaunch.mockResolvedValueOnce(100);
+      const onSearchInfo = vi.fn();
+      const player = new USIPlayer(testUSIEngine, 10, onSearchInfo);
+      try {
+        await player.launch();
+        const record = Record.newByUSI(usi) as Record;
+        const handler = {
+          onMove: vi.fn(),
+          onResign: vi.fn(),
+          onWin: vi.fn(),
+          onError: vi.fn(),
+        };
+        await player.startSearch(record.position, usi, timeStates, handler);
+        const emit = (line: string) => {
+          onUSIInfo(100, usi, parseInfoCommand(line));
+          vi.advanceTimersByTime(500);
+        };
+
+        emit(`info depth 10 score ${kind} 100 lowerbound pv ${move}`);
+        const bounded = {
+          score: kind === "cp" ? sign * 100 : undefined,
+          mate: kind === "mate" ? sign * 100 : undefined,
+          lowerBound: sign === 1 ? true : undefined,
+          upperBound: sign === -1 ? true : undefined,
+        };
+        expect(onSearchInfo).toHaveBeenLastCalledWith(expect.objectContaining(bounded));
+
+        emit("info depth 11 nodes 200");
+        expect(onSearchInfo).toHaveBeenLastCalledWith(
+          expect.objectContaining({ ...bounded, depth: 11 }),
+        );
+
+        const otherKind = kind === "cp" ? "mate" : "cp";
+        emit(`info score ${otherKind} 200 upperbound`);
+        expect(onSearchInfo).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            score: otherKind === "cp" ? sign * 200 : undefined,
+            mate: otherKind === "mate" ? sign * 200 : undefined,
+            lowerBound: sign === -1 ? true : undefined,
+            upperBound: sign === 1 ? true : undefined,
+          }),
+        );
+
+        emit("info score cp 0");
+        const exact = {
+          score: 0,
+          mate: undefined,
+          lowerBound: undefined,
+          upperBound: undefined,
+        };
+        expect(onSearchInfo).toHaveBeenLastCalledWith(expect.objectContaining(exact));
+        onUSIBestMove(100, usi, move);
+        expect(handler.onMove).toHaveBeenLastCalledWith(
+          expect.any(Move),
+          expect.objectContaining(exact),
+        );
+      } finally {
+        await player.close();
+      }
+    });
   });
 
   it("onUSIInfo", async () => {

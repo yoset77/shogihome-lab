@@ -1,11 +1,11 @@
 // @vitest-environment node
-import { Position, type Move } from "tsshogi";
+import { Record, type Move } from "tsshogi";
 import { GamePlayer } from "@/server/game/player";
 import type { GameEngine } from "@/server/engine/internal";
 import type { SearchHandler, SearchInfo } from "@/common/game/player";
 
 describe("server game player", () => {
-  const fixture = () => {
+  const fixture = (usi = "position startpos") => {
     let onOutput!: (line: string) => void;
     const engine: GameEngine = {
       launch: vi.fn(),
@@ -31,11 +31,14 @@ describe("server game player", () => {
       onWin: vi.fn(),
       onError: vi.fn(),
     };
-    const player = new GamePlayer(engine);
+    const onInfo = vi.fn();
+    const onLiveInfo = vi.fn();
+    const player = new GamePlayer(engine, undefined, undefined, onInfo, onLiveInfo);
+    const record = Record.newByUSI(usi) as Record;
     const start = () =>
       player.startSearch(
-        new Position(),
-        "position startpos",
+        record.position,
+        usi,
         {
           black: { timeMs: 30_000, byoyomi: 0, increment: 0 },
           white: { timeMs: 30_000, byoyomi: 0, increment: 0 },
@@ -48,6 +51,8 @@ describe("server game player", () => {
       engine,
       handler,
       onMove,
+      onInfo,
+      onLiveInfo,
       start,
       emit: (line: string) => onOutput(line),
       settle,
@@ -78,5 +83,56 @@ describe("server game player", () => {
     const [move, info] = onMove.mock.calls[0];
     expect(move.usi).toBe("7g7f");
     expect(info).toBeUndefined();
+  });
+
+  describe.each([
+    { usi: "position startpos", sign: 1, move: "7g7f" },
+    { usi: "position startpos moves 7g7f", sign: -1, move: "3c3d" },
+  ])("search scores for $usi", ({ usi, sign, move }) => {
+    it.each(["cp", "mate"])("normalizes %s scores and bounds atomically", async (kind) => {
+      const { start, emit, settle, onInfo, onLiveInfo, onMove } = fixture(usi);
+      await start();
+      emit(`info depth 10 score ${kind} 100 lowerbound pv ${move}`);
+      const bounded = {
+        score: kind === "cp" ? sign * 100 : undefined,
+        mate: kind === "mate" ? sign * 100 : undefined,
+        lowerBound: sign === 1 ? true : undefined,
+        upperBound: sign === -1 ? true : undefined,
+      };
+      expect(onInfo).toHaveBeenLastCalledWith(expect.objectContaining(bounded));
+      expect(onLiveInfo).toHaveBeenLastCalledWith(
+        usi,
+        expect.objectContaining({
+          lowerbound: true,
+          [kind === "cp" ? "scoreCP" : "scoreMate"]: 100,
+        }),
+      );
+
+      emit("info depth 11 nodes 200");
+      expect(onInfo).toHaveBeenLastCalledWith(expect.objectContaining({ ...bounded, depth: 11 }));
+
+      const otherKind = kind === "cp" ? "mate" : "cp";
+      emit(`info score ${otherKind} 200 upperbound`);
+      expect(onInfo).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          score: otherKind === "cp" ? sign * 200 : undefined,
+          mate: otherKind === "mate" ? sign * 200 : undefined,
+          lowerBound: sign === -1 ? true : undefined,
+          upperBound: sign === 1 ? true : undefined,
+        }),
+      );
+
+      emit("info score cp 0");
+      const exact = {
+        score: 0,
+        mate: undefined,
+        lowerBound: undefined,
+        upperBound: undefined,
+      };
+      expect(onInfo).toHaveBeenLastCalledWith(expect.objectContaining(exact));
+      emit(`bestmove ${move}`);
+      await settle();
+      expect(onMove).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining(exact));
+    });
   });
 });

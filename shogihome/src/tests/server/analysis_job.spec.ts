@@ -340,6 +340,58 @@ describe("server analysis jobs", () => {
     await job.completion;
   });
 
+  describe.each([
+    { number: 1, sign: 1 },
+    { number: 2, sign: -1 },
+  ])("search scores at position $number", ({ number, sign }) => {
+    it.each(["cp", "mate"])("normalizes %s scores and bounds atomically", async (kind) => {
+      const engine = new FakeResearchEngine();
+      const request = requestFor();
+      request.options.startCriteria = { enableNumber: true, number };
+      const job = new AnalysisJob("job", request, engine, config);
+      job.start();
+      await vi.advanceTimersByTimeAsync(0);
+      try {
+        engine.output!(`info depth 10 score ${kind} 100 lowerbound`);
+        const bounded = {
+          score: kind === "cp" ? sign * 100 : undefined,
+          mate: kind === "mate" ? sign * 100 : undefined,
+          lowerBound: sign === 1 ? true : undefined,
+          upperBound: sign === -1 ? true : undefined,
+        };
+        expect(job.result().nodes[0].researchInfo).toMatchObject(bounded);
+        expect(job.status().current?.infos[0]).toMatchObject({
+          lowerbound: true,
+          [kind === "cp" ? "scoreCP" : "scoreMate"]: 100,
+        });
+
+        engine.output!("info depth 11 nodes 200");
+        expect(job.result().nodes[0].researchInfo).toMatchObject({ ...bounded, depth: 11 });
+
+        const otherKind = kind === "cp" ? "mate" : "cp";
+        engine.output!(`info score ${otherKind} 200 upperbound`);
+        expect(job.result().nodes[0].researchInfo).toMatchObject({
+          score: otherKind === "cp" ? sign * 200 : undefined,
+          mate: otherKind === "mate" ? sign * 200 : undefined,
+          lowerBound: sign === -1 ? true : undefined,
+          upperBound: sign === 1 ? true : undefined,
+        });
+
+        engine.output!("info score cp 0");
+        expect(job.result().nodes[0].researchInfo).toMatchObject({
+          score: 0,
+          mate: undefined,
+          lowerBound: undefined,
+          upperBound: undefined,
+        });
+      } finally {
+        job.cancel();
+        await vi.advanceTimersByTimeAsync(0);
+        await job.completion;
+      }
+    });
+  });
+
   it("freezes the comment language without changing the process-global translation", async () => {
     setLanguage(Language.EN);
     try {
