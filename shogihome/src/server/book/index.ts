@@ -53,6 +53,7 @@ import {
   openYbbBookOnTheFly,
   searchYbbBookMovesOnTheFly,
   storeYbbBook,
+  YbbExpansionLimitError,
 } from "./ybb.js";
 import { BOOK_IMPORT_LIMITS } from "./import_limits.js";
 
@@ -415,6 +416,11 @@ async function openBookInMemory(path: string, size: number): Promise<BookHandle>
       busy: false,
       ...book,
     };
+  } catch (error) {
+    if (error instanceof YbbExpansionLimitError) {
+      throw new HttpError(413, t.serverYbbExpansionLimit);
+    }
+    throw error;
   } finally {
     file?.close();
   }

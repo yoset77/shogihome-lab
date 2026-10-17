@@ -83,6 +83,11 @@ export const createEngineWebSocketServer = (
   });
 
   wss.on("connection", (ws: ExtendedWebSocket, req) => {
+    ws.on("error", (error) => {
+      console.warn("WebSocket transport error (%s); terminating connection", error.name);
+      // Session cleanup stays in the close handlers, including replaced sockets.
+      ws.terminate();
+    });
     ws.isAlive = true;
     ws.on("pong", () => {
       ws.isAlive = true;
@@ -159,7 +164,6 @@ export const createEngineWebSocketServer = (
           }
         });
         ws.on("close", () => connection.disconnect());
-        ws.on("error", () => connection.disconnect());
       } catch (error) {
         ws.close(
           error instanceof HttpError && error.status === 423

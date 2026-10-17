@@ -826,6 +826,7 @@ export type Texts = {
   serverBookImportBusy: string;
   serverBookNotOrdered: string;
   serverBookTooLarge: string;
+  serverYbbExpansionLimit: string;
   serverInvalidBookImportSource: string;
   serverInvalidBookPosition: string;
   serverInvalidBookMove: string;

@@ -901,6 +901,7 @@ export const en: Texts = {
   serverBookImportBusy: "Another book import is running",
   serverBookNotOrdered: "Book is not ordered by position",
   serverBookTooLarge: "SBK file is too large",
+  serverYbbExpansionLimit: "YBB move references exceed the size of the file's moves area.",
   serverInvalidBookImportSource: "Invalid book import source",
   serverInvalidBookPosition: "Invalid book position",
   serverInvalidBookMove: "Invalid book move",

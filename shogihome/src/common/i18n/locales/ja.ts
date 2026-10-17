@@ -890,6 +890,7 @@ export const ja: Texts = {
   serverBookImportBusy: "別の定跡を取り込み中です。",
   serverBookNotOrdered: "定跡が局面順に並んでいません。",
   serverBookTooLarge: "SBKファイルが大きすぎます。",
+  serverYbbExpansionLimit: "YBB定跡の指し手参照量が、ファイル内の指し手領域サイズを超えています。",
   serverInvalidBookImportSource: "定跡の取り込み元が無効です。",
   serverInvalidBookPosition: "定跡の局面が無効です。",
   serverInvalidBookMove: "定跡の指し手が無効です。",
