@@ -26,7 +26,7 @@ vi.mock("./api", () => ({
 
 const html = readFileSync(new NodeURL("../settings.html", import.meta.url), "utf8");
 const schema: SettingsSchema = {
-  sections: ["basic", "kifu"],
+  sections: ["basic", "kifu", "security"],
   settings: [
     {
       id: "PORT", type: "int", section: "basic", default: "8140",
@@ -35,6 +35,10 @@ const schema: SettingsSchema = {
     {
       id: "ANALYSIS_DB_MIN_DEPTH", type: "int", section: "kifu", default: "10",
       min: 0, max: 100, choices: [], listRule: "none",
+    },
+    {
+      id: "WRAPPER_ACCESS_TOKEN", type: "text", section: "security", default: "",
+      min: null, max: null, choices: [], listRule: "none",
     },
   ],
 };
@@ -160,6 +164,22 @@ describe.each(["ja", "en"] as const)("server settings (%s)", (lang) => {
       lang === "ja" ? "PORT には数値を入力してください" : "PORT must be a number",
     );
   });
+
+  it.each(["secret-token", " ".repeat(32), "\u3000".repeat(32)])(
+    "keeps invalid access tokens open with a localized error: %j",
+    async (value) => {
+      await saveInvalid(
+        "WRAPPER_ACCESS_TOKEN", value,
+        JSON.stringify({ WRAPPER_ACCESS_TOKEN: "invalid_access_token" }),
+      );
+      expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ WRAPPER_ACCESS_TOKEN: value }));
+      expect(alert).toHaveBeenCalledWith(
+        lang === "ja"
+          ? "WRAPPER_ACCESS_TOKEN は32文字以上で、空白のみではない値を入力するか、空欄にしてください"
+          : "WRAPPER_ACCESS_TOKEN must be empty or contain at least 32 characters and not consist only of whitespace",
+      );
+    },
+  );
 
   it.each(["disk full", new Error("disk full")])("preserves non-validation errors: %s", async (error) => {
     await saveInvalid("PORT", "9000", error);

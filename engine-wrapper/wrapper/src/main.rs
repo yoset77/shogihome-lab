@@ -8,7 +8,8 @@
 //!   CWD and never an ancestor search).
 //! - `BIND_ADDRESS` / `--bind-address` (default `127.0.0.1`)
 //! - `LISTEN_PORT` / `--port` (default `4082`)
-//! - `WRAPPER_ACCESS_TOKEN` (unset/empty disables authentication)
+//! - `WRAPPER_ACCESS_TOKEN` (required outside loopback; at least 32 characters
+//!   when set, and not all whitespace; unset/empty disables auth on loopback)
 //! - `ENGINE_HIGH_QOS` (default false; Windows engine processes only)
 //! - `--no-env-file` — skip `<config-dir>/.env` (the launcher passes this
 //!   and hands over an already-resolved environment snapshot instead).
@@ -19,8 +20,9 @@
 //! Only `BIND_ADDRESS`, `LISTEN_PORT`, `WRAPPER_ACCESS_TOKEN`, and
 //! `ENGINE_HIGH_QOS` are read from `<config-dir>/.env`. Other entries are
 //! ignored and never reach engines: engines inherit the OS/launcher process
-//! environment (PATH and system-wide GPU/library setup belong there). The
-//! launcher forwards the same four keys to supervised wrappers, so standalone
+//! environment except `WRAPPER_ACCESS_TOKEN` (PATH and system-wide GPU/library
+//! setup belong there). The launcher forwards the same four keys to supervised
+//! wrappers, so standalone
 //! and supervised launches observe the same engine environment.
 
 use std::path::PathBuf;
@@ -177,9 +179,20 @@ async fn async_main(
             std::process::exit(1);
         }
     };
+    let listen_addr = match listener.local_addr() {
+        Ok(address) => address,
+        Err(e) => {
+            eprintln!("failed to inspect wrapper listener: {e}");
+            std::process::exit(1);
+        }
+    };
+    if let Err(e) = crate::config::validate_bind_auth(listen_addr.ip(), token.is_some()) {
+        eprintln!("invalid wrapper configuration: {e}");
+        std::process::exit(2);
+    }
     let engines = load_engines(&config_dir);
     log::info(&format!(
-        "shogihome-wrapper listening on {bind}:{port} ({} engines, config {})",
+        "shogihome-wrapper listening on {listen_addr} ({} engines, config {})",
         engines.len(),
         config_dir.display()
     ));

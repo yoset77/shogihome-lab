@@ -27,8 +27,8 @@ pub const READY_TIMEOUT: Duration = Duration::from_secs(10);
 /// wrapper's `.env` file is wrapper configuration only: anything outside
 /// this list is ignored and never reaches engines (matching standalone
 /// `shogihome-wrapper`, which resolves the same four keys). Engines inherit
-/// the OS/launcher environment (PATH, system GPU/library setup), not
-/// wrapper config extras.
+/// the OS/launcher environment (PATH, system GPU/library setup), excluding
+/// `WRAPPER_ACCESS_TOKEN` and wrapper config extras.
 pub const WRAPPER_ENV_FORWARD: &[&str] = &[
     "BIND_ADDRESS",
     "LISTEN_PORT",

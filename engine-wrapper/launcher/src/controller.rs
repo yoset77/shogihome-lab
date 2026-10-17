@@ -229,7 +229,7 @@ mod tests {
             let port = listener.local_addr().unwrap().port();
             std::fs::write(
                 dir.join(folder).join(".env"),
-                format!("{key}={port}\nBIND_ADDRESS={bind}\nWRAPPER_ACCESS_TOKEN=fixture-token\n"),
+                format!("{key}={port}\nBIND_ADDRESS={bind}\nWRAPPER_ACCESS_TOKEN=fixture-test-token-at-least-32-characters\n"),
             )
             .unwrap();
             reservations.push(listener);
@@ -291,7 +291,7 @@ mod tests {
         assert!(
             std::fs::read_to_string(dir.join("engine-wrapper/logs/wrapper.log"))
                 .unwrap()
-                .contains("fixture-token")
+                .contains("fixture-test-token-at-least-32-characters")
         );
         controller
             .services
@@ -377,7 +377,7 @@ mod tests {
         let mut values = HashMap::new();
         values.insert(
             "WRAPPER_ACCESS_TOKEN".to_string(),
-            SettingValue::Text("locked-token".to_string()),
+            SettingValue::Text("locked-test-token-at-least-32-characters".to_string()),
         );
         let (done_tx, done_rx) = mpsc::channel();
         let saver = {
@@ -404,8 +404,8 @@ mod tests {
         holder.join().expect("holder thread must finish").unwrap();
         let server_env = std::fs::read_to_string(dir.join("shogihome").join(".env")).unwrap();
         let wrapper_env = std::fs::read_to_string(dir.join("engine-wrapper").join(".env")).unwrap();
-        assert!(server_env.contains("locked-token"));
-        assert!(wrapper_env.contains("locked-token"));
+        assert!(server_env.contains("locked-test-token-at-least-32-characters"));
+        assert!(wrapper_env.contains("locked-test-token-at-least-32-characters"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

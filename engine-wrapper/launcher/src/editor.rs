@@ -674,6 +674,7 @@ fn spawn_probe(path: &Path, cwd: &Path) -> std::io::Result<crate::process::Manag
         } else {
             Command::new(path)
         };
+        crate::process::remove_engine_secrets(&mut cmd);
         cmd.current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -683,6 +684,7 @@ fn spawn_probe(path: &Path, cwd: &Path) -> std::io::Result<crate::process::Manag
     #[cfg(not(windows))]
     {
         let mut cmd = Command::new(path);
+        crate::process::remove_engine_secrets(&mut cmd);
         cmd.current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
