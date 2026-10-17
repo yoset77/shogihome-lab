@@ -19,6 +19,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 
+use crate::admission::ConnectionPermit;
 use crate::auth;
 use crate::config::{
     find_engine, format_option, load_engines, load_engines_document, log, resolve_engine_path,
@@ -51,7 +52,7 @@ pub struct RelayContext {
 /// Every pre-spawn wait (auth challenge/response, first command, `list`
 /// reply) races listener shutdown: no child is owned yet, so a shutdown
 /// simply ends the connection and lets the listener drain finish.
-pub async fn handle_connection(stream: TcpStream, ctx: RelayContext) {
+pub async fn handle_connection(stream: TcpStream, ctx: RelayContext, mut permit: ConnectionPermit) {
     let (read_half, write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
     let mut writer = write_half;
@@ -61,16 +62,22 @@ pub async fn handle_connection(stream: TcpStream, ctx: RelayContext) {
         return;
     }
 
-    if let Some(token) = ctx.access_token.clone() {
-        if !handshake(&mut reader, &mut writer, &token, &mut shutdown).await {
-            return;
+    // One absolute deadline covers auth and the first command, including trickled input.
+    // No engine exists yet, so cancelling this future only needs to drop the socket.
+    let initial = tokio::time::timeout_at(permit.deadline, async {
+        if let Some(token) = ctx.access_token.clone() {
+            if !handshake(&mut reader, &mut writer, &token, &mut shutdown).await {
+                return None;
+            }
         }
-    }
-
-    let command = match read_line_cancel(&mut reader, &mut shutdown).await {
-        Some(line) => line,
-        None => return, // EOF, error, or shutdown before command.
+        read_line_cancel(&mut reader, &mut shutdown).await
+    })
+    .await;
+    let command = match initial {
+        Ok(Some(line)) => line,
+        _ => return,
     };
+    permit.finish_initial();
 
     if command == "list" {
         // Forward the document verbatim so the server can read resource
@@ -600,3 +607,7 @@ async fn cleanup(
     child.terminate_tree(false);
     let _ = writer.shutdown().await;
 }
+
+#[cfg(test)]
+#[path = "relay_tests.rs"]
+mod admission_tests;

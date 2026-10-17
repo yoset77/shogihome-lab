@@ -338,6 +338,64 @@ def test_auth_correct_token_allows_list(tmp_path):
             proc.wait(timeout=10)
 
 
+def test_initial_connection_capacity_preserves_live_engine_and_recovers(tmp_path):
+    port = _free_port()
+    _write_engines_json(tmp_path, _fake_engine_path())
+    proc = _start_wrapper(tmp_path, port, TOKEN)
+    held = []
+    active = None
+    active_file = None
+    try:
+        _wait_port(port)
+        active = _connect(port)
+        active_file = active.makefile("r", encoding="utf-8", newline="\n")
+        nonce = _readline(active_file).strip().split(" ", 1)[1]
+        digest = hmac.new(TOKEN.encode(), nonce.encode(), hashlib.sha256).hexdigest()
+        active.sendall(f"auth {digest}\nrun test-engine\nusi\n".encode())
+        assert _readline(active_file).strip() == "auth_ok"
+        while _readline(active_file).strip() != "usiok":
+            pass
+
+        for _ in range(32):
+            sock = _connect(port)
+            f = sock.makefile("r", encoding="utf-8", newline="\n")
+            held.append((sock, f))
+            assert _readline(f).startswith("auth_cram_sha256 ")
+
+        with _connect(port) as excess:
+            try:
+                assert excess.recv(1) == b""
+            except ConnectionResetError:
+                pass
+
+        active.sendall(b"isready\n")
+        assert _readline(active_file).strip() == "readyok"
+        sock, f = held.pop()
+        f.close()
+        sock.close()
+        deadline = time.monotonic() + 2
+        while True:
+            with _connect(port) as recovered:
+                try:
+                    challenge = recovered.recv(128)
+                except ConnectionResetError:
+                    challenge = b""
+                if challenge.startswith(b"auth_cram_sha256 "):
+                    break
+            assert time.monotonic() < deadline, "initial connection permit was not released"
+            time.sleep(0.01)
+    finally:
+        for sock, f in held:
+            f.close()
+            sock.close()
+        if active_file:
+            active_file.close()
+        if active:
+            active.close()
+        proc.terminate()
+        proc.wait(timeout=10)
+
+
 def test_client_fin_stops_engine(wrapper):
     sock, f = _run_and_wait_usiok(wrapper["port"])
     # Abrupt close = ordinary server stopEngine path (socket.end, no quit first).

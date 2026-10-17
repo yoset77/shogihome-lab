@@ -28,6 +28,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
+mod admission;
 mod auth;
 mod config;
 mod encoding;
@@ -35,6 +36,7 @@ mod line_reader;
 mod process;
 mod relay;
 
+use crate::admission::ConnectionLimits;
 use crate::config::{load_engines, log, resolve_config_dir};
 use crate::relay::{handle_connection, RelayContext};
 
@@ -205,18 +207,30 @@ async fn async_main(
     });
 
     let mut sessions = tokio::task::JoinSet::new();
+    let limits = ConnectionLimits::new();
+    let mut rejected = 0u64;
+    let mut last_rejection_log = tokio::time::Instant::now();
     loop {
         tokio::select! {
             biased;
             _ = notify.notified() => break,
+            _ = sessions.join_next(), if !sessions.is_empty() => {},
             accepted = listener.accept() => match accepted {
                 Ok((stream, _)) => {
+                    let Some(permit) = limits.try_accept() else {
+                        drop(stream);
+                        rejected = rejected.saturating_add(1);
+                        if last_rejection_log.elapsed() >= std::time::Duration::from_secs(5) {
+                            log::warn_compat(&format!("connection capacity exceeded; rejected {rejected} connections"));
+                            rejected = 0;
+                            last_rejection_log = tokio::time::Instant::now();
+                        }
+                        continue;
+                    };
                     let ctx = ctx.clone();
                     sessions.spawn(async move {
-                        handle_connection(stream, ctx).await;
+                        handle_connection(stream, ctx, permit).await;
                     });
-                    // Reap finished session tasks so the set stays small.
-                    while sessions.try_join_next().is_some() {}
                 }
                 Err(e) => {
                     log::warn_compat(&format!("accept failed: {e}"));
