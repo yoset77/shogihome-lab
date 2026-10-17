@@ -45,15 +45,15 @@ ShogiHome Lab - エンジン側ツール (engine-tools)
     # 同一PCのサーバーと組み合わせる場合
     BIND_ADDRESS=127.0.0.1
     LISTEN_PORT=4082
-    # WRAPPER_ACCESS_TOKEN=secret-token-12345
+    # WRAPPER_ACCESS_TOKEN=
 
     # 別PCのサーバーから接続させる場合
-    # BIND_ADDRESS=0.0.0.0
-    # LISTEN_PORT=4082
-    # WRAPPER_ACCESS_TOKEN=secret-token-12345
+    BIND_ADDRESS=0.0.0.0
+    LISTEN_PORT=4082
+    WRAPPER_ACCESS_TOKEN=<生成した32文字以上のランダムな値>
     ※ 0.0.0.0 で待ち受ける場合は、Windowsファイアウォールで
       wrapper.exe の通信を許可し、同じネットワーク内でのみ利用してください。
-      認証トークンの設定を推奨します（サーバー側の WRAPPER_ACCESS_TOKEN と
+      認証トークンの設定が必須です（サーバー側の WRAPPER_ACCESS_TOKEN と
       一致させる必要があります）。
 
 2.  「wrapper.exe」をダブルクリックして起動します。
@@ -77,7 +77,7 @@ Q. サーバーからエンジンに接続できない
 A. 以下を確認してください。
    1. wrapper が起動しているPCで、待受アドレスとポートを確認する。
    2. 別PC構成では BIND_ADDRESS=0.0.0.0 とファイアウォール許可を確認する。
-   3. トークンを設定した場合は、サーバー側の設定値と一致を確認する。
+   3. 別PC構成では32文字以上のトークンが設定されていて、サーバー側の設定値と一致していることを確認する。
    4. エンジンのパス設定は、wrapper が動いているPC上のパスで登録する。
 
 ==================================================================

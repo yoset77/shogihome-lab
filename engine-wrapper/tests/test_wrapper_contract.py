@@ -54,7 +54,7 @@ def _fake_engine_path():
     return _FAKE_ENGINE
 
 
-TOKEN = "contract-test-token"
+TOKEN = "contract-test-token-at-least-32-characters"
 
 
 def _free_port():
@@ -63,11 +63,11 @@ def _free_port():
         return s.getsockname()[1]
 
 
-def _wait_port(port, timeout=10.0):
+def _wait_port(port, timeout=10.0, host="127.0.0.1"):
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            with socket.create_connection((host, port), timeout=0.5):
                 return True
         except OSError:
             time.sleep(0.05)
@@ -87,10 +87,10 @@ def _write_engines_json(tmp: Path, engine_path: Path):
     (tmp / "engines.json").write_text(json.dumps(engines), encoding="utf-8")
 
 
-def _start_wrapper(tmp: Path, port: int, token: str | None):
+def _start_wrapper(tmp: Path, port: int, token: str | None, *, bind="127.0.0.1"):
     env = {
         **os.environ,
-        "BIND_ADDRESS": "127.0.0.1",
+        "BIND_ADDRESS": bind,
         "LISTEN_PORT": str(port),
         "FAKE_ENGINE_LOG": str(tmp / "engine.log"),
     }
@@ -129,8 +129,8 @@ def wrapper(tmp_path):
             proc.wait(timeout=10)
 
 
-def _connect(port, timeout=5.0):
-    sock = socket.create_connection(("127.0.0.1", port), timeout=timeout)
+def _connect(port, timeout=5.0, host="127.0.0.1"):
+    sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
     return sock
 
@@ -281,6 +281,144 @@ def test_unknown_engine_returns_wrapper_error(wrapper):
     line = _readline(f, "no error for unknown engine")
     assert line.startswith("WRAPPER_ERROR:")
     sock.close()
+
+
+def _rejected_start(tmp_path, *, env_values=None, args=()):
+    env = {**os.environ}
+    for key in ("BIND_ADDRESS", "LISTEN_PORT", "WRAPPER_ACCESS_TOKEN", "ENGINE_HIGH_QOS"):
+        env.pop(key, None)
+    env.update(env_values or {})
+    result = subprocess.run(
+        [str(_rust_binary()), "--config-dir", str(tmp_path), "--port", "0", *args],
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+    )
+    assert result.returncode == 2, result.stderr
+    assert "WRAPPER_ACCESS_TOKEN" in result.stderr
+    assert "listening on" not in result.stderr
+    return result.stderr
+
+
+def _require_ipv6_bind(bind):
+    if ":" not in bind:
+        return
+    try:
+        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as probe:
+            probe.bind((bind, 0))
+    except OSError:
+        pytest.skip(f"IPv6 bind {bind} is unavailable")
+
+
+@pytest.mark.parametrize("bind", ["0.0.0.0", "::"])
+@pytest.mark.parametrize("bind_source", ["cli", "env", "file"])
+@pytest.mark.parametrize("empty_env_override", [False, True])
+def test_non_loopback_requires_token_from_effective_settings(tmp_path, bind, bind_source, empty_env_override):
+    _require_ipv6_bind(bind)
+    # Higher-priority wildcard binds must not inherit a loopback exemption.
+    file_values = {"BIND_ADDRESS": bind if bind_source == "file" else "127.0.0.1"}
+    env_values = {}
+    args = ()
+    if bind_source == "env":
+        env_values["BIND_ADDRESS"] = bind
+    elif bind_source == "cli":
+        env_values["BIND_ADDRESS"] = "127.0.0.1"
+        args = ("--bind-address", bind)
+    if empty_env_override:
+        file_values["WRAPPER_ACCESS_TOKEN"] = TOKEN
+        env_values["WRAPPER_ACCESS_TOKEN"] = ""
+    (tmp_path / ".env").write_text("".join(f"{key}={value}\n" for key, value in file_values.items()), encoding="utf-8")
+    stderr = _rejected_start(tmp_path, env_values=env_values, args=args)
+    assert "non-loopback" in stderr
+    assert TOKEN not in stderr
+
+
+@pytest.mark.parametrize("bind", ["127.0.0.1", "0.0.0.0"])
+@pytest.mark.parametrize("token", ["x" * 31, "あ" * 31, " " * 32, "\u3000" * 32])
+@pytest.mark.parametrize("source", ["env", "file"])
+def test_invalid_token_rejects_start_without_leaking_or_falling_back(tmp_path, bind, token, source):
+    file_token = token if source == "file" else TOKEN
+    (tmp_path / ".env").write_text(f'WRAPPER_ACCESS_TOKEN="{file_token}"\n', encoding="utf-8")
+    env_values = {"BIND_ADDRESS": bind}
+    if source == "env":
+        env_values["WRAPPER_ACCESS_TOKEN"] = token
+    stderr = _rejected_start(tmp_path, env_values=env_values)
+    assert "at least 32 characters" in stderr
+    assert token not in stderr
+    assert TOKEN not in stderr
+
+
+@pytest.mark.parametrize("bind,token", [
+    ("127.0.0.1", None),
+    ("127.0.0.1", ""),
+    ("localhost", None),
+    ("::1", None),
+    ("::ffff:127.0.0.1", None),
+    ("0.0.0.0", "x" * 32),
+    ("::", "x" * 32),
+    ("127.0.0.1", "あ" * 32),
+    ("127.0.0.1", " " + "x" * 32 + " "),
+])
+def test_listener_auth_policy_accepts_valid_configurations(tmp_path, bind, token):
+    _require_ipv6_bind(bind)
+    port = _free_port()
+    (tmp_path / "engines.json").write_text("[]", encoding="utf-8")
+    host = "127.0.0.1" if bind == "0.0.0.0" else "::1" if bind == "::" else bind
+    proc = _start_wrapper(tmp_path, port, token, bind=bind)
+    try:
+        _wait_port(port, host=host)
+        with _connect(port, host=host) as sock, sock.makefile("r", encoding="utf-8", newline="\n") as f:
+            if token:
+                nonce = _readline(f).strip().split(" ", 1)[1]
+                digest = hmac.new(token.encode(), nonce.encode(), hashlib.sha256).hexdigest()
+                sock.sendall(f"auth {digest}\n".encode())
+                assert _readline(f).strip() == "auth_ok"
+            sock.sendall(b"list\n")
+            assert json.loads(_readline(f)) == []
+            assert f.read() == ""
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+
+
+@pytest.mark.parametrize("script_suffix", [None, ".cmd", ".bat"] if os.name == "nt" else [None, ".sh"])
+@pytest.mark.parametrize("token_source", ["env", "file"])
+def test_engine_does_not_inherit_wrapper_access_token(tmp_path, script_suffix, token_source):
+    engine = _fake_engine_path()
+    if script_suffix:
+        launcher = tmp_path / f"engine script{script_suffix}"
+        launcher.write_text(
+            f'@echo off\n"{engine}"\n' if os.name == "nt" else f'#!/bin/sh\nexec "{engine}"\n',
+            encoding="utf-8",
+        )
+        launcher.chmod(0o755)
+        engine = launcher
+    _write_engines_json(tmp_path, engine)
+    if token_source == "file":
+        (tmp_path / ".env").write_text(f"WRAPPER_ACCESS_TOKEN={TOKEN}\n", encoding="utf-8")
+    port = _free_port()
+    proc = _start_wrapper(tmp_path, port, TOKEN if token_source == "env" else None)
+    try:
+        _wait_port(port)
+        with _connect(port) as sock, sock.makefile("r", encoding="utf-8", newline="\n") as f:
+            nonce = _readline(f).strip().split(" ", 1)[1]
+            digest = hmac.new(TOKEN.encode(), nonce.encode(), hashlib.sha256).hexdigest()
+            sock.sendall(f"auth {digest}\nrun test-engine\nusi\n".encode())
+            assert _readline(f).strip() == "auth_ok"
+            while _readline(f).strip() != "usiok":
+                pass
+            sock.sendall(b"test_environment\n")
+            environment = json.loads(_readline(f).removeprefix("info string environment "))
+            assert environment == {
+                "token_present": False,
+                "path": os.environ.get("PATH"),
+                "engine_log": str(tmp_path / "engine.log"),
+            }
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
 
 
 def test_auth_wrong_token_rejected(tmp_path):

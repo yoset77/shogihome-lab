@@ -5,6 +5,7 @@
 //! - `usi` -> `id name fake-engine`, `usiok`
 //! - `isready` -> `readyok`
 //! - `test_cp932` -> one raw CP932-encoded line (Japanese), then `test_cp932_ok`
+//! - `test_environment` -> JSON snapshot of selected test environment values
 //! - `test_background_exit` -> spawn a 60s sleeper (inheriting stdio),
 //!   print `info string helper_pid <pid>`, write `bestmove resign`
 //!   (no trailing newline; the wrapper flushes the final line), exit now
@@ -65,6 +66,15 @@ fn main() {
                 out.write_all(CP932_LINE).unwrap();
                 out.flush().unwrap();
                 out.write_all(b"test_cp932_ok\n").unwrap();
+                out.flush().unwrap();
+            }
+            "test_environment" => {
+                let environment = serde_json::json!({
+                    "token_present": env::var_os("WRAPPER_ACCESS_TOKEN").is_some(),
+                    "path": env::var("PATH").ok(),
+                    "engine_log": env::var("FAKE_ENGINE_LOG").ok(),
+                });
+                writeln!(out, "info string environment {environment}").unwrap();
                 out.flush().unwrap();
             }
             "test_background_exit" => {

@@ -27,6 +27,12 @@ pub fn is_not_found(err: &io::Error) -> bool {
     err.kind() == io::ErrorKind::NotFound
 }
 
+/// Engines and option probes must not inherit wrapper authentication credentials.
+/// Apply only to engine commands: supervised services still need the token.
+pub fn remove_engine_secrets(command: &mut std::process::Command) {
+    command.env_remove("WRAPPER_ACCESS_TOKEN");
+}
+
 // ---------------------------------------------------------------------------
 // Sync child (launcher)
 // ---------------------------------------------------------------------------
@@ -212,6 +218,7 @@ pub fn spawn_async_engine(path: &Path, cwd: &Path) -> io::Result<AsyncChild> {
     };
     #[cfg(not(windows))]
     let mut command = tokio::process::Command::new(path);
+    remove_engine_secrets(command.as_std_mut());
     command
         .current_dir(cwd)
         .stdin(std::process::Stdio::piped())
@@ -381,6 +388,26 @@ mod tests {
         assert!(!is_batch_script(Path::new("engine.exe")));
         assert!(!is_batch_script(Path::new("engine")));
         assert!(!is_batch_script(Path::new("engine.batch")));
+    }
+
+    #[test]
+    fn removing_engine_secrets_preserves_other_environment_overrides() {
+        let mut command = std::process::Command::new("unused");
+        command
+            .env("WRAPPER_ACCESS_TOKEN", "fixture-token")
+            .env("PATH", "fixture-path")
+            .env("ENGINE_LIBRARY_PATH", "fixture-library");
+        remove_engine_secrets(&mut command);
+        let env: std::collections::HashMap<_, _> = command.get_envs().collect();
+        assert_eq!(env[std::ffi::OsStr::new("WRAPPER_ACCESS_TOKEN")], None);
+        assert_eq!(
+            env[std::ffi::OsStr::new("PATH")],
+            Some(std::ffi::OsStr::new("fixture-path"))
+        );
+        assert_eq!(
+            env[std::ffi::OsStr::new("ENGINE_LIBRARY_PATH")],
+            Some(std::ffi::OsStr::new("fixture-library"))
+        );
     }
 
     #[test]

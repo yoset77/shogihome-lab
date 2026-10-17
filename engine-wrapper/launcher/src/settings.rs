@@ -55,6 +55,8 @@ pub const SECTION_ENGINE: &str = "engine";
 pub const SECTION_SECURITY: &str = "security";
 pub const SECTION_KIFU: &str = "kifu";
 
+const MIN_ACCESS_TOKEN_CHARS: usize = 32;
+
 pub const SETTINGS: &[Setting] = &[
     Setting { id: "PORT", keys: &[("PORT", EnvFile::Server)], setting_type: SettingType::Int, default_int: 8140, default_str: "", default_bool: false, section: SECTION_BASIC, min_value: Some(1), max_value: Some(65535), choices: &[], item_rule: None },
     Setting { id: "BIND_ADDRESS", keys: &[("BIND_ADDRESS", EnvFile::Server)], setting_type: SettingType::Choice, default_int: 0, default_str: "0.0.0.0", default_bool: false, section: SECTION_BASIC, min_value: None, max_value: None, choices: &["0.0.0.0", "127.0.0.1"], item_rule: None },
@@ -240,6 +242,7 @@ pub enum ValidationError {
     InvalidChoice,
     InvalidOrigin,
     InvalidDomain,
+    InvalidAccessToken,
 }
 
 impl ValidationError {
@@ -250,6 +253,7 @@ impl ValidationError {
             Self::InvalidChoice => "invalid_choice",
             Self::InvalidOrigin => "invalid_origin",
             Self::InvalidDomain => "invalid_domain",
+            Self::InvalidAccessToken => "invalid_access_token",
         }
     }
 }
@@ -302,6 +306,7 @@ pub fn validate_with_current(
         let value = values.get(setting.id);
         let text = match value {
             Some(SettingValue::Text(t)) => t.clone(),
+            Some(SettingValue::Bool(b)) if setting.id == "WRAPPER_ACCESS_TOKEN" => b.to_string(),
             Some(SettingValue::Bool(_)) => continue, // bools are always valid
             None => match setting_default(setting) {
                 SettingValue::Text(t) => t,
@@ -355,6 +360,15 @@ pub fn validate_with_current(
                         break;
                     }
                 }
+            }
+            // Match wrapper token validation without normalizing the secret.
+            SettingType::Text
+                if setting.id == "WRAPPER_ACCESS_TOKEN"
+                    && !text.is_empty()
+                    && (text.chars().count() < MIN_ACCESS_TOKEN_CHARS
+                        || text.chars().all(char::is_whitespace)) =>
+            {
+                errors.insert(setting.id.to_string(), ValidationError::InvalidAccessToken);
             }
             _ => {}
         }
@@ -517,10 +531,10 @@ pub fn settings_schema() -> serde_json::Value {
     serde_json::json!({"sections": sections, "settings": settings})
 }
 
-/// URL-safe random token (≈32 chars), mirroring `secrets.token_urlsafe(24)`.
+/// URL-safe random token (32 chars), mirroring `secrets.token_urlsafe(24)`.
 pub fn generate_token() -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    (0..32)
+    (0..MIN_ACCESS_TOKEN_CHARS)
         .map(|_| ALPHABET[rand::random_range(0..ALPHABET.len())] as char)
         .collect()
 }
@@ -528,6 +542,8 @@ pub fn generate_token() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ACCESS_TOKEN: &str = "settings-test-token-at-least-32-characters";
 
     fn dirs(name: &str) -> (std::path::PathBuf, EnvPaths) {
         let base = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
@@ -568,7 +584,7 @@ mod tests {
             ("TRUST_PROXY".to_string(), SettingValue::Bool(true)),
             (
                 "WRAPPER_ACCESS_TOKEN".to_string(),
-                SettingValue::Text("secret-token".to_string()),
+                SettingValue::Text(ACCESS_TOKEN.to_string()),
             ),
             (
                 "ALLOWED_FETCH_DOMAINS".to_string(),
@@ -668,6 +684,57 @@ mod tests {
     }
 
     #[test]
+    fn access_token_validation_matches_wrapper_rules() {
+        for token in [
+            String::new(),
+            "x".repeat(32),
+            "あ".repeat(32),
+            format!(" {} ", "x".repeat(30)),
+            generate_token(),
+        ] {
+            let values = HashMap::from([(
+                "WRAPPER_ACCESS_TOKEN".to_string(),
+                SettingValue::Text(token),
+            )]);
+            assert!(validate(&values).is_empty());
+        }
+        for token in [
+            "secret-token".to_string(),
+            "x".repeat(31),
+            "あ".repeat(31),
+            " ".repeat(32),
+            "\t".repeat(32),
+            "\u{3000}".repeat(32),
+        ] {
+            let values = HashMap::from([(
+                "WRAPPER_ACCESS_TOKEN".to_string(),
+                SettingValue::Text(token),
+            )]);
+            for current in [None, Some(&values)] {
+                let errors = validate_with_current(&values, current);
+                assert_eq!(
+                    errors
+                        .get("WRAPPER_ACCESS_TOKEN")
+                        .map(ValidationError::code),
+                    Some("invalid_access_token")
+                );
+            }
+        }
+        for token in [true, false] {
+            let values = HashMap::from([(
+                "WRAPPER_ACCESS_TOKEN".to_string(),
+                SettingValue::Bool(token),
+            )]);
+            assert_eq!(
+                validate(&values)
+                    .get("WRAPPER_ACCESS_TOKEN")
+                    .map(ValidationError::code),
+                Some("invalid_access_token")
+            );
+        }
+    }
+
+    #[test]
     fn bool_true_survives_with_false_default() {
         let (base, paths) = dirs("set-bool");
         std::fs::write(&paths.server, "TRUST_PROXY=true\n").unwrap();
@@ -752,9 +819,9 @@ mod tests {
         assert!(server.contains("PORT=9000"));
         assert!(server.contains("REMOTE_ENGINE_PORT=5000"));
         assert!(server.contains("DISABLE_AUTO_ALLOWED_ORIGINS=true"));
-        assert!(server.contains("WRAPPER_ACCESS_TOKEN=secret-token"));
+        assert!(server.contains(&format!("WRAPPER_ACCESS_TOKEN={ACCESS_TOKEN}")));
         assert!(wrapper.contains("LISTEN_PORT=5000"));
-        assert!(wrapper.contains("WRAPPER_ACCESS_TOKEN=secret-token"));
+        assert!(wrapper.contains(&format!("WRAPPER_ACCESS_TOKEN={ACCESS_TOKEN}")));
         assert!(server.contains("KIFU_UPLOAD_MAX_MB=10"));
         assert!(server.contains("BOOK_UPLOAD_MAX_MB=512"));
         cleanup(&base);
@@ -771,6 +838,57 @@ mod tests {
         assert!(save(&values, &paths).is_err());
         assert!(!paths.server.exists());
         assert!(!paths.wrapper.exists());
+        cleanup(&base);
+    }
+
+    #[test]
+    fn save_rejects_invalid_access_tokens_without_touching_files() {
+        let (base, paths) = dirs("set-invalid-token");
+        let server = "PORT=9000\nWRAPPER_ACCESS_TOKEN=legacy-short-token\n";
+        let wrapper = "LISTEN_PORT=4083\nWRAPPER_ACCESS_TOKEN=legacy-short-token\n";
+        std::fs::write(&paths.server, server).unwrap();
+        std::fs::write(&paths.wrapper, wrapper).unwrap();
+        for token in ["short".to_string(), " ".repeat(32), "\u{3000}".repeat(32)] {
+            let mut values = full_values();
+            values.insert(
+                "WRAPPER_ACCESS_TOKEN".into(),
+                SettingValue::Text(token.clone()),
+            );
+            let error = save(&values, &paths).unwrap_err();
+            assert!(!error.to_string().contains(&token));
+            let LauncherError::InvalidSettings(errors) = error else {
+                panic!("expected field-level validation errors");
+            };
+            assert_eq!(
+                errors["WRAPPER_ACCESS_TOKEN"].code(),
+                "invalid_access_token"
+            );
+            assert_eq!(std::fs::read_to_string(&paths.server).unwrap(), server);
+            assert_eq!(std::fs::read_to_string(&paths.wrapper).unwrap(), wrapper);
+        }
+        cleanup(&base);
+    }
+
+    #[test]
+    fn access_token_round_trip_preserves_characters_in_both_files() {
+        let (base, paths) = dirs("set-token-roundtrip");
+        for token in [
+            String::new(),
+            "x".repeat(32),
+            "あ".repeat(32),
+            format!(" {} ", "x".repeat(30)),
+        ] {
+            let mut values = full_values();
+            values.insert(
+                "WRAPPER_ACCESS_TOKEN".into(),
+                SettingValue::Text(token.clone()),
+            );
+            save(&values, &paths).unwrap();
+            let (reloaded, mismatches) =
+                load_settings_with_program(&paths, Some(Path::new("node"))).unwrap();
+            assert!(mismatches.is_empty());
+            assert_eq!(reloaded["WRAPPER_ACCESS_TOKEN"], SettingValue::Text(token));
+        }
         cleanup(&base);
     }
 
@@ -965,7 +1083,8 @@ mod tests {
         let a = generate_token();
         let b = generate_token();
         assert_ne!(a, b);
-        assert!(a.len() >= 20 && !a.contains(' '));
+        assert_eq!(a.chars().count(), 32);
+        assert!(!a.contains(' '));
     }
 
     #[test]

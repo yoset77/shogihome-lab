@@ -12,7 +12,10 @@
 
 use serde_json::Value;
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
+
+const MIN_ACCESS_TOKEN_CHARS: usize = 32;
 
 /// Resolve the configuration root: explicit `--config-dir` wins, otherwise
 /// `<exe-dir>/engine-wrapper` when it holds `engines.json` (portable ZIP
@@ -132,7 +135,8 @@ pub struct RuntimeConfig {
 ///
 /// An environment variable that is already set — even to the empty
 /// string — always wins over the `.env` file. An empty
-/// `WRAPPER_ACCESS_TOKEN` disables authentication and an empty
+/// `WRAPPER_ACCESS_TOKEN` disables authentication on loopback only; nonempty
+/// tokens must have at least 32 characters and not be all whitespace. An empty
 /// `ENGINE_HIGH_QOS` disables HighQoS from any source.
 /// `${VAR}` interpolation is NOT expanded; file values are literal.
 pub fn resolve_runtime(
@@ -158,7 +162,7 @@ pub fn resolve_runtime(
             .map_err(|_| format!("invalid LISTEN_PORT value {raw:?}: must be 1-65535"))?,
     };
     // Presence wins (even empty): an explicitly exported empty token
-    // disables authentication instead of falling back to the file.
+    // selects no token instead of falling back to the file.
     let token = if env.contains_key("WRAPPER_ACCESS_TOKEN") {
         env.get("WRAPPER_ACCESS_TOKEN")
             .filter(|t| !t.is_empty())
@@ -168,6 +172,14 @@ pub fn resolve_runtime(
             .filter(|t| !t.is_empty())
             .cloned()
     };
+    if let Some(token) = &token {
+        if token.chars().count() < MIN_ACCESS_TOKEN_CHARS || token.chars().all(char::is_whitespace)
+        {
+            return Err(format!(
+                "WRAPPER_ACCESS_TOKEN must contain at least {MIN_ACCESS_TOKEN_CHARS} characters and must not be only whitespace"
+            ));
+        }
+    }
     let high_qos_raw = env
         .get("ENGINE_HIGH_QOS")
         .or_else(|| file.get("ENGINE_HIGH_QOS"))
@@ -188,6 +200,23 @@ pub fn resolve_runtime(
         token,
         engine_high_qos,
     })
+}
+
+/// Check the actual listener address before accepting clients or reporting readiness.
+/// Token shape is validated by `resolve_runtime`, independently of the bind address.
+pub fn validate_bind_auth(address: IpAddr, auth_enabled: bool) -> Result<(), String> {
+    let loopback = match address {
+        IpAddr::V4(ip) => ip.is_loopback(),
+        IpAddr::V6(ip) => ip
+            .to_ipv4_mapped()
+            .map_or_else(|| ip.is_loopback(), |ip| ip.is_loopback()),
+    };
+    if !loopback && !auth_enabled {
+        return Err(format!(
+            "WRAPPER_ACCESS_TOKEN is required for non-loopback listener {address}"
+        ));
+    }
+    Ok(())
 }
 
 /// Minimal logger shim: the wrapper logs to stderr without a logging
@@ -341,13 +370,19 @@ mod tests {
         let file = str_map(&[
             ("BIND_ADDRESS", "10.0.0.2"),
             ("LISTEN_PORT", "5002"),
-            ("WRAPPER_ACCESS_TOKEN", "file-token"),
+            (
+                "WRAPPER_ACCESS_TOKEN",
+                "file-token-with-at-least-32-characters",
+            ),
         ]);
         // Env beats file.
         let cfg = resolve_runtime(None, None, &env, &file).unwrap();
         assert_eq!(cfg.bind, "10.0.0.1");
         assert_eq!(cfg.port, 5001);
-        assert_eq!(cfg.token.as_deref(), Some("file-token"));
+        assert_eq!(
+            cfg.token.as_deref(),
+            Some("file-token-with-at-least-32-characters")
+        );
         // CLI beats both.
         let cfg = resolve_runtime(Some("10.0.0.9".to_string()), Some(5009), &env, &file).unwrap();
         assert_eq!(cfg.bind, "10.0.0.9");
@@ -356,13 +391,19 @@ mod tests {
         let cfg = resolve_runtime(None, None, &HashMap::new(), &file).unwrap();
         assert_eq!(cfg.bind, "10.0.0.2");
         assert_eq!(cfg.port, 5002);
-        assert_eq!(cfg.token.as_deref(), Some("file-token"));
+        assert_eq!(
+            cfg.token.as_deref(),
+            Some("file-token-with-at-least-32-characters")
+        );
     }
 
     #[test]
     fn runtime_empty_env_token_disables_auth() {
         let env = str_map(&[("WRAPPER_ACCESS_TOKEN", "")]);
-        let file = str_map(&[("WRAPPER_ACCESS_TOKEN", "file-token")]);
+        let file = str_map(&[(
+            "WRAPPER_ACCESS_TOKEN",
+            "file-token-with-at-least-32-characters",
+        )]);
         let cfg = resolve_runtime(None, None, &env, &file).unwrap();
         assert_eq!(cfg.token, None);
         // Empty file token is also "unset".
@@ -374,6 +415,88 @@ mod tests {
         )
         .unwrap();
         assert_eq!(cfg.token, None);
+    }
+
+    #[test]
+    fn runtime_validates_token_characters_without_normalizing_or_leaking_it() {
+        for token in [
+            "x".repeat(31),
+            "あ".repeat(31),
+            " ".repeat(32),
+            "\u{3000}".repeat(32),
+        ] {
+            for bind in ["127.0.0.1", "0.0.0.0"] {
+                let error = resolve_runtime(
+                    Some(bind.into()),
+                    None,
+                    &str_map(&[("WRAPPER_ACCESS_TOKEN", &token)]),
+                    &HashMap::new(),
+                )
+                .unwrap_err();
+                assert!(error.contains("WRAPPER_ACCESS_TOKEN"));
+                assert!(!error.contains(&token));
+            }
+        }
+        for token in [
+            "x".repeat(32),
+            "あ".repeat(32),
+            format!(" {} ", "x".repeat(32)),
+        ] {
+            let cfg = resolve_runtime(
+                None,
+                None,
+                &str_map(&[("WRAPPER_ACCESS_TOKEN", &token)]),
+                &HashMap::new(),
+            )
+            .unwrap();
+            assert_eq!(cfg.token.as_deref(), Some(token.as_str()));
+        }
+    }
+
+    #[test]
+    fn invalid_environment_token_does_not_fall_back_to_valid_file_token() {
+        let file = str_map(&[(
+            "WRAPPER_ACCESS_TOKEN",
+            "file-token-with-at-least-32-characters",
+        )]);
+        assert!(resolve_runtime(
+            None,
+            None,
+            &str_map(&[("WRAPPER_ACCESS_TOKEN", "short")]),
+            &file
+        )
+        .is_err());
+        assert!(resolve_runtime(
+            None,
+            None,
+            &HashMap::new(),
+            &str_map(&[("WRAPPER_ACCESS_TOKEN", "short")])
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn only_loopback_listeners_allow_missing_auth() {
+        for address in ["127.0.0.1", "127.42.1.2", "::1", "::ffff:127.0.0.1"] {
+            assert!(
+                validate_bind_auth(address.parse().unwrap(), false).is_ok(),
+                "{address}"
+            );
+        }
+        for address in [
+            "0.0.0.0",
+            "::",
+            "192.168.1.1",
+            "10.0.0.1",
+            "169.254.1.1",
+            "::ffff:192.168.1.1",
+            "fd00::1",
+            "2001:db8::1",
+        ] {
+            let ip = address.parse().unwrap();
+            assert!(validate_bind_auth(ip, false).is_err(), "{address}");
+            assert!(validate_bind_auth(ip, true).is_ok(), "{address}");
+        }
     }
 
     #[test]

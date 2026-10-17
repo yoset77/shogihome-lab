@@ -40,8 +40,7 @@ fn prepare_dir(tag: &str) -> PathBuf {
     dir
 }
 
-/// Reserve a loopback port first: the wrapper logs its configured port, so
-/// an ephemeral `--port 0` would leave the actual port undiscoverable.
+/// Reserve a loopback port so connections need not parse the startup log.
 fn reserve_port() -> u16 {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("loopback must bind");
     listener
@@ -154,7 +153,7 @@ fn idle_command_wait_exits_cleanly_on_shutdown() {
 fn auth_wait_exits_cleanly_on_shutdown() {
     let dir = prepare_dir("auth");
     std::fs::write(dir.join("engines.json"), "[]").unwrap();
-    let mut wrapper = spawn_wrapper(&dir, Some("secret-token"));
+    let mut wrapper = spawn_wrapper(&dir, Some("shutdown-test-token-at-least-32-characters"));
     let stream = connect(&wrapper);
     let mut log = BufReader::new(stream.try_clone().unwrap());
     let mut challenge = String::new();

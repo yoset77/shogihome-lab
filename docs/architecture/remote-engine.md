@@ -45,6 +45,8 @@ Rust 実装 [`wrapper/`](../../engine-wrapper/wrapper/) が唯一の実装であ
 
 Wrapperはengine定義・optionを解決し、必要に応じてMiddle Serverを認証してprocessを起動します。TCP/stdio relayとcleanupを所有しますが、USI session stateやBrowserの再接続状態は所有しません。`engines.json` は v2 オブジェクト（`resources` と `engines`）または旧配列ルートを受け入れ、`list` で文書をそのまま返します。リソース予算の解釈と強制はすべてMiddle Serverが行い、Wrapperはエントリー抽出のみを行います。判断理由は [Engine Resource Budget](../features/resource-budget.md) を参照してください。
 
+非ループバックの待受では認証を必須とし、Wrapper自身が実際の待受IPに対して起動条件を検証します。認証情報はengineにも設定エディタのprobeにも継承しません。この境界はengineのsandboxや通信暗号化を提供するものではありません。
+
 Process treeの所有と回収は共有 [`process/`](../../engine-wrapper/process/) に集約します。親processが先に終了しても子孫の所有権を失わず、接続終了やrelay失敗時に回収します。
 
 [`admission.rs`](../../engine-wrapper/wrapper/src/admission.rs) は全TCP接続と初期通信待ちの枠を別々に制限し、超過接続をタスク生成前に拒否します。認証と初期commandには接続受理から共通の絶対期限を適用します。これらはUSI状態とは独立した通信境界の制限です。
