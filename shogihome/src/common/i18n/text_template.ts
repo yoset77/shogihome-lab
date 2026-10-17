@@ -29,6 +29,9 @@ export type Texts = {
   visionPositionTypeGame: string;
   visionPositionTypeMate: string;
   visionImage: string;
+  visionInvalidImage: string;
+  visionImageTooLarge: string;
+  visionUnsupportedImage: string;
   pieceBox: string;
   undo: string;
   redo: string;

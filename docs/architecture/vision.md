@@ -45,6 +45,7 @@ HTTP境界は [`routes/vision.ts`](../../shogihome/src/server/routes/vision.ts)�
 Model出力を信頼せず、境界ごとに検証します。
 
 - HTTP、画像decode、worker出力の各境界で入力とresource使用量を検証します。Worker transportは既知のrequest IDを持つJSON Linesだけを受理します。
+- [`image-input.ts`](../../shogihome/src/server/vision/image-input.ts) はHTTPとWorkerでPNG／JPEGの構造・寸法を検証します。Workerは同じ検証済みBufferをdecodeし、PNGはinterlaceを含む展開量を出力を保持せずに事前検査、JPEGはdecoderの画素数・memory予算も適用します。V8 heap上限をBufferやprocess全体のmemory上限とはみなしません。
 - [`schema.ts`](../../shogihome/src/server/vision/schema.ts) が公開responseとSFENを検証します。Worker内部の中間表現は公開契約へ漏らしません。
 - [`transform.ts`](../../shogihome/src/server/vision/transform.ts) が公開fieldの選択と視点変換を一貫して行います。
 - Post-processingの制約とwarningは候補品質を改善しますが、完全な合法局面の証明ではありません。最終判断はユーザー確認に委ねます。
