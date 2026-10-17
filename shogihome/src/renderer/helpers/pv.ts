@@ -4,8 +4,22 @@ import { t } from "@/common/i18n";
 
 export type FormattedPV = {
   parsedPv: Move[];
+  pvEnd?: USIPVEnd;
   text: string;
 };
+
+export function formatPVEnd(end: USIPVEnd): string {
+  const labels: Record<USIPVEnd, string> = {
+    rep_draw: t.repetitionDraw,
+    rep_win: t.perpetualCheckRepetition,
+    rep_lose: t.perpetualCheckRepetition,
+    rep_sup: t.superiorPosition,
+    rep_inf: t.inferiorPosition,
+    win: t.winByDeclaration,
+    resign: t.resign,
+  };
+  return t.pvEndLabel(labels[end]);
+}
 
 export function formatDisplayPV(
   position: ImmutablePosition,
@@ -50,20 +64,12 @@ export function formatDisplayPV(
     text += " ...";
   }
   if (end) {
-    const labels: Record<USIPVEnd, string> = {
-      rep_draw: t.repetitionDraw,
-      rep_win: t.perpetualCheckRepetition,
-      rep_lose: t.perpetualCheckRepetition,
-      rep_sup: t.superiorPosition,
-      rep_inf: t.inferiorPosition,
-      win: t.winByDeclaration,
-      resign: t.resign,
-    };
-    text += (text ? " " : "") + t.pvEndLabel(labels[end]);
+    text += (text ? " " : "") + formatPVEnd(end);
   }
 
   return {
     parsedPv,
+    pvEnd: end,
     text,
   };
 }

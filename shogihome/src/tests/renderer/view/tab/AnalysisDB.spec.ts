@@ -6,6 +6,7 @@ import { t } from "@/common/i18n";
 import AnalysisDB from "@/renderer/view/tab/AnalysisDB.vue";
 import { Record } from "tsshogi";
 import { yaneuraouRepetitionPosition } from "@/tests/helpers/usi";
+import { USI_PV_ENDS } from "@/common/game/usi";
 
 const storeMock = vi.hoisted(() => ({
   appState: "normal",
@@ -14,6 +15,7 @@ const storeMock = vi.hoisted(() => ({
       sfen: "startpos",
     },
   },
+  showPVPreviewDialog: vi.fn(),
 }));
 
 const appSettingsMock = vi.hoisted(() => ({
@@ -46,12 +48,37 @@ describe("AnalysisDB", () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     storeMock.record.position = { sfen: "startpos" };
+    appSettingsMock.analysisDBMaxPVLength = 20;
   });
 
   afterEach(() => {
     vi.useRealTimers();
     globalThis.fetch = originalFetch;
   });
+
+  const mockResult = (pv: string) => {
+    storeMock.record.position = (Record.newByUSI(yaneuraouRepetitionPosition) as Record).position;
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            engine_id: 1,
+            engine_name: "YaneuraOu",
+            multipv: 4,
+            depth: 8,
+            seldepth: 12,
+            nodes: 33863,
+            score_cp: 0,
+            score_mate: null,
+            score_bound: "exact",
+            pv,
+            updated_at: 0,
+          },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+  };
 
   it("shows a busy state while an automatic search is debounced", async () => {
     globalThis.fetch = vi.fn(
@@ -138,27 +165,7 @@ describe("AnalysisDB", () => {
     ["win", "（宣言勝ち）", false],
     ["resign", "（投了）", false],
   ])("renders stored PV %s with the same ending labels", async (pv, text, playable) => {
-    storeMock.record.position = (Record.newByUSI(yaneuraouRepetitionPosition) as Record).position;
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          {
-            engine_id: 1,
-            engine_name: "YaneuraOu",
-            multipv: 4,
-            depth: 8,
-            seldepth: 12,
-            nodes: 33863,
-            score_cp: 0,
-            score_mate: null,
-            score_bound: "exact",
-            pv,
-            updated_at: 0,
-          },
-        ]),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
-    );
+    mockResult(pv);
     const wrapper = mount(AnalysisDB, {
       props: { size: new RectSize(320, 240) },
       global: { stubs: { Icon: true } },
@@ -171,6 +178,49 @@ describe("AnalysisDB", () => {
     } finally {
       wrapper.unmount();
     }
+  });
+
+  describe.each([false, true])("PV preview (mobile=%s)", (mobileLayout) => {
+    it.each(USI_PV_ENDS)("passes %s separately from all preview moves", async (end) => {
+      mockResult(`6b5a 7g7f ${end}`);
+      appSettingsMock.analysisDBMaxPVLength = 1;
+      const wrapper = mount(AnalysisDB, {
+        props: { size: new RectSize(320, 240), mobileLayout },
+        global: { stubs: { Icon: true } },
+      });
+      try {
+        await vi.advanceTimersByTimeAsync(300);
+        await wrapper.get("tbody .text button:not(.icon-only),.play-button").trigger("click");
+        const request = storeMock.showPVPreviewDialog.mock.lastCall?.[0];
+        expect(request.pv.map((move: { usi: string }) => move.usi)).toEqual(["6b5a", "7g7f"]);
+        expect(request.pvEnd).toBe(end);
+      } finally {
+        wrapper.unmount();
+      }
+    });
+
+    it.each([
+      "6b5a invalid rep_draw",
+      "6b5a 7g7h rep_draw",
+      "6b5a rep_draw 7g7f",
+      "6b5a rep_unknown",
+      "6b5a",
+    ])("does not pass an ending for PV %s", async (pv) => {
+      mockResult(pv);
+      const wrapper = mount(AnalysisDB, {
+        props: { size: new RectSize(320, 240), mobileLayout },
+        global: { stubs: { Icon: true } },
+      });
+      try {
+        await vi.advanceTimersByTimeAsync(300);
+        await wrapper.get("tbody .text button:not(.icon-only),.play-button").trigger("click");
+        const request = storeMock.showPVPreviewDialog.mock.lastCall?.[0];
+        expect(request.pv.map((move: { usi: string }) => move.usi)).toEqual(["6b5a"]);
+        expect(request.pvEnd).toBeUndefined();
+      } finally {
+        wrapper.unmount();
+      }
+    });
   });
 
   it("shows an error dialog when deleting a record fails", async () => {

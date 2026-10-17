@@ -58,6 +58,7 @@
         >
           {{ move.text }}
         </button>
+        <span v-if="pvEnd" class="pv-end">{{ (pv.length ? " " : "") + formatPVEnd(pvEnd) }}</span>
       </div>
     </div>
     <div class="insert-buttons">
@@ -92,6 +93,8 @@ import { useToastStore } from "@/renderer/store/toast";
 import DialogFrame from "./DialogFrame.vue";
 import { getRecordShortcutKeys } from "@/renderer/view/primitive/board/shortcut";
 import { BoardLayoutType } from "@/common/settings/layout";
+import type { USIPVEnd } from "@/common/game/usi";
+import { formatPVEnd } from "@/renderer/helpers/pv";
 
 const props = defineProps({
   position: {
@@ -151,6 +154,10 @@ const props = defineProps({
   pv: {
     type: Array as PropType<Move[]>,
     required: true,
+  },
+  pvEnd: {
+    type: String as PropType<USIPVEnd>,
+    default: undefined,
   },
 });
 
