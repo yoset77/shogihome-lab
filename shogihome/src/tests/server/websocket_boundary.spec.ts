@@ -178,3 +178,15 @@ it("ignores a replaced socket's late error without disconnecting its replacement
   expect((await status()).sessions).toContain("replacement-session");
   await expectPong(replacement);
 });
+
+it("isolates a relay message flood while HTTP and other sockets remain usable", async () => {
+  const healthy = await connect("rate-healthy");
+  const flooded = await connect("rate-flood");
+  const closed = once(flooded, "close", { signal: AbortSignal.timeout(3000) });
+  for (let i = 0; i < 201; i++) flooded.send("ping");
+  const [code] = await closed;
+  expect(code).toBe(1008);
+  await vi.waitFor(async () => expect((await status()).sessions).not.toContain("rate-flood"));
+  await expectPong(healthy);
+  await expectPong(await connect("rate-new"));
+});

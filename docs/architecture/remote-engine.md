@@ -34,6 +34,7 @@ Remote engine は `sessionId` で識別される論理sessionに属します。M
 - [`sessionManager.ts`](../../shogihome/src/server/engine/sessionManager.ts) は `sessionId` と [`EngineSession`](../../shogihome/src/server/engine/session.ts) の対応を管理します。
 - [`session.ts`](../../shogihome/src/server/engine/session.ts) はengine起動、USI handshake、探索状態、stop sequencing、command queue、出力の局面帰属、終了、再接続bufferを所有します。
 - [`list.ts`](../../shogihome/src/server/engine/list.ts) は短命なTCP接続でwrapperから設定を取得します。設定の取得はWebSocket送信から独立し、Browserへは公開可能なengine情報だけを返します。取得した文書からリソース予算の設定を解決し、共通のresource managerへ反映します。
+- [`transport.ts`](../../shogihome/src/server/engine/transport.ts) は公開relayの受信量と送信滞留を制限します。過負荷のsocketだけを切断し、通常の再接続・cleanupへ収束させます。一覧取得は実行中の取得を共有し、Browser表示だけを短時間cacheします。起動時の予算確認は完了済みcacheを再利用しません。
 - [`resources.ts`](../../shogihome/src/server/engine/resources.ts) はグループ予算と予約の共通実装です。relay session、対局、解析ジョブが起動前に設定を解決し、同じsnapshotから所有者単位で予約・起動して終了収束で解放します。予算の有効・無効やグループ削除は、稼働中の予約の寿命を変更しません。
 - [`internal.ts`](../../shogihome/src/server/engine/internal.ts) はServer所有sessionの型付きadapterです。USI遷移は `session.ts` を共有し、状態遷移完了後に内部subscriberへ通知します。
 - [`auth.ts`](../../shogihome/src/server/engine/auth.ts) は任意設定のwrapper challenge-response認証を実装します。

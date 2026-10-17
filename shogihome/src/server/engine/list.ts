@@ -1,10 +1,11 @@
 import net from "net";
 import readline from "readline";
-import { WebSocket } from "ws";
+import type { WebSocket } from "ws";
 import { REMOTE_ENGINE_HOST, REMOTE_ENGINE_PORT } from "@/server/config";
 import { authenticateSocket } from "@/server/engine/auth";
 import { resourceRegistry } from "@/server/engine/resources";
 import type { EngineConfig } from "@/server/engine/types";
+import { isRelaySocketOpen, sendRelayFrame } from "@/server/engine/transport";
 import {
   LAN_ENGINE_TYPES,
   decodeEngineDocument,
@@ -96,11 +97,12 @@ export const toLanEngineInfo = (config: EngineConfig): LanEngineInfo | null => {
   return { id: config.id, name: config.name, type: types };
 };
 
-export const fetchEngineConfigs = (): Promise<EngineConfig[]> =>
+const requestEngineConfigs = (): Promise<EngineConfig[]> =>
   new Promise((resolve, reject) => {
     console.log(`Fetching engine list from ${REMOTE_ENGINE_HOST}:${REMOTE_ENGINE_PORT}`);
     const socket = new net.Socket();
     let data = "";
+    let receivedBytes = 0;
     let settled = false;
     const fail = (error: Error) => {
       if (settled) return;
@@ -116,6 +118,12 @@ export const fetchEngineConfigs = (): Promise<EngineConfig[]> =>
       fail(new Error("Engine list request timed out"));
     }, 5000);
 
+    // Bound bytes before readline can retain a line without a newline.
+    socket.on("data", (chunk: Buffer) => {
+      receivedBytes += chunk.byteLength;
+      if (receivedBytes > MAX_ENGINE_LIST_BYTES) fail(new Error("Engine list response too large"));
+    });
+
     socket.on("connect", async () => {
       try {
         let rl: readline.Interface;
@@ -124,6 +132,11 @@ export const fetchEngineConfigs = (): Promise<EngineConfig[]> =>
         } else {
           rl = readline.createInterface({ input: socket });
         }
+        if (settled) {
+          rl.close();
+          return;
+        }
+        rl.on("error", fail);
 
         socket.write("list\n");
 
@@ -170,18 +183,63 @@ export const fetchEngineConfigs = (): Promise<EngineConfig[]> =>
     socket.connect(REMOTE_ENGINE_PORT, REMOTE_ENGINE_HOST);
   });
 
-export const getEngineList = (ws: WebSocket) => {
+let pendingConfigs: Promise<EngineConfig[]> | undefined;
+
+// Starts must fetch current budgets, not reuse the browser discovery cache.
+export function fetchEngineConfigs(): Promise<EngineConfig[]> {
+  if (!pendingConfigs) {
+    pendingConfigs = requestEngineConfigs().finally(() => {
+      pendingConfigs = undefined;
+    });
+  }
+  return pendingConfigs;
+}
+
+const DISCOVERY_CACHE_MS = 1000;
+let discoveryFrame: string | undefined;
+let discoveryExpiresAt = 0;
+let retryAfter = 0;
+let deliveringList = false;
+const listWaiters = new Map<WebSocket, () => void>();
+
+function clearListWaiters(frame?: string): void {
+  const waiters = [...listWaiters];
+  listWaiters.clear();
+  for (const [ws, onClose] of waiters) {
+    ws.off("close", onClose);
+    if (frame !== undefined) sendRelayFrame(ws, frame);
+  }
+}
+
+export function getEngineList(ws: WebSocket): void {
+  if (!isRelaySocketOpen(ws)) return;
+  if (discoveryFrame !== undefined && performance.now() < discoveryExpiresAt) {
+    sendRelayFrame(ws, discoveryFrame);
+    return;
+  }
+  if (performance.now() < retryAfter || listWaiters.has(ws)) return;
+  const onClose = () => listWaiters.delete(ws);
+  listWaiters.set(ws, onClose);
+  ws.once("close", onClose);
+  if (deliveringList) return;
+  deliveringList = true;
   void fetchEngineConfigs()
     .then((configs) => {
-      if (ws.readyState !== WebSocket.OPEN) return;
-      ws.send(
-        encodeEngineListRelayMessage(
-          configs.flatMap((config) => {
-            const info = toLanEngineInfo(config);
-            return info ? [info] : [];
-          }),
-        ),
+      discoveryFrame = encodeEngineListRelayMessage(
+        configs.flatMap((config) => {
+          const info = toLanEngineInfo(config);
+          return info ? [info] : [];
+        }),
       );
+      discoveryExpiresAt = performance.now() + DISCOVERY_CACHE_MS;
+      clearListWaiters(discoveryFrame);
     })
-    .catch((error) => console.error("Failed to fetch engine list:", error));
-};
+    .catch((error) => {
+      retryAfter = performance.now() + DISCOVERY_CACHE_MS;
+      clearListWaiters();
+      console.error("Failed to fetch engine list:", error);
+    })
+    .finally(() => {
+      deliveringList = false;
+    });
+}
