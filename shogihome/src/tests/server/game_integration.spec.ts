@@ -194,6 +194,22 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
     return { ws, frames, latest: () => frames.at(-1)! };
   }
 
+  it("disconnects a malformed WebSocket through close and accepts a replacement", async () => {
+    const request = gameRequest();
+    request.serverInstanceId = manager.serverInstanceId;
+    const created = (await call("", request)) as GameSnapshot;
+    const first = await browser(created);
+    const session = manager.get(created.sessionId);
+    expect(session.attachment().attached).toBe(true);
+    const closed = once(first.ws, "close");
+    first.ws.send(Buffer.from([0xff]), { binary: false });
+    await closed;
+    await vi.waitFor(() => expect(session.attachment().attached).toBe(false));
+    const replacement = await browser(session.snapshot());
+    expect(replacement.ws.readyState).toBe(WebSocket.OPEN);
+    expect(session.attachment().attached).toBe(true);
+  });
+
   it("rejects a stale reconnect over WebSocket without replacing the active browser", async () => {
     const request = gameRequest();
     request.serverInstanceId = manager.serverInstanceId;

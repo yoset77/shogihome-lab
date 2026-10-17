@@ -890,6 +890,8 @@ export const vi: Texts = {
   serverBookImportBusy: "Đang nhập một định thức khác.",
   serverBookNotOrdered: "Định thức không được sắp xếp theo vị trí.",
   serverBookTooLarge: "Tệp SBK quá lớn.",
+  serverYbbExpansionLimit:
+    "Tổng dữ liệu nước đi được tham chiếu trong YBB vượt quá kích thước vùng nước đi của tệp.",
   serverInvalidBookImportSource: "Nguồn nhập định thức không hợp lệ.",
   serverInvalidBookPosition: "Thế cờ định thức không hợp lệ.",
   serverInvalidBookMove: "Nước đi định thức không hợp lệ.",

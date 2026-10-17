@@ -28,6 +28,13 @@ const MAX_SAFE_RECORD_COUNT = BigInt(
   Math.floor((Number.MAX_SAFE_INTEGER - INDEX_HEADER_SIZE) / RECORD_SIZE),
 );
 
+export class YbbExpansionLimitError extends Error {
+  constructor() {
+    super("YBB: move references exceed the moves area size");
+    this.name = "YbbExpansionLimitError";
+  }
+}
+
 async function readExact(
   file: fs.promises.FileHandle,
   buf: Buffer,
@@ -136,12 +143,27 @@ export async function loadYbbBook(path: string): Promise<YbbBook> {
   if (magic !== MAGIC) {
     throw new Error(`Invalid YBB magic: ${magic}`);
   }
-  const view = new DataView(data.buffer, data.byteOffset);
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const recordCount = view.getBigUint64(16, true);
   const flags = view.getBigUint64(24, true);
   const entrySize = moveEntrySize(flags);
   const recordCountNumber = validateRecordCount(recordCount);
   const movesAreaStart = validateYbbLayout(data.length, recordCount);
+
+  // Count every reference, even overlapping ranges or duplicate positions,
+  // before decoding any SFEN or allocating move objects.
+  let remainingMoveBytes = data.length - movesAreaStart;
+  for (let i = 0; i < recordCountNumber; i++) {
+    const recOff = INDEX_HEADER_SIZE + i * RECORD_SIZE;
+    const movesRelOffset = view.getBigUint64(recOff + 32, true);
+    const moveCount = view.getUint16(recOff + 42, true);
+    validateMovesRange(data.length, movesAreaStart, movesRelOffset, moveCount, entrySize);
+    const moveBytes = moveCount * entrySize;
+    if (moveBytes > remainingMoveBytes) {
+      throw new YbbExpansionLimitError();
+    }
+    remainingMoveBytes -= moveBytes;
+  }
   const entries = new Map<string, BookEntry>();
 
   for (let i = 0; i < recordCountNumber; i++) {

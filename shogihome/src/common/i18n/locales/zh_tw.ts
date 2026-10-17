@@ -879,6 +879,7 @@ export const zh_tw: Texts = {
   serverBookImportBusy: "另一個定跡正在匯入。",
   serverBookNotOrdered: "定跡未依局面順序排列。",
   serverBookTooLarge: "SBK 檔案過大。",
+  serverYbbExpansionLimit: "YBB 定跡的走法參照總量超過檔案中的走法區域大小。",
   serverInvalidBookImportSource: "定跡匯入來源無效。",
   serverInvalidBookPosition: "定跡局面無效。",
   serverInvalidBookMove: "定跡著法無效。",
