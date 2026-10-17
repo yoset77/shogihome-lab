@@ -36,7 +36,7 @@
   "dependencies": {
     "@bufbuild/protobuf": "^2.16.0",
     "@github/hotkey": "^3.1.4",
-    "@hono/node-server": "^2.1.4",
+    "@hono/node-server": "^2.1.5",
     "async-lock": "^1.4.1",
     "chart.js": "^4.5.1",
     "chokidar": "^5.0.0",
