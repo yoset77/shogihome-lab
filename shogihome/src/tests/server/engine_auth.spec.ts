@@ -11,4 +11,12 @@ describe("engine wrapper authentication", () => {
       "Authentication timed out",
     );
   });
+
+  it("consumes readline errors when the transport fails during authentication", async () => {
+    const socket = new PassThrough() as unknown as net.Socket;
+    const result = authenticateSocket(socket, "secret");
+    const rejected = expect(result).rejects.toThrow("transport failed");
+    socket.emit("error", new Error("transport failed"));
+    await rejected;
+  });
 });

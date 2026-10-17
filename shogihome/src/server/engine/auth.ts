@@ -22,6 +22,12 @@ export async function authenticateSocket(
         reject(new Error("Authentication timed out"));
       });
     }, timeoutMs);
+    rl.on("error", (error) => {
+      settle(() => {
+        rl.close();
+        reject(error);
+      });
+    });
 
     const onLine = (line: string) => {
       const msg = line.trim();

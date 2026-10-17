@@ -83,6 +83,7 @@ describe("HTTP analysis through the real TCP/USI session", () => {
   });
 
   beforeEach(() => {
+    vi.stubEnv("WRAPPER_ACCESS_TOKEN", "");
     mode = "normal";
     configuredMultiPV = 1;
     commands = [];
@@ -92,7 +93,11 @@ describe("HTTP analysis through the real TCP/USI session", () => {
     app.onError(handleError);
   });
   afterEach(async () => {
-    await manager.close();
+    try {
+      await manager.close();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
   afterAll(async () => {
     for (const socket of sockets) socket.destroy();

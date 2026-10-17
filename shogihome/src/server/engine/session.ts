@@ -26,6 +26,7 @@ import {
 } from "@/server/config";
 import { authenticateSocket } from "@/server/engine/auth";
 import { fetchEngineConfigs, getEngineList } from "@/server/engine/list";
+import { createRelayMessageLimiter, sendRelayFrame } from "@/server/engine/transport";
 import { t } from "@/common/i18n";
 import {
   EngineState,
@@ -250,11 +251,13 @@ export class EngineSession {
       this.startStopTimeout();
     }
 
+    const acceptMessage = createRelayMessageLimiter(ws);
     ws.on("message", (message, isBinary) => {
       if (this.ws !== ws) {
         console.log(`Ignoring message for session ${this.sessionId} (socket replaced)`);
         return;
       }
+      if (!acceptMessage(message)) return;
       if (isBinary) {
         console.warn(`Binary relay command blocked for session ${this.sessionId}`);
         return;
@@ -278,8 +281,8 @@ export class EngineSession {
     console.log(
       `Replaying ${this.messageBuffer.length} buffered messages for session ${this.sessionId}`,
     );
-    while (this.messageBuffer.length > 0) {
-      const { data, createdAt } = this.messageBuffer.shift()!;
+    // Failed sends may re-buffer; never replay the newly buffered tail in this loop.
+    for (const { data, createdAt } of this.messageBuffer.splice(0)) {
       this.sendToClient(data, createdAt);
     }
   }
@@ -417,34 +420,29 @@ export class EngineSession {
     }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const delay = Math.max(0, Date.now() - createdAt);
-      this.ws.send(encodeSessionRelayMessage(data, delay));
-    } else {
-      // Buffer messages during disconnection
-      // For 'info' messages, we only keep the latest few to avoid memory issues
-      if (data.type === "engineOutput" && data.output.startsWith("info")) {
-        // Keep only the last 10 info messages if disconnected
-        const infoCount = this.messageBuffer.filter(
-          (message) =>
-            message.data.type === "engineOutput" && message.data.output.startsWith("info"),
-        ).length;
-        if (infoCount >= 10) {
-          const firstInfoIndex = this.messageBuffer.findIndex(
-            (message) =>
-              message.data.type === "engineOutput" && message.data.output.startsWith("info"),
-          );
-          if (firstInfoIndex !== -1) {
-            this.messageBuffer.splice(firstInfoIndex, 1);
-          }
-        }
-      }
-      this.messageBuffer.push({ data, createdAt });
-      while (this.messageBuffer.length > this.MAX_BUFFERED_MESSAGES) {
-        const removableInfoIndex = this.messageBuffer.findIndex(
+      if (sendRelayFrame(this.ws, encodeSessionRelayMessage(data, delay))) return;
+    }
+    // Buffer messages during disconnection, keeping only the latest info messages.
+    if (data.type === "engineOutput" && data.output.startsWith("info")) {
+      const infoCount = this.messageBuffer.filter(
+        (message) => message.data.type === "engineOutput" && message.data.output.startsWith("info"),
+      ).length;
+      if (infoCount >= 10) {
+        const firstInfoIndex = this.messageBuffer.findIndex(
           (message) =>
             message.data.type === "engineOutput" && message.data.output.startsWith("info"),
         );
-        this.messageBuffer.splice(removableInfoIndex >= 0 ? removableInfoIndex : 0, 1);
+        if (firstInfoIndex !== -1) {
+          this.messageBuffer.splice(firstInfoIndex, 1);
+        }
       }
+    }
+    this.messageBuffer.push({ data, createdAt });
+    while (this.messageBuffer.length > this.MAX_BUFFERED_MESSAGES) {
+      const removableInfoIndex = this.messageBuffer.findIndex(
+        (message) => message.data.type === "engineOutput" && message.data.output.startsWith("info"),
+      );
+      this.messageBuffer.splice(removableInfoIndex >= 0 ? removableInfoIndex : 0, 1);
     }
   }
 
