@@ -1,23 +1,42 @@
 import { Jimp } from "jimp";
+import { open } from "node:fs/promises";
+import {
+  MAX_ENCODED_IMAGE_BYTES,
+  MAX_IMAGE_PIXELS,
+  validateImageDimensions,
+  validateImageInput,
+  validatePngInflation,
+  VisionImageInputError,
+} from "@/server/vision/image-input";
 import type { RawImage } from "./types.js";
 
-const MAX_IMAGE_DIMENSION = 4096;
-const MAX_IMAGE_PIXELS = 4096 * 4096;
-
 export const loadImage = async (imagePath: string): Promise<RawImage> => {
-  const image = await Jimp.read(imagePath);
+  const file = await open(imagePath, "r");
+  let encoded: Buffer;
+  try {
+    if ((await file.stat()).size > MAX_ENCODED_IMAGE_BYTES)
+      throw new VisionImageInputError("too-large");
+    encoded = await file.readFile();
+  } finally {
+    await file.close();
+  }
+  const input = validateImageInput(encoded);
+  await validatePngInflation(input);
+  const image = await Jimp.fromBuffer(encoded, {
+    "image/jpeg": { maxResolutionInMP: MAX_IMAGE_PIXELS / 1_000_000, maxMemoryUsageInMB: 512 },
+  });
   const width = image.width;
   const height = image.height;
-
-  if (width < 32 || height < 32) {
-    throw new Error("image is too small");
-  }
+  validateImageDimensions(width, height);
+  // EXIF orientation may swap axes, but cannot change the pixel count.
   if (
-    width > MAX_IMAGE_DIMENSION ||
-    height > MAX_IMAGE_DIMENSION ||
-    width * height > MAX_IMAGE_PIXELS
+    !(
+      (width === input.width && height === input.height) ||
+      (width === input.height && height === input.width)
+    ) ||
+    image.bitmap.data.byteLength !== width * height * 4
   ) {
-    throw new Error("image is too large");
+    throw new VisionImageInputError("invalid");
   }
 
   const data = new Uint8Array(image.bitmap.data);

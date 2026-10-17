@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { requestApp } from "./honoRequest";
 import { visionWorkerClient } from "@/server/vision/worker";
+import { createTestPng, createTestJpeg } from "@/tests/helpers/vision-image";
 
 const SERVER_PORT = vi.hoisted(() => {
   return 8200 + Math.floor(Math.random() * 100);
@@ -25,9 +26,7 @@ beforeAll(() => {
   });
 });
 
-const PNG_BYTES = Buffer.from([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
-]);
+const PNG_BYTES = createTestPng();
 
 describe("Vision scan API", () => {
   it("returns a scanned SFEN from the vision wrapper", async () => {
@@ -56,7 +55,7 @@ describe("Vision scan API", () => {
     });
 
     expect(response.status).toBe(415);
-    expect(response.textBody).toContain("unsupported image type");
+    expect(response.textBody).not.toBe("");
   });
 
   it("rejects empty image bodies", async () => {
@@ -68,6 +67,29 @@ describe("Vision scan API", () => {
 
     expect(response.status).toBe(400);
     expect(response.textBody).toContain("image body is required");
+  });
+
+  it.each([
+    {
+      name: "oversized PNG",
+      body: () => createTestPng({ width: 5120, height: 5120, depth: 1, color: 0 }),
+      status: 413,
+    },
+    { name: "truncated PNG", body: () => PNG_BYTES.subarray(0, 20), status: 400 },
+    { name: "spoofed JPEG", body: () => createTestJpeg(), status: 415 },
+  ])("rejects $name before scheduling the worker", async ({ body, status }) => {
+    const scan = vi.spyOn(visionWorkerClient, "scan");
+    try {
+      const response = await requestApp(app, "POST", "/api/vision/scan", {
+        host,
+        headers: { "Content-Type": "image/png" },
+        body: body(),
+      });
+      expect(response.status).toBe(status);
+      expect(scan).not.toHaveBeenCalled();
+    } finally {
+      scan.mockRestore();
+    }
   });
 
   it("rejects wrapper responses with invalid SFEN", async () => {

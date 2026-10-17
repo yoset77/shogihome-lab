@@ -5,6 +5,8 @@ import { sendError } from "@/server/errors";
 import { VISION_ENABLED, VISION_MAX_IMAGE_MB } from "@/server/config";
 import { scanPositionImage } from "@/server/vision/command";
 import { createBodyLimit, type AppEnv } from "@/server/hono";
+import { validateImageInput, VisionImageInputError } from "@/server/vision/image-input";
+import { t } from "@/common/i18n";
 
 const SUPPORTED_IMAGE_TYPES = new Map([
   ["image/jpeg", "jpg"],
@@ -44,7 +46,7 @@ export const visionRoutes = new Hono<AppEnv>().post(
     }
     const contentType = c.req.header("content-type")?.split(";")[0].trim().toLowerCase();
     if (!contentType || !SUPPORTED_IMAGE_TYPES.has(contentType)) {
-      return sendError(c, 415, "unsupported image type");
+      return sendError(c, 415, t.visionUnsupportedImage);
     }
     await next();
   },
@@ -52,10 +54,18 @@ export const visionRoutes = new Hono<AppEnv>().post(
   async (c) => {
     const contentType = c.req.header("content-type")?.split(";")[0].trim().toLowerCase();
     const extension = SUPPORTED_IMAGE_TYPES.get(contentType ?? "");
-    if (!extension) return sendError(c, 415, "unsupported image type");
+    if (!extension) return sendError(c, 415, t.visionUnsupportedImage);
     const image = Buffer.from(await c.req.arrayBuffer());
     if (image.length === 0) {
       return sendError(c, 400, "image body is required");
+    }
+    try {
+      validateImageInput(image, contentType);
+    } catch (error) {
+      if (!(error instanceof VisionImageInputError)) throw error;
+      if (error.reason === "too-large") return sendError(c, 413, t.visionImageTooLarge);
+      if (error.reason === "unsupported") return sendError(c, 415, t.visionUnsupportedImage);
+      return sendError(c, 400, t.visionInvalidImage);
     }
 
     try {
