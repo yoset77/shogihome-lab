@@ -3,6 +3,7 @@ import { Record, type Move } from "tsshogi";
 import { GamePlayer } from "@/server/game/player";
 import type { GameEngine } from "@/server/engine/internal";
 import type { SearchHandler, SearchInfo } from "@/common/game/player";
+import { USI_PV_ENDS } from "@/common/game/usi";
 
 describe("server game player", () => {
   const fixture = (usi = "position startpos") => {
@@ -83,6 +84,37 @@ describe("server game player", () => {
     const [move, info] = onMove.mock.calls[0];
     expect(move.usi).toBe("7g7f");
     expect(info).toBeUndefined();
+  });
+
+  it.each(USI_PV_ENDS)("keeps %s in live info but not recorded move arrays", async (end) => {
+    const { start, emit, settle, onInfo, onLiveInfo, onMove, handler } = fixture();
+    await start();
+    emit(`info depth 8 score cp 0 pv 7g7f 3c3d ${end}`);
+    expect(onLiveInfo).toHaveBeenLastCalledWith("position startpos", {
+      depth: 8,
+      scoreCP: 0,
+      pv: ["7g7f", "3c3d", end],
+    });
+    expect(onInfo.mock.lastCall?.[0].pv.map((move: Move) => move.usi)).toEqual(["7g7f", "3c3d"]);
+    expect(handler.onWin).not.toHaveBeenCalled();
+    expect(handler.onResign).not.toHaveBeenCalled();
+    emit("bestmove 7g7f");
+    await settle();
+    expect(onMove.mock.lastCall?.[1]?.pv?.map((move) => move.usi)).toEqual(["3c3d"]);
+    expect(onMove.mock.lastCall?.[1]?.score).toBe(0);
+  });
+
+  it.each(["win", "resign"])("does not treat a standalone PV %s as a game result", async (end) => {
+    const { start, emit, settle, onInfo, handler } = fixture();
+    await start();
+    emit("info depth 8 score cp 100 pv 7g7f");
+    emit(`info depth 9 score cp 0 pv ${end}`);
+    expect(onInfo).toHaveBeenLastCalledWith(expect.objectContaining({ score: 0, pv: [] }));
+    expect(handler.onWin).not.toHaveBeenCalled();
+    expect(handler.onResign).not.toHaveBeenCalled();
+    emit(`bestmove ${end}`);
+    await settle();
+    expect(end === "win" ? handler.onWin : handler.onResign).toHaveBeenCalledOnce();
   });
 
   describe.each([

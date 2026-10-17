@@ -4,7 +4,7 @@ import { TimeStates } from "@/common/game/time";
 import { LanEngine } from "@/renderer/network/lan_engine";
 import type { ServerRelayMessage, SearchSnapshot } from "@/common/engine/relay_protocol";
 import { GameResult } from "@/common/game/result";
-import { parseUSIPV, USIInfoCommand, toBlackSearchScore } from "@/common/game/usi";
+import { isUSIPVEnd, parseUSIPV, USIInfoCommand, toBlackSearchScore } from "@/common/game/usi";
 import { parseAnalysisInfo } from "@/common/analysis/types";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "./usi_events";
 import { t } from "@/common/i18n";
@@ -819,7 +819,8 @@ export class LanPlayer implements Player {
         : infoCommand.currmove
           ? [infoCommand.currmove]
           : undefined;
-    if (pvToValidate && pvToValidate.length > 0) {
+    const terminalOnly = pvToValidate?.length === 1 && isUSIPVEnd(pvToValidate[0]);
+    if (pvToValidate && pvToValidate.length > 0 && !terminalOnly) {
       const move = this.position.createMoveByUSI(pvToValidate[0]);
       if (!move) {
         return;
@@ -858,7 +859,7 @@ export class LanPlayer implements Player {
       depth: infoCommand.depth ?? this.info?.depth,
       nodes: infoCommand.nodes ?? this.info?.nodes,
       ...toBlackSearchScore(infoCommand, this.position.color),
-      pv: resolvedPv ?? this.info?.pv,
+      pv: terminalOnly ? [] : (resolvedPv ?? this.info?.pv),
     };
 
     if (this.usiInfoTimeout) {

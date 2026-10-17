@@ -612,6 +612,21 @@ describe("store/index", () => {
     expect(store.candidates).toHaveLength(0);
   });
 
+  it("ignores terminal-only PVs when selecting and filtering candidate arrows", async () => {
+    vi.useFakeTimers();
+    const store = createStore();
+    const position = store.record.position;
+    store.updateUSIInfo(101, position, "Engine", { multipv: 1, scoreCP: 9999, pv: ["win"] });
+    store.updateUSIInfo(101, position, "Engine", {
+      multipv: 2,
+      scoreCP: 0,
+      pv: ["7g7f", "rep_draw"],
+    });
+    vi.runOnlyPendingTimers();
+    await useAppSettings().updateAppSettings({ maxArrowsPerEngine: 3, arrowScoreDiffRange: 100 });
+    expect(store.candidates.map((move) => move.usi)).toEqual(["7g7f"]);
+  });
+
   it("uses the game display position without changing the record or showing stale candidate arrows", async () => {
     vi.useFakeTimers();
     mockAPI.saveGameSettings.mockResolvedValue();

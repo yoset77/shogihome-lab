@@ -114,7 +114,7 @@
               </td>
               <td class="text">
                 <button
-                  v-if="showPlayButton && info.pv && info.pv.length !== 0 && info.text"
+                  v-if="showPlayButton && hasUSIPVMoves(info.pv) && info.text"
                   @click="showPreview(info)"
                 >
                   <Icon :icon="IconType.PLAY" />
@@ -168,7 +168,7 @@
               <span>{{ getDisplayScoreFlag(info) }}</span>
             </span>
             <button
-              v-if="showPlayButton && info.pv && info.pv.length !== 0"
+              v-if="showPlayButton && hasUSIPVMoves(info.pv)"
               class="play-button"
               @click="showPreview(info)"
             >
@@ -224,6 +224,7 @@ import { readInputAsNumber } from "@/renderer/helpers/form";
 import { useConfirmationStore } from "@/renderer/store/confirm";
 import { AppState, ResearchState } from "@/common/control/state.js";
 import { getDisplayEvaluation } from "@/renderer/helpers/evaluation";
+import { hasUSIPVMoves } from "@/common/game/usi";
 
 let ignoreSuggestionsCountLimit = false;
 const suggestionsCountLimit = 10;
@@ -332,6 +333,7 @@ const getDisplayScoreOrPlaceholder = (info: USIInfo) =>
 const getDisplayScoreFlag = (info: USIInfo) => getDisplayEvaluationForInfo(info)?.scoreFlag ?? "";
 
 const showPreview = (ite: USIInfo) => {
+  if (!hasUSIPVMoves(ite.pv)) return;
   const position = Position.newBySFEN(ite.position);
   if (!position) {
     return;
@@ -345,6 +347,7 @@ const showPreview = (ite: USIInfo) => {
     }
     pv.push(move);
   }
+  if (pv.length === 0) return;
   useStore().showPVPreviewDialog({
     position,
     engineName: props.monitor.name,

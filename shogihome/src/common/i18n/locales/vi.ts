@@ -165,6 +165,10 @@ export const vi: Texts = {
   impass: "Bế tắc",
   repetitionDraw: "Hòa do lặp nước",
   repetition: "Hòa do lặp nước",
+  perpetualCheckRepetition: "Chiếu liên tục",
+  superiorPosition: "Thế cờ ưu thế",
+  inferiorPosition: "Thế cờ kém thế",
+  pvEndLabel: (reason: string) => `(${reason})`,
   mate: "Chiếu hết",
   noMate: "Không chiếu hết",
   blackWin: "先手勝ち", // TODO: Translate

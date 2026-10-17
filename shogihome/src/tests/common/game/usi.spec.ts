@@ -1,5 +1,13 @@
-import { Color } from "tsshogi";
-import { parseInfoCommand, SCORE_MATE_INFINITE, toBlackSearchScore } from "@/common/game/usi";
+import { Color, Position } from "tsshogi";
+import {
+  hasUSIPVMoves,
+  isUSIPVEnd,
+  parseInfoCommand,
+  parseUSIPV,
+  SCORE_MATE_INFINITE,
+  toBlackSearchScore,
+  USI_PV_ENDS,
+} from "@/common/game/usi";
 
 describe("common/game/usi", () => {
   it("parses depth, time, nodes, centipawn score, and PV", () => {
@@ -36,6 +44,34 @@ describe("common/game/usi", () => {
       scoreCP: 150,
       upperbound: true,
     });
+  });
+
+  it("normalizes token whitespace without changing info string messages", () => {
+    expect(parseInfoCommand("info\tdepth  10 score\tcp 0 pv  7g7f\t3c3d  ")).toEqual({
+      depth: 10,
+      scoreCP: 0,
+      pv: ["7g7f", "3c3d"],
+    });
+    expect(parseInfoCommand("info\tstring\t message  with\ttabs  ")).toEqual({
+      string: " message  with\ttabs  ",
+    });
+    expect(parseInfoCommand("info string")).toEqual({ string: "" });
+  });
+
+  it.each(USI_PV_ENDS)("keeps %s out of move arrays", (end) => {
+    expect(isUSIPVEnd(end)).toBe(true);
+    expect(parseUSIPV(new Position(), ["7g7f", end]).map((move) => move.usi)).toEqual(["7g7f"]);
+    expect(parseUSIPV(new Position(), [end])).toEqual([]);
+    expect(hasUSIPVMoves([end])).toBe(false);
+    expect(hasUSIPVMoves(["7g7f", end])).toBe(true);
+  });
+
+  it("does not mistake unknown tokens or missing PVs for moves or known endings", () => {
+    for (const value of [undefined, null, "rep_none", "rep_draw_extra", "7g7f"])
+      expect(isUSIPVEnd(value)).toBe(false);
+    expect(hasUSIPVMoves(undefined)).toBe(false);
+    expect(hasUSIPVMoves([])).toBe(false);
+    expect(hasUSIPVMoves(["invalid"])).toBe(false);
   });
 
   it("normalizes indefinite mate scores", () => {

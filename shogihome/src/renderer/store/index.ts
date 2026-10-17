@@ -50,7 +50,7 @@ import { MateSearchSettings } from "@/common/settings/mate";
 import { LogLevel } from "@/common/log";
 import { GameClockDisplay } from "./game_clock.js";
 import type { GameSnapshot } from "@/common/game/protocol";
-import { type USIInfoCommand } from "@/common/game/usi";
+import { hasUSIPVMoves, type USIInfoCommand } from "@/common/game/usi";
 import { ResearchManager } from "./research.js";
 import { SearchInfo } from "@/renderer/players/player";
 import { useAppSettings } from "./settings.js";
@@ -819,7 +819,7 @@ class Store {
         if (info.multiPV && info.multiPV > appSettings.maxArrowsPerEngine) {
           break;
         }
-        if (!info.pv?.length) {
+        if (!hasUSIPVMoves(info.pv)) {
           continue;
         }
         const score =

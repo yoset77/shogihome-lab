@@ -165,6 +165,10 @@ export const zh_tw: Texts = {
   impass: "持將棋",
   repetitionDraw: "千日手",
   repetition: "千日手",
+  perpetualCheckRepetition: "連續王手千日手",
+  superiorPosition: "優等局面",
+  inferiorPosition: "劣等局面",
+  pvEndLabel: (reason: string) => `（${reason}）`,
   mate: "詰死",
   noMate: "無詰",
   blackWin: "先手勝ち", // TODO: Translate

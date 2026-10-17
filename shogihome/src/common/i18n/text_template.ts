@@ -163,6 +163,10 @@ export type Texts = {
   impass: string;
   repetitionDraw: string;
   repetition: string;
+  perpetualCheckRepetition: string;
+  superiorPosition: string;
+  inferiorPosition: string;
+  pvEndLabel: (reason: string) => string;
   mate: string;
   noMate: string;
   blackWin: string;

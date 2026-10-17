@@ -9,7 +9,7 @@ import {
   exportAnalysisResultsByEngine,
   closeDatabase,
 } from "@/server/database/sqlite";
-import { USIInfoCommand } from "@/common/game/usi";
+import { USIInfoCommand, USI_PV_ENDS } from "@/common/game/usi";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -300,6 +300,22 @@ describe("background/database/sqlite", () => {
     expect(lines[1]).toBe("sfen sfen-data 1\n");
     expect(lines[2]).toBe("7g7f none 50 15 \n");
     expect(lines[3]).toBe("2g2f none -20 15 \n");
+  });
+
+  it.each(USI_PV_ENDS)("preserves %s in the DB without exporting it as a book move", (end) => {
+    const infos = new Map<number, USIInfoCommand>([[1, { depth: 15, scoreCP: 0, pv: [end] }]]);
+    saveAnalysisResults(1n, "sfen-data", "engine-1", "Engine 1", infos);
+    const engineId = getAnalysisDBStats()[0].id;
+    expect(getAnalysisResults(1n, "sfen-data")[0]).toMatchObject({ score_cp: 0, pv: end });
+    expect([...exportAnalysisResultsByEngine(engineId)]).toEqual(["#YANEURAOU-DB2016 1.00\n"]);
+
+    infos.set(2, { depth: 15, scoreCP: 0, pv: ["7g7f", end] });
+    saveAnalysisResults(1n, "sfen-data", "engine-1", "Engine 1", infos);
+    expect([...exportAnalysisResultsByEngine(engineId)]).toEqual([
+      "#YANEURAOU-DB2016 1.00\n",
+      "sfen sfen-data 1\n",
+      "7g7f none 0 15 \n",
+    ]);
   });
 
   it("should exclude bounded results from YaneuraOu export", () => {
