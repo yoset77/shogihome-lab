@@ -50,7 +50,7 @@ import { MateSearchSettings } from "@/common/settings/mate";
 import { LogLevel } from "@/common/log";
 import { GameClockDisplay } from "./game_clock.js";
 import type { GameSnapshot } from "@/common/game/protocol";
-import { hasUSIPVMoves, type USIInfoCommand } from "@/common/game/usi";
+import { hasUSIPVMoves, type USIInfoCommand, type USIPVEnd } from "@/common/game/usi";
 import { ResearchManager } from "./research.js";
 import { SearchInfo } from "@/renderer/players/player";
 import { useAppSettings } from "./settings.js";
@@ -165,6 +165,7 @@ export type PVPreview = {
   lowerBound?: boolean;
   upperBound?: boolean;
   pv: Move[];
+  pvEnd?: USIPVEnd;
 };
 
 export enum EvaluationArea {

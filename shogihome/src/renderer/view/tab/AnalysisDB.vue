@@ -133,7 +133,7 @@ import { NodeCountFormat, AnalysisDBSearchMode } from "@/common/settings/app";
 import { AppState } from "@/common/control/state";
 import { Move, Color } from "tsshogi";
 import { formatDisplayPV } from "@/renderer/helpers/pv";
-import { ScoreBound } from "@/common/game/usi";
+import { ScoreBound, type USIPVEnd } from "@/common/game/usi";
 import { getDisplayEvaluation } from "@/renderer/helpers/evaluation";
 import {
   assertOkResponse,
@@ -174,6 +174,7 @@ interface FormattedInfo {
   scoreText: string | number;
   scoreFlag: string;
   pv: Move[];
+  pvEnd?: USIPVEnd;
   pvText: string;
   color: Color;
   scoreCp?: number;
@@ -307,11 +308,11 @@ const formattedResults = computed<FormattedInfo[]>(() => {
     }
     const scoreFlag = displayEvaluation?.scoreFlag ?? "";
 
-    const { parsedPv, text: pvText } = formatDisplayPV(
-      position,
-      r.pv?.split(" "),
-      appSettings.analysisDBMaxPVLength,
-    );
+    const {
+      parsedPv,
+      pvEnd,
+      text: pvText,
+    } = formatDisplayPV(position, r.pv?.split(" "), appSettings.analysisDBMaxPVLength);
 
     return {
       id: `${r.engine_name}-${r.multipv}-${index}`,
@@ -325,6 +326,7 @@ const formattedResults = computed<FormattedInfo[]>(() => {
       scoreText,
       scoreFlag,
       pv: parsedPv,
+      pvEnd,
       pvText,
       color: position.color,
       scoreCp: r.score_cp ?? undefined,
@@ -356,6 +358,7 @@ const showPreview = (info: FormattedInfo) => {
       lowerBound: info.scoreBound === "lower",
       upperBound: info.scoreBound === "upper",
       pv: pvMoves,
+      pvEnd: pvMoves.length === info.pv.length ? info.pvEnd : undefined,
     });
   }
 };

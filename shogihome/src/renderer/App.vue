@@ -73,6 +73,7 @@
       :lower-bound="store.pvPreview.lowerBound"
       :upper-bound="store.pvPreview.upperBound"
       :pv="store.pvPreview.pv"
+      :pv-end="store.pvPreview.pvEnd"
       @close="store.closePVPreviewDialog()"
     />
     <PVPreviewDialogMobile
@@ -89,6 +90,7 @@
       :lower-bound="store.pvPreview.lowerBound"
       :upper-bound="store.pvPreview.upperBound"
       :pv="store.pvPreview.pv"
+      :pv-end="store.pvPreview.pvEnd"
       @close="store.closePVPreviewDialog()"
     />
     <!-- PCブラウザの場合のみライセンスへの遷移が無いので、画面の隅にボタンを表示する。 -->

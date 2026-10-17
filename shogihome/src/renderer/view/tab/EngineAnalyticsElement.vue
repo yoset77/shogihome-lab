@@ -224,7 +224,7 @@ import { readInputAsNumber } from "@/renderer/helpers/form";
 import { useConfirmationStore } from "@/renderer/store/confirm";
 import { AppState, ResearchState } from "@/common/control/state.js";
 import { getDisplayEvaluation } from "@/renderer/helpers/evaluation";
-import { hasUSIPVMoves } from "@/common/game/usi";
+import { hasUSIPVMoves, isUSIPVEnd, type USIPVEnd } from "@/common/game/usi";
 
 let ignoreSuggestionsCountLimit = false;
 const suggestionsCountLimit = 10;
@@ -340,7 +340,12 @@ const showPreview = (ite: USIInfo) => {
   }
   const pos = position.clone();
   const pv: Move[] = [];
-  for (const usiMove of ite.pv || []) {
+  let pvEnd: USIPVEnd | undefined;
+  for (const [index, usiMove] of ite.pv.entries()) {
+    if (index === ite.pv.length - 1 && isUSIPVEnd(usiMove)) {
+      pvEnd = usiMove;
+      break;
+    }
     const move = pos.createMoveByUSI(usiMove);
     if (!move || !pos.doMove(move)) {
       break;
@@ -361,6 +366,7 @@ const showPreview = (ite: USIInfo) => {
     lowerBound: ite.lowerBound,
     upperBound: ite.upperBound,
     pv,
+    pvEnd,
   });
 };
 

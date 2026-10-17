@@ -7,6 +7,7 @@ import { Color, Position, Record } from "tsshogi";
 import { EvaluationViewFrom } from "@/common/settings/app";
 import { parseAnalysisInfo } from "@/common/analysis/types";
 import { yaneuraouRepetitionInfos, yaneuraouRepetitionPosition } from "@/tests/helpers/usi";
+import { USI_PV_ENDS } from "@/common/game/usi";
 
 // Mock store and settings
 const mockStore = reactive({
@@ -79,15 +80,34 @@ describe("EngineAnalyticsElement", () => {
       expect(wrapper.find("tbody button,.play-button").exists()).toBe(false);
     });
 
-    it("previews only the moves before the ending", async () => {
+    it.each(USI_PV_ENDS)("passes %s separately from preview moves", async (end) => {
       const monitor = new USIPlayerMonitor(200000, "YaneuraOu");
-      monitor.update(new Position().sfen, { pv: ["7g7f", "rep_draw"] }, 100);
+      monitor.update(new Position().sfen, { pv: ["7g7f", end] }, 100);
       const wrapper = shallowMount(EngineAnalyticsElement, {
         props: { monitor, height: 300, historyMode, mobileLayout },
       });
       await wrapper.find("tbody button,.play-button").trigger("click");
       const request = mockStore.showPVPreviewDialog.mock.lastCall?.[0];
       expect(request.pv.map((move: { usi: string }) => move.usi)).toEqual(["7g7f"]);
+      expect(request.pvEnd).toBe(end);
+    });
+
+    it.each([
+      { pv: ["7g7f", "invalid", "rep_draw"] },
+      { pv: ["7g7f", "3c3b", "rep_draw"] },
+      { pv: ["7g7f", "rep_draw", "3c3d"] },
+      { pv: ["7g7f", "rep_unknown"] },
+      { pv: ["7g7f"] },
+    ])("does not pass an ending for PV $pv", async ({ pv }) => {
+      const monitor = new USIPlayerMonitor(200000, "YaneuraOu");
+      monitor.update(new Position().sfen, { pv }, 100);
+      const wrapper = shallowMount(EngineAnalyticsElement, {
+        props: { monitor, height: 300, historyMode, mobileLayout },
+      });
+      await wrapper.find("tbody button,.play-button").trigger("click");
+      const request = mockStore.showPVPreviewDialog.mock.lastCall?.[0];
+      expect(request.pv.map((move: { usi: string }) => move.usi)).toEqual(["7g7f"]);
+      expect(request.pvEnd).toBeUndefined();
     });
   });
 

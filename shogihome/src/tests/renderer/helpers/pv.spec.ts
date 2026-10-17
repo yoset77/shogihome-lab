@@ -19,9 +19,11 @@ describe("renderer/helpers/pv", () => {
   ])("formats %s as a parenthesized label, not an unread move", (end, label) => {
     const result = formatDisplayPV(position!, ["7g7f", end], 1);
     expect(result.parsedPv.map((move) => move.usi)).toEqual(["7g7f"]);
+    expect(result.pvEnd).toBe(end);
     expect(result.text).toBe(`☗７六歩 （${label}）`);
     expect(formatDisplayPV(position!, [end], 1)).toEqual({
       parsedPv: [],
+      pvEnd: end,
       text: `（${label}）`,
     });
   });
@@ -29,6 +31,7 @@ describe("renderer/helpers/pv", () => {
   it("preserves the ending when the displayed move text is truncated", () => {
     const result = formatDisplayPV(position!, ["7g7f", "3c3d", "rep_draw"], 1);
     expect(result.parsedPv).toHaveLength(2);
+    expect(result.pvEnd).toBe("rep_draw");
     expect(result.text).toBe("☗７六歩 ... （千日手）");
   });
 
@@ -36,8 +39,11 @@ describe("renderer/helpers/pv", () => {
     for (const pv of [
       ["7g7f", "invalid", "rep_draw"],
       ["7g7f", "rep_draw", "3c3d"],
-    ])
-      expect(formatDisplayPV(position!, pv, 10).text).toBe("☗７六歩 ...");
+    ]) {
+      const result = formatDisplayPV(position!, pv, 10);
+      expect(result.text).toBe("☗７六歩 ...");
+      expect(result.pvEnd).toBeUndefined();
+    }
   });
 
   it("uses the current translation for PV endings", () => {
