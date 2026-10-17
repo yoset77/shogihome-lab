@@ -47,6 +47,8 @@ Wrapperはengine定義・optionを解決し、必要に応じてMiddle Serverを
 
 Process treeの所有と回収は共有 [`process/`](../../engine-wrapper/process/) に集約します。親processが先に終了しても子孫の所有権を失わず、接続終了やrelay失敗時に回収します。
 
+[`admission.rs`](../../engine-wrapper/wrapper/src/admission.rs) は全TCP接続と初期通信待ちの枠を別々に制限し、超過接続をタスク生成前に拒否します。認証と初期commandには接続受理から共通の絶対期限を適用します。これらはUSI状態とは独立した通信境界の制限です。
+
 設定値と解決規則は [`wrapper/`](../../engine-wrapper/wrapper/) と [`.env.example`](../../engine-wrapper/.env.example) を正本とします。Launcherからの起動・設定編集の境界は [Launcher Architecture](launcher.md) を参照してください。設定エディタはリソース予算を GUI から編集でき、初期値として実行マシンの論理コア数を提案します。
 
 ## Lifecycle
