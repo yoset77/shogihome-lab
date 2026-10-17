@@ -3,8 +3,10 @@ import EngineAnalyticsElement from "@/renderer/view/tab/EngineAnalyticsElement.v
 import { USIInfo, USIPlayerMonitor } from "@/renderer/store/usi";
 import { AppState, ResearchState } from "@/common/control/state";
 import { reactive } from "vue";
-import { Color } from "tsshogi";
+import { Color, Position, Record } from "tsshogi";
 import { EvaluationViewFrom } from "@/common/settings/app";
+import { parseAnalysisInfo } from "@/common/analysis/types";
+import { yaneuraouRepetitionInfos, yaneuraouRepetitionPosition } from "@/tests/helpers/usi";
 
 // Mock store and settings
 const mockStore = reactive({
@@ -19,6 +21,7 @@ const mockStore = reactive({
     return this._isPaused;
   },
   getResearchMultiPV: vi.fn(),
+  showPVPreviewDialog: vi.fn(),
 });
 
 vi.mock("@/renderer/store", () => ({
@@ -39,6 +42,53 @@ describe("EngineAnalyticsElement", () => {
 
   beforeEach(() => {
     mockSettings.evaluationViewFrom = EvaluationViewFrom.EACH;
+    mockStore.showPVPreviewDialog.mockClear();
+  });
+
+  describe.each([
+    { historyMode: false, mobileLayout: false },
+    { historyMode: true, mobileLayout: false },
+    { historyMode: false, mobileLayout: true },
+  ])("PV display $historyMode / $mobileLayout", ({ historyMode, mobileLayout }) => {
+    it("renders all real engine candidates including the zero-valued repetition", () => {
+      const record = Record.newByUSI(yaneuraouRepetitionPosition) as Record;
+      const monitor = new USIPlayerMonitor(200000, "YaneuraOu");
+      for (const line of yaneuraouRepetitionInfos)
+        monitor.update(record.position.sfen, parseAnalysisInfo(line)!, 100);
+      const wrapper = shallowMount(EngineAnalyticsElement, {
+        props: { monitor, height: 300, historyMode, mobileLayout },
+      });
+      const rows = wrapper.findAll(".list-item,.mobile-pv-card");
+      expect(rows).toHaveLength(10);
+      const repetition = rows.find((row) => row.text().includes("（千日手）"))!;
+      expect(repetition.text()).toContain("☖５一玉 （千日手）");
+      expect(repetition.find(".score").text()).toMatch(/0$/);
+    });
+
+    it.each([
+      ["win", "宣言勝ち"],
+      ["resign", "投了"],
+    ])("renders standalone %s without a preview button", (end, label) => {
+      const monitor = new USIPlayerMonitor(200000, "YaneuraOu");
+      monitor.update(new Position().sfen, { pv: [end] }, 100);
+      const wrapper = shallowMount(EngineAnalyticsElement, {
+        props: { monitor, height: 300, historyMode, mobileLayout },
+      });
+      expect(wrapper.findAll(".list-item,.mobile-pv-card")).toHaveLength(1);
+      expect(wrapper.text()).toContain(`（${label}）`);
+      expect(wrapper.find("tbody button,.play-button").exists()).toBe(false);
+    });
+
+    it("previews only the moves before the ending", async () => {
+      const monitor = new USIPlayerMonitor(200000, "YaneuraOu");
+      monitor.update(new Position().sfen, { pv: ["7g7f", "rep_draw"] }, 100);
+      const wrapper = shallowMount(EngineAnalyticsElement, {
+        props: { monitor, height: 300, historyMode, mobileLayout },
+      });
+      await wrapper.find("tbody button,.play-button").trigger("click");
+      const request = mockStore.showPVPreviewDialog.mock.lastCall?.[0];
+      expect(request.pv.map((move: { usi: string }) => move.usi)).toEqual(["7g7f"]);
+    });
   });
 
   it("paused logic for research session on mobile", async () => {

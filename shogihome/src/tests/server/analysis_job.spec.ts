@@ -8,6 +8,8 @@ import { CommentBehavior } from "@/common/settings/comment";
 import { restoreRecord } from "@/common/record/snapshot";
 import { HttpError } from "@/server/errors";
 import { FakeResearchEngine, requestFor } from "./helpers/analysis";
+import { USI_PV_ENDS } from "@/common/game/usi";
+import { decodeAnalysisStatus } from "@/common/analysis/types";
 
 const config = async () => ({ id: "test", name: "my usi engine" });
 const basicComment = (score: number) => `互角\n#評価値=${score}\n#エンジン=my usi engine\n`;
@@ -338,6 +340,29 @@ describe("server analysis jobs", () => {
     job.cancel();
     await vi.advanceTimersByTimeAsync(0);
     await job.completion;
+  });
+
+  it.each(USI_PV_ENDS)("round trips live %s without adding it to record snapshots", async (end) => {
+    const engine = new FakeResearchEngine();
+    const job = new AnalysisJob("job", requestFor(), engine, config);
+    job.start();
+    await vi.advanceTimersByTimeAsync(0);
+    try {
+      engine.output!(`info depth 10 score cp 0 lowerbound pv 7g7f ${end}`);
+      expect(job.status().current?.infos[0]).toMatchObject({ pv: ["7g7f", end], scoreCP: 0 });
+      expect(job.result().nodes[0].researchInfo?.pv?.map((move) => move.usi)).toEqual(["7g7f"]);
+      engine.output!(`info depth 11 score cp 0 pv ${end}`);
+      expect(job.result().nodes[0].researchInfo).toMatchObject({ score: 0, pv: [] });
+      const status = job.status();
+      expect(decodeAnalysisStatus(JSON.parse(JSON.stringify(status)))).toEqual({
+        ok: true,
+        value: status,
+      });
+    } finally {
+      job.cancel();
+      await vi.advanceTimersByTimeAsync(0);
+      await job.completion;
+    }
   });
 
   describe.each([

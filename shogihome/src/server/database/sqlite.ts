@@ -1,7 +1,7 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import path from "node:path";
 import fs from "node:fs";
-import { ScoreBound, USIInfoCommand } from "@/common/game/usi";
+import { isUSIPVEnd, ScoreBound, USIInfoCommand } from "@/common/game/usi";
 
 let db: DatabaseSync | null = null;
 let insertPositionStmt: StatementSync | null = null;
@@ -446,13 +446,15 @@ export function* exportAnalysisResultsByEngine(engineId: number): Generator<stri
     depth: number;
     pv: string | null;
   }>) {
+    const usi = row.pv ? row.pv.split(" ")[0] : "none";
+    if (isUSIPVEnd(usi)) continue;
+
     if (row.sfen !== currentSfen) {
       // 局面の出力。末尾に手数 1 を付与する
       yield `sfen ${row.sfen} 1\n`;
       currentSfen = row.sfen;
     }
 
-    const usi = row.pv ? row.pv.split(" ")[0] : "none";
     const usi2 = "none";
     let scoreText = "none";
     if (row.score_mate !== null) {

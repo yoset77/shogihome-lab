@@ -1,4 +1,4 @@
-import { Color, ImmutablePosition, Move } from "tsshogi";
+import { Color, ImmutablePosition, Move, parseUSIMove } from "tsshogi";
 import type { SearchInfo } from "./player";
 
 // SCORE_MATE_INFINITE は詰みを発見したが手数までは確定していない場合に使用する値です。
@@ -6,12 +6,31 @@ export const SCORE_MATE_INFINITE = 10000;
 
 export type ScoreBound = "exact" | "lower" | "upper";
 
+export const USI_PV_ENDS = [
+  "rep_draw",
+  "rep_win",
+  "rep_lose",
+  "rep_sup",
+  "rep_inf",
+  "win",
+  "resign",
+] as const;
+export type USIPVEnd = (typeof USI_PV_ENDS)[number];
+
+export function isUSIPVEnd(value: unknown): value is USIPVEnd {
+  return typeof value === "string" && (USI_PV_ENDS as readonly string[]).includes(value);
+}
+
+export function hasUSIPVMoves(pv: string[] | undefined): pv is [string, ...string[]] {
+  return !!pv?.length && !!parseUSIMove(pv[0]);
+}
+
 export type USIInfoCommand = {
   depth?: number;
   seldepth?: number;
   timeMs?: number;
   nodes?: number;
-  pv?: string[];
+  pv?: string[]; // USI moves, optionally followed by one USIPVEnd token.
   multipv?: number;
   scoreCP?: number;
   scoreMate?: number;
@@ -67,7 +86,8 @@ function parseScoreMate(arg: string): number {
 
 export function parseInfoCommand(infoStr: string): USIInfoCommand {
   const result: USIInfoCommand = {};
-  const s = infoStr.split(" ");
+  const tokens = [...infoStr.matchAll(/\S+/g)];
+  const s = tokens.map((token) => token[0]);
   const start = s[0] === "info" ? 1 : 0;
   for (let i = start; i < s.length; i += 1) {
     switch (s[i]) {
@@ -126,7 +146,8 @@ export function parseInfoCommand(infoStr: string): USIInfoCommand {
         i += 1;
         break;
       case "string":
-        result.string = s.slice(i + 1).join(" ");
+        // Keep the message verbatim after its first separating whitespace.
+        result.string = infoStr.slice(tokens[i].index + s[i].length + 1);
         i = s.length;
         break;
     }

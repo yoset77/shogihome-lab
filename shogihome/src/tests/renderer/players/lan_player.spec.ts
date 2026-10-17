@@ -7,6 +7,9 @@ import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "@/renderer/players/
 import { BookMoveSelectionRule } from "@/common/settings/usi";
 import { decodeServerRelayMessage, type ServerRelayMessage } from "@/common/engine/relay_protocol";
 import { flippedSFEN } from "@/common/helpers/sfen";
+import { USI_PV_ENDS } from "@/common/game/usi";
+import { USIPlayerMonitor } from "@/renderer/store/usi";
+import { yaneuraouRepetitionInfos, yaneuraouRepetitionPosition } from "@/tests/helpers/usi";
 
 vi.mock("@/renderer/network/lan_engine");
 vi.mock("@/renderer/ipc/api");
@@ -97,6 +100,51 @@ describe("LanPlayer", () => {
     sendMsg(msg);
     await launchPromise;
   }
+
+  it("preserves all real YaneuraOu MultiPV candidates, including the zero-valued repetition", async () => {
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine");
+    await launchPlayer(player);
+    const record = Record.newByUSI(yaneuraouRepetitionPosition) as Record;
+    await player.startResearch(record.position, yaneuraouRepetitionPosition);
+    for (const info of yaneuraouRepetitionInfos)
+      sendMsg({ sfen: yaneuraouRepetitionPosition, info });
+
+    expect(dispatchUSIInfoUpdate).toHaveBeenCalledTimes(10);
+    const monitor = new USIPlayerMonitor(player.sessionID, player.name);
+    for (const [, position, , info] of vi.mocked(dispatchUSIInfoUpdate).mock.calls)
+      monitor.update(position.sfen, info, 100);
+    expect(monitor.infoList).toHaveLength(10);
+    expect(monitor.latestInfo.map((info) => info.multiPV)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(monitor.latestInfo[3]).toMatchObject({
+      score: 0,
+      pv: ["6b5a", "rep_draw"],
+      text: "☖５一玉 （千日手）",
+    });
+  });
+
+  it.each(USI_PV_ENDS)("publishes a standalone %s and clears the previous move PV", async (end) => {
+    const onSearchInfo = vi.fn();
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine", 10, onSearchInfo);
+    await launchPlayer(player);
+    const usi = "position startpos";
+    await player.startResearch(new Position(), usi);
+    sendMsg({ sfen: usi, info: "info depth 10 score cp 100 pv 7g7f" });
+    vi.advanceTimersByTime(500);
+    vi.mocked(dispatchUSIInfoUpdate).mockClear();
+
+    sendMsg({ sfen: usi, info: `info depth 11 score cp 0 pv ${end}` });
+    vi.advanceTimersByTime(500);
+    expect(dispatchUSIInfoUpdate).toHaveBeenCalledExactlyOnceWith(
+      player.sessionID,
+      expect.anything(),
+      player.name,
+      { depth: 11, scoreCP: 0, pv: [end] },
+    );
+    expect(onSearchInfo).toHaveBeenLastCalledWith(expect.objectContaining({ score: 0, pv: [] }));
+
+    sendMsg({ sfen: "position startpos moves 7g7f", info: `info pv ${end}` });
+    expect(dispatchUSIInfoUpdate).toHaveBeenCalledOnce();
+  });
 
   it("updateInfo should filter multipv > 1 and use throttling", async () => {
     const onSearchInfo = vi.fn();

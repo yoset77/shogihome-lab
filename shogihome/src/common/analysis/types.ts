@@ -11,7 +11,7 @@ import {
   type DecodeResult,
 } from "@/common/engine/relay_protocol";
 import { parseUSIMove } from "tsshogi";
-import { parseInfoCommand, type USIInfoCommand } from "@/common/game/usi";
+import { isUSIPVEnd, parseInfoCommand, type USIInfoCommand } from "@/common/game/usi";
 import {
   decodeRecordSnapshot,
   readSearchInfo,
@@ -234,7 +234,8 @@ export function readUSIInfo(value: unknown): USIInfoCommand {
   )
     throw new Error("Invalid score bound");
   if (input.pv !== undefined)
-    result.pv = v.array(input.pv, MAX_SNAPSHOT_PV).map((value) => {
+    result.pv = v.array(input.pv, MAX_SNAPSHOT_PV).map((value, index, pv) => {
+      if (index === pv.length - 1 && isUSIPVEnd(value)) return value;
       const move = v.text(value, 5);
       if (!parseUSIMove(move)) throw new Error("Invalid PV");
       return move;
@@ -248,10 +249,15 @@ export function readUSIInfo(value: unknown): USIInfoCommand {
 }
 
 export function parseAnalysisInfo(line: string): USIInfoCommand | null {
-  if (!line.startsWith("info ")) return null;
+  if (!/^info\s/.test(line)) return null;
   try {
     const info = parseInfoCommand(line);
-    if (info.pv) info.pv = info.pv.slice(0, MAX_SNAPSHOT_PV);
+    if (info.pv) {
+      // Do not turn a misplaced terminator into a valid suffix by truncating its tail.
+      if (info.pv.some((move, index, pv) => isUSIPVEnd(move) && index !== pv.length - 1))
+        return null;
+      info.pv = info.pv.slice(0, MAX_SNAPSHOT_PV);
+    }
     if (info.string) info.string = info.string.substring(0, 4096);
     return readUSIInfo(info);
   } catch {

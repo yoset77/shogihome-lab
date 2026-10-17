@@ -85,6 +85,8 @@ Browser切断ではなくownerの完了・取消・失敗がcleanupを決定し�
 
 ## Protocol Ownership
 
+探索情報のPVは、指し手列に既知の拡張USI終端注記を付加できます。[共通の定義](../../shogihome/src/common/game/usi.ts)と[decoder](../../shogihome/src/common/analysis/types.ts)が受理する範囲を所有し、[表示helper](../../shogihome/src/renderer/helpers/pv.ts)が注記を描画します。注記は指し手や実対局の終局通知ではなく、盤面操作・棋譜の指し手列・session状態遷移には使用しません。
+
 ### Identified Search and Cancellation
 
 識別付き探索はsession実体IDと単調増加する探索IDで要求・結果を照合します。Raw USI relayは互換経路であり、識別付き探索の保証と同一視しません。

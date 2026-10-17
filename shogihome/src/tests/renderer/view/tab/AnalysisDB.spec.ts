@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RectSize } from "@/common/assets/geometry";
 import { t } from "@/common/i18n";
 import AnalysisDB from "@/renderer/view/tab/AnalysisDB.vue";
+import { Record } from "tsshogi";
+import { yaneuraouRepetitionPosition } from "@/tests/helpers/usi";
 
 const storeMock = vi.hoisted(() => ({
   appState: "normal",
@@ -43,6 +45,7 @@ describe("AnalysisDB", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    storeMock.record.position = { sfen: "startpos" };
   });
 
   afterEach(() => {
@@ -128,6 +131,46 @@ describe("AnalysisDB", () => {
     expect(errorAddMock).not.toHaveBeenCalled();
 
     wrapper.unmount();
+  });
+
+  it.each([
+    ["6b5a rep_draw", "☖５一玉 （千日手）", true],
+    ["win", "（宣言勝ち）", false],
+    ["resign", "（投了）", false],
+  ])("renders stored PV %s with the same ending labels", async (pv, text, playable) => {
+    storeMock.record.position = (Record.newByUSI(yaneuraouRepetitionPosition) as Record).position;
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            engine_id: 1,
+            engine_name: "YaneuraOu",
+            multipv: 4,
+            depth: 8,
+            seldepth: 12,
+            nodes: 33863,
+            score_cp: 0,
+            score_mate: null,
+            score_bound: "exact",
+            pv,
+            updated_at: 0,
+          },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const wrapper = mount(AnalysisDB, {
+      props: { size: new RectSize(320, 240) },
+      global: { stubs: { Icon: true } },
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(300);
+      await nextTick();
+      expect(wrapper.text()).toContain(text);
+      expect(wrapper.find("tbody .text button:not(.icon-only)").exists()).toBe(playable);
+    } finally {
+      wrapper.unmount();
+    }
   });
 
   it("shows an error dialog when deleting a record fails", async () => {
