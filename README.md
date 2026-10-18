@@ -1,15 +1,23 @@
 # ShogiHome Lab
 
-[![AI-Driven Development](https://img.shields.io/badge/AI%20Driven-Development-9b59b6.svg)](https://github.com/yoset77/shogihome-lab/blob/main/AGENTS.md)
 [![CI](https://github.com/yoset77/shogihome-lab/actions/workflows/test.yml/badge.svg)](https://github.com/yoset77/shogihome-lab/actions/workflows/test.yml)
 
 [ShogiHome](https://github.com/sunfish-shogi/shogihome) をフォークし、クライアント・サーバー型にした改造版です。  
 USIエンジンの実行や、棋譜・定跡などのデータをサーバーサイドに集約することで、デバイスを選ばずブラウザから将棋研究が行えます。
 
-> **セキュリティに関する注意**
-> 
-> 本アプリケーションは、**信頼できるプライベートネットワーク（自宅のWi-FiやVPN内など）での個人利用**を前提に設計されています。
-> ポート開放を行ってインターネットに直接公開することは推奨しません。外出先からの利用にはVPN（Tailscale等）をご利用ください。
+## 利用にあたって
+
+### 想定する利用環境
+
+本アプリケーションは、**信頼できるプライベートネットワーク（自宅のWi-FiやVPN内など）での個人利用**を想定しています。
+ユーザー認証（ログイン）機能はなく、インターネットへの直接公開や、不特定多数での利用は想定していません。
+外出先からの利用にはVPN（Tailscale等）をご利用ください。
+
+### 開発について
+
+本フォークで独自に追加・変更したコードは、AIによって生成されています。
+作者自身はコードを確認していません。
+自動テスト・静的チェックなどを[CI](.github/workflows/test.yml)で行っています。
 
 ## スクリーンショット
 <table>
@@ -44,7 +52,7 @@ USIエンジンの実行や、棋譜・定跡などのデータをサーバー�
 本リポジトリは、以下の2つの主要なモジュールで構成されています。
 
 - **`shogihome/`**: Webサーバーおよびフロントエンド（TypeScript/Vue.js）。
-- **`engine-wrapper/`**: USIエンジンのプロセス管理とTCP公開を担うエンジンラッパー（Rust）。設定編集・常駐UIは Tauri 製ランチャー（`launcher-app/` + `launcher/`）です。
+- **`engine-wrapper/`**: USIエンジンのプロセス管理とTCP公開を担うエンジンラッパー（Rust）、および設定編集・常駐UIを担うランチャー（Tauri）。
 
 ---
 
@@ -126,7 +134,7 @@ docker compose up -d --build
 
 ```mermaid
 graph LR
-    A["Browser (Frontend)"] -- "WebSocket (ws)" --> B["Middle Server (Node.js)"]
+    A["Browser (Frontend)"] -- "WebSocket (ws)" --> B["Web Server (Node.js)"]
     B -- "TCP Socket (run <id>)" --> C["Engine Wrapper"]
     C -- "Stdin/Stdout" --> D["USI Engine (YaneuraOu, etc.)"]
 ```
@@ -141,30 +149,28 @@ graph LR
 
 モジュール境界、信頼境界、Vision worker、データストアを含む詳細は [ARCHITECTURE.md](ARCHITECTURE.md) を参照してください。
 
-### セキュリティ
-
-本アプリケーションは以下のセキュリティ対策を実装していますが、ユーザー認証（ログイン）機能はありません。
-信頼できるプライベートネットワーク内でのみ利用してください。
-
-- **USIコマンドバリデーション:** サーバー側でコマンドを検証し、コマンドインジェクションを防ぎます。
-- **オリジン制限:** WebSocket接続と状態を変更するHTTPリクエストでオリジンを検証し、許可されたオリジン以外からの接続・操作を拒否します。ブラウザ以外のAPIクライアントも、unsafe HTTP methodでは許可済みの`Origin`ヘッダーが必要です。
-- **HTTPヘッダー保護:** Hono secure-headersを使用し、適切なCSP (Content Security Policy) 等を設定しています。
-- **エンジン接続認証:** `WRAPPER_ACCESS_TOKEN` でWebサーバーからエンジンラッパーへの接続を認証（HMAC-SHA256）します。
 ---
 
-## 応用
+## ネットワークとセキュリティ
 
-### ネットワークの設定
+### 実装している対策
 
-#### VPN
+本アプリケーションは、以下のセキュリティ対策を実装しています。
 
-[Tailscale](https://tailscale.com/) などのVPNサービスを利用することで、外出先からもアクセスすることができます。
-以下では、Tailscale を使った手順を説明します。
+- **USIコマンドバリデーション:** サーバー側でコマンドを検証し、コマンドインジェクションを防止しています。
+- **オリジン制限:** WebSocket接続と状態を変更するHTTPリクエストでオリジンを検証し、許可されたオリジン以外からの接続・操作を拒否します。ブラウザ以外のAPIクライアントも、unsafe HTTP methodでは許可済みの`Origin`ヘッダーが必要です。
+- **HTTPヘッダー保護:** Hono secure-headersを使用し、適切なCSP (Content Security Policy) 等を設定しています。
+- **エンジン接続認証:** 環境変数 (`WRAPPER_ACCESS_TOKEN`) を設定することで、Webサーバーからエンジンラッパーへの接続を認証（HMAC-SHA256）します。ラッパーがループバック以外で待ち受ける場合は設定が必須です。
+
+### VPN
+
+VPNを利用することで、外出先からもアクセスすることができます。
+以下では、[Tailscale](https://tailscale.com/) を使った手順を説明します。
 
 1.  **VPN接続:** PCとスマホに Tailscale をインストールして、同じアカウントでログインします。
 2.  **アクセス:** スマホのブラウザから `http://[PCのTailscale IP]:8140` にアクセスします。
 
-#### リバースプロキシ / HTTPS
+### リバースプロキシ / HTTPS
 
 `tailscale serve` などのリバースプロキシを使うことで、HTTPS化が行えます。
 HTTPS化により、以下のことが可能になります。
@@ -176,15 +182,15 @@ HTTPS化により、以下のことが可能になります。
 
 ---
 
-## Contribution
+## コントリビューション
 
-本プロジェクトは個人の趣味として開発されており、メンテナンスのリソースが限られています。  
+本プロジェクトは個人の趣味として開発されており、メンテナンスのリソースが限られています。
 そのため、**Issue や Pull Request をいただいても、対応できない場合や返信が遅れる場合があります。**
 あらかじめご了承ください。
 
 ---
 
-## Acknowledgements
+## 謝辞
 
 - ShogiHome Lab は、[Kubo Ryosuke (sunfish-shogi)](https://github.com/sunfish-shogi) 氏によって開発された [ShogiHome](https://github.com/sunfish-shogi/shogihome) をベースにしたハードフォークです。
   オリジナルの作者に深く感謝いたします。
@@ -192,7 +198,7 @@ HTTPS化により、以下のことが可能になります。
 
 ---
 
-## Licences
+## ライセンス
 
 ### ShogiHome Lab
 
