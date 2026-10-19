@@ -569,6 +569,8 @@ export class EngineSession {
 
   private setupEngineHandlers(stream: NodeJS.ReadableStream, rl?: readline.Interface) {
     const interface_ = rl || readline.createInterface({ input: stream });
+    // Socket handlers own transport errors; consume readline's forwarded errors.
+    interface_.on("error", () => {});
     interface_.on("line", (line) => {
       if (!line.startsWith("info")) {
         console.log(`Engine output (${this.sessionId}): ${line}`);

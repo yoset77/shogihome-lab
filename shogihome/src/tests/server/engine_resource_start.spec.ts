@@ -5,7 +5,7 @@ import { WebSocket } from "ws";
 import { EngineSession } from "@/server/engine/session";
 import { engineConfigCache, fetchEngineConfigs } from "@/server/engine/list";
 import { resourceRegistry } from "@/server/engine/resources";
-import type { EngineConfig } from "@/server/engine/types";
+import { EngineState, type EngineConfig } from "@/server/engine/types";
 
 vi.mock("@/server/database/sqlite", () => ({ saveAnalysisResults: vi.fn() }));
 vi.mock("@/server/engine/list", async (original) => ({
@@ -47,6 +47,7 @@ describe("relay resource admission", () => {
     socket.emit("message", "stop_engine");
     await new Promise(setImmediate);
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     resourceRegistry.resetForTest();
     engineConfigCache.clear();
   });
@@ -146,6 +147,37 @@ describe("relay resource admission", () => {
     engineSocket.destroy();
     expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
   });
+
+  it.each([undefined, ""])(
+    "handles connected transport errors without authentication (token: %s)",
+    async (token) => {
+      vi.stubEnv("WRAPPER_ACCESS_TOKEN", token);
+      discover(4);
+      socket.emit("message", "start_engine test");
+      await vi.waitFor(() => expect(connect).toHaveBeenCalledOnce());
+      const engineSocket = connect.mock.contexts[0] as net.Socket;
+      const write = vi.spyOn(engineSocket, "write").mockReturnValue(true);
+      try {
+        engineSocket.emit("connect");
+        expect(write).toHaveBeenCalledWith("run test\n");
+        expect(write).toHaveBeenCalledWith("usi\n");
+        engineSocket.emit("data", Buffer.from("usiok\nreadyok\n"));
+        expect(session.internalSnapshot.state).toBe(EngineState.READY);
+        expect(resourceRegistry.groupSnapshot()[0].used).toBe(4);
+        socket.send.mockClear();
+
+        expect(() => engineSocket.emit("error", new Error("Connection reset"))).not.toThrow();
+
+        expect(socket.send).toHaveBeenCalledWith(
+          expect.stringContaining("remote engine connection failed"),
+        );
+        expect(session.internalSnapshot.state).toBe(EngineState.STOPPED);
+        expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+      } finally {
+        engineSocket.destroy();
+      }
+    },
+  );
 
   it("deduplicates pending discovery and does not reserve or connect after cancellation", async () => {
     const pending = Promise.withResolvers<EngineConfig[]>();
