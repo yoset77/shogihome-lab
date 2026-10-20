@@ -7,7 +7,6 @@ import { Mock } from "vitest";
 import type { ServerRelayMessage } from "@/common/engine/relay_protocol";
 
 vi.mock("@/renderer/network/lan_engine");
-vi.mock("@/renderer/players/usi.js");
 
 describe("LanPlayer Time Control", () => {
   let player: LanPlayer;

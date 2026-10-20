@@ -310,14 +310,14 @@ const isValid = computed(() => {
 
 const onStart = async () => {
   const black = { ...settings.black };
-  if (black.uri.startsWith("lan-engine")) {
+  if (uri.isLanEngineURI(black.uri)) {
     black.usi = {
       ...(black.usi || emptyUSIEngine()),
       extraBook: { ...blackExtraBook.value },
     };
   }
   const white = { ...settings.white };
-  if (white.uri.startsWith("lan-engine")) {
+  if (uri.isLanEngineURI(white.uri)) {
     white.usi = {
       ...(white.usi || emptyUSIEngine()),
       extraBook: { ...whiteExtraBook.value },

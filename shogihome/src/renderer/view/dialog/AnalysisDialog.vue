@@ -293,7 +293,7 @@ onMounted(async () => {
 });
 
 const onStart = async () => {
-  const engine = resolveLanEngine(engineURI.value, lanStore.engineList.value);
+  const engine = resolveLanEngine(engineURI.value, lanStore.engineList.value, "research");
   if (!engine) {
     useErrorStore().add(t.engineNotSelected);
     return;

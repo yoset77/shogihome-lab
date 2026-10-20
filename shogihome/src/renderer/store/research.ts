@@ -5,7 +5,7 @@ import { ImmutableRecord } from "tsshogi";
 import { SearchInfoSenderType } from "./record.js";
 import { useAppSettings } from "./settings.js";
 import { Lazy } from "@/renderer/helpers/lazy";
-import { isLanEngineURI } from "@/common/uri";
+import { getLanEngineId, isLanEngineURI } from "@/common/uri";
 import { t } from "@/common/i18n";
 
 function getSenderTypeByIndex(index: number): SearchInfoSenderType | undefined {
@@ -91,7 +91,7 @@ export class ResearchManager {
       const type = getSenderTypeByIndex(index);
 
       const uri = usi!.uri;
-      const engineId = uri === "lan-engine" ? "research" : uri.substring("lan-engine:".length);
+      const engineId = getLanEngineId(uri, "research")!;
       const sessionKey = index === 0 ? "research_main" : `research_sub_${index}`;
       return {
         usi: new LanPlayer(

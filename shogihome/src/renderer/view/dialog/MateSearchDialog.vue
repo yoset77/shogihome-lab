@@ -70,7 +70,7 @@ onMounted(async () => {
 });
 
 const onStart = () => {
-  const engine = resolveLanEngine(engineURI.value, lanStore.engineList.value);
+  const engine = resolveLanEngine(engineURI.value, lanStore.engineList.value, "mate");
   if (!engine) {
     useErrorStore().add(t.engineNotSelected);
     return;

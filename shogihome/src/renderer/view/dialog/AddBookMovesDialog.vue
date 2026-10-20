@@ -37,7 +37,7 @@
       </table>
       <div v-show="activeTab === 'file'" class="form-item row">
         <input v-model="settings.sourceRecordFile" class="grow" type="text" readonly />
-        <button class="thin" @click="selectRecordFile()">
+        <button class="thin" @click="openServerBrowser()">
           {{ t.select }}
         </button>
       </div>
@@ -48,7 +48,7 @@
         :path="currentServerDir"
         :entries="serverSelectionEntries"
         :open="serverSelectionList.length > 0"
-        @open="selectDirectory"
+        @open="openServerBrowser"
         @update:path="onNavigateServerDirectory"
         @select="onSelectServerItem"
       >
@@ -371,7 +371,7 @@ const registerMove = async (move: InMemoryMove) => {
   }
 };
 
-const selectDirectory = async () => {
+const openServerBrowser = async () => {
   busyState.retain();
   try {
     if (currentServerDir.value === "") {
@@ -385,8 +385,6 @@ const selectDirectory = async () => {
     busyState.release();
   }
 };
-
-const selectRecordFile = selectDirectory;
 
 const onSelectServerItem = (entry: { name: string; path: string; isDirectory: boolean }) => {
   if (entry.isDirectory) {

@@ -98,7 +98,7 @@ const extraBook = defineModel<USIEngineExtraBookConfig>("extraBook", { required:
 const showTimeDialog = ref(false);
 const showBookSettingsDialog = ref(false);
 
-const isLanEngine = computed(() => playerUri.value.startsWith("lan-engine"));
+const isLanEngine = computed(() => uri.isLanEngineURI(playerUri.value));
 
 const playerItems = computed(() => {
   const items = [{ value: uri.ES_HUMAN, label: t.human }];
