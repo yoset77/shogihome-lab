@@ -162,7 +162,7 @@ function createRecord(moves: readonly string[]): Record {
   return record;
 }
 
-describe("background/kifu_index/strategy", () => {
+describe("server/kifu_index/strategy", () => {
   it("classifies a known 24-ply mainline with the portable model", () => {
     const result = inferStrategy(createRecord(AIGAKARI_MOVES).first);
 
@@ -234,7 +234,7 @@ describe("background/kifu_index/strategy", () => {
   });
 });
 
-describe("background/kifu_index/strategy selectStrategy", () => {
+describe("server/kifu_index/strategy selectStrategy", () => {
   const YAGURA_GANGI_THRESHOLDS = { 矢倉: 0.7, 雁木: 0.7 };
 
   it("accepts a non-その他 top class that clears its threshold", () => {

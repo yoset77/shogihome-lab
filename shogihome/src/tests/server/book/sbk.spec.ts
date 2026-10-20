@@ -16,7 +16,7 @@ import { SBook } from "@/server/book/proto/sbk";
 import { SbkBook } from "@/server/book/types";
 import { Position } from "tsshogi";
 
-describe("background/book/sbk", () => {
+describe("server/book/sbk", () => {
   async function loadOnTheFlyFromData(data: Uint8Array): Promise<SbkBook> {
     const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "shogihome-sbk-"));
     const filePath = path.join(directory, "book.sbk");

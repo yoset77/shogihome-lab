@@ -9,7 +9,7 @@ import {
 import fs from "node:fs";
 import path from "node:path";
 
-describe("background/database/kifu_index_search_improvement", () => {
+describe("server/database/kifu_index_search_improvement", () => {
   const testDataDir = path.join(__dirname, "test_kifu_data_improvement");
 
   beforeEach(() => {

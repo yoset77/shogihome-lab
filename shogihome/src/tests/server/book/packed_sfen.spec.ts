@@ -5,7 +5,7 @@ import {
 } from "@/server/book/packed_sfen";
 import { Position } from "tsshogi";
 
-describe("background/book/packed_sfen", () => {
+describe("server/book/packed_sfen", () => {
   const sfens = [
     "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
     "lnsgkgsnl/1r5b1/pppppp1pp/6p2/9/2P4P1/PP1PPPP1P/1B5R1/LNSGKGSNL w - 4",

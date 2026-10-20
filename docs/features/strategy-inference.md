@@ -51,4 +51,4 @@
 - 検索用戦型と手動メタデータの正規化: [`strategy_taxonomy.ts`](../../shogihome/src/common/kifu/strategy_taxonomy.ts)
 - モデルの分類と受理条件: [`manifest.json`](../../shogihome/src/server/kifu_index/models/manifest.json)
 - 同期と再インデックス: [`sync.ts`](../../shogihome/src/server/kifu_index/sync.ts) と [`kifu_index.ts`](../../shogihome/src/server/database/kifu_index.ts)
-- 回帰テスト: [`strategy.spec.ts`](../../shogihome/src/tests/background/kifu_index/strategy.spec.ts)、[`strategy_model.spec.ts`](../../shogihome/src/tests/background/kifu_index/strategy_model.spec.ts)、[`strategy_taxonomy.spec.ts`](../../shogihome/src/tests/common/kifu/strategy_taxonomy.spec.ts)
+- 回帰テスト: [`strategy.spec.ts`](../../shogihome/src/tests/server/kifu_index/strategy.spec.ts)、[`strategy_model.spec.ts`](../../shogihome/src/tests/server/kifu_index/strategy_model.spec.ts)、[`strategy_taxonomy.spec.ts`](../../shogihome/src/tests/common/kifu/strategy_taxonomy.spec.ts)

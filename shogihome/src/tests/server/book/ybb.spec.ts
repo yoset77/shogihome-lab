@@ -20,7 +20,7 @@ const ybbPath = path.resolve("src/tests/testdata/book/yaneuraou.ybb");
 const tmpdir = path.join(getTempPathForTesting(), "ybb");
 const YBB_MAGIC = "YANE-BINBOOK-V1\0";
 
-describe("background/book/ybb", () => {
+describe("server/book/ybb", () => {
   beforeAll(() => {
     fs.mkdirSync(tmpdir, { recursive: true });
   });
@@ -194,7 +194,7 @@ describe("background/book/ybb", () => {
     expect(data.length).toBe(306172);
     const tmpPath = path.join(tmpdir, "expansion-bomb.ybb");
     await fs.promises.writeFile(tmpPath, data);
-    const child = path.resolve("src/tests/background/book/helpers/ybb_expansion_child.ts");
+    const child = path.resolve("src/tests/server/book/helpers/ybb_expansion_child.ts");
     const result = await promisify(execFile)(
       process.execPath,
       ["--max-old-space-size=128", "--import", "tsx", child, tmpPath],

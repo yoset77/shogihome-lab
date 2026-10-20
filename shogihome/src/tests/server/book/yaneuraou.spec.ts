@@ -11,7 +11,7 @@ import {
 import type { BookEntry } from "@/server/book/types";
 import { getTempPathForTesting } from "@/tests/helpers/temp";
 
-describe("background/book/yaneuraou", () => {
+describe("server/book/yaneuraou", () => {
   it("does not interpret bare carriage returns in comments as position or move lines", async () => {
     const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
     const entries = new Map<string, BookEntry>([

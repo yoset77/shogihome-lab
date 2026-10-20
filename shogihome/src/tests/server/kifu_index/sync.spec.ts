@@ -34,7 +34,7 @@ vi.mock("@/server/kifu_index/engine", async (importOriginal) => {
 
 import { parseAndIndexFile } from "@/server/kifu_index/engine";
 
-describe("background/kifu_index/sync", () => {
+describe("server/kifu_index/sync", () => {
   let tempDir: string;
   let dbDir: string;
 

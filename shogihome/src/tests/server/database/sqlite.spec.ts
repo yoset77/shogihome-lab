@@ -14,7 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-describe("background/database/sqlite", () => {
+describe("server/database/sqlite", () => {
   const testDataDir = path.join(__dirname, "test_data");
 
   beforeEach(() => {

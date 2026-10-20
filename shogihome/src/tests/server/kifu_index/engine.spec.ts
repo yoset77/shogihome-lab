@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-describe("background/kifu_index/engine", () => {
+describe("server/kifu_index/engine", () => {
   let tempDir: string;
   let dbDir: string;
 

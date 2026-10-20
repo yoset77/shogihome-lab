@@ -2,7 +2,7 @@ import { PassThrough, Readable, Writable } from "node:stream";
 import { loadAperyBook, mergeAperyBook, storeAperyBook } from "@/server/book/apery";
 import type { BookEntry } from "@/server/book/types";
 
-describe("background/book/apery", () => {
+describe("server/book/apery", () => {
   it("store round-trips many moves without data loss", async () => {
     // 5000 moves exceed the 4096-move write batch threshold so the test
     // exercises multi-flush behavior of the overwrite-save path.
