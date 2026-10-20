@@ -1,7 +1,7 @@
 import { Color, InitialPositionType, SpecialMoveType, parseUSIMove } from "tsshogi";
 import * as v from "@/common/analysis/validation";
 import { readUSIInfo } from "@/common/analysis/types";
-import { isRelayEngineId, type DecodeResult } from "@/common/engine/relay_protocol";
+import type { DecodeResult } from "@/common/engine/relay_protocol";
 import {
   decodeRecordSnapshot,
   readSearchInfo,
@@ -25,7 +25,7 @@ import type { PlayerSettings } from "@/common/settings/player";
 import { SearchCommentFormat } from "@/common/settings/comment";
 import { RecordFileFormat } from "@/common/file/record";
 import { Language } from "@/common/i18n/languages";
-import { ES_HUMAN } from "@/common/uri";
+import { ES_HUMAN, isLanEngineURI } from "@/common/uri";
 import type { GameResults } from "./results";
 import type { USIInfoCommand } from "./usi";
 import { readJobAttachRequest, type JobAttachRequest } from "@/common/jobs/types";
@@ -193,12 +193,7 @@ function readBook(value: unknown): USIEngineExtraBookConfig {
 function readPlayer(value: unknown): PlayerSettings {
   const input = v.object(value);
   const uri = v.text(input.uri, 128);
-  if (
-    uri !== ES_HUMAN &&
-    uri !== "lan-engine" &&
-    !(uri.startsWith("lan-engine:") && isRelayEngineId(uri.substring(11)))
-  )
-    throw new Error("Unsupported player");
+  if (uri !== ES_HUMAN && !isLanEngineURI(uri)) throw new Error("Unsupported player");
   const name = v.text(input.name, 256);
   if (!name) throw new Error("Player name required");
   const extraBook = input.usi === undefined ? undefined : v.object(input.usi).extraBook;

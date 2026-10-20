@@ -12,6 +12,7 @@ import { identifier, object, counter } from "@/common/analysis/validation";
 import type { BatchAnalysisPlan, BatchAnalysisJobRequest } from "@/common/analysis/batch";
 import { TextDecodingRule } from "@/common/settings/app";
 import { t } from "@/common/i18n/index";
+import { getLanEngineId } from "@/common/uri";
 import { snapshotRecord, indexRecordNodes, type RecordSnapshot } from "@/common/record/snapshot";
 import type { AnalysisSettings } from "@/common/settings/analysis";
 import { normalizeSfen } from "@/common/usi/sfen";
@@ -334,11 +335,8 @@ export class AnalysisManager {
   ): Promise<void> {
     if (!this.active) this.reference = loadReferences()[0];
     if (this.reference || this.active) throw new Error(t.analysisJobCapacity);
-    if (
-      !settings.usi ||
-      (settings.usi.uri !== "lan-engine" && !settings.usi.uri.startsWith("lan-engine:"))
-    )
-      throw new Error(t.analysisJobInvalid);
+    const engineId = settings.usi && getLanEngineId(settings.usi.uri, "research");
+    if (!engineId) throw new Error(t.analysisJobInvalid);
     const requestId = generateSessionId();
     this.background = background;
     this.connection.reset();
@@ -357,10 +355,7 @@ export class AnalysisManager {
         source,
         options: {
           ...options,
-          engineId:
-            settings.usi.uri === "lan-engine"
-              ? "research"
-              : settings.usi.uri.substring("lan-engine:".length),
+          engineId,
           engineTimeoutSeconds: app.engineTimeoutSeconds,
           commentFormat: app.searchCommentFormat,
           language: app.language,

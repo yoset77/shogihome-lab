@@ -2,7 +2,7 @@ import { MateSearchSettings } from "@/common/settings/mate";
 import { LanPlayer } from "@/renderer/players/lan_player";
 import { useAppSettings } from "./settings.js";
 import { ImmutableRecord, Move } from "tsshogi";
-import { isLanEngineURI } from "@/common/uri";
+import { getLanEngineId } from "@/common/uri";
 import { t } from "@/common/i18n";
 
 type CheckmateCallback = (moves: Move[]) => void;
@@ -57,13 +57,12 @@ export class MateSearchManager {
 
   async start(settings: MateSearchSettings, record: ImmutableRecord) {
     // Validation
-    if (!settings.usi || !isLanEngineURI(settings.usi.uri)) {
+    const engineId = settings.usi && getLanEngineId(settings.usi.uri, "mate");
+    if (!settings.usi || !engineId) {
       throw new Error(t.engineNotSelected);
     }
     // エンジンを起動する。
     const appSettings = useAppSettings();
-    const uri = settings.usi.uri;
-    const engineId = uri === "lan-engine" ? "mate" : uri.substring("lan-engine:".length);
     this.engine = new LanPlayer(
       "mate_search",
       engineId,

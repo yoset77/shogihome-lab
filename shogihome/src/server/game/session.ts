@@ -21,7 +21,7 @@ import {
   restoreSearchInfo,
   type RecordSnapshot,
 } from "@/common/record/snapshot";
-import { ES_HUMAN } from "@/common/uri";
+import { ES_HUMAN, getLanEngineId } from "@/common/uri";
 import { t } from "@/common/i18n";
 import { fetchEngineConfigs, toLanEngineInfo } from "@/server/engine/list";
 import { InternalEngine, type GameEngine } from "@/server/engine/internal";
@@ -219,9 +219,7 @@ export class GameSession {
           ...new Set(
             [this.request.settings.black, this.request.settings.white]
               .filter((settings) => settings.uri !== ES_HUMAN)
-              .map((settings) =>
-                settings.uri === "lan-engine" ? "game" : settings.uri.substring(11),
-              ),
+              .map((settings) => getLanEngineId(settings.uri, "game")!),
           ),
         ];
         if (ids.length > 0) {
@@ -245,9 +243,7 @@ export class GameSession {
       const builder: PlayerBuilder = this.deps.playerBuilder ?? {
         build: async (settings, onInfo) => {
           if (settings.uri === ES_HUMAN) return new HumanPlayer();
-          const config = configs.get(
-            settings.uri === "lan-engine" ? "game" : settings.uri.substring(11),
-          )!;
+          const config = configs.get(getLanEngineId(settings.uri, "game")!)!;
           if (this.abort.signal.aborted) throw new Error("Game startup cancelled");
           settings.name = config.name;
           const extra = settings.usi?.extraBook;

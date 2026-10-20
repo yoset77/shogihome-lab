@@ -259,7 +259,7 @@ const onResearch = async () => {
   const uri = appSettings.defaultResearchEngineURI;
   if (uri) {
     await lanStore.fetchEngineList();
-    const engine = resolveLanEngine(uri, lanStore.engineList.value);
+    const engine = resolveLanEngine(uri, lanStore.engineList.value, "research");
 
     if (engine) {
       store.startResearch({

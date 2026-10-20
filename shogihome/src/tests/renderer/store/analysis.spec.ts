@@ -143,6 +143,25 @@ describe("analysis job client", () => {
     vi.useRealTimers();
   });
 
+  it.each(["lan-engine-other", "lan-engine:", "lan-engine:../test"])(
+    "rejects malformed engine URI %s before contacting the server",
+    async (uri) => {
+      const { manager, client } = fixture();
+      await expect(manager.start({ ...settings, usi: { ...settings.usi, uri } })).rejects.toThrow(
+        t.analysisJobInvalid,
+      );
+      expect(client.capabilities).not.toHaveBeenCalled();
+      expect(client.create).not.toHaveBeenCalled();
+      expect(manager.isActive).toBe(false);
+    },
+  );
+
+  it("uses the research ID for the legacy LAN alias", async () => {
+    const { manager, client } = fixture();
+    await manager.start({ ...settings, usi: { ...settings.usi, uri: "lan-engine" } });
+    expect(client.create.mock.calls[0][0].options.engineId).toBe("research");
+  });
+
   it("keeps startup pending until the first analysis position is applied", async () => {
     const { manager, records, status } = fixture();
     await manager.start(settings);

@@ -1,12 +1,13 @@
-import type { LanEngineInfo } from "@/common/engine/relay_protocol";
+import type { LanEngineInfo, LanEngineType } from "@/common/engine/relay_protocol";
 import type { USIEngine } from "@/common/settings/usi";
-import { isLanEngineURI } from "@/common/uri";
+import { getLanEngineId } from "@/common/uri";
 
 export function resolveLanEngine(
   uri: string,
   engines: readonly Pick<LanEngineInfo, "id" | "name">[],
+  engineType: LanEngineType,
 ): USIEngine | undefined {
-  if (!isLanEngineURI(uri)) return;
-  const id = uri === "lan-engine" ? uri : uri.substring("lan-engine:".length);
+  const id = getLanEngineId(uri, engineType);
+  if (!id) return;
   return { uri, name: engines.find((engine) => engine.id === id)?.name ?? id };
 }

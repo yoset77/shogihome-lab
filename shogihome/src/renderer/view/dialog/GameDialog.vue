@@ -415,7 +415,7 @@ const buildPlayerSettings = (
   playerURI: string,
   extraBook: USIEngineExtraBookConfig,
 ): PlayerSettings => {
-  const engine = resolveLanEngine(playerURI, lanStore.engineList.value);
+  const engine = resolveLanEngine(playerURI, lanStore.engineList.value, "game");
   if (engine) {
     return {
       name: engine.name,

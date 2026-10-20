@@ -1,4 +1,4 @@
-import { isRelayEngineId } from "@/common/engine/relay_protocol";
+import { isRelayEngineId, type LanEngineType } from "@/common/engine/relay_protocol";
 
 export const ES_HUMAN = "es://human";
 export const ES_TEMP_FILE_PREFIX = "es://temp-file/";
@@ -8,6 +8,11 @@ export function isLanEngineURI(uri: string): boolean {
     uri === "lan-engine" ||
     (uri.startsWith("lan-engine:") && isRelayEngineId(uri.substring("lan-engine:".length)))
   );
+}
+
+export function getLanEngineId(uri: string, legacyDefaultId: LanEngineType): string | undefined {
+  if (!isLanEngineURI(uri)) return;
+  return uri === "lan-engine" ? legacyDefaultId : uri.substring("lan-engine:".length);
 }
 
 export function issueTempFileURI(name: string): string {

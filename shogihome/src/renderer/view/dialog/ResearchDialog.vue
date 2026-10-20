@@ -125,10 +125,10 @@ onMounted(async () => {
 });
 
 const onStart = () => {
-  const engine = resolveLanEngine(engineURI.value, lanStore.engineList.value);
+  const engine = resolveLanEngine(engineURI.value, lanStore.engineList.value, "research");
   const secondaries = [];
   for (const uri of secondaryEngineURIs.value) {
-    const secondary = resolveLanEngine(uri, lanStore.engineList.value);
+    const secondary = resolveLanEngine(uri, lanStore.engineList.value, "research");
     if (secondary) {
       secondaries.push({
         usi: secondary,
