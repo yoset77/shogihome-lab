@@ -7,7 +7,6 @@ import {
 import { emptyUSIEngine } from "@/common/settings/usi";
 import { t } from "@/common/i18n";
 import { MIN_MULTIPV, MAX_MULTIPV } from "@/common/engine/relay_protocol";
-import * as uri from "@/common/uri";
 
 describe("settings/research", () => {
   it.each([1, 3, 10])("accepts explicit MultiPV %i", (multiPV) => {
@@ -36,16 +35,8 @@ describe("settings/research", () => {
   it("normalize", () => {
     const settings: ResearchSettings = {
       usi: {
-        uri: uri.ES_USI_ENGINE_PREFIX + "test-engine",
+        uri: "lan-engine:test-engine",
         name: "Test Engine",
-        defaultName: "test engine",
-        author: "test author",
-        path: "/path/to/test-engine",
-        options: {
-          USI_Hash: { name: "USI_Hash", type: "spin", order: 1 },
-        },
-        labels: {},
-        enableEarlyPonder: false,
       },
       secondaries: [],
       enableMaxSeconds: false,
@@ -60,16 +51,8 @@ describe("settings/research", () => {
   it("validate/ok", () => {
     const settings: ResearchSettings = {
       usi: {
-        uri: uri.ES_USI_ENGINE_PREFIX + "test-engine",
+        uri: "lan-engine:test-engine",
         name: "Test Engine",
-        defaultName: "test engine",
-        author: "test author",
-        path: "/path/to/test-engine",
-        options: {
-          USI_Hash: { name: "USI_Hash", type: "spin", order: 1 },
-        },
-        labels: {},
-        enableEarlyPonder: false,
       },
       secondaries: [],
       enableMaxSeconds: false,
@@ -94,16 +77,8 @@ describe("settings/research", () => {
   it("validate/invalidSecondaryEngine", () => {
     const settings: ResearchSettings = {
       usi: {
-        uri: uri.ES_USI_ENGINE_PREFIX + "test-engine",
+        uri: "lan-engine:test-engine",
         name: "Test Engine",
-        defaultName: "test engine",
-        author: "test author",
-        path: "/path/to/test-engine",
-        options: {
-          USI_Hash: { name: "USI_Hash", type: "spin", order: 1 },
-        },
-        labels: {},
-        enableEarlyPonder: false,
       },
       secondaries: [{}],
       enableMaxSeconds: false,

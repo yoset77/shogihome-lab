@@ -76,28 +76,6 @@
             ]"
           />
         </div>
-        <!-- 背景画像 -->
-        <div v-if="isNative()" class="form-item">
-          <div class="form-item-label-wide">{{ t.backgroundImage }}</div>
-          <HorizontalSelector
-            v-model:value="update.backgroundImageType"
-            class="selector"
-            :items="[
-              { label: t.none, value: BackgroundImageType.NONE },
-              { label: t.bgCover, value: BackgroundImageType.COVER },
-              { label: t.bgContain, value: BackgroundImageType.CONTAIN },
-              { label: t.bgTile, value: BackgroundImageType.TILE },
-            ]"
-          />
-        </div>
-        <div v-show="update.backgroundImageType !== BackgroundImageType.NONE" class="form-item">
-          <div class="form-item-label-wide"></div>
-          <ImageSelector
-            class="image-selector"
-            :default-url="update.backgroundImageFileURL"
-            @select="(url: string) => (update.backgroundImageFileURL = url)"
-          />
-        </div>
         <!-- 盤レイアウト -->
         <div class="form-item">
           <div class="form-item-label-wide">{{ t.boardLayout }}</div>
@@ -119,40 +97,18 @@
           <HorizontalSelector
             v-model:value="update.pieceImage"
             class="selector"
-            :items="
-              [
-                { label: t.singleKanjiPiece, value: PieceImageType.HITOMOJI },
-                { label: t.singleKanjiWoodPiece, value: PieceImageType.HITOMOJI_WOOD },
-                { label: t.singleKanjiGothicPiece, value: PieceImageType.HITOMOJI_GOTHIC },
-                { label: t.singleKanjiDarkPiece, value: PieceImageType.HITOMOJI_DARK },
-                {
-                  label: t.singleKanjiGothicDarkPiece,
-                  value: PieceImageType.HITOMOJI_GOTHIC_DARK,
-                },
-                { label: t.twoKanjiPiece, value: PieceImageType.FUTAMOJI },
-                { label: t.customImage, value: PieceImageType.CUSTOM_IMAGE },
-              ].filter((item) => isNative() || item.value !== PieceImageType.CUSTOM_IMAGE)
-            "
+            :items="[
+              { label: t.singleKanjiPiece, value: PieceImageType.HITOMOJI },
+              { label: t.singleKanjiWoodPiece, value: PieceImageType.HITOMOJI_WOOD },
+              { label: t.singleKanjiGothicPiece, value: PieceImageType.HITOMOJI_GOTHIC },
+              { label: t.singleKanjiDarkPiece, value: PieceImageType.HITOMOJI_DARK },
+              {
+                label: t.singleKanjiGothicDarkPiece,
+                value: PieceImageType.HITOMOJI_GOTHIC_DARK,
+              },
+              { label: t.twoKanjiPiece, value: PieceImageType.FUTAMOJI },
+            ]"
           />
-          <div
-            v-show="update.pieceImage === PieceImageType.CUSTOM_IMAGE"
-            ref="pieceImageSelector"
-            class="form-item"
-          >
-            <div class="form-item-label-wide"></div>
-            <ImageSelector
-              class="image-selector"
-              :default-url="update.pieceImageFileURL"
-              @select="(url: string) => (update.pieceImageFileURL = url)"
-            />
-          </div>
-          <div v-show="update.pieceImage === PieceImageType.CUSTOM_IMAGE" class="form-item">
-            <div class="form-item-label-wide"></div>
-            <ToggleButton
-              v-model:value="update.deletePieceImageMargin"
-              :label="t.imageHasMarginsRemoveForLargerDisplay"
-            />
-          </div>
         </div>
         <!-- 盤画像 -->
         <div class="form-item">
@@ -160,33 +116,22 @@
           <HorizontalSelector
             v-model:value="update.boardImage"
             class="selector"
-            :items="
-              [
-                { label: t.lightWoodyTexture(1), value: BoardImageType.LIGHT },
-                { label: t.lightWoodyTexture(2), value: BoardImageType.LIGHT2 },
-                { label: t.lightWoodyTexture(3), value: BoardImageType.LIGHT3 },
-                { label: t.warmWoodTexture(1), value: BoardImageType.WARM },
-                { label: t.warmWoodTexture(2), value: BoardImageType.WARM2 },
-                { label: t.resin, value: BoardImageType.RESIN },
-                { label: t.resin + '2', value: BoardImageType.RESIN2 },
-                { label: t.resin + '3', value: BoardImageType.RESIN3 },
-                { label: t.green, value: BoardImageType.GREEN },
-                { label: t.cherryBlossom, value: BoardImageType.CHERRY_BLOSSOM },
-                { label: t.autumn, value: BoardImageType.AUTUMN },
-                { label: t.snow, value: BoardImageType.SNOW },
-                { label: t.darkGreen, value: BoardImageType.DARK_GREEN },
-                { label: t.dark, value: BoardImageType.DARK },
-                { label: t.customImage, value: BoardImageType.CUSTOM_IMAGE },
-              ].filter((item) => isNative() || item.value !== BoardImageType.CUSTOM_IMAGE)
-            "
-          />
-        </div>
-        <div v-show="update.boardImage === BoardImageType.CUSTOM_IMAGE" class="form-item">
-          <div class="form-item-label-wide"></div>
-          <ImageSelector
-            class="image-selector"
-            :default-url="update.boardImageFileURL"
-            @select="(url: string) => (update.boardImageFileURL = url)"
+            :items="[
+              { label: t.lightWoodyTexture(1), value: BoardImageType.LIGHT },
+              { label: t.lightWoodyTexture(2), value: BoardImageType.LIGHT2 },
+              { label: t.lightWoodyTexture(3), value: BoardImageType.LIGHT3 },
+              { label: t.warmWoodTexture(1), value: BoardImageType.WARM },
+              { label: t.warmWoodTexture(2), value: BoardImageType.WARM2 },
+              { label: t.resin, value: BoardImageType.RESIN },
+              { label: t.resin + '2', value: BoardImageType.RESIN2 },
+              { label: t.resin + '3', value: BoardImageType.RESIN3 },
+              { label: t.green, value: BoardImageType.GREEN },
+              { label: t.cherryBlossom, value: BoardImageType.CHERRY_BLOSSOM },
+              { label: t.autumn, value: BoardImageType.AUTUMN },
+              { label: t.snow, value: BoardImageType.SNOW },
+              { label: t.darkGreen, value: BoardImageType.DARK_GREEN },
+              { label: t.dark, value: BoardImageType.DARK },
+            ]"
           />
         </div>
         <!-- マス目 -->
@@ -211,27 +156,16 @@
           <HorizontalSelector
             v-model:value="update.pieceStandImage"
             class="selector"
-            :items="
-              [
-                { label: t.standard, value: PieceStandImageType.STANDARD },
-                { label: t.woodTexture, value: PieceStandImageType.DARK_WOOD },
-                { label: t.green, value: PieceStandImageType.GREEN },
-                { label: t.cherryBlossom, value: PieceStandImageType.CHERRY_BLOSSOM },
-                { label: t.autumn, value: PieceStandImageType.AUTUMN },
-                { label: t.snow, value: PieceStandImageType.SNOW },
-                { label: t.darkGreen, value: PieceStandImageType.DARK_GREEN },
-                { label: t.dark, value: PieceStandImageType.DARK },
-                { label: t.customImage, value: PieceStandImageType.CUSTOM_IMAGE },
-              ].filter((item) => isNative() || item.value !== PieceStandImageType.CUSTOM_IMAGE)
-            "
-          />
-        </div>
-        <div v-show="update.pieceStandImage === PieceStandImageType.CUSTOM_IMAGE" class="form-item">
-          <div class="form-item-label-wide"></div>
-          <ImageSelector
-            class="image-selector"
-            :default-url="update.pieceStandImageFileURL"
-            @select="(url: string) => (update.pieceStandImageFileURL = url)"
+            :items="[
+              { label: t.standard, value: PieceStandImageType.STANDARD },
+              { label: t.woodTexture, value: PieceStandImageType.DARK_WOOD },
+              { label: t.green, value: PieceStandImageType.GREEN },
+              { label: t.cherryBlossom, value: PieceStandImageType.CHERRY_BLOSSOM },
+              { label: t.autumn, value: PieceStandImageType.AUTUMN },
+              { label: t.snow, value: PieceStandImageType.SNOW },
+              { label: t.darkGreen, value: PieceStandImageType.DARK_GREEN },
+              { label: t.dark, value: PieceStandImageType.DARK },
+            ]"
           />
         </div>
         <!-- 透過表示 -->
@@ -286,38 +220,6 @@
             @update:value="
               (checked: boolean) =>
                 (update.boardLabelType = checked ? BoardLabelType.STANDARD : BoardLabelType.NONE)
-            "
-          />
-        </div>
-        <!-- 左コントロールの表示 -->
-        <div v-if="isNative()" class="form-item">
-          <div class="form-item-label-wide">
-            {{ t.showLeftControls }}
-          </div>
-          <ToggleButton
-            v-once
-            :value="update.leftSideControlType != LeftSideControlType.NONE"
-            @update:value="
-              (checked: boolean) =>
-                (update.leftSideControlType = checked
-                  ? LeftSideControlType.STANDARD
-                  : LeftSideControlType.NONE)
-            "
-          />
-        </div>
-        <!-- 右コントロールの表示 -->
-        <div v-if="isNative()" class="form-item">
-          <div class="form-item-label-wide">
-            {{ t.showRightControls }}
-          </div>
-          <ToggleButton
-            v-once
-            :value="update.rightSideControlType != RightSideControlType.NONE"
-            @update:value="
-              (checked: boolean) =>
-                (update.rightSideControlType = checked
-                  ? RightSideControlType.STANDARD
-                  : RightSideControlType.NONE)
             "
           />
         </div>
@@ -457,24 +359,6 @@
       <!-- 棋譜 -->
       <div class="section">
         <div class="section-title">{{ t.record }}</div>
-        <!-- デフォルトの保存形式 -->
-        <div v-if="isNative()" class="form-item">
-          <div class="form-item-label-wide">
-            {{ t.defaultRecordFileFormat }}
-          </div>
-          <HorizontalSelector
-            v-model:value="update.defaultRecordFileFormat"
-            class="selector"
-            :items="[
-              { label: '.kif', value: RecordFileFormat.KIF },
-              { label: '.kifu', value: RecordFileFormat.KIFU },
-              { label: '.ki2', value: RecordFileFormat.KI2 },
-              { label: '.ki2u', value: RecordFileFormat.KI2U },
-              { label: '.csa', value: RecordFileFormat.CSA },
-              { label: '.jkf', value: RecordFileFormat.JKF },
-            ]"
-          />
-        </div>
         <!-- 文字コード -->
         <div class="form-item">
           <div class="form-item-label-wide">
@@ -510,9 +394,8 @@
             {{ t.autoSavingDirectory }}
           </div>
           <div class="row grow">
-            <div v-if="!isNative()" class="server-prefix">server://</div>
+            <div class="server-prefix">server://</div>
             <input
-              v-if="!isNative()"
               :value="
                 update.autoSaveDirectory.startsWith('server://')
                   ? update.autoSaveDirectory.substring(9)
@@ -525,18 +408,6 @@
                   (update.autoSaveDirectory = 'server://' + (e.target as HTMLInputElement).value)
               "
             />
-            <input
-              v-if="isNative()"
-              v-model="update.autoSaveDirectory"
-              class="file-path grow"
-              type="text"
-            />
-            <button v-if="isNative()" class="thin" @click="selectAutoSaveDirectory">
-              {{ t.select }}
-            </button>
-            <button v-if="isNative()" class="thin auxiliary" @click="onOpenAutoSaveDirectory">
-              <Icon :icon="IconType.OPEN_FOLDER" />
-            </button>
           </div>
         </div>
         <!-- 棋譜ファイル名-->
@@ -646,25 +517,11 @@
             ]"
           />
         </div>
-        <!-- 読み専モード閾値 -->
-        <div v-if="isNative()" class="form-item">
-          <div class="form-item-label-wide">{{ t.onTheFlyThreshold }}</div>
-          <input v-model.number="update.bookOnTheFlyThresholdMB" type="number" max="4096" min="0" />
-          <div class="form-item-small-label">MB ({{ t.between(0, 4096) }})</div>
-        </div>
       </div>
       <hr />
       <!-- USI プロトコル -->
       <div class="section">
         <div class="section-title">{{ t.usiProtocol }}</div>
-        <!-- オプション名を翻訳 -->
-        <div v-if="false" class="form-item">
-          <div class="form-item-label-wide">
-            {{ t.translateOptionName }}
-          </div>
-          <ToggleButton v-model:value="update.translateEngineOptionName" />
-          <div class="form-item-small-label">({{ t.functionalOnJapaneseOnly }})</div>
-        </div>
         <!-- 最大起動待ち時間 -->
         <div class="form-item">
           <div class="form-item-label-wide">
@@ -698,10 +555,7 @@
           <div class="selector grow">
             <PlayerSelector
               v-model:player-uri="update.defaultResearchEngineURI"
-              :engines="engines"
-              :contains-lan="true"
-              :default-tag="getPredefinedUSIEngineTag('research')"
-              :enable-edit-button="false"
+              engine-type="research"
               :show-none="true"
             />
           </div>
@@ -831,90 +685,6 @@
           />
         </div>
       </div>
-      <hr v-if="isNative()" />
-      <!-- アプリバージョン -->
-      <div v-if="isNative()" class="section">
-        <div class="section-title">{{ t.appVersion }}</div>
-        <div class="form-item">
-          <div class="form-item-label-wide">{{ t.installed }}</div>
-          {{ appInfo.appVersion }}
-        </div>
-        <div class="form-item">
-          <div class="form-item-label-wide">{{ t.latest }}</div>
-          {{ versionStatus.knownReleases?.latest.version ?? t.unknown }}
-        </div>
-        <div class="form-item">
-          <div class="form-item-label-wide">{{ t.stable }}</div>
-          {{ versionStatus.knownReleases?.stable.version ?? t.unknown }}
-        </div>
-        <div class="form-item">
-          <div class="form-item-label-wide">{{ t.notification }}</div>
-          <button class="thin" @click="sendTestNotification">{{ t.notificationTest }}</button>
-        </div>
-        <div class="form-group warning">
-          <div class="note">
-            {{ t.whenNewVersionIsAvailableItWillBeNotified }}
-            {{ t.pleaseCheckMessageThisIsTestNotificationByAboveButton }}
-            {{ t.ifNotWorkYouShouldAllowNotificationOnOSSetting }}
-          </div>
-        </div>
-      </div>
-      <hr v-if="isNative()" />
-      <!-- 開発者向け -->
-      <div v-if="isNative()" class="section">
-        <div class="section-title">{{ t.forDevelopers }}</div>
-        <div class="form-group warning">
-          <div v-if="!isNative()" class="note">
-            {{ t.inBrowserLogsOutputToConsoleAndIgnoreThisSetting }}
-          </div>
-          <div v-if="isNative()" class="note">
-            {{ t.shouldRestartToApplyLogSettings }}
-          </div>
-          <div v-if="isNative()" class="note">
-            {{ t.canOpenLogDirectoryFromMenu }}
-          </div>
-          <div v-if="isNative()" class="note">
-            {{ t.hasNoOldLogCleanUpFeature }}
-          </div>
-        </div>
-        <!-- アプリログを出力 -->
-        <div class="form-item">
-          <div class="form-item-label-wide">{{ t.enableAppLog }}</div>
-          <ToggleButton v-model:value="update.enableAppLog" />
-        </div>
-        <!-- USI通信ログを出力 -->
-        <div class="form-item">
-          <div class="form-item-label-wide">{{ t.enableUSILog }}</div>
-          <ToggleButton v-model:value="update.enableUSILog" />
-        </div>
-        <!-- ログレベル -->
-        <div class="form-item">
-          <div class="form-item-label-wide">{{ t.logLevel }}</div>
-          <HorizontalSelector
-            v-model:value="update.logLevel"
-            class="selector"
-            :items="[
-              { label: 'DEBUG', value: LogLevel.DEBUG },
-              { label: 'INFO', value: LogLevel.INFO },
-              { label: 'WARN', value: LogLevel.WARN },
-              { label: 'ERROR', value: LogLevel.ERROR },
-            ]"
-          />
-        </div>
-        <div v-if="isNative()" class="form-group warning">
-          <div class="note">
-            {{ t.shouldRestartToApplyLowLevelSettings }}
-          </div>
-        </div>
-        <!-- ハードウェアアクセラレーション無効化 -->
-        <div v-if="isNative()" class="form-item">
-          <div class="form-item-label-wide">Enable HWA</div>
-          <ToggleButton v-model:value="update.enableHardwareAcceleration" />
-          <button class="thin auxiliary" @click="aboutDisableHWASetting">
-            <Icon :icon="IconType.HELP" />
-          </button>
-        </div>
-      </div>
     </div>
     <div class="main-buttons">
       <button data-hotkey="Enter" autofocus @click="saveAndClose()">
@@ -935,13 +705,10 @@ import {
   BoardImageType,
   PieceStandImageType,
   BoardLabelType,
-  LeftSideControlType,
   PromotionSelectorStyle,
-  RightSideControlType,
   TabPaneType,
   EvaluationViewFrom,
   Thema,
-  BackgroundImageType,
   TextDecodingRule,
   ClockSoundTarget,
   AppSettingsUpdate,
@@ -952,23 +719,15 @@ import {
   UIMode,
   AnalysisDBSearchMode,
 } from "@/common/settings/app";
-import ImageSelector from "@/renderer/view/dialog/ImageSelector.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import { useStore } from "@/renderer/store";
 import { ref, onMounted, onBeforeUnmount, watch } from "vue";
-import api, { appInfo, isMobileWebApp, isNative } from "@/renderer/ipc/api";
+import api, { isMobileWebApp } from "@/renderer/ipc/api";
 import { useAppSettings } from "@/renderer/store/settings";
-import { LogLevel } from "@/common/log";
 import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
-import { RecordFileFormat } from "@/common/file/record";
 import { IconType } from "@/renderer/assets/icons";
 import Icon from "@/renderer/view/primitive/Icon.vue";
-import { VersionStatus } from "@/common/version";
-import {
-  disableHWASettingWikiPageURL,
-  fileNameTemplateWikiPageURL,
-  maxPVLengthSettingWikiPageURL,
-} from "@/common/links/github";
+import { fileNameTemplateWikiPageURL, maxPVLengthSettingWikiPageURL } from "@/common/links/github";
 import { useErrorStore } from "@/renderer/store/error";
 import { useBusyState } from "@/renderer/store/busy";
 import {
@@ -977,7 +736,6 @@ import {
 } from "@/common/settings/layout";
 import { SearchCommentFormat } from "@/common/settings/comment";
 import DialogFrame from "./DialogFrame.vue";
-import { USIEngines, getPredefinedUSIEngineTag } from "@/common/settings/usi";
 import PlayerSelector from "./PlayerSelector.vue";
 import { getFileQuickAction } from "@/renderer/helpers/fileQuickAction";
 
@@ -989,26 +747,19 @@ const fileQuickActionOptions = Object.values(FileQuickAction).map((value) => ({
   value,
   label: getFileQuickAction(value).label(),
 }));
-const engines = ref(new USIEngines());
 const update = ref({
   // この画面で扱う要素だけをコピー
   uiMode: org.uiMode,
   language: org.language,
   thema: org.thema,
-  backgroundImageType: org.backgroundImageType,
-  backgroundImageFileURL: org.backgroundImageFileURL,
   boardLayoutType:
     isMobileWebApp() && org.boardLayoutType === BoardLayoutType.STANDARD
       ? BoardLayoutType.COMPACT
       : org.boardLayoutType,
   pieceImage: org.pieceImage,
-  pieceImageFileURL: org.pieceImageFileURL,
-  deletePieceImageMargin: org.deletePieceImageMargin,
   boardImage: org.boardImage,
-  boardImageFileURL: org.boardImageFileURL,
   boardGridColor: org.boardGridColor,
   pieceStandImage: org.pieceStandImage,
-  pieceStandImageFileURL: org.pieceStandImageFileURL,
   enableTransparent: org.enableTransparent,
   boardOpacity: Math.round(org.boardOpacity * 100),
   pieceStandOpacity: Math.round(org.pieceStandOpacity * 100),
@@ -1017,8 +768,6 @@ const update = ref({
   enableDragAndDrop: org.enableDragAndDrop,
   enableVisionCameraAutoOpen: org.enableVisionCameraAutoOpen,
   boardLabelType: org.boardLabelType,
-  leftSideControlType: org.leftSideControlType,
-  rightSideControlType: org.rightSideControlType,
   tabPaneType: org.tabPaneType,
   pieceVolume: org.pieceVolume,
   clockVolume: org.clockVolume,
@@ -1026,7 +775,6 @@ const update = ref({
   clockSoundTarget: org.clockSoundTarget,
   recordShortcutKeys: org.recordShortcutKeys,
   fileQuickAction: org.fileQuickAction,
-  defaultRecordFileFormat: org.defaultRecordFileFormat,
   textDecodingRule: org.textDecodingRule,
   returnCode: org.returnCode,
   autoSaveDirectory: org.autoSaveDirectory,
@@ -1037,9 +785,7 @@ const update = ref({
   enableUSIFileResign: org.enableUSIFileResign,
   showPasteDialog: org.showPasteDialog,
   liveDuplicatePositionDetection: org.liveDuplicatePositionDetection,
-  bookOnTheFlyThresholdMB: org.bookOnTheFlyThresholdMB,
   defaultBookFormat: org.defaultBookFormat,
-  translateEngineOptionName: org.translateEngineOptionName,
   engineTimeoutSeconds: org.engineTimeoutSeconds,
   nodeCountFormat: org.nodeCountFormat,
   defaultResearchEngineURI: org.defaultResearchEngineURI,
@@ -1058,17 +804,12 @@ const update = ref({
   showElapsedTimeInRecordView: org.showElapsedTimeInRecordView,
   showCommentInRecordView: org.showCommentInRecordView,
   branchListMode: org.branchListMode,
-  enableAppLog: org.enableAppLog,
-  enableUSILog: org.enableUSILog,
-  logLevel: org.logLevel,
-  enableHardwareAcceleration: org.enableHardwareAcceleration,
   showBookTableOnMobile: org.showBookTableOnMobile,
   showSearchLogOnMobile: org.showSearchLogOnMobile,
   evaluationChartType: org.evaluationChartType,
   analysisDBSearchMode: org.analysisDBSearchMode,
   analysisDBMaxPVLength: org.analysisDBMaxPVLength,
 });
-const versionStatus = ref({} as VersionStatus);
 
 function reverseFormat(source: AppSettingsUpdate): AppSettingsUpdate {
   return {
@@ -1083,22 +824,10 @@ function reverseFormat(source: AppSettingsUpdate): AppSettingsUpdate {
 }
 
 onMounted(() => {
-  api.loadUSIEngines().then((e) => {
-    engines.value = e;
-  });
-  api.getVersionStatus().then((status) => {
-    versionStatus.value = status;
-  });
   watch(
     update,
     (value) => {
-      const ret = useAppSettings().setTemporaryUpdate(reverseFormat(value));
-      if (ret instanceof Promise) {
-        busyState.retain();
-        ret.finally(() => {
-          busyState.release();
-        });
-      }
+      useAppSettings().setTemporaryUpdate(reverseFormat(value));
     },
     { deep: true },
   );
@@ -1120,42 +849,12 @@ const saveAndClose = async () => {
   }
 };
 
-const selectAutoSaveDirectory = async () => {
-  busyState.retain();
-  try {
-    const path = await api.showSelectDirectoryDialog(update.value.autoSaveDirectory);
-    if (path) {
-      update.value.autoSaveDirectory = path;
-    }
-  } catch (e) {
-    useErrorStore().add(e);
-  } finally {
-    busyState.release();
-  }
-};
-
-const onOpenAutoSaveDirectory = () => {
-  api.openExplorer(update.value.autoSaveDirectory);
-};
-
 const howToWriteFileNameTemplate = () => {
   api.openWebBrowser(fileNameTemplateWikiPageURL);
 };
 
 const whatIsMaxPVLengthSetting = () => {
   api.openWebBrowser(maxPVLengthSettingWikiPageURL);
-};
-
-const aboutDisableHWASetting = () => {
-  api.openWebBrowser(disableHWASettingWikiPageURL);
-};
-
-const sendTestNotification = () => {
-  try {
-    api.sendTestNotification();
-  } catch (e) {
-    useErrorStore().add(e);
-  }
 };
 
 const cancel = () => {
@@ -1200,10 +899,6 @@ input.file-path.full-width {
     width: auto;
     max-width: 400px;
   }
-}
-.image-selector {
-  display: inline-block;
-  width: min(260px, 100%);
 }
 .color-selector {
   display: inline-block;

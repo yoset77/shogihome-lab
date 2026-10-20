@@ -7,7 +7,7 @@ import { FileQuickAction } from "@/common/settings/app";
 import ControlPane, { ControlGroup } from "@/renderer/view/main/ControlPane.vue";
 import FileMenu from "@/renderer/view/menu/FileMenu.vue";
 
-const { storeMock, settingsMock, isNativeMock, isMobileWebAppMock } = vi.hoisted(() => ({
+const { storeMock, settingsMock, isMobileWebAppMock } = vi.hoisted(() => ({
   storeMock: {
     appState: "normal",
     isServerSideKifuEnabled: true,
@@ -18,7 +18,6 @@ const { storeMock, settingsMock, isNativeMock, isMobileWebAppMock } = vi.hoisted
     showElapsedTimeChartDialog: vi.fn(),
   },
   settingsMock: { fileQuickAction: "puzzle" },
-  isNativeMock: vi.fn(() => false),
   isMobileWebAppMock: vi.fn(() => false),
 }));
 
@@ -29,7 +28,6 @@ vi.mock("@/renderer/store/settings", () => ({ useAppSettings: () => settings }))
 vi.mock("@/renderer/store/lan", () => ({ useLanStore: () => ({}) }));
 vi.mock("@/renderer/ipc/api", () => ({
   default: {},
-  isNative: isNativeMock,
   isMobileWebApp: isMobileWebAppMock,
 }));
 vi.mock("@/renderer/helpers/dialog", () => ({ showModalDialog: vi.fn() }));
@@ -47,7 +45,6 @@ describe("PC file quick action", () => {
     store.isServerSideKifuEnabled = true;
     settings.fileQuickAction = FileQuickAction.PUZZLE;
     isMobileWebAppMock.mockReturnValue(false);
-    isNativeMock.mockReturnValue(false);
   });
 
   it("changes the button and grays out an unavailable server action", async () => {

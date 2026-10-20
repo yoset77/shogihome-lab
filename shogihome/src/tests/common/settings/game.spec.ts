@@ -36,18 +36,10 @@ describe("settings/game", () => {
       },
       white: {
         name: "後手番",
-        uri: uri.ES_USI_ENGINE_PREFIX + "test-engine",
+        uri: "lan-engine:test-engine",
         usi: {
-          uri: uri.ES_USI_ENGINE_PREFIX + "test-engine",
+          uri: "lan-engine:test-engine",
           name: "Test Engine",
-          defaultName: "test engine",
-          author: "test author",
-          path: "/path/to/test-engine",
-          options: {
-            USI_Hash: { name: "USI_Hash", type: "spin", order: 1 },
-          },
-          labels: {},
-          enableEarlyPonder: false,
         },
       },
       timeLimit: {

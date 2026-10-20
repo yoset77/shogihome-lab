@@ -3,26 +3,10 @@
     <div class="root">
       <div class="title">{{ t.research }}</div>
       <div class="form-group">
-        <PlayerSelector
-          v-model:player-uri="engineURI"
-          :engines="engines"
-          :contains-lan="true"
-          :default-tag="getPredefinedUSIEngineTag('research')"
-          :display-thread-state="true"
-          :display-multi-pv-state="true"
-          @update-engines="onUpdatePlayerSettings"
-        />
+        <PlayerSelector v-model:player-uri="engineURI" engine-type="research" />
       </div>
       <div v-for="(_, index) in secondaryEngineURIs" :key="index" class="form-group">
-        <PlayerSelector
-          v-model:player-uri="secondaryEngineURIs[index]"
-          :engines="engines"
-          :contains-lan="true"
-          :default-tag="getPredefinedUSIEngineTag('research')"
-          :display-thread-state="true"
-          :display-multi-pv-state="true"
-          @update-engines="onUpdatePlayerSettings"
-        >
+        <PlayerSelector v-model:player-uri="secondaryEngineURIs[index]" engine-type="research">
           <template #extra-buttons>
             <button @click="secondaryEngineURIs.splice(index, 1)">
               {{ t.remove }}
@@ -87,7 +71,6 @@ import {
   ResearchSettings,
   validateResearchSettings,
 } from "@/common/settings/research";
-import { USIEngine, getPredefinedUSIEngineTag, USIEngines } from "@/common/settings/usi";
 import { MIN_MULTIPV, MAX_MULTIPV } from "@/common/engine/relay_protocol";
 import { useStore } from "@/renderer/store";
 import { onMounted, ref } from "vue";
@@ -100,12 +83,12 @@ import { useBusyState } from "@/renderer/store/busy";
 import DialogFrame from "./DialogFrame.vue";
 import { useLanStore } from "@/renderer/store/lan";
 import { useAppSettings } from "@/renderer/store/settings";
+import { resolveLanEngine } from "@/renderer/helpers/engine";
 
 const store = useStore();
 const appSettings = useAppSettings();
 const busyState = useBusyState();
 const researchSettings = ref(defaultResearchSettings());
-const engines = ref(new USIEngines());
 const engineURI = ref("");
 const secondaryEngineURIs = ref([] as string[]);
 const lanStore = useLanStore();
@@ -121,7 +104,6 @@ onMounted(async () => {
       researchSettings.value.overrideMultiPV = true;
       researchSettings.value.multiPV = appSettings.researchMultiPV;
     }
-    engines.value = await api.loadUSIEngines();
 
     engineURI.value = researchSettings.value.usi?.uri || "";
     secondaryEngineURIs.value =
@@ -142,37 +124,11 @@ onMounted(async () => {
   }
 });
 
-const resolveEngine = (uri: string): USIEngine | undefined => {
-  if (uri.startsWith("lan-engine")) {
-    let name = uri;
-    if (uri.startsWith("lan-engine:")) {
-      const id = uri.split(":")[1];
-      const info = lanStore.engineList.value.find((e) => e.id === id);
-      if (info) {
-        name = info.name;
-      } else {
-        name = `${id} (Not Found)`;
-      }
-    }
-    return {
-      uri: uri,
-      name: name,
-      defaultName: "",
-      author: "",
-      path: "",
-      options: {},
-      labels: {},
-      enableEarlyPonder: false,
-    };
-  }
-  return engines.value.getEngine(uri);
-};
-
 const onStart = () => {
-  const engine = resolveEngine(engineURI.value);
+  const engine = resolveLanEngine(engineURI.value, lanStore.engineList.value);
   const secondaries = [];
   for (const uri of secondaryEngineURIs.value) {
-    const secondary = resolveEngine(uri);
+    const secondary = resolveLanEngine(uri, lanStore.engineList.value);
     if (secondary) {
       secondaries.push({
         usi: secondary,
@@ -194,10 +150,6 @@ const onStart = () => {
 
 const onCancel = () => {
   store.closeResearchDialog();
-};
-
-const onUpdatePlayerSettings = async (val: USIEngines) => {
-  engines.value = val;
 };
 </script>
 

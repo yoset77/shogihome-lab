@@ -27,7 +27,6 @@
               <DropdownList
                 :value="settings.startPositionListFile"
                 :items="sfenFileList"
-                :tags="[]"
                 @update:value="settings.startPositionListFile = $event"
               />
             </div>
@@ -114,7 +113,6 @@
                 <DropdownList
                   :value="settings.jishogiRule"
                   :items="jishogiRuleItems"
-                  :tags="[]"
                   @update:value="settings.jishogiRule = $event as JishogiRule"
                 />
               </div>
@@ -151,7 +149,7 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
-import { TimeLimitSettings, JishogiRule, validateGameSettingsForWeb } from "@/common/settings/game";
+import { TimeLimitSettings, JishogiRule, validateGameSettings } from "@/common/settings/game";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
 import { IconType } from "@/renderer/assets/icons";
@@ -203,8 +201,7 @@ const settings = reactive({
 });
 
 const blackExtraBook = ref<USIEngineExtraBookConfig>(emptyUSIEngineExtraBookConfig());
-const isEnginePlayer = (playerURI: string) =>
-  uri.isUSIEngine(playerURI) || playerURI.startsWith("lan-engine");
+const isEnginePlayer = (playerURI: string) => uri.isLanEngineURI(playerURI);
 const canStartInBackground = computed(
   () => isEnginePlayer(settings.black.uri) && isEnginePlayer(settings.white.uri),
 );
@@ -348,7 +345,7 @@ const onStart = async () => {
     enableAutoSave: settings.enableAutoSave,
   };
 
-  const err = validateGameSettingsForWeb(newSettings);
+  const err = validateGameSettings(newSettings);
   if (err) {
     useErrorStore().add(err);
     return;

@@ -66,7 +66,7 @@ import {
   getStandardRecordFileFormats,
   KifuPreviewRequest,
 } from "@/common/file/record";
-import { setOnStartSearchHandler, setOnUpdateUSIInfoHandler } from "@/renderer/players/usi";
+import { setOnStartSearchHandler, setOnUpdateUSIInfoHandler } from "@/renderer/players/usi_events";
 import { useErrorStore } from "./error.js";
 import { useBusyState } from "./busy.js";
 import { Confirmation, useConfirmationStore } from "./confirm.js";
@@ -616,21 +616,9 @@ class Store {
     }
   }
 
-  showUsiEngineManagementDialog(): void {
-    if (this.appState === AppState.NORMAL) {
-      this._appState = AppState.USI_ENGINES_DIALOG;
-    }
-  }
-
   showRecordFileHistoryDialog(): void {
     if (this.appState === AppState.NORMAL) {
       this._appState = AppState.RECORD_FILE_HISTORY_DIALOG;
-    }
-  }
-
-  showBatchConversionDialog(): void {
-    if (this.appState === AppState.NORMAL) {
-      this._appState = AppState.BATCH_CONVERSION_DIALOG;
     }
   }
 
@@ -766,10 +754,8 @@ class Store {
       this.appState === AppState.GAME_DIALOG ||
       this.appState === AppState.ANALYSIS_DIALOG ||
       this.appState === AppState.MATE_SEARCH_DIALOG ||
-      this.appState === AppState.USI_ENGINES_DIALOG ||
       this.appState === AppState.EXPORT_POSITION_IMAGE_DIALOG ||
       this.appState === AppState.RECORD_FILE_HISTORY_DIALOG ||
-      this.appState === AppState.BATCH_CONVERSION_DIALOG ||
       this.appState === AppState.LOAD_REMOTE_FILE_DIALOG ||
       this.appState === AppState.SHARE_DIALOG ||
       this.appState === AppState.ADD_BOOK_MOVES_DIALOG ||
@@ -1556,10 +1542,6 @@ class Store {
     return this.researchManager.isSessionExists(sessionID);
   }
 
-  get hasLanEngineInResearch(): boolean {
-    return this.researchManager.hasLanEngine();
-  }
-
   private onUpdateSearchInfo(type: SearchInfoSenderType, info: SearchInfo): void {
     if (this.gameManager.isActive) this.gameManager.annotate(type, info);
     else this.recordManager.updateSearchInfo(type, info);
@@ -2271,15 +2253,6 @@ class Store {
         return this.gameManager.canMove;
     }
     return false;
-  }
-
-  async onMainWindowClose(): Promise<void> {
-    useBusyState().retain();
-    try {
-      await this.recordManager.saveBackup();
-    } finally {
-      useBusyState().release();
-    }
   }
 
   private showConfirmation(confirmation: Confirmation): void {

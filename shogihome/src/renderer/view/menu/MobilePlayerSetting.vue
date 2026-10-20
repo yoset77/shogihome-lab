@@ -8,7 +8,6 @@
           class="player-select"
           :value="playerUri"
           :items="playerItems"
-          :tags="[]"
           :disabled="disabled"
           @update:value="onPlayerChange"
         />
@@ -38,7 +37,6 @@
         <DropdownList
           :value="extraBook.filePath"
           :items="bookFileList"
-          :tags="[]"
           :disabled="disabled"
           @update:value="(val: string) => (extraBook.filePath = val)"
         />

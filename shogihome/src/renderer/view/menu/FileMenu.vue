@@ -90,27 +90,23 @@
           <div class="label">{{ t.open }}</div>
         </button>
         <button
-          v-if="!isNative() && (!isMobileWebApp() || store.isServerSideKifuEnabled)"
+          v-if="!isMobileWebApp() || store.isServerSideKifuEnabled"
           :disabled="!isFileQuickActionEnabled(FileQuickAction.LOAD_FROM_SERVER, store)"
           @click="onLoadFromServer"
         >
           <Icon :icon="IconType.BATCH" />
           <div class="label">{{ t.serverKifu }}</div>
         </button>
-        <button
-          v-if="!isNative() && store.isServerSideKifuEnabled"
-          :disabled="!states.open"
-          @click="onUpload"
-        >
+        <button v-if="store.isServerSideKifuEnabled" :disabled="!states.open" @click="onUpload">
           <Icon :icon="IconType.BATCH" />
           <div class="label">{{ t.upload }}</div>
         </button>
-        <button v-if="isNative() || store.serverKifuPath" :disabled="!states.save" @click="onSave">
+        <button v-if="store.serverKifuPath" :disabled="!states.save" @click="onSave">
           <Icon :icon="IconType.SAVE" />
           <div class="label">{{ t.saveOverwrite }}</div>
         </button>
         <button
-          v-if="!isNative() && store.isServerSideKifuEnabled"
+          v-if="store.isServerSideKifuEnabled"
           :disabled="!states.save"
           @click="onSaveToServer"
         >
@@ -118,15 +114,7 @@
           <div class="label">{{ t.saveToServer }}</div>
         </button>
 
-        <button v-if="isNative()" :disabled="!states.saveAs" @click="onSaveAs">
-          <Icon :icon="IconType.SAVE_AS" />
-          <div class="label">{{ t.saveAs }}</div>
-        </button>
-        <button
-          v-if="!isNative() && !isMobileWebApp()"
-          :disabled="!states.saveAs"
-          @click="onSaveLocal"
-        >
+        <button v-if="!isMobileWebApp()" :disabled="!states.saveAs" @click="onSaveLocal">
           <Icon :icon="IconType.SAVE_AS" />
           <div class="label">{{ t.saveAs }}</div>
         </button>
@@ -162,19 +150,11 @@
           <Icon :icon="IconType.GRID" />
           <div class="label">{{ t.importBoardImage }}</div>
         </button>
-        <button v-if="isNative()" :disabled="!states.batchConversion" @click="onBatchConversion">
-          <Icon :icon="IconType.BATCH" />
-          <div class="label">{{ t.batchConversion }}</div>
-        </button>
         <button :disabled="!states.analysisDBManager" @click="onAnalysisDBManager">
           <Icon :icon="IconType.BATCH" />
           <div class="label">{{ t.analysisDBManager }}</div>
         </button>
-        <button v-if="isNative()" @click="onOpenAutoSaveDirectory">
-          <Icon :icon="IconType.OPEN_FOLDER" />
-          <div class="label">{{ t.openAutoSaveDirectory }}</div>
-        </button>
-        <button v-if="!isNative()" @click="onJobs">
+        <button @click="onJobs">
           <Icon :icon="IconType.MONITOR" />
           <div class="label">{{ t.jobsTitle }}</div>
         </button>
@@ -259,14 +239,14 @@ import Icon from "@/renderer/view/primitive/Icon.vue";
 import { IconType } from "@/renderer/assets/icons";
 import { useStore } from "@/renderer/store";
 import { AppState, ResearchState } from "@/common/control/state.js";
-import api, { isMobileWebApp, isNative } from "@/renderer/ipc/api";
+import { isMobileWebApp } from "@/renderer/ipc/api";
 import { useAppSettings } from "@/renderer/store/settings";
 import { installHotKeyForDialog, uninstallHotKeyForDialog } from "@/renderer/devices/hotkey";
 import { openCopyright } from "@/renderer/helpers/copyright";
 import MobileGameMenu from "@/renderer/view/menu/MobileGameMenu.vue";
 import SpecialMoveMenu from "@/renderer/view/menu/SpecialMoveMenu.vue";
 import { defaultResearchSettings } from "@/common/settings/research";
-import { USIEngine } from "@/common/settings/usi";
+import { resolveLanEngine } from "@/renderer/helpers/engine";
 import { useLanStore } from "@/renderer/store/lan";
 import { generateRecordFileName } from "@/renderer/helpers/path";
 import { FileQuickAction } from "@/common/settings/app";
@@ -331,39 +311,8 @@ const onStopMateSearch = () => {
 const onResearch = async () => {
   const uri = appSettings.defaultResearchEngineURI;
   if (isMobileWebApp() && uri) {
-    let engine: USIEngine | undefined;
-    if (uri.startsWith("lan-engine")) {
-      let name = uri;
-      if (uri.startsWith("lan-engine:")) {
-        const id = uri.split(":")[1];
-        try {
-          await lanStore.fetchEngineList();
-          const list = lanStore.engineList.value;
-          const info = list.find((e) => e.id === id);
-          if (info) name = info.name;
-          else name = `${id} (Not Found)`;
-        } catch {
-          name = `${id} (Not Found)`;
-        }
-      }
-      engine = {
-        uri,
-        name,
-        defaultName: "",
-        author: "",
-        path: "",
-        options: {},
-        labels: {},
-        enableEarlyPonder: false,
-      };
-    } else {
-      try {
-        const engines = await api.loadUSIEngines();
-        engine = engines.getEngine(uri);
-      } catch (e) {
-        console.warn(e);
-      }
-    }
+    await lanStore.fetchEngineList();
+    const engine = resolveLanEngine(uri, lanStore.engineList.value);
 
     if (engine) {
       store.startResearch({
@@ -441,10 +390,6 @@ const onSaveToServer = () => {
   }
   emit("close");
 };
-const onSaveAs = () => {
-  store.saveRecord();
-  emit("close");
-};
 const onSaveLocal = () => {
   const defaultName = generateRecordFileName(store.record, {
     template: appSettings.recordFileNameTemplate,
@@ -476,10 +421,6 @@ const onElapsedTimeChart = () => {
   runFileQuickAction(FileQuickAction.ELAPSED_TIME_CHART, store);
   emit("close");
 };
-const onBatchConversion = () => {
-  store.showBatchConversionDialog();
-  emit("close");
-};
 const onAnalysisDBManager = () => {
   store.showAnalysisDBManagerDialog();
   emit("close");
@@ -490,10 +431,6 @@ const onExportImage = () => {
 };
 const onVisionScan = () => {
   store.showVisionScanDialog();
-  emit("close");
-};
-const onOpenAutoSaveDirectory = () => {
-  api.openExplorer(appSettings.autoSaveDirectory);
   emit("close");
 };
 const onCopyKIF = () => {
@@ -572,7 +509,6 @@ const states = computed(() => {
     share: store.appState === AppState.NORMAL,
     searchDuplicatePositions: store.appState === AppState.NORMAL,
     elapsedTimeChart: isFileQuickActionEnabled(FileQuickAction.ELAPSED_TIME_CHART, store),
-    batchConversion: store.appState === AppState.NORMAL,
     analysisDBManager: store.appState === AppState.NORMAL,
     exportImage: store.appState === AppState.NORMAL,
     visionScan: store.appState === AppState.NORMAL,

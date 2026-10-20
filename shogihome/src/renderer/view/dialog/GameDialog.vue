@@ -8,12 +8,7 @@
           <PlayerSelector
             v-model:player-uri="blackPlayerURI"
             :contains-human="true"
-            :engines="engines"
-            :default-tag="getPredefinedUSIEngineTag('game')"
-            :display-ponder-state="false"
-            :display-thread-state="true"
-            :display-multi-pv-state="true"
-            @update-engines="onUpdatePlayerSettings"
+            engine-type="game"
           />
           <div v-if="isBlackEngine" class="form-item extra-book">
             <div class="row center">
@@ -24,7 +19,6 @@
               <DropdownList
                 :value="blackExtraBook.filePath"
                 :items="bookFileList"
-                :tags="[]"
                 @update:value="(val: string) => (blackExtraBook.filePath = val)"
               />
               <button class="book-settings-btn" @click="openBlackBookSettings">
@@ -39,12 +33,7 @@
             v-if="whitePlayerURI"
             v-model:player-uri="whitePlayerURI"
             :contains-human="true"
-            :engines="engines"
-            :default-tag="getPredefinedUSIEngineTag('game')"
-            :display-ponder-state="false"
-            :display-thread-state="true"
-            :display-multi-pv-state="true"
-            @update-engines="onUpdatePlayerSettings"
+            engine-type="game"
           />
           <div v-if="isWhiteEngine" class="form-item extra-book">
             <div class="row center">
@@ -55,7 +44,6 @@
               <DropdownList
                 :value="whiteExtraBook.filePath"
                 :items="bookFileList"
-                :tags="[]"
                 @update:value="(val: string) => (whiteExtraBook.filePath = val)"
               />
               <button class="book-settings-btn" @click="openWhiteBookSettings">
@@ -207,7 +195,6 @@
             <DropdownList
               :value="gameSettings.startPositionListFile"
               :items="sfenFileList"
-              :tags="[]"
               @update:value="(val: string) => (gameSettings.startPositionListFile = val)"
             />
           </div>
@@ -267,7 +254,7 @@
               :label="t.adjustBoardToHumanPlayer"
             />
           </div>
-          <div v-if="!isNative() && isBlackEngine && isWhiteEngine" class="form-item">
+          <div v-if="isBlackEngine && isWhiteEngine" class="form-item">
             <ToggleButton v-model:value="background" :label="t.jobsBackground" />
           </div>
         </div>
@@ -299,23 +286,18 @@
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import {
-  USIEngine,
-  USIEngines,
-  getPredefinedUSIEngineTag,
   USIEngineExtraBookConfig,
-  emptyUSIEngine,
   emptyUSIEngineExtraBookConfig,
   normalizeUSIEngineExtraBookConfig,
 } from "@/common/settings/usi";
 import { ref, onMounted, computed, watch } from "vue";
-import api, { isNative } from "@/renderer/ipc/api";
+import api from "@/renderer/ipc/api";
 import { useStore } from "@/renderer/store";
 import {
   defaultGameSettings,
   GameSettings,
   JishogiRule,
   validateGameSettings,
-  validateGameSettingsForWeb,
 } from "@/common/settings/game";
 import * as uri from "@/common/uri.js";
 import { IconType } from "@/renderer/assets/icons";
@@ -330,6 +312,7 @@ import DialogFrame from "./DialogFrame.vue";
 import { useLanStore } from "@/renderer/store/lan";
 import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
 import ExtraBookSettingsDialog from "./ExtraBookSettingsDialog.vue";
+import { resolveLanEngine } from "@/renderer/helpers/engine";
 
 const store = useStore();
 const background = ref(false);
@@ -347,7 +330,6 @@ const startPositionListShuffle = ref(false);
 const startPositionListPlyEnabled = ref(false);
 const startPositionListPly = ref(1);
 const gameSettings = ref(defaultGameSettings());
-const engines = ref(new USIEngines());
 const blackPlayerURI = ref("");
 const whitePlayerURI = ref("");
 const blackExtraBook = ref<USIEngineExtraBookConfig>(emptyUSIEngineExtraBookConfig());
@@ -356,12 +338,8 @@ const showBlackBookSettings = ref(false);
 const showWhiteBookSettings = ref(false);
 const lanStore = useLanStore();
 
-const isBlackEngine = computed(
-  () => uri.isUSIEngine(blackPlayerURI.value) || blackPlayerURI.value.startsWith("lan-engine"),
-);
-const isWhiteEngine = computed(
-  () => uri.isUSIEngine(whitePlayerURI.value) || whitePlayerURI.value.startsWith("lan-engine"),
-);
+const isBlackEngine = computed(() => uri.isLanEngineURI(blackPlayerURI.value));
+const isWhiteEngine = computed(() => uri.isLanEngineURI(whitePlayerURI.value));
 watch(
   () => isBlackEngine.value && isWhiteEngine.value,
   (available) => {
@@ -396,7 +374,6 @@ onMounted(async () => {
   try {
     await Promise.all([loadSFENFileList(), loadBookFileList()]);
     gameSettings.value = await api.loadGameSettings();
-    engines.value = await api.loadUSIEngines();
     blackPlayerURI.value = gameSettings.value.black.uri;
     whitePlayerURI.value = gameSettings.value.white.uri;
     blackExtraBook.value = normalizeUSIEngineExtraBookConfig(
@@ -438,29 +415,8 @@ const buildPlayerSettings = (
   playerURI: string,
   extraBook: USIEngineExtraBookConfig,
 ): PlayerSettings => {
-  if (playerURI === "lan-engine" || playerURI.startsWith("lan-engine:")) {
-    let name = playerURI;
-    if (playerURI.startsWith("lan-engine:")) {
-      const id = playerURI.split(":")[1];
-      const info = lanStore.engineList.value.find((e) => e.id === id);
-      if (info) {
-        name = info.name;
-      } else {
-        name = `${id} (Not Found)`;
-      }
-    }
-    return {
-      name: name,
-      uri: playerURI,
-      usi: {
-        ...emptyUSIEngine(),
-        defaultName: "",
-        extraBook,
-      },
-    };
-  }
-  if (uri.isUSIEngine(playerURI) && engines.value.hasEngine(playerURI)) {
-    const engine = engines.value.getEngine(playerURI) as USIEngine;
+  const engine = resolveLanEngine(playerURI, lanStore.engineList.value);
+  if (engine) {
     return {
       name: engine.name,
       uri: playerURI,
@@ -500,9 +456,7 @@ const onStart = () => {
   } else {
     delete newSettings.whiteTimeLimit;
   }
-  const error = isNative()
-    ? validateGameSettings(newSettings)
-    : validateGameSettingsForWeb(newSettings);
+  const error = validateGameSettings(newSettings);
   if (error) {
     useErrorStore().add(error);
   } else {
@@ -512,10 +466,6 @@ const onStart = () => {
 
 const onCancel = () => {
   store.closeModalDialog();
-};
-
-const onUpdatePlayerSettings = (val: USIEngines) => {
-  engines.value = val;
 };
 
 const onSwapColor = () => {

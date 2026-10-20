@@ -7,7 +7,6 @@ import {
 import { CommentBehavior } from "@/common/settings/comment";
 import { t } from "@/common/i18n";
 import { MIN_MULTIPV, MAX_MULTIPV } from "@/common/engine/relay_protocol";
-import * as uri from "@/common/uri";
 
 describe("settings/analysis", () => {
   it("defaults legacy settings to engine-controlled MultiPV", () => {
@@ -38,16 +37,8 @@ describe("settings/analysis", () => {
       overrideMultiPV: true,
       multiPV: 3,
       usi: {
-        uri: uri.ES_USI_ENGINE_PREFIX + "test-engine",
+        uri: "lan-engine:test-engine",
         name: "Test Engine",
-        defaultName: "test engine",
-        author: "test author",
-        path: "/path/to/test-engine",
-        options: {
-          USI_Hash: { name: "USI_Hash", type: "spin", order: 1 },
-        },
-        labels: {},
-        enableEarlyPonder: false,
       },
       startCriteria: {
         enableNumber: true,

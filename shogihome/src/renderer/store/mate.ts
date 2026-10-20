@@ -1,8 +1,9 @@
 import { MateSearchSettings } from "@/common/settings/mate";
-import { USIPlayer } from "@/renderer/players/usi";
 import { LanPlayer } from "@/renderer/players/lan_player";
 import { useAppSettings } from "./settings.js";
 import { ImmutableRecord, Move } from "tsshogi";
+import { isLanEngineURI } from "@/common/uri";
+import { t } from "@/common/i18n";
 
 type CheckmateCallback = (moves: Move[]) => void;
 type NotImplementedCallback = () => void;
@@ -11,7 +12,7 @@ type NoMateCallback = () => void;
 type ErrorCallback = (e: unknown) => void;
 
 export class MateSearchManager {
-  private engine: USIPlayer | LanPlayer | null = null;
+  private engine: LanPlayer | null = null;
   private onNotImplemented: NotImplementedCallback = () => {
     /* noop */
   };
@@ -56,31 +57,22 @@ export class MateSearchManager {
 
   async start(settings: MateSearchSettings, record: ImmutableRecord) {
     // Validation
-    if (settings.usi === undefined) {
-      throw new Error("MateSearchManager#start: USIエンジンの設定は必須です。");
+    if (!settings.usi || !isLanEngineURI(settings.usi.uri)) {
+      throw new Error(t.engineNotSelected);
     }
     // エンジンを起動する。
     const appSettings = useAppSettings();
-    if (settings.usi.uri.startsWith("lan-engine")) {
-      const uri = settings.usi.uri;
-      let engineId = "mate";
-      if (uri.startsWith("lan-engine:")) {
-        engineId = uri.split(":")[1];
-      }
-      this.engine = new LanPlayer(
-        "mate_search",
-        engineId,
-        settings.usi.name,
-        appSettings.engineTimeoutSeconds,
-        undefined,
-        (e) => {
-          this.onError(e);
-        },
-        settings.usi.extraBook,
-      );
-    } else {
-      this.engine = new USIPlayer(settings.usi, appSettings.engineTimeoutSeconds);
-    }
+    const uri = settings.usi.uri;
+    const engineId = uri === "lan-engine" ? "mate" : uri.substring("lan-engine:".length);
+    this.engine = new LanPlayer(
+      "mate_search",
+      engineId,
+      settings.usi.name,
+      appSettings.engineTimeoutSeconds,
+      undefined,
+      (e) => this.onError(e),
+      settings.usi.extraBook,
+    );
     const maxSeconds = settings.enableMaxSeconds ? settings.maxSeconds : undefined;
     try {
       await this.engine.launch();

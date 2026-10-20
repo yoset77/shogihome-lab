@@ -1,6 +1,5 @@
 import { USIInfoCommand } from "@/common/game/usi";
 import { Color, ImmutablePosition, Move, Position, formatMove } from "tsshogi";
-import { isActiveUSIPlayerSession } from "@/renderer/players/usi";
 import { isActiveLanPlayerSession } from "@/renderer/players/lan_player";
 import { isInfoSessionActive } from "@/renderer/players/usi_events";
 import { formatDisplayPV } from "@/renderer/helpers/pv";
@@ -211,12 +210,7 @@ export class USIMonitor {
     // 終了しているセッションを検出して削除する。
     // ただし、現在の更新処理に含まれているセッションは削除しない。
     this._sessions = this._sessions.filter((session) => {
-      // Do not remove the engine session.
-      if (session.sessionID === -1) {
-        return true;
-      }
       return (
-        isActiveUSIPlayerSession(session.sessionID) ||
         isActiveLanPlayerSession(session.sessionID) ||
         isInfoSessionActive(session.sessionID) ||
         this.updateQueue.some((update) => update.sessionID === session.sessionID)

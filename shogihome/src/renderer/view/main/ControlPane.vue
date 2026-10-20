@@ -154,17 +154,6 @@
           <Icon :icon="IconType.FLIP" />
           <span :class="{ tooltip: compact }">{{ t.flipBoard }}</span>
         </button>
-        <!-- エンジン設定 -->
-        <button
-          v-if="false"
-          class="control-item"
-          data-hotkey="Mod+."
-          :disabled="store.appState !== AppState.NORMAL"
-          @click="onOpenEngines"
-        >
-          <Icon :icon="IconType.ENGINE_SETTINGS" />
-          <span :class="{ tooltip: compact }">{{ t.manageEngines }}</span>
-        </button>
         <!-- ファイルメニューのクイック操作 -->
         <button
           class="control-item"
@@ -211,9 +200,8 @@ import {
   installHotKeyForMainWindow,
   uninstallHotKeyForMainWindow,
 } from "@/renderer/devices/hotkey";
-import api from "@/renderer/ipc/api";
 import { defaultResearchSettings } from "@/common/settings/research";
-import { USIEngine } from "@/common/settings/usi";
+import { resolveLanEngine } from "@/renderer/helpers/engine";
 import { useLanStore } from "@/renderer/store/lan";
 import {
   getFileQuickAction,
@@ -270,40 +258,8 @@ const onResign = () => {
 const onResearch = async () => {
   const uri = appSettings.defaultResearchEngineURI;
   if (uri) {
-    let engine: USIEngine | undefined;
-    if (uri.startsWith("lan-engine")) {
-      let name = uri;
-      if (uri.startsWith("lan-engine:")) {
-        const id = uri.split(":")[1];
-        try {
-          await lanStore.fetchEngineList();
-          const list = lanStore.engineList.value;
-          const info = list.find((e) => e.id === id);
-          if (info) name = info.name;
-          else name = `${id} (Not Found)`;
-        } catch {
-          name = `${id} (Not Found)`;
-        }
-      }
-
-      engine = {
-        uri,
-        name,
-        defaultName: "",
-        author: "",
-        path: "",
-        options: {},
-        labels: {},
-        enableEarlyPonder: false,
-      };
-    } else {
-      try {
-        const engines = await api.loadUSIEngines();
-        engine = engines.getEngine(uri);
-      } catch (e) {
-        console.warn(e);
-      }
-    }
+    await lanStore.fetchEngineList();
+    const engine = resolveLanEngine(uri, lanStore.engineList.value);
 
     if (engine) {
       store.startResearch({
@@ -344,10 +300,6 @@ const onStartEditPosition = () => {
 
 const onOpenAppSettings = () => {
   store.showAppSettingsDialog();
-};
-
-const onOpenEngines = () => {
-  store.showUsiEngineManagementDialog();
 };
 
 const onFlip = () => {

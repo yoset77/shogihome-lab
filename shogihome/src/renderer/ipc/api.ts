@@ -1,16 +1,11 @@
-import { USIEngine, USIEngines } from "@/common/settings/usi";
 import { GameSettings, normalizeGameSettings } from "@/common/settings/game";
 import { AppSettings } from "@/common/settings/app";
 import { webAPI } from "./web.js";
 import { normalizeResearchSettings, ResearchSettings } from "@/common/settings/research";
-import { AppState, ResearchState } from "@/common/control/state";
-import { GameResult } from "@/common/game/result";
 import { AnalysisSettings, normalizeAnalysisSettings } from "@/common/settings/analysis";
-import { LogLevel, LogType } from "@/common/log";
+import { LogLevel } from "@/common/log";
 import { Rect } from "@/common/assets/geometry";
 import { MateSearchSettings, normalizeMateSearchSettings } from "@/common/settings/mate";
-import { BatchConversionSettings } from "@/common/settings/conversion";
-import { BatchConversionResult } from "@/common/file/conversion";
 import type {
   KifuSearchQuery,
   SfenExportJobStatus,
@@ -23,15 +18,8 @@ import type {
   ServerDirectoryList,
   ServerFileUploadResult,
 } from "@/common/file/upload";
-import {
-  InitialRecordFileRequest,
-  RecordFileFormat,
-  KifuSearchResult,
-  KifuListEntry,
-} from "@/common/file/record";
-import { VersionStatus } from "@/common/version";
+import { RecordFileFormat, KifuSearchResult, KifuListEntry } from "@/common/file/record";
 import { Bridge } from "./bridge.js";
-import { TimeStates } from "@/common/game/time";
 import {
   BookFormat,
   BookImportSummary,
@@ -46,14 +34,9 @@ type AppInfo = {
 };
 
 export interface API {
-  // Core
-  updateAppState(appState: AppState, researchState: ResearchState, busy: boolean): void;
-
   // Settings
   loadAppSettings(): Promise<AppSettings>;
   saveAppSettings(settings: AppSettings): Promise<void>;
-  loadBatchConversionSettings(): Promise<BatchConversionSettings>;
-  saveBatchConversionSettings(settings: BatchConversionSettings): Promise<void>;
   loadResearchSettings(): Promise<ResearchSettings>;
   saveResearchSettings(settings: ResearchSettings): Promise<void>;
   loadAnalysisSettings(): Promise<AnalysisSettings>;
@@ -62,16 +45,12 @@ export interface API {
   saveGameSettings(settings: GameSettings): Promise<void>;
   loadMateSearchSettings(): Promise<MateSearchSettings>;
   saveMateSearchSettings(settings: MateSearchSettings): Promise<void>;
-  loadUSIEngines(): Promise<USIEngines>;
-  saveUSIEngines(usiEngines: USIEngines): Promise<void>;
   loadBookImportSettings(): Promise<BookImportSettings>;
   saveBookImportSettings(settings: BookImportSettings): Promise<void>;
 
   // Record File
-  fetchInitialRecordFileRequest(): Promise<InitialRecordFileRequest>;
   showOpenRecordDialog(formats: RecordFileFormat[]): Promise<string>;
   showSaveRecordDialog(defaultPath: string): Promise<string>;
-  showSaveMergedRecordDialog(defaultPath: string): Promise<string>;
   openRecord(path: string): Promise<Uint8Array>;
   saveRecord(path: string, data: Uint8Array): Promise<void>;
   loadRecordFileHistory(): Promise<RecordFileHistory>;
@@ -80,7 +59,6 @@ export interface API {
   saveRecordFileBackup(kif: string): Promise<void>;
   loadRecordFileBackup(name: string): Promise<string>;
   loadRemoteTextFile(url: string): Promise<string>;
-  convertRecordFiles(settings: BatchConversionSettings): Promise<BatchConversionResult>;
   loadSFENFile(path: string): Promise<string[]>;
 
   // Book
@@ -101,40 +79,15 @@ export interface API {
   updateBookMoveOrder(sfen: string, usi: string, order: number, sessionId?: string): Promise<void>;
   importBookMoves(settings: BookImportSettings, sessionId?: string): Promise<BookImportSummary>;
 
-  // USI
-  showSelectUSIEngineDialog(): Promise<string>;
-  getUSIEngineInfo(path: string, timeoutSeconds: number): Promise<USIEngine>;
-  sendUSIOptionButtonSignal(path: string, name: string, timeoutSeconds: number): Promise<void>;
-  usiLaunch(engine: USIEngine, timeoutSeconds: number): Promise<number>;
-  usiReady(sessionID: number): Promise<void>;
-  usiSetOption(sessionID: number, name: string, value: string): Promise<void>;
-  usiGo(sessionID: number, usi: string, timeStates: TimeStates): Promise<void>;
-  usiGoPonder(sessionID: number, usi: string, timeStates: TimeStates): Promise<void>;
-  usiPonderHit(sessionID: number, timeStates: TimeStates): Promise<void>;
-  usiGoInfinite(sessionID: number, usi: string): Promise<void>;
-  usiGoMate(sessionID: number, usi: string, maxSeconds?: number): Promise<void>;
-  usiStop(sessionID: number): Promise<void>;
-  usiGameover(sessionID: number, result: GameResult): Promise<void>;
-  usiQuit(sessionID: number): Promise<void>;
-
   // Images
-  showSelectImageDialog(defaultURL?: string): Promise<string>;
-  cropPieceImage(srcURL: string, deleteMargin: boolean): Promise<string>;
   exportCaptureAsPNG(rect: Rect): Promise<void>;
   exportCaptureAsJPEG(rect: Rect): Promise<void>;
 
   // Log
-  openLogFile(logType: LogType): void;
   log(level: LogLevel, message: string): void;
 
   // MISC
-  showSelectFileDialog(): Promise<string>;
-  showSelectDirectoryDialog(defaultPath?: string): Promise<string>;
-  openExplorer(path: string): void;
   openWebBrowser(url: string): void;
-  isEncryptionAvailable(): Promise<boolean>;
-  getVersionStatus(): Promise<VersionStatus>;
-  sendTestNotification(): void;
   getPathForFile(file: File): string;
 
   // Server Kifu (LAN only)
@@ -186,12 +139,6 @@ const api: API = {
   saveAppSettings(settings: AppSettings): Promise<void> {
     return bridge.saveAppSettings(JSON.stringify(settings));
   },
-  async loadBatchConversionSettings(): Promise<BatchConversionSettings> {
-    return JSON.parse(await bridge.loadBatchConversionSettings());
-  },
-  saveBatchConversionSettings(settings: BatchConversionSettings): Promise<void> {
-    return bridge.saveBatchConversionSettings(JSON.stringify(settings));
-  },
   async loadResearchSettings(): Promise<ResearchSettings> {
     return normalizeResearchSettings(JSON.parse(await bridge.loadResearchSettings()));
   },
@@ -219,25 +166,11 @@ const api: API = {
   async loadRecordFileHistory(): Promise<RecordFileHistory> {
     return JSON.parse(await bridge.loadRecordFileHistory());
   },
-  async loadUSIEngines(): Promise<USIEngines> {
-    return new USIEngines(await bridge.loadUSIEngines());
-  },
-  saveUSIEngines(usiEngines: USIEngines): Promise<void> {
-    return bridge.saveUSIEngines(usiEngines.json);
-  },
   async loadBookImportSettings(): Promise<BookImportSettings> {
     return JSON.parse(await bridge.loadBookImportSettings());
   },
   saveBookImportSettings(settings: BookImportSettings): Promise<void> {
     return bridge.saveBookImportSettings(JSON.stringify(settings));
-  },
-
-  // Record File
-  async fetchInitialRecordFileRequest(): Promise<InitialRecordFileRequest> {
-    return JSON.parse(await bridge.fetchInitialRecordFileRequest());
-  },
-  async convertRecordFiles(settings: BatchConversionSettings): Promise<BatchConversionResult> {
-    return JSON.parse(await bridge.convertRecordFiles(JSON.stringify(settings)));
   },
 
   // Book
@@ -299,37 +232,12 @@ const api: API = {
     return JSON.parse(await bridge.importBookMoves(JSON.stringify(settings), sessionId));
   },
 
-  // USI
-  async getUSIEngineInfo(path: string, timeoutSeconds: number): Promise<USIEngine> {
-    return JSON.parse(await bridge.getUSIEngineInfo(path, timeoutSeconds));
-  },
-  usiLaunch(engine: USIEngine, timeoutSeconds: number): Promise<number> {
-    return bridge.usiLaunch(JSON.stringify(engine), timeoutSeconds);
-  },
-  usiReady(sessionID: number): Promise<void> {
-    return bridge.usiReady(sessionID);
-  },
-  usiGo(sessionID: number, usi: string, timeStates: TimeStates): Promise<void> {
-    return bridge.usiGo(sessionID, usi, JSON.stringify(timeStates));
-  },
-  usiGoPonder(sessionID: number, usi: string, timeStates: TimeStates): Promise<void> {
-    return bridge.usiGoPonder(sessionID, usi, JSON.stringify(timeStates));
-  },
-  usiPonderHit(sessionID, timeStates) {
-    return bridge.usiPonderHit(sessionID, JSON.stringify(timeStates));
-  },
-
   // Images
   exportCaptureAsPNG(rect: Rect): Promise<void> {
     return bridge.exportCaptureAsPNG(rect.json);
   },
   exportCaptureAsJPEG(rect: Rect): Promise<void> {
     return bridge.exportCaptureAsJPEG(rect.json);
-  },
-
-  // MISC
-  async getVersionStatus(): Promise<VersionStatus> {
-    return JSON.parse(await bridge.getVersionStatus());
   },
 
   // Server Kifu (LAN only)
@@ -391,14 +299,7 @@ const api: API = {
 
 export default api;
 
-export function isNative(): boolean {
-  return false;
-}
-
 export function isMobileWebApp(): boolean {
-  if (isNative()) {
-    return false;
-  }
   const urlParams = new URL(window.location.toString()).searchParams;
   return urlParams.has("mobile");
 }

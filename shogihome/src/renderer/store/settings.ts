@@ -32,7 +32,6 @@ import {
 } from "@/common/settings/app";
 import { UnwrapNestedRefs, reactive } from "vue";
 import api from "@/renderer/ipc/api";
-import { LogLevel } from "@/common/log";
 import { Language } from "@/common/i18n/index";
 import { RecordFileFormat } from "@/common/file/record";
 import { BoardLayoutType, EvaluationChartType } from "@/common/settings/layout";
@@ -82,9 +81,6 @@ class AppSettingsStore {
   }
   get pieceImageFileURL(): string | undefined {
     return this.merged.pieceImageFileURL;
-  }
-  get deletePieceImageMargin(): boolean {
-    return this.merged.deletePieceImageMargin;
   }
   get boardImageFileURL(): string | undefined {
     return this.merged.boardImageFileURL;
@@ -209,9 +205,6 @@ class AppSettingsStore {
   get defaultBookFormat(): BookFormat {
     return isBookFormat(this.merged.defaultBookFormat) ? this.merged.defaultBookFormat : "yane2016";
   }
-  get translateEngineOptionName(): boolean {
-    return this.merged.translateEngineOptionName;
-  }
   get engineTimeoutSeconds(): number {
     return this.merged.engineTimeoutSeconds;
   }
@@ -266,15 +259,6 @@ class AppSettingsStore {
   get branchListMode(): BranchListMode {
     return this.merged.branchListMode;
   }
-  get enableAppLog(): boolean {
-    return this.merged.enableAppLog;
-  }
-  get enableUSILog(): boolean {
-    return this.merged.enableUSILog;
-  }
-  get logLevel(): LogLevel {
-    return this.merged.logLevel;
-  }
   get positionImageStyle(): PositionImageStyle {
     return this.merged.positionImageStyle;
   }
@@ -299,21 +283,6 @@ class AppSettingsStore {
   get positionImageFontWeight(): PositionImageFontWeight {
     return this.merged.positionImageFontWeight;
   }
-  get lastRecordFilePath(): string {
-    return this.merged.lastRecordFilePath;
-  }
-  get lastBookFilePath(): string {
-    return this.merged.lastBookFilePath;
-  }
-  get lastUSIEngineFilePath(): string {
-    return this.merged.lastUSIEngineFilePath;
-  }
-  get lastImageExportFilePath(): string {
-    return this.merged.lastImageExportFilePath;
-  }
-  get lastOtherFilePath(): string {
-    return this.merged.lastOtherFilePath;
-  }
   get emptyRecordInfoVisibility(): boolean {
     return this.merged.emptyRecordInfoVisibility;
   }
@@ -332,35 +301,9 @@ class AppSettingsStore {
   get analysisDBMaxPVLength(): number {
     return this.merged.analysisDBMaxPVLength;
   }
-  get enableHardwareAcceleration(): boolean {
-    return this.merged.enableHardwareAcceleration;
-  }
-
   async loadAppSettings(): Promise<void> {
     this.settings = await api.loadAppSettings();
     this.merged = this.settings;
-  }
-
-  private applyCustomPieceImages(settings: AppSettings): AppSettings | Promise<AppSettings> {
-    if (
-      settings.pieceImage === PieceImageType.CUSTOM_IMAGE &&
-      settings.pieceImageFileURL &&
-      (settings.pieceImageFileURL !== this.pieceImageFileURL ||
-        settings.deletePieceImageMargin !== this.deletePieceImageMargin)
-    ) {
-      return api
-        .cropPieceImage(settings.pieceImageFileURL, !!settings.deletePieceImageMargin)
-        .then((result) => {
-          return {
-            ...settings,
-            croppedPieceImageBaseURL: result,
-          };
-        });
-    }
-    return {
-      ...settings,
-      croppedPieceImageBaseURL: this.croppedPieceImageBaseURL,
-    };
   }
 
   async updateAppSettings(update: AppSettingsUpdate) {
@@ -369,24 +312,17 @@ class AppSettingsStore {
     if (error instanceof Error) {
       throw error;
     }
-    const updated = await this.applyCustomPieceImages(candidate);
-    await api.saveAppSettings(updated);
-    this.merged = this.settings = updated;
+    await api.saveAppSettings(candidate);
+    this.merged = this.settings = candidate;
   }
 
-  setTemporaryUpdate(update: AppSettingsUpdate): void | Error | Promise<void> {
+  setTemporaryUpdate(update: AppSettingsUpdate): void | Error {
     const candidate = buildUpdatedAppSettings(this.merged, update);
     const error = validateAppSettings(candidate);
     if (error instanceof Error) {
       return error;
     }
-    const updated = this.applyCustomPieceImages(candidate);
-    if (updated instanceof Promise) {
-      return updated.then((updated) => {
-        this.merged = updated;
-      });
-    }
-    this.merged = updated;
+    this.merged = candidate;
   }
 
   clearTemporaryUpdate(): void {

@@ -2,13 +2,12 @@ import { flushPromises, mount } from "@vue/test-utils";
 import ResearchDialog from "@/renderer/view/dialog/ResearchDialog.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import { defaultResearchSettings } from "@/common/settings/research";
-import { emptyUSIEngine, USIEngines } from "@/common/settings/usi";
+import { emptyUSIEngine } from "@/common/settings/usi";
 import { t } from "@/common/i18n";
 import { useBusyState } from "@/renderer/store/busy";
 
 const mocks = vi.hoisted(() => ({
   loadResearchSettings: vi.fn(),
-  loadUSIEngines: vi.fn(),
   startResearch: vi.fn(),
   closeResearchDialog: vi.fn(),
   destroyModalDialog: vi.fn(),
@@ -16,10 +15,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/renderer/ipc/api", () => ({
-  isNative: () => false,
   default: {
     loadResearchSettings: mocks.loadResearchSettings,
-    loadUSIEngines: mocks.loadUSIEngines,
   },
 }));
 vi.mock("@/renderer/store", () => ({ useStore: () => mocks }));
@@ -41,7 +38,6 @@ describe("ResearchDialog MultiPV validation", () => {
       usi: { ...emptyUSIEngine(), uri: "lan-engine:test" },
       overrideMultiPV: true,
     });
-    mocks.loadUSIEngines.mockResolvedValue(new USIEngines());
   });
   afterEach(() => {
     for (const wrapper of wrappers.splice(0)) wrapper.unmount();
