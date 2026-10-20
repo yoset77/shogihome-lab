@@ -28,11 +28,9 @@
             :layout-type="isMobile ? BoardLayoutType.PORTRAIT : BoardLayoutType.STANDARD"
             :mobile="isMobile"
             :board-image-type="appSettings.boardImage"
-            :custom-board-image-url="appSettings.boardImageFileURL"
             :board-image-opacity="appSettings.enableTransparent ? appSettings.boardOpacity : 1"
             :board-grid-color="appSettings.boardGridColor || undefined"
             :piece-stand-image-type="appSettings.pieceStandImage"
-            :custom-piece-stand-image-url="appSettings.pieceStandImageFileURL"
             :piece-stand-image-opacity="
               appSettings.enableTransparent ? appSettings.pieceStandOpacity : 1
             "

@@ -35,9 +35,7 @@ export type Config = {
 
 export function newConfig(params: {
   boardImageType: BoardImageType;
-  customBoardImageURL?: string;
   pieceStandImageType: PieceStandImageType;
-  customPieceStandImageURL?: string;
   pieceImageURLTemplate: string;
   kingPieceType: KingPieceType;
   boardImageOpacity: number;
@@ -54,11 +52,8 @@ export function newConfig(params: {
     kingPieceType: params.kingPieceType,
     pieceImages: getPieceTextureMap(params.pieceImageURLTemplate, params.kingPieceType),
     boardGridColor: getBoardGridColor(params.boardImageType),
-    boardTextureImage: getBoardTextureURL(params.boardImageType, params.customBoardImageURL),
-    pieceStandImage: getPieceStandTextureURL(
-      params.pieceStandImageType,
-      params.customPieceStandImageURL,
-    ),
+    boardTextureImage: getBoardTextureURL(params.boardImageType),
+    pieceStandImage: getPieceStandTextureURL(params.pieceStandImageType),
     boardImageOpacity: params.boardImageOpacity,
     pieceStandImageOpacity: params.pieceStandImageOpacity,
     promotionSelectorStyle: params.promotionSelectorStyle,
@@ -78,12 +73,10 @@ export function newConfig(params: {
   return config;
 }
 
-function getPieceStandTextureURL(type: PieceStandImageType, customURL?: string): string | null {
+function getPieceStandTextureURL(type: PieceStandImageType): string | null {
   switch (type) {
     case PieceStandImageType.DARK_WOOD:
       return "./stand/wood_dark.png";
-    case PieceStandImageType.CUSTOM_IMAGE:
-      return customURL || null;
   }
   return null;
 }
@@ -115,7 +108,7 @@ function getBoardGridColor(type: BoardImageType): string {
   }
 }
 
-function getBoardTextureURL(type: BoardImageType, customURL?: string): string | null {
+function getBoardTextureURL(type: BoardImageType): string | null {
   switch (type) {
     case BoardImageType.LIGHT:
       return "./board/wood_light.png";
@@ -127,8 +120,6 @@ function getBoardTextureURL(type: BoardImageType, customURL?: string): string | 
       return "./board/wood_warm.png";
     case BoardImageType.WARM2:
       return "./board/wood_warm2.png";
-    case BoardImageType.CUSTOM_IMAGE:
-      return customURL || null;
   }
   return null;
 }

@@ -27,7 +27,6 @@ const boardBackgroundColorMap = {
   [BoardImageType.SNOW]: "#c3c0d3",
   [BoardImageType.DARK_GREEN]: "#465e5e",
   [BoardImageType.DARK]: "#333333",
-  [BoardImageType.CUSTOM_IMAGE]: "rgba(0, 0, 0, 0)",
 };
 
 const rankCharMap: { [n: number]: string } = {

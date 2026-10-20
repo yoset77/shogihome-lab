@@ -74,6 +74,8 @@ describe("store/book", () => {
     const store = new BookStore(record);
     await store.openBook("server://first.db");
     await store.openBook("server://second.db");
+    expect(mockAPI.openBookAsNewSession).toHaveBeenNthCalledWith(1, "server://first.db", {});
+    expect(mockAPI.openBookAsNewSession).toHaveBeenNthCalledWith(2, "server://second.db", {});
     mockAPI.searchBookMoves.mockClear();
 
     record.append(record.position.createMoveByUSI("7g7f")!);

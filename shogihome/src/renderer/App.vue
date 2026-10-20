@@ -1,9 +1,5 @@
 <template>
-  <div
-    class="root full"
-    :class="[appSettings.thema, dialogPosition, dialogBackdrop]"
-    :style="style"
-  >
+  <div class="root full" :class="[appSettings.thema, dialogPosition, dialogBackdrop]">
     <!-- Main Contents -->
     <MobileLayout v-if="isMobileWebApp()" />
     <StandardLayout v-else class="full" />
@@ -103,7 +99,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { onMounted, ref, watch } from "vue";
 import StandardLayout from "@/renderer/view/main/StandardLayout.vue";
 import GameDialog from "@/renderer/view/dialog/GameDialog.vue";
 import ResearchDialog from "@/renderer/view/dialog/ResearchDialog.vue";
@@ -122,7 +118,7 @@ import { AppState, ResearchState } from "@/common/control/state.js";
 import AnalysisDialog from "@/renderer/view/dialog/AnalysisDialog.vue";
 import JobsDialog from "@/renderer/view/dialog/JobsDialog.vue";
 import { useAppSettings } from "./store/settings";
-import { BackgroundImageType, Thema } from "@/common/settings/app";
+import { Thema } from "@/common/settings/app";
 import MateSearchDialog from "./view/dialog/MateSearchDialog.vue";
 import PVPreviewDialog from "./view/dialog/PVPreviewDialog.vue";
 import PVPreviewDialogMobile from "./view/dialog/PVPreviewDialogMobile.vue";
@@ -208,30 +204,6 @@ onMounted(() => {
 
 const dialogPosition = "dialog-position-center";
 const dialogBackdrop = "dialog-backdrop";
-
-const style = computed(() => {
-  const style: { [key: string]: string } = {};
-  if (
-    appSettings.backgroundImageType !== BackgroundImageType.NONE &&
-    appSettings.backgroundImageFileURL
-  ) {
-    let size = "";
-    switch (appSettings.backgroundImageType) {
-      case BackgroundImageType.COVER:
-        size = "cover";
-        break;
-      case BackgroundImageType.CONTAIN:
-        size = "contain";
-        break;
-      case BackgroundImageType.TILE:
-        size = "auto";
-        break;
-    }
-    style["background-image"] = `url("${appSettings.backgroundImageFileURL}")`;
-    style["background-size"] = size;
-  }
-  return style;
-});
 </script>
 
 <style>

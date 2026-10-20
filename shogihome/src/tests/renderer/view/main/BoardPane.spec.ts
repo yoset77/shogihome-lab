@@ -6,6 +6,7 @@ import { RectSize } from "@/common/assets/geometry";
 import { defaultAppSettings } from "@/common/settings/app";
 import BoardPane from "@/renderer/view/main/BoardPane.vue";
 import BoardView from "@/renderer/view/primitive/BoardView.vue";
+import ControlPane, { ControlGroup } from "@/renderer/view/main/ControlPane.vue";
 
 const storeMock = vi.hoisted(() => ({
   appState: "game",
@@ -27,7 +28,7 @@ vi.mock("@/renderer/store", () => ({ useStore: () => store }));
 vi.mock("@/renderer/store/settings", () => ({ useAppSettings: () => defaultAppSettings() }));
 vi.mock("@/renderer/ipc/api", () => ({ isMobileWebApp: () => false }));
 vi.mock("@/renderer/view/main/ControlPane.vue", () => ({
-  default: { template: "<div />" },
+  default: { props: ["group"], template: "<div />" },
   ControlGroup: { Group1: "group1", Group2: "group2" },
 }));
 
@@ -39,6 +40,26 @@ describe("BoardPane", () => {
     store.boardPosition = store.record.position;
     store.boardLastMove = undefined;
     store.isMovableByUser = true;
+  });
+
+  it("keeps both side controls visible without native display settings", () => {
+    const wrapper = shallowMount(BoardPane, {
+      props: { maxSize: new RectSize(600, 600) },
+      global: {
+        stubs: {
+          BoardView: {
+            template: '<div><slot name="left-control" /><slot name="right-control" /></div>',
+          },
+        },
+      },
+    });
+    const controls = wrapper.findAllComponents(ControlPane);
+    expect(controls.map((control) => control.props("group"))).toEqual([
+      ControlGroup.Group2,
+      ControlGroup.Group1,
+    ]);
+    expect(controls.every((control) => control.isVisible())).toBe(true);
+    wrapper.unmount();
   });
 
   it("renders the display-only move and returns to the confirmed board on rejection", async () => {

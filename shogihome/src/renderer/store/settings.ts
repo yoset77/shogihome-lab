@@ -1,7 +1,6 @@
 import {
   AppSettings,
   AppSettingsUpdate,
-  BackgroundImageType,
   BoardImageType,
   BoardLabelType,
   BranchListMode,
@@ -9,7 +8,6 @@ import {
   EvaluationViewFrom,
   FileQuickAction,
   KingPieceType,
-  LeftSideControlType,
   NodeCountFormat,
   PieceImageType,
   PieceStandImageType,
@@ -19,7 +17,6 @@ import {
   PositionImageTypeface,
   PromotionSelectorStyle,
   RecordShortcutKeys,
-  RightSideControlType,
   Tab,
   TabPaneType,
   TextDecodingRule,
@@ -61,29 +58,11 @@ class AppSettingsStore {
   get kingPieceType(): KingPieceType {
     return this.merged.kingPieceType;
   }
-  get backgroundImageType(): BackgroundImageType {
-    return this.merged.backgroundImageType;
-  }
-  get backgroundImageFileURL(): string | undefined {
-    return this.merged.backgroundImageFileURL;
-  }
   get boardLayoutType(): BoardLayoutType {
     return this.merged.boardLayoutType;
   }
   get boardImage(): BoardImageType {
     return this.merged.boardImage;
-  }
-  get croppedPieceImageBaseURL(): string | undefined {
-    return this.merged.croppedPieceImageBaseURL;
-  }
-  get croppedPieceImageQuery(): string | undefined {
-    return this.merged.croppedPieceImageQuery;
-  }
-  get pieceImageFileURL(): string | undefined {
-    return this.merged.pieceImageFileURL;
-  }
-  get boardImageFileURL(): string | undefined {
-    return this.merged.boardImageFileURL;
   }
   get boardGridColor(): string | null {
     return this.merged.boardGridColor;
@@ -93,9 +72,6 @@ class AppSettingsStore {
   }
   get promotionSelectorStyle(): PromotionSelectorStyle {
     return this.merged.promotionSelectorStyle;
-  }
-  get pieceStandImageFileURL(): string | undefined {
-    return this.merged.pieceStandImageFileURL;
   }
   get enableTransparent(): boolean {
     return this.merged.enableTransparent;
@@ -111,12 +87,6 @@ class AppSettingsStore {
   }
   get boardLabelType(): BoardLabelType {
     return this.merged.boardLabelType;
-  }
-  get leftSideControlType(): LeftSideControlType {
-    return this.merged.leftSideControlType;
-  }
-  get rightSideControlType(): RightSideControlType {
-    return this.merged.rightSideControlType;
   }
   get pieceVolume(): number {
     return this.merged.pieceVolume;
@@ -195,9 +165,6 @@ class AppSettingsStore {
   }
   get liveDuplicatePositionDetection(): boolean {
     return this.merged.liveDuplicatePositionDetection;
-  }
-  get bookOnTheFlyThresholdMB(): number {
-    return this.merged.bookOnTheFlyThresholdMB;
   }
   get flippedBook(): boolean {
     return this.merged.flippedBook;

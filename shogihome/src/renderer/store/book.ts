@@ -391,9 +391,7 @@ export class BookStore {
     path: string,
     previousActiveBookId: string | undefined,
   ): Promise<BookSessionStore> {
-    const sessionId = await api.openBookAsNewSession(path, {
-      onTheFlyThresholdMB: useAppSettings().bookOnTheFlyThresholdMB,
-    });
+    const sessionId = await api.openBookAsNewSession(path, {});
     const book = new BookSessionStore(sessionId, path);
     this.books.push(book);
     this.activeBookId = sessionId;

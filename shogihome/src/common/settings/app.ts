@@ -16,13 +16,6 @@ export enum Thema {
   DARK = "dark",
 }
 
-export enum BackgroundImageType {
-  NONE = "none",
-  COVER = "cover",
-  CONTAIN = "contain",
-  TILE = "tile",
-}
-
 export enum PieceImageType {
   HITOMOJI = "hitomoji",
   HITOMOJI_WOOD = "hitomojiWood",
@@ -30,7 +23,6 @@ export enum PieceImageType {
   HITOMOJI_GOTHIC = "hitomojiGothic",
   HITOMOJI_GOTHIC_DARK = "hitomojiGothicDark",
   FUTAMOJI = "futamoji",
-  CUSTOM_IMAGE = "custom-image",
 }
 
 export enum KingPieceType {
@@ -53,7 +45,6 @@ export enum BoardImageType {
   SNOW = "snow",
   DARK_GREEN = "dark-green",
   DARK = "dark",
-  CUSTOM_IMAGE = "custom-image",
 }
 
 export enum PieceStandImageType {
@@ -65,7 +56,6 @@ export enum PieceStandImageType {
   SNOW = "snow",
   DARK_GREEN = "dark-green",
   DARK = "dark",
-  CUSTOM_IMAGE = "custom-image",
 }
 
 export enum PromotionSelectorStyle {
@@ -75,16 +65,6 @@ export enum PromotionSelectorStyle {
 }
 
 export enum BoardLabelType {
-  NONE = "none",
-  STANDARD = "standard",
-}
-
-export enum LeftSideControlType {
-  NONE = "none",
-  STANDARD = "standard",
-}
-
-export enum RightSideControlType {
   NONE = "none",
   STANDARD = "standard",
 }
@@ -197,27 +177,18 @@ export type AppSettings = {
 
   // Appearance
   thema: Thema;
-  backgroundImageType: BackgroundImageType;
-  backgroundImageFileURL?: string;
   boardLayoutType: BoardLayoutType;
   pieceImage: PieceImageType;
   kingPieceType: KingPieceType;
-  pieceImageFileURL?: string;
-  croppedPieceImageBaseURL?: string;
-  croppedPieceImageQuery?: string; // キャッシュ回避用のクエリ
   boardImage: BoardImageType;
-  boardImageFileURL?: string;
   boardGridColor: string | null;
   pieceStandImage: PieceStandImageType;
   promotionSelectorStyle: PromotionSelectorStyle;
-  pieceStandImageFileURL?: string;
   enableTransparent: boolean;
   boardOpacity: number;
   pieceStandOpacity: number;
   recordOpacity: number;
   boardLabelType: BoardLabelType;
-  leftSideControlType: LeftSideControlType;
-  rightSideControlType: RightSideControlType;
 
   // Sound
   pieceVolume: number;
@@ -256,7 +227,6 @@ export type AppSettings = {
   liveDuplicatePositionDetection: boolean;
 
   // Opening Book
-  bookOnTheFlyThresholdMB: number;
   flippedBook: boolean;
   defaultBookFormat: BookFormat;
 
@@ -358,7 +328,6 @@ export function defaultAppSettings(opt?: {
   return {
     language: Language.JA,
     thema: Thema.STANDARD,
-    backgroundImageType: BackgroundImageType.NONE,
     boardLayoutType: BoardLayoutType.STANDARD,
     pieceImage: PieceImageType.HITOMOJI_WOOD,
     kingPieceType: KingPieceType.GYOKU_AND_OSHO,
@@ -371,8 +340,6 @@ export function defaultAppSettings(opt?: {
     pieceStandOpacity: 1.0,
     recordOpacity: 1.0,
     boardLabelType: BoardLabelType.STANDARD,
-    leftSideControlType: LeftSideControlType.STANDARD,
-    rightSideControlType: RightSideControlType.STANDARD,
     pieceVolume: 30,
     clockVolume: 30,
     clockPitch: 500,
@@ -399,7 +366,6 @@ export function defaultAppSettings(opt?: {
     enableUSIFileResign: false,
     showPasteDialog: true,
     liveDuplicatePositionDetection: true,
-    bookOnTheFlyThresholdMB: 256,
     flippedBook: true,
     defaultBookFormat: "yane2016",
     engineTimeoutSeconds: 10,
@@ -445,14 +411,16 @@ export function normalizeAppSettings(
     autoSaveDirectory?: string;
   },
 ): AppSettings {
+  const defaults = defaultAppSettings(opt);
   const result = {
-    ...defaultAppSettings(opt),
+    ...defaults,
     ...settings,
   };
   result.fileQuickAction = normalizeFileQuickAction(result.fileQuickAction);
-  if (result.autoSaveDirectory.endsWith("\\") || result.autoSaveDirectory.endsWith("/")) {
-    result.autoSaveDirectory = result.autoSaveDirectory.slice(0, -1);
-  }
+  // Trim path separators without changing the server URI prefix.
+  const prefix = result.autoSaveDirectory.startsWith("server://") ? "server://" : "";
+  result.autoSaveDirectory =
+    prefix + result.autoSaveDirectory.slice(prefix.length).replace(/[\\/]+$/, "");
   // 旧バージョンでは盤画像に合わせて自動で駒台の色が選ばれていた。
   if (!settings.pieceStandImage) {
     switch (settings.boardImage) {
@@ -469,6 +437,16 @@ export function normalizeAppSettings(
         result.pieceStandImage = PieceStandImageType.CHERRY_BLOSSOM;
         break;
     }
+  }
+  // Retired custom images and unsupported values fall back to bundled assets.
+  if (!Object.values(PieceImageType).includes(result.pieceImage)) {
+    result.pieceImage = defaults.pieceImage;
+  }
+  if (!Object.values(BoardImageType).includes(result.boardImage)) {
+    result.boardImage = defaults.boardImage;
+  }
+  if (!Object.values(PieceStandImageType).includes(result.pieceStandImage)) {
+    result.pieceStandImage = defaults.pieceStandImage;
   }
   // 旧バージョンではタブの最小化を Tab.INDISIBLE で表していたが廃止した。
   if (result.tab === Tab.INVISIBLE) {
@@ -503,24 +481,6 @@ export function normalizeAppSettings(
 }
 
 export function validateAppSettings(settings: AppSettings): Error | undefined {
-  if (
-    settings.backgroundImageType !== BackgroundImageType.NONE &&
-    !settings.backgroundImageFileURL
-  ) {
-    return new Error(t.backgroundImageFileNotSelected);
-  }
-  if (settings.pieceImage === PieceImageType.CUSTOM_IMAGE && !settings.pieceImageFileURL) {
-    return new Error(t.pieceImageFileNotSelected);
-  }
-  if (settings.boardImage === BoardImageType.CUSTOM_IMAGE && !settings.boardImageFileURL) {
-    return new Error(t.boardImageFileNotSelected);
-  }
-  if (
-    settings.pieceStandImage === PieceStandImageType.CUSTOM_IMAGE &&
-    !settings.pieceStandImageFileURL
-  ) {
-    return new Error(t.pieceStandImageFileNotSelected);
-  }
   if (settings.pieceVolume < 0 || settings.pieceVolume > 100) {
     return new Error(t.pieceSoundVolumeMustBe0To100Percent);
   }
@@ -574,11 +534,6 @@ export function getPieceImageURLTemplate(settings: AppSettings): string {
       return "./piece/hitomoji_gothic_dark/${piece}.png";
     case PieceImageType.FUTAMOJI:
       return "./piece/futamoji/${piece}.png";
-    case PieceImageType.CUSTOM_IMAGE:
-      if (settings.croppedPieceImageBaseURL) {
-        const query = settings.croppedPieceImageQuery ? `?${settings.croppedPieceImageQuery}` : "";
-        return settings.croppedPieceImageBaseURL + "/${piece}.png" + query;
-      }
   }
   return "./piece/hitomoji/${piece}.png";
 }

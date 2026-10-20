@@ -3,6 +3,9 @@ import {
   getPieceImageURLTemplate,
   defaultAppSettings,
   PieceImageType,
+  BoardImageType,
+  PieceStandImageType,
+  validateAppSettings,
   AnalysisDBSearchMode,
   FileQuickAction,
   buildUpdatedAppSettings,
@@ -16,6 +19,25 @@ describe("settings/app", () => {
       autoSaveDirectory: "/tmp",
     });
     expect(result).toStrictEqual(defaultAppSettings());
+  });
+
+  it.each([
+    ["", ""],
+    ["server://", "server://"],
+    ["server:///", "server://"],
+    ["server://games", "server://games"],
+    ["server://games/", "server://games"],
+    ["server://games///", "server://games"],
+    ["server://games\\", "server://games"],
+    ["games/", "games"],
+    ["/tmp/games/", "/tmp/games"],
+    ["C:\\games\\", "C:\\games"],
+  ])("normalizes auto-save directory %s without changing its URI prefix", (directory, expected) => {
+    const settings = { ...defaultAppSettings(), autoSaveDirectory: directory };
+    const normalized = normalizeAppSettings(settings);
+    expect(normalized.autoSaveDirectory).toBe(expected);
+    expect(normalizeAppSettings(normalized)).toEqual(normalized);
+    expect(settings.autoSaveDirectory).toBe(directory);
   });
 
   it("normalize/analysisDBSearchMode", () => {
@@ -101,24 +123,36 @@ describe("settings/app", () => {
         pieceImage: PieceImageType.FUTAMOJI,
       }),
     ).toBe("./piece/futamoji/${piece}.png");
+  });
 
-    expect(
-      getPieceImageURLTemplate({
+  it.each(["custom-image", "unknown"])(
+    "replaces unsupported image selection %s with bundled defaults",
+    (value) => {
+      const settings = {
         ...defaultAppSettings(),
-        pieceImage: PieceImageType.CUSTOM_IMAGE,
-        pieceImageFileURL: "/home/user/pictures/piece.png",
-        croppedPieceImageBaseURL: "file:///home/user/.cache/piece",
-      }),
-    ).toBe("file:///home/user/.cache/piece/${piece}.png");
+        pieceImage: value as PieceImageType,
+        boardImage: value as BoardImageType,
+        pieceStandImage: value as PieceStandImageType,
+      };
+      const result = normalizeAppSettings(settings);
+      const defaults = defaultAppSettings();
+      expect(result).toMatchObject({
+        pieceImage: defaults.pieceImage,
+        boardImage: defaults.boardImage,
+        pieceStandImage: defaults.pieceStandImage,
+      });
+      expect(validateAppSettings(result)).toBeUndefined();
+      expect(settings.pieceImage).toBe(value);
+    },
+  );
 
-    expect(
-      getPieceImageURLTemplate({
-        ...defaultAppSettings(),
-        pieceImage: PieceImageType.CUSTOM_IMAGE,
-        pieceImageFileURL: "/home/user/pictures/piece.png",
-        croppedPieceImageBaseURL: "file:///home/user/.cache/piece",
-        croppedPieceImageQuery: "updated=12345",
-      }),
-    ).toBe("file:///home/user/.cache/piece/${piece}.png?updated=12345");
+  it("preserves selected bundled images", () => {
+    const settings = {
+      ...defaultAppSettings(),
+      pieceImage: PieceImageType.FUTAMOJI,
+      boardImage: BoardImageType.DARK,
+      pieceStandImage: PieceStandImageType.GREEN,
+    };
+    expect(normalizeAppSettings(settings)).toEqual(settings);
   });
 });

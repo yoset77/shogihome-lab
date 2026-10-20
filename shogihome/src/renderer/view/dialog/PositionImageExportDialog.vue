@@ -23,10 +23,8 @@
         <div v-else class="game">
           <BoardView
             :board-image-type="appSettings.boardImage"
-            :custom-board-image-url="appSettings.boardImageFileURL"
             :board-grid-color="appSettings.boardGridColor || undefined"
             :piece-stand-image-type="appSettings.pieceStandImage"
-            :custom-piece-stand-image-url="appSettings.pieceStandImageFileURL"
             :piece-image-url-template="getPieceImageURLTemplate(appSettings)"
             :king-piece-type="appSettings.kingPieceType"
             :board-label-type="appSettings.boardLabelType"
