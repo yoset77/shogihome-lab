@@ -12,7 +12,7 @@ import { USIInfoCommand } from "@/common/game/usi";
 import fs from "node:fs";
 import path from "node:path";
 
-describe("background/database/migration", () => {
+describe("server/database/migration", () => {
   const testDataDir = path.join(__dirname, "test_data_migration");
 
   beforeEach(() => {

@@ -7,7 +7,7 @@ import { getTempPathForTesting } from "@/tests/helpers/temp";
 
 const tmpdir = path.join(getTempPathForTesting(), "book/apery");
 
-test("background/book/apery", async ({ bench }) => {
+test("server/book/apery", async ({ bench }) => {
   const book10mPath = path.join(tmpdir, "book10m.bin");
   await fs.promises.mkdir(tmpdir, { recursive: true });
   await createTestAperyBookFile(book10mPath, 10_000_000);

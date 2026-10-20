@@ -15,7 +15,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 
-describe("background/helpers/kifu", () => {
+describe("server/helpers/kifu", () => {
   let tempDir: string;
   let outsideDir: string;
 

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-describe("background/kifu_index/strategy model", () => {
+describe("server/kifu_index/strategy model", () => {
   afterEach(() => {
     vi.doUnmock("@/server/config");
     vi.restoreAllMocks();

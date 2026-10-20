@@ -17,7 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-describe("background/database/kifu_index", () => {
+describe("server/database/kifu_index", () => {
   const testDataDir = path.join(__dirname, "test_kifu_data");
 
   beforeEach(() => {

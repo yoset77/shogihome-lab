@@ -41,7 +41,7 @@ function sha256File(filePath: string) {
   });
 }
 
-describe("background/book", () => {
+describe("server/book", () => {
   beforeAll(() => {
     if (!fs.existsSync(tmpdir)) {
       fs.mkdirSync(tmpdir, { recursive: true });
