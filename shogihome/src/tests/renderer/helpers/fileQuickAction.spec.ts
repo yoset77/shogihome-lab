@@ -7,9 +7,6 @@ import {
   runFileQuickAction,
 } from "@/renderer/helpers/fileQuickAction";
 
-const { isNativeMock } = vi.hoisted(() => ({ isNativeMock: vi.fn(() => false) }));
-vi.mock("@/renderer/ipc/api", () => ({ isNative: isNativeMock }));
-
 const storeMock = {
   appState: AppState.NORMAL as AppState,
   isServerSideKifuEnabled: true,
@@ -26,7 +23,6 @@ describe("file quick actions", () => {
     vi.clearAllMocks();
     storeMock.appState = AppState.NORMAL;
     storeMock.isServerSideKifuEnabled = true;
-    isNativeMock.mockReturnValue(false);
   });
 
   it.each([
@@ -64,9 +60,5 @@ describe("file quick actions", () => {
     expect(isFileQuickActionEnabled(FileQuickAction.LOAD_FROM_SERVER, store)).toBe(false);
     runFileQuickAction(FileQuickAction.LOAD_FROM_SERVER, store);
     expect(store.showServerKifuDialog).not.toHaveBeenCalled();
-
-    storeMock.isServerSideKifuEnabled = true;
-    isNativeMock.mockReturnValue(true);
-    expect(isFileQuickActionEnabled(FileQuickAction.LOAD_FROM_SERVER, store)).toBe(false);
   });
 });

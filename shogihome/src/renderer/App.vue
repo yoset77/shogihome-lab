@@ -19,9 +19,7 @@
     <AnalysisDialog v-if="store.appState === AppState.ANALYSIS_DIALOG" />
     <JobsDialog v-if="store.isJobsDialogVisible" />
     <MateSearchDialog v-if="store.appState === AppState.MATE_SEARCH_DIALOG" />
-    <USIEngineManagementDialog v-if="store.appState === AppState.USI_ENGINES_DIALOG" />
     <RecordFileHistoryDialog v-if="store.appState === AppState.RECORD_FILE_HISTORY_DIALOG" />
-    <BatchConversionDialog v-if="store.appState === AppState.BATCH_CONVERSION_DIALOG" />
     <PositionImageExportDialog v-if="store.appState === AppState.EXPORT_POSITION_IMAGE_DIALOG" />
     <AppSettingsDialog v-if="store.isAppSettingsDialogVisible" />
     <ElapsedTimeChartDialog v-if="store.appState === AppState.ELAPSED_TIME_CHART_DIALOG" />
@@ -94,9 +92,7 @@
       @close="store.closePVPreviewDialog()"
     />
     <!-- PCブラウザの場合のみライセンスへの遷移が無いので、画面の隅にボタンを表示する。 -->
-    <button v-if="!isNative() && !isMobileWebApp()" class="copyright" @click="openCopyright">
-      &copy;
-    </button>
+    <button v-if="!isMobileWebApp()" class="copyright" @click="openCopyright">&copy;</button>
     <!-- copy/paste イベントを拾えない問題があるので隠しボタンを置いて google/hotkey でイベントを受け取る。 -->
     <!-- https://github.com/sunfish-shogi/shogihome/issues/1114 -->
     <div ref="clipboard" hidden>
@@ -111,7 +107,6 @@ import { computed, onMounted, ref, watch } from "vue";
 import StandardLayout from "@/renderer/view/main/StandardLayout.vue";
 import GameDialog from "@/renderer/view/dialog/GameDialog.vue";
 import ResearchDialog from "@/renderer/view/dialog/ResearchDialog.vue";
-import USIEngineManagementDialog from "@/renderer/view/dialog/USIEngineManagementDialog.vue";
 import PositionImageExportDialog from "@/renderer/view/dialog/PositionImageExportDialog.vue";
 import AppSettingsDialog from "@/renderer/view/dialog/AppSettingsDialog.vue";
 import ElapsedTimeChartDialog from "@/renderer/view/dialog/ElapsedTimeChartDialog.vue";
@@ -132,7 +127,6 @@ import MateSearchDialog from "./view/dialog/MateSearchDialog.vue";
 import PVPreviewDialog from "./view/dialog/PVPreviewDialog.vue";
 import PVPreviewDialogMobile from "./view/dialog/PVPreviewDialogMobile.vue";
 import RecordFileHistoryDialog from "./view/dialog/RecordFileHistoryDialog.vue";
-import BatchConversionDialog from "./view/dialog/BatchConversionDialog.vue";
 import PositionEditingDialog from "./view/dialog/PositionEditingDialog.vue";
 import LoadRemoteFileDialog from "./view/dialog/LoadRemoteFileDialog.vue";
 import ShareDialog from "./view/dialog/ShareDialog.vue";
@@ -150,7 +144,7 @@ import { useMessageStore } from "./store/message";
 import { useErrorStore } from "./store/error";
 import { useConfirmationStore } from "./store/confirm";
 import MobileLayout from "./view/main/MobileLayout.vue";
-import api, { isMobileWebApp, isNative } from "./ipc/api";
+import api, { isMobileWebApp } from "./ipc/api";
 import { openCopyright } from "./helpers/copyright";
 import { installHotKeyForMainWindow } from "./devices/hotkey";
 import ToastMessage from "./view/toast/ToastMessage.vue";

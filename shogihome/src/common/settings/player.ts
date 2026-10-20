@@ -1,5 +1,5 @@
 import { t } from "@/common/i18n/index";
-import { USIEngine, validateUSIEngine } from "./usi.js";
+import type { USIEngine } from "./usi.js";
 import * as uri from "@/common/uri";
 
 export type PlayerSettings = {
@@ -22,15 +22,7 @@ export function validatePlayerSettings(settings: PlayerSettings): Error | undefi
   if (!settings.uri) {
     return new Error("player URI is required");
   }
-  if (uri.isUSIEngine(settings.uri)) {
-    if (!settings.usi) {
-      return new Error("USI is required");
-    }
-    const usiError = validateUSIEngine(settings.usi);
-    if (usiError) {
-      return usiError;
-    }
-  } else if (settings.uri !== uri.ES_HUMAN && !settings.uri.startsWith("lan-engine")) {
+  if (settings.uri !== uri.ES_HUMAN && !uri.isLanEngineURI(settings.uri)) {
     return new Error("invalid player URI");
   }
 }

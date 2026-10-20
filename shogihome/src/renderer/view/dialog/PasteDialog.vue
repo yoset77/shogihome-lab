@@ -3,11 +3,8 @@
     <div class="form-group column">
       <div class="message">{{ t.importingFollowingRecordOrPosition }}</div>
       <div class="message">{{ t.supportsKIF_KI2_CSA_USI_SFEN_JKF_USEN }}</div>
-      <div v-if="!isNative()" class="message">
+      <div class="message">
         {{ t.pleasePasteRecordIntoTextArea }}
-      </div>
-      <div v-if="!isNative()" class="message">
-        {{ t.desktopVersionPastesAutomatically }}
       </div>
       <textarea ref="textarea"></textarea>
       <HorizontalSelector
@@ -17,11 +14,6 @@
           { label: t.mergeToRootPosition, value: 'mergeIntoRoot' },
           { label: t.mergeToCurrentPosition, value: 'mergeIntoCurrent' },
         ]"
-      />
-      <ToggleButton
-        v-if="isNative() && mode === 'standard'"
-        v-model:value="doNotShowAgain"
-        :label="t.doNotShowAgain"
       />
     </div>
     <div class="main-buttons">
@@ -37,33 +29,15 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
-import { isNative } from "@/renderer/ipc/api";
 import { useStore } from "@/renderer/store";
-import { onMounted, ref } from "vue";
+import { ref } from "vue";
 import { useErrorStore } from "@/renderer/store/error";
-import { useBusyState } from "@/renderer/store/busy";
-import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
-import { useAppSettings } from "@/renderer/store/settings";
 import DialogFrame from "./DialogFrame.vue";
 import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
 
 const store = useStore();
-const appSettings = useAppSettings();
-const busyState = useBusyState();
 const textarea = ref();
-const doNotShowAgain = ref(false);
 const mode = ref<"standard" | "mergeIntoRoot" | "mergeIntoCurrent">(store.pasteMode);
-
-busyState.retain();
-onMounted(async () => {
-  try {
-    if (isNative()) {
-      textarea.value.value = await navigator.clipboard.readText();
-    }
-  } finally {
-    busyState.release();
-  }
-});
 
 const onOk = () => {
   const data = textarea.value.value;
@@ -73,9 +47,6 @@ const onOk = () => {
   }
   store.closeModalDialog();
   store.pasteRecord(data, mode.value);
-  if (doNotShowAgain.value && mode.value === "standard") {
-    appSettings.updateAppSettings({ showPasteDialog: false });
-  }
 };
 
 const onCancel = () => {

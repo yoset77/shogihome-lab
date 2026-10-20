@@ -135,11 +135,6 @@ export function exportRecordAsBuffer(
   return { data, garbled };
 }
 
-export type InitialRecordFileRequest = {
-  path: string;
-  ply?: number;
-} | null;
-
 export interface KifuSearchResult {
   id: number;
   file_path: string;

@@ -142,7 +142,3 @@ export function validateGameSettings(gameSettings: GameSettings): Error | undefi
   }
   return;
 }
-
-export function validateGameSettingsForWeb(gameSettings: GameSettings): Error | undefined {
-  return validateGameSettings(gameSettings);
-}

@@ -35,28 +35,14 @@
           </tr>
         </tbody>
       </table>
-      <div v-if="isNative()" v-show="activeTab === 'directory'" class="form-item row">
-        <input v-model="settings.sourceDirectory" class="grow" type="text" />
-        <button class="thin" @click="selectDirectory()">
-          {{ t.select }}
-        </button>
-        <button class="thin open-dir" @click="openDirectory()">
-          <Icon :icon="IconType.OPEN_FOLDER" />
-        </button>
-      </div>
       <div v-show="activeTab === 'file'" class="form-item row">
-        <input
-          v-model="settings.sourceRecordFile"
-          class="grow"
-          type="text"
-          :readonly="!isNative()"
-        />
+        <input v-model="settings.sourceRecordFile" class="grow" type="text" readonly />
         <button class="thin" @click="selectRecordFile()">
           {{ t.select }}
         </button>
       </div>
       <ServerDirectoryBrowser
-        v-if="!isNative() && activeTab !== 'memory'"
+        v-if="activeTab !== 'memory'"
         :show-path-input="activeTab === 'directory'"
         :selected-path="serverDirectorySelection"
         :path="currentServerDir"
@@ -151,11 +137,9 @@ import { useBookStore } from "@/renderer/store/book";
 import { RecordCustomData } from "@/common/record/types";
 import { useErrorStore } from "@/renderer/store/error";
 import { BookMove } from "@/common/book";
-import { IconType } from "@/renderer/assets/icons";
 import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
-import Icon from "@/renderer/view/primitive/Icon.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
-import api, { isNative } from "@/renderer/ipc/api";
+import api from "@/renderer/ipc/api";
 import {
   defaultBookImportSettings,
   PlayerCriteria,
@@ -166,11 +150,7 @@ import DialogFrame from "./DialogFrame.vue";
 import ServerDirectoryBrowser from "./ServerDirectoryBrowser.vue";
 import { useConfirmationStore } from "@/renderer/store/confirm";
 import { useToastStore } from "@/renderer/store/toast";
-import {
-  RecordFileFormat,
-  getStandardRecordFileFormats,
-  KifuListEntry,
-} from "@/common/file/record";
+import { KifuListEntry } from "@/common/file/record";
 
 type InMemoryMove = {
   type: "move";
@@ -392,26 +372,12 @@ const registerMove = async (move: InMemoryMove) => {
 };
 
 const selectDirectory = async () => {
-  if (!isNative()) {
-    try {
-      busyState.retain();
-      if (currentServerDir.value === "") {
-        serverSelectionList.value = await api.listServerKifu("");
-      } else {
-        currentServerDir.value = ""; // This will trigger the watch
-      }
-    } catch (e) {
-      useErrorStore().add(e);
-    } finally {
-      busyState.release();
-    }
-    return;
-  }
   busyState.retain();
   try {
-    const path = await api.showSelectDirectoryDialog(settings.value.sourceDirectory);
-    if (path) {
-      settings.value.sourceDirectory = path;
+    if (currentServerDir.value === "") {
+      serverSelectionList.value = await api.listServerKifu("");
+    } else {
+      currentServerDir.value = "";
     }
   } catch (e) {
     useErrorStore().add(e);
@@ -420,41 +386,7 @@ const selectDirectory = async () => {
   }
 };
 
-const openDirectory = () => {
-  api.openExplorer(settings.value.sourceDirectory);
-};
-
-const selectRecordFile = async () => {
-  if (!isNative()) {
-    try {
-      busyState.retain();
-      if (currentServerDir.value === "") {
-        serverSelectionList.value = await api.listServerKifu("");
-      } else {
-        currentServerDir.value = ""; // This will trigger the watch
-      }
-    } catch (e) {
-      useErrorStore().add(e);
-    } finally {
-      busyState.release();
-    }
-    return;
-  }
-  busyState.retain();
-  try {
-    const path = await api.showOpenRecordDialog([
-      ...getStandardRecordFileFormats(),
-      RecordFileFormat.SFEN,
-    ]);
-    if (path) {
-      settings.value.sourceRecordFile = path;
-    }
-  } catch (e) {
-    useErrorStore().add(e);
-  } finally {
-    busyState.release();
-  }
-};
+const selectRecordFile = selectDirectory;
 
 const onSelectServerItem = (entry: { name: string; path: string; isDirectory: boolean }) => {
   if (entry.isDirectory) {

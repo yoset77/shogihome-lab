@@ -2,7 +2,6 @@ import { AppState } from "@/common/control/state";
 import { t } from "@/common/i18n";
 import { FileQuickAction } from "@/common/settings/app";
 import { IconType } from "@/renderer/assets/icons";
-import { isNative } from "@/renderer/ipc/api";
 import type { useStore } from "@/renderer/store";
 
 type Store = ReturnType<typeof useStore>;
@@ -36,7 +35,7 @@ const actions: Record<FileQuickAction, Action> = {
   [FileQuickAction.LOAD_FROM_SERVER]: {
     label: () => t.serverKifu,
     icon: IconType.BATCH,
-    enabled: (store) => !isNative() && store.isServerSideKifuEnabled && inNormalState(store),
+    enabled: (store) => store.isServerSideKifuEnabled && inNormalState(store),
     execute: (store) => {
       store.showServerKifuDialog();
     },

@@ -1,7 +1,7 @@
 <template>
   <DialogFrame limited @cancel="onCancel">
     <div class="title">{{ t.recordAnalysis }}</div>
-    <div v-if="!isNative()" class="form-item center selector-item">
+    <div class="form-item center selector-item">
       <HorizontalSelector
         v-model:value="target"
         :items="[
@@ -64,15 +64,7 @@
       </div>
       <div class="form-group">
         <div>{{ t.searchEngine }}</div>
-        <PlayerSelector
-          v-model:player-uri="engineURI"
-          :engines="engines"
-          :contains-lan="true"
-          :default-tag="getPredefinedUSIEngineTag('research')"
-          :display-thread-state="true"
-          :display-multi-pv-state="true"
-          @update-engines="onUpdatePlayerSettings"
-        />
+        <PlayerSelector v-model:player-uri="engineURI" engine-type="research" />
         <div class="form-item">
           <label class="form-item-label-wide" for="analysis-multi-pv">{{
             t.suggestionsCount
@@ -155,7 +147,7 @@
           />
         </div>
       </div>
-      <div v-if="!isNative()" class="form-group">
+      <div class="form-group">
         <div class="form-item">
           <ToggleButton
             v-model:value="background"
@@ -178,11 +170,10 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
-import api, { isNative } from "@/renderer/ipc/api";
+import api from "@/renderer/ipc/api";
 import { defaultAnalysisSettings, validateAnalysisSettings } from "@/common/settings/analysis";
 import { MIN_MULTIPV, MAX_MULTIPV } from "@/common/engine/relay_protocol";
 import { CommentBehavior } from "@/common/settings/comment";
-import { getPredefinedUSIEngineTag, USIEngines, USIEngine } from "@/common/settings/usi";
 import { useStore } from "@/renderer/store";
 import { computed, onMounted, ref, watch } from "vue";
 import PlayerSelector from "@/renderer/view/dialog/PlayerSelector.vue";
@@ -200,12 +191,12 @@ import type { BatchAnalysisPlan } from "@/common/analysis/batch";
 import type { ServerDirectoryEntry } from "@/common/file/upload";
 import { useConfirmationStore } from "@/renderer/store/confirm";
 import { Move } from "tsshogi";
+import { resolveLanEngine } from "@/renderer/helpers/engine";
 
 const store = useStore();
 const background = ref(false);
 const busyState = useBusyState();
 const settings = ref(defaultAnalysisSettings());
-const engines = ref(new USIEngines());
 const engineURI = ref("");
 const lanStore = useLanStore();
 const batchSettings = ref(loadBatchAnalysisSettings());
@@ -284,7 +275,6 @@ busyState.retain();
 onMounted(async () => {
   try {
     settings.value = await api.loadAnalysisSettings();
-    engines.value = await api.loadUSIEngines();
     engineURI.value = settings.value.usi?.uri || "";
 
     if (lanStore.status.value === "disconnected") {
@@ -302,34 +292,8 @@ onMounted(async () => {
   }
 });
 
-const resolveEngine = (uri: string): USIEngine | undefined => {
-  if (uri.startsWith("lan-engine")) {
-    let name = uri;
-    if (uri.startsWith("lan-engine:")) {
-      const id = uri.split(":")[1];
-      const info = lanStore.engineList.value.find((e) => e.id === id);
-      if (info) {
-        name = info.name;
-      } else {
-        name = `${id} (Not Found)`;
-      }
-    }
-    return {
-      uri: uri,
-      name: name,
-      defaultName: "",
-      author: "",
-      path: "",
-      options: {},
-      labels: {},
-      enableEarlyPonder: false,
-    };
-  }
-  return engines.value.getEngine(uri);
-};
-
 const onStart = async () => {
-  const engine = resolveEngine(engineURI.value);
+  const engine = resolveLanEngine(engineURI.value, lanStore.engineList.value);
   if (!engine) {
     useErrorStore().add(t.engineNotSelected);
     return;
@@ -403,10 +367,6 @@ const preparePlan = async (): Promise<BatchAnalysisPlan | undefined> => {
 
 const onCancel = () => {
   store.closeModalDialog();
-};
-
-const onUpdatePlayerSettings = async (val: USIEngines) => {
-  engines.value = val;
 };
 </script>
 

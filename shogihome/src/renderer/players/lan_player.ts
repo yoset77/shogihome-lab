@@ -170,7 +170,6 @@ export class LanPlayer implements Player {
     }
 
     // Use deterministic session ID for engines to avoid collisions and pruning.
-    // USIPlayer uses IDs from 1. We use a high offset.
     if (sessionKey === "research_main") {
       this._sessionID = 200000;
     } else if (sessionKey === "research_analysis") {

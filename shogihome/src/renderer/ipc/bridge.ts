@@ -1,10 +1,7 @@
 import { BookLoadingMode } from "@/common/book";
-import { MenuEvent } from "@/common/control/menu";
-import { AppState, ResearchState } from "@/common/control/state";
 import { RecordFileFormat, KifuSearchResult, KifuListEntry } from "@/common/file/record";
 import type { KifuSearchStatistics } from "@/common/file/kifu_statistics";
-import { GameResult } from "@/common/game/result";
-import { LogLevel, LogType } from "@/common/log";
+import { LogLevel } from "@/common/log";
 import type {
   KifuSearchQuery,
   SfenExportJobStatus,
@@ -17,19 +14,9 @@ import type {
 } from "@/common/file/upload";
 
 export interface Bridge {
-  // Core
-  updateAppState(appState: AppState, researchState: ResearchState, busy: boolean): void;
-  onClosable(): void;
-  onClose(callback: (confirmations: string[]) => void): void;
-  onSendError(callback: (e: string) => void): void;
-  onSendMessage(callback: (json: string) => void): void;
-  onMenuEvent(callback: (event: MenuEvent) => void): void;
-
   // Settings
   loadAppSettings(): Promise<string>;
   saveAppSettings(settings: string): Promise<void>;
-  loadBatchConversionSettings(): Promise<string>;
-  saveBatchConversionSettings(settings: string): Promise<void>;
   loadResearchSettings(): Promise<string>;
   saveResearchSettings(settings: string): Promise<void>;
   loadAnalysisSettings(): Promise<string>;
@@ -38,17 +25,12 @@ export interface Bridge {
   saveGameSettings(settings: string): Promise<void>;
   loadMateSearchSettings(): Promise<string>;
   saveMateSearchSettings(settings: string): Promise<void>;
-  loadUSIEngines(): Promise<string>;
-  saveUSIEngines(egneins: string): Promise<void>;
   loadBookImportSettings(): Promise<string>;
   saveBookImportSettings(json: string): Promise<void>;
-  onUpdateAppSettings(callback: (json: string) => void): void;
 
   // Record File
-  fetchInitialRecordFileRequest(): Promise<string>;
   showOpenRecordDialog(formats: RecordFileFormat[]): Promise<string>;
   showSaveRecordDialog(defaultPath: string): Promise<string>;
-  showSaveMergedRecordDialog(defaultPath: string): Promise<string>;
   openRecord(path: string): Promise<Uint8Array>;
   saveRecord(path: string, data: Uint8Array): Promise<void>;
   loadRecordFileHistory(): Promise<string>;
@@ -57,9 +39,7 @@ export interface Bridge {
   saveRecordFileBackup(kif: string): Promise<void>;
   loadRecordFileBackup(name: string): Promise<string>;
   loadRemoteTextFile(url: string): Promise<string>;
-  convertRecordFiles(json: string): Promise<string>;
   loadSFENFile(path: string): Promise<string[]>;
-  onOpenRecord(callback: (path: string) => void): void;
 
   // Book
   showOpenBookDialog(): Promise<string>;
@@ -75,50 +55,16 @@ export interface Bridge {
   updateBookMoveOrder(sfen: string, usi: string, order: number, sessionId?: string): Promise<void>;
   importBookMoves(json: string, sessionId?: string): Promise<string>;
 
-  // USI
-  showSelectUSIEngineDialog(): Promise<string>;
-  getUSIEngineInfo(path: string, timeoutSeconds: number): Promise<string>;
-  sendUSIOptionButtonSignal(path: string, name: string, timeoutSeconds: number): Promise<void>;
-  usiLaunch(json: string, timeoutSeconds: number): Promise<number>;
-  usiReady(sessionID: number): Promise<void>;
-  usiSetOption(sessionID: number, name: string, value: string): Promise<void>;
-  usiGo(sessionID: number, usi: string, timeStatesJSON: string): Promise<void>;
-  usiGoPonder(sessionID: number, usi: string, timeStatesJSON: string): Promise<void>;
-  usiPonderHit(sessionID: number, timeStatesJSON: string): Promise<void>;
-  usiGoInfinite(sessionID: number, usi: string): Promise<void>;
-  usiGoMate(sessionID: number, usi: string, maxSeconds?: number): Promise<void>;
-  usiStop(sessionID: number): Promise<void>;
-  usiGameover(sessionID: number, result: GameResult): Promise<void>;
-  usiQuit(sessionID: number): Promise<void>;
-  onUSIBestMove(
-    callback: (sessionID: number, usi: string, usiMove: string, ponder?: string) => void,
-  ): void;
-  onUSICheckmate(callback: (sessionID: number, usi: string, usiMoves: string[]) => void): void;
-  onUSICheckmateNotImplemented(callback: (sessionID: number) => void): void;
-  onUSICheckmateTimeout(callback: (sessionID: number, usi: string) => void): void;
-  onUSINoMate(callback: (sessionID: number, usi: string) => void): void;
-  onUSIInfo(callback: (sessionID: number, usi: string, json: string) => void): void;
-
   // Images
-  showSelectImageDialog(defaultURL?: string): Promise<string>;
-  cropPieceImage(srcURL: string, deleteMargin: boolean): Promise<string>;
   exportCaptureAsPNG(json: string): Promise<void>;
   exportCaptureAsJPEG(json: string): Promise<void>;
 
   // Log
-  openLogFile(logType: LogType): void;
   log(level: LogLevel, message: string): void;
 
   // MISC
-  showSelectFileDialog(): Promise<string>;
-  showSelectDirectoryDialog(defaultPath?: string): Promise<string>;
-  openExplorer(path: string): void;
   openWebBrowser(url: string): void;
-  isEncryptionAvailable(): Promise<boolean>;
-  getVersionStatus(): Promise<string>;
-  sendTestNotification(): void;
   getPathForFile(file: File): string;
-  onProgress(callback: (progress: number) => void): void;
 
   // Server Kifu (LAN only)
   isServerKifuEnabled(): Promise<boolean>;

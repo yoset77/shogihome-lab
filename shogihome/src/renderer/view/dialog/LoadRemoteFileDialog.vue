@@ -172,7 +172,7 @@ const localStorageLastWCSCSearchWordKey = "LoadRemoteFileDialog.lastWCSCSearchWo
 import { t } from "@/common/i18n";
 import { computed, onMounted, ref, watch } from "vue";
 import { useStore } from "@/renderer/store";
-import api, { isNative } from "@/renderer/ipc/api";
+import api from "@/renderer/ipc/api";
 import { useErrorStore } from "@/renderer/store/error";
 import { useBusyState } from "@/renderer/store/busy";
 import {
@@ -312,13 +312,6 @@ onMounted(async () => {
       localStorage.getItem(localStorageLastWCSCSearchWordKey) || wcscSearchWord.value;
     if (tab.value === Tab.Floodgate) {
       tab.value = Tab.URL; // Floodgate tab is deprecated
-    }
-    if (!isNative()) {
-      return;
-    }
-    const copied = (await navigator.clipboard.readText()).trim();
-    if (copied && /^https?:\/\//.test(copied)) {
-      url.value = copied;
     }
   } finally {
     busyState.release();

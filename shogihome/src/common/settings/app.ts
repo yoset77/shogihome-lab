@@ -1,5 +1,4 @@
 import { Language, t } from "@/common/i18n/index";
-import { LogLevel, LogType } from "@/common/log";
 import { RecordFileFormat } from "@/common/file/record";
 import { defaultRecordFileNameTemplate } from "@/common/file/path";
 import { BookFormat, isBookFormat } from "@/common/book";
@@ -206,7 +205,6 @@ export type AppSettings = {
   pieceImageFileURL?: string;
   croppedPieceImageBaseURL?: string;
   croppedPieceImageQuery?: string; // キャッシュ回避用のクエリ
-  deletePieceImageMargin: boolean;
   boardImage: BoardImageType;
   boardImageFileURL?: string;
   boardGridColor: string | null;
@@ -263,7 +261,6 @@ export type AppSettings = {
   defaultBookFormat: BookFormat;
 
   // Engine
-  translateEngineOptionName: boolean;
   engineTimeoutSeconds: number;
   nodeCountFormat: NodeCountFormat;
   researchMultiPV: number;
@@ -287,11 +284,6 @@ export type AppSettings = {
   showCommentInRecordView: boolean;
   branchListMode: BranchListMode;
 
-  // Logging
-  enableAppLog: boolean;
-  enableUSILog: boolean;
-  logLevel: LogLevel;
-
   // Position Image
   positionImageStyle: PositionImageStyle;
   positionImageSize: number;
@@ -301,13 +293,6 @@ export type AppSettings = {
   positionImageHeader: string;
   positionImageFontScale: number;
   positionImageFontWeight: PositionImageFontWeight;
-
-  // File Path
-  lastRecordFilePath: string;
-  lastBookFilePath: string;
-  lastUSIEngineFilePath: string;
-  lastImageExportFilePath: string;
-  lastOtherFilePath: string;
 
   // Record Info View
   emptyRecordInfoVisibility: boolean;
@@ -321,19 +306,8 @@ export type AppSettings = {
   analysisDBSearchMode: AnalysisDBSearchMode;
   analysisDBMaxPVLength: number;
 
-  // Low Level
-  enableHardwareAcceleration: boolean;
   uiMode: UIMode;
 };
-
-export function isLogEnabled(type: LogType, appSettings: AppSettings): boolean {
-  switch (type) {
-    case LogType.APP:
-      return appSettings.enableAppLog;
-    case LogType.USI:
-      return appSettings.enableUSILog;
-  }
-}
 
 export type AppSettingsUpdate = Partial<AppSettings>;
 
@@ -388,7 +362,6 @@ export function defaultAppSettings(opt?: {
     boardLayoutType: BoardLayoutType.STANDARD,
     pieceImage: PieceImageType.HITOMOJI_WOOD,
     kingPieceType: KingPieceType.GYOKU_AND_OSHO,
-    deletePieceImageMargin: false,
     boardImage: BoardImageType.LIGHT2,
     boardGridColor: null,
     pieceStandImage: PieceStandImageType.DARK_WOOD,
@@ -429,7 +402,6 @@ export function defaultAppSettings(opt?: {
     bookOnTheFlyThresholdMB: 256,
     flippedBook: true,
     defaultBookFormat: "yane2016",
-    translateEngineOptionName: true,
     engineTimeoutSeconds: 10,
     nodeCountFormat: NodeCountFormat.COMMA_SEPARATED,
     researchMultiPV: 1,
@@ -448,9 +420,6 @@ export function defaultAppSettings(opt?: {
     showElapsedTimeInRecordView: true,
     showCommentInRecordView: true,
     branchListMode: BranchListMode.SIBLING,
-    enableAppLog: false,
-    enableUSILog: false,
-    logLevel: LogLevel.INFO,
     positionImageStyle: PositionImageStyle.BOOK,
     positionImageSize: 500,
     positionImageTypeface: PositionImageTypeface.GOTHIC,
@@ -459,18 +428,12 @@ export function defaultAppSettings(opt?: {
     positionImageHeader: "",
     positionImageFontScale: 1,
     positionImageFontWeight: PositionImageFontWeight.W400X,
-    lastRecordFilePath: "",
-    lastBookFilePath: "",
-    lastUSIEngineFilePath: "",
-    lastImageExportFilePath: "",
-    lastOtherFilePath: "",
     emptyRecordInfoVisibility: true,
     showBookTableOnMobile: false,
     showSearchLogOnMobile: false,
     evaluationChartType: EvaluationChartType.RAW,
     analysisDBSearchMode: AnalysisDBSearchMode.EXCEPT_GAMES,
     analysisDBMaxPVLength: 15,
-    enableHardwareAcceleration: true,
     uiMode: UIMode.AUTO,
   };
 }

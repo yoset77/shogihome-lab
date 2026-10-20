@@ -9,7 +9,7 @@ import {
   Move,
 } from "tsshogi";
 import { useErrorStore } from "./error.js";
-import { isMobileWebApp, isNative } from "@/renderer/ipc/api";
+import { isMobileWebApp } from "@/renderer/ipc/api";
 
 const mobileRecordStorageKey = "mobile:record";
 const mobilePlyStorageKey = "mobile:ply";
@@ -19,10 +19,6 @@ const webAppBranchStorageKey = "webapp:branch";
 const webAppPlyStorageKey = "webapp:ply";
 
 export function loadRecordForWebApp(): Record | undefined {
-  if (isNative()) {
-    return;
-  }
-
   const urlParams = new URL(window.location.toString()).searchParams;
   const usen = urlParams.get("usen");
   if (usen) {
@@ -122,9 +118,6 @@ function hasUSENParam(): boolean {
 let saveTimeout: number | undefined;
 
 export function saveRecordForWebApp(record: ImmutableRecord): void {
-  if (isNative()) {
-    return;
-  }
   if (hasUSENParam()) {
     return;
   }
@@ -137,7 +130,7 @@ export function saveRecordForWebApp(record: ImmutableRecord): void {
 }
 
 export function flushRecordForWebApp(record: ImmutableRecord): void {
-  if (isNative() || hasUSENParam()) return;
+  if (hasUSENParam()) return;
   clearTimeout(saveTimeout);
   saveTimeout = undefined;
   const jkf = exportJKFString(record);

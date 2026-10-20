@@ -1,15 +1,13 @@
+import { isRelayEngineId } from "@/common/engine/relay_protocol";
+
 export const ES_HUMAN = "es://human";
-export const ES_USI_ENGINE_PREFIX = "es://usi-engine/";
 export const ES_TEMP_FILE_PREFIX = "es://temp-file/";
 
-export function isUSIEngine(uri: string): boolean {
-  return uri.startsWith(ES_USI_ENGINE_PREFIX);
-}
-
-export function issueEngineURI(): string {
-  const now = Date.now();
-  const rand = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER).toString(16);
-  return ES_USI_ENGINE_PREFIX + `${now}/${rand}`;
+export function isLanEngineURI(uri: string): boolean {
+  return (
+    uri === "lan-engine" ||
+    (uri.startsWith("lan-engine:") && isRelayEngineId(uri.substring("lan-engine:".length)))
+  );
 }
 
 export function issueTempFileURI(name: string): string {

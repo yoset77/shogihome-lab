@@ -18,7 +18,6 @@ vi.mock("@/renderer/ipc/api", () => ({
   default: {},
   appInfo: {},
   isMobileWebApp,
-  isNative: () => false,
 }));
 vi.mock("@/renderer/helpers/dialog", () => ({ showModalDialog: vi.fn() }));
 vi.mock("@/renderer/devices/hotkey", () => ({

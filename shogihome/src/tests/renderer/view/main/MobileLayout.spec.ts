@@ -26,7 +26,6 @@ vi.mock("@/renderer/ipc/api", () => ({
   appInfo: {},
   isIOS: () => false,
   isMobileWebApp: () => true,
-  isNative: () => false,
 }));
 
 const settings = reactive(defaultAppSettings());

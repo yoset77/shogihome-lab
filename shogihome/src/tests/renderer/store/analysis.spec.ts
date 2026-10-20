@@ -23,7 +23,6 @@ import { JobAttachment } from "@/server/jobs/attachment";
 import type { JobSummary } from "@/common/jobs/types";
 
 vi.mock("@/renderer/ipc/api", () => ({
-  isNative: () => false,
   isMobileWebApp: () => false,
   default: { log: vi.fn(), saveRecordFileBackup: vi.fn().mockResolvedValue(undefined) },
 }));

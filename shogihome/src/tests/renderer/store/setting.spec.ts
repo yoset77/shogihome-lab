@@ -57,9 +57,7 @@ describe("store/settings", () => {
     expect(store.pieceVolume).toBe(30);
   });
 
-  it("setTemporaryUpdate", async () => {
-    mockAPI.cropPieceImage.mockResolvedValue("file:///cropped");
-
+  it("setTemporaryUpdate", () => {
     const store = createAppSettings();
     expect(store.thema).toBe(Thema.STANDARD);
     expect(store.pieceImage).toBe(PieceImageType.HITOMOJI_WOOD);
@@ -69,23 +67,14 @@ describe("store/settings", () => {
     });
     expect(ret).toBeUndefined();
     expect(store.thema).toBe(Thema.DARK);
-    expect(mockAPI.cropPieceImage).not.toBeCalled();
-
     const ret2 = store.setTemporaryUpdate({
-      pieceImage: PieceImageType.CUSTOM_IMAGE,
-      pieceImageFileURL: "file:///test",
+      pieceImage: PieceImageType.HITOMOJI_GOTHIC,
     });
-    expect(ret2).toBeInstanceOf(Promise);
-    await ret2;
-    expect(store.pieceImage).toBe(PieceImageType.CUSTOM_IMAGE);
-    expect(store.pieceImageFileURL).toBe("file:///test");
-    expect(store.croppedPieceImageBaseURL).toBe("file:///cropped");
-    expect(mockAPI.cropPieceImage).toBeCalledWith("file:///test", false);
+    expect(ret2).toBeUndefined();
+    expect(store.pieceImage).toBe(PieceImageType.HITOMOJI_GOTHIC);
 
     store.clearTemporaryUpdate();
     expect(store.pieceImage).toBe(PieceImageType.HITOMOJI_WOOD);
-    expect(store.pieceImageFileURL).toBeUndefined();
-    expect(store.croppedPieceImageBaseURL).toBeUndefined();
   });
 
   it("flipBoard", () => {

@@ -5,8 +5,7 @@ import "./css/control.css";
 import "./css/dialog.css";
 import { createApp, watch } from "vue";
 import App from "@/renderer/App.vue";
-import api, { appInfo, isMobileWebApp, isNative } from "@/renderer/ipc/api";
-import { setup as setupIPC } from "@/renderer/ipc/setup";
+import api, { appInfo, isMobileWebApp } from "@/renderer/ipc/api";
 import { useStore } from "@/renderer/store/index";
 import {
   BarController,
@@ -66,16 +65,12 @@ Chart.register(
   Tooltip,
 );
 
-setupIPC();
-
 const store = useStore();
 
 // サーバー側の棋譜管理機能が有効かどうかを確認する。
-if (!isNative()) {
-  api.isServerKifuEnabled().then((enabled) => {
-    store.updateServerSideKifuEnabled(enabled);
-  });
-}
+api.isServerKifuEnabled().then((enabled) => {
+  store.updateServerSideKifuEnabled(enabled);
+});
 
 // ファイル名の変更を監視してタイトルを更新する。
 function updateTitle(path: string | undefined, unsaved: boolean) {
@@ -109,19 +104,6 @@ Promise.allSettled([
     .loadAppSettings()
     .catch((e) => {
       useErrorStore().add(new Error("アプリ設定の読み込み中にエラーが発生しました: " + e));
-    }),
-  // 起動時パラメータで指定された棋譜の読み込み
-  api
-    .fetchInitialRecordFileRequest()
-    .then((request) => {
-      if (request) {
-        store.openRecord(request.path, {
-          ply: request.ply,
-        });
-      }
-    })
-    .catch((e) => {
-      useErrorStore().add(new Error("起動パラメーターの取得に失敗しました: " + e));
     }),
 ]).finally(() => {
   // UIモードの強制切り替え

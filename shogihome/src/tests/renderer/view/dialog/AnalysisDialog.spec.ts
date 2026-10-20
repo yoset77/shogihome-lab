@@ -1,13 +1,12 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import AnalysisDialog from "@/renderer/view/dialog/AnalysisDialog.vue";
 import { defaultAnalysisSettings, normalizeAnalysisSettings } from "@/common/settings/analysis";
-import { emptyUSIEngine, USIEngines } from "@/common/settings/usi";
+import { emptyUSIEngine } from "@/common/settings/usi";
 import { t } from "@/common/i18n";
 import { useBusyState } from "@/renderer/store/busy";
 
 const mocks = vi.hoisted(() => ({
   loadAnalysisSettings: vi.fn(),
-  loadUSIEngines: vi.fn(),
   startAnalysis: vi.fn(),
   closeModalDialog: vi.fn(),
   destroyModalDialog: vi.fn(),
@@ -23,10 +22,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/renderer/ipc/api", () => ({
-  isNative: () => false,
   default: {
     loadAnalysisSettings: mocks.loadAnalysisSettings,
-    loadUSIEngines: mocks.loadUSIEngines,
     listServerDirectories: mocks.listServerDirectories,
   },
 }));
@@ -62,7 +59,6 @@ describe("AnalysisDialog MultiPV", () => {
       ...defaultAnalysisSettings(),
       usi: { ...emptyUSIEngine(), uri: "lan-engine:test" },
     });
-    mocks.loadUSIEngines.mockResolvedValue(new USIEngines());
   });
   afterEach(() => {
     for (const wrapper of wrappers.splice(0)) wrapper.unmount();

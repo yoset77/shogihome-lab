@@ -1,10 +1,9 @@
 import { USIMonitor } from "@/renderer/store/usi";
-import { isActiveUSIPlayerSession } from "@/renderer/players/usi";
+import { setInfoSessionActive } from "@/renderer/players/usi_events";
 import { isActiveLanPlayerSession } from "@/renderer/players/lan_player";
 import { Mock } from "vitest";
 import { Color, ImmutablePosition } from "tsshogi";
 
-vi.mock("@/renderer/players/usi.js");
 vi.mock("@/renderer/players/lan_player.js");
 
 describe("USIMonitor", () => {
@@ -13,22 +12,23 @@ describe("USIMonitor", () => {
     const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
     const position = { sfen, color: Color.BLACK } as unknown as ImmutablePosition;
 
-    // Setup mock status
-    // 101: Active Local
-    // 102: Inactive Local
-    // 200000: Active LAN
-    // 200001: Inactive LAN
-    (isActiveUSIPlayerSession as Mock).mockImplementation((id) => id === 101);
+    setInfoSessionActive(200100, true);
     (isActiveLanPlayerSession as Mock).mockImplementation((id) => id === 200000);
 
     vi.useFakeTimers();
 
     // Initial updates to create sessions
-    monitor.update(101, position, "Local Active", { multipv: 1, scoreCP: 100, pv: ["7g7f"] }, 100);
     monitor.update(
-      102,
+      200100,
       position,
-      "Local Inactive",
+      "Analysis Job",
+      { multipv: 1, scoreCP: 100, pv: ["7g7f"] },
+      100,
+    );
+    monitor.update(
+      200101,
+      position,
+      "Finished Job",
       { multipv: 1, scoreCP: 100, pv: ["7g7f"] },
       100,
     );
@@ -45,18 +45,25 @@ describe("USIMonitor", () => {
     // At this point, ALL 4 are in updateQueue, so none are pruned.
     vi.advanceTimersByTime(500);
 
-    // Now sessions are established. Trigger another dequeue WITHOUT updates for 102 and 200001.
-    monitor.update(101, position, "Local Active", { multipv: 1, scoreCP: 110, pv: ["7g7f"] }, 100);
+    // Preserve server-owned info sessions as well as public LAN relay sessions.
+    monitor.update(
+      200100,
+      position,
+      "Analysis Job",
+      { multipv: 1, scoreCP: 110, pv: ["7g7f"] },
+      100,
+    );
     vi.advanceTimersByTime(500);
 
     const activeMonitors = monitor.sessions;
     const sessionIDs = activeMonitors.map((m) => m.sessionID);
 
-    expect(sessionIDs).toContain(101); // Local Active preserved
-    expect(sessionIDs).not.toContain(102); // Local Inactive pruned
+    expect(sessionIDs).toContain(200100);
+    expect(sessionIDs).not.toContain(200101);
     expect(sessionIDs).toContain(200000); // LAN Active preserved
     expect(sessionIDs).not.toContain(200001); // LAN Inactive pruned
 
+    setInfoSessionActive(200100, false);
     vi.useRealTimers();
   });
 

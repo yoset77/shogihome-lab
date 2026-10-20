@@ -2,12 +2,10 @@ import { defaultAnalysisSettings } from "@/common/settings/analysis";
 import { defaultAppSettings, normalizeFileQuickAction } from "@/common/settings/app";
 import { defaultGameSettings } from "@/common/settings/game";
 import { defaultResearchSettings } from "@/common/settings/research";
-import { USIEngines } from "@/common/settings/usi";
 import { LogLevel } from "@/common/log";
 import { Bridge } from "@/renderer/ipc/bridge";
 import { t } from "@/common/i18n/index";
 import { defaultMateSearchSettings } from "@/common/settings/mate";
-import { defaultBatchConversionSettings } from "@/common/settings/conversion";
 import type {
   KifuSearchQuery,
   SfenExportJobStatus,
@@ -16,7 +14,6 @@ import type {
 import { defaultBookImportSettings, normalizeBookImportSettings } from "@/common/settings/book";
 import { getEmptyHistory } from "@/common/file/history";
 import { BookLoadingMode } from "@/common/book";
-import { VersionStatus } from "@/common/version";
 import * as uri from "@/common/uri";
 import { normalizePath } from "@/common/helpers/path";
 import { KifuSearchResult, KifuListEntry } from "@/common/file/record";
@@ -55,7 +52,6 @@ const toKifuSearchQuery = (params: KifuSearchQuery) => ({
 enum STORAGE_KEY {
   APP_SETTINGS = "appSetting",
   RESEARCH_SETTINGS = "researchSetting",
-  BATCH_CONVERSION_SETTINGS = "batchConversionSetting",
   ANALYSIS_SETTINGS = "analysisSetting",
   GAME_SETTINGS = "gameSetting",
   MATE_SEARCH_SETTINGS = "mateSearchSetting",
@@ -103,26 +99,6 @@ async function exportCapture(
 
 // Web/LAN アプリケーションとして実行した場合に使用します。
 export const webAPI: Bridge = {
-  // Core
-  updateAppState(): void {
-    // DO NOTHING
-  },
-  onClosable(): void {
-    // Do Nothing
-  },
-  onClose(): void {
-    // Do Nothing
-  },
-  onSendError(): void {
-    // Do Nothing
-  },
-  onSendMessage(): void {
-    // Do Nothing
-  },
-  onMenuEvent(): void {
-    // Do Nothing
-  },
-
   // Settings
   async loadAppSettings(): Promise<string> {
     const json = localStorage.getItem(STORAGE_KEY.APP_SETTINGS);
@@ -137,19 +113,6 @@ export const webAPI: Bridge = {
   },
   async saveAppSettings(json: string): Promise<void> {
     localStorage.setItem(STORAGE_KEY.APP_SETTINGS, json);
-  },
-  async loadBatchConversionSettings(): Promise<string> {
-    const json = localStorage.getItem(STORAGE_KEY.BATCH_CONVERSION_SETTINGS);
-    if (!json) {
-      return JSON.stringify(defaultBatchConversionSettings());
-    }
-    return JSON.stringify({
-      ...defaultBatchConversionSettings(),
-      ...JSON.parse(json),
-    });
-  },
-  async saveBatchConversionSettings(json: string): Promise<void> {
-    localStorage.setItem(STORAGE_KEY.BATCH_CONVERSION_SETTINGS, json);
   },
   async loadResearchSettings(): Promise<string> {
     const json = localStorage.getItem(STORAGE_KEY.RESEARCH_SETTINGS);
@@ -206,12 +169,6 @@ export const webAPI: Bridge = {
   async saveMateSearchSettings(json: string): Promise<void> {
     localStorage.setItem(STORAGE_KEY.MATE_SEARCH_SETTINGS, json);
   },
-  async loadUSIEngines(): Promise<string> {
-    return new USIEngines().json;
-  },
-  async saveUSIEngines(): Promise<void> {
-    // Do Nothing
-  },
   async loadBookImportSettings(): Promise<string> {
     const json = localStorage.getItem(STORAGE_KEY.BOOK_IMPORT_SETTINGS);
     if (!json) {
@@ -222,14 +179,8 @@ export const webAPI: Bridge = {
   async saveBookImportSettings(json: string): Promise<void> {
     localStorage.setItem(STORAGE_KEY.BOOK_IMPORT_SETTINGS, json);
   },
-  onUpdateAppSettings(): void {
-    // Do Nothing
-  },
 
   // Record File
-  async fetchInitialRecordFileRequest(): Promise<string> {
-    return "null";
-  },
   async showOpenRecordDialog(formats: string[]): Promise<string> {
     const input = document.createElement("input");
     input.setAttribute("type", "file");
@@ -260,9 +211,6 @@ export const webAPI: Bridge = {
   },
   async showSaveRecordDialog(defualtPath: string): Promise<string> {
     return defualtPath;
-  },
-  async showSaveMergedRecordDialog(): Promise<string> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
   },
   async openRecord(uri: string): Promise<Uint8Array> {
     const cached = fileCache.get(uri);
@@ -369,9 +317,6 @@ export const webAPI: Bridge = {
     }
     return await response.text();
   },
-  async convertRecordFiles(): Promise<string> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
-  },
   async loadSFENFile(path: string): Promise<string[]> {
     if (!path.startsWith("server://")) {
       throw new Error("Only server-side SFEN files are supported");
@@ -383,9 +328,6 @@ export const webAPI: Bridge = {
     }
     const json = await response.json();
     return json.lines;
-  },
-  onOpenRecord(): void {
-    // Do Nothing
   },
 
   // Book
@@ -543,75 +485,7 @@ export const webAPI: Bridge = {
     return JSON.stringify(result);
   },
 
-  // USI
-  async showSelectUSIEngineDialog(): Promise<string> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
-  },
-  async getUSIEngineInfo(): Promise<string> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
-  },
-  async sendUSIOptionButtonSignal(): Promise<void> {
-    // Do Nothing
-  },
-  async usiLaunch(): Promise<number> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
-  },
-  async usiReady(): Promise<void> {
-    // Do Nothing
-  },
-  async usiSetOption(): Promise<void> {
-    // Do Nothing
-  },
-  async usiGo(): Promise<void> {
-    // Do Nothing
-  },
-  async usiGoPonder(): Promise<void> {
-    // Do Nothing
-  },
-  async usiPonderHit(): Promise<void> {
-    // Do Nothing
-  },
-  async usiGoInfinite(): Promise<void> {
-    // Do Nothing
-  },
-  async usiGoMate(): Promise<void> {
-    // Do Nothing
-  },
-  async usiStop(): Promise<void> {
-    // Do Nothing
-  },
-  async usiGameover(): Promise<void> {
-    // Do Nothing
-  },
-  async usiQuit(): Promise<void> {
-    // Do Nothing
-  },
-  onUSIBestMove(): void {
-    // Do Nothing
-  },
-  onUSICheckmate(): void {
-    // Do Nothing
-  },
-  onUSICheckmateNotImplemented(): void {
-    // Do Nothing
-  },
-  onUSICheckmateTimeout(): void {
-    // Do Nothing
-  },
-  onUSINoMate(): void {
-    // Do Nothing
-  },
-  onUSIInfo(): void {
-    // Do Nothing
-  },
-
   // Images
-  async showSelectImageDialog(): Promise<string> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
-  },
-  async cropPieceImage(): Promise<string> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
-  },
   async exportCaptureAsPNG(rectJson: string): Promise<void> {
     return exportCapture(
       "png",
@@ -643,9 +517,6 @@ export const webAPI: Bridge = {
   },
 
   // Log
-  openLogFile(): void {
-    // Do Nothing
-  },
   log(level: LogLevel, message: string): void {
     switch (level) {
       case LogLevel.DEBUG:
@@ -664,32 +535,11 @@ export const webAPI: Bridge = {
   },
 
   // MISC
-  async showSelectFileDialog(): Promise<string> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
-  },
-  async showSelectDirectoryDialog(): Promise<string> {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
-  },
-  openExplorer() {
-    // DO NOTHING
-  },
   openWebBrowser(url: string) {
     window.open(url, "_blank");
   },
-  async isEncryptionAvailable(): Promise<boolean> {
-    return false;
-  },
-  async getVersionStatus(): Promise<string> {
-    return JSON.stringify({} as VersionStatus);
-  },
-  sendTestNotification(): void {
-    throw new Error(t.thisFeatureNotAvailableOnWebApp);
-  },
   getPathForFile(file: File): string {
     return file.name;
-  },
-  onProgress(): void {
-    // Do Nothing
   },
 
   // Server Kifu (LAN only)

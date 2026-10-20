@@ -1,21 +1,12 @@
 import { ResearchSettings, defaultResearchSettings } from "@/common/settings/research";
-import { USIPlayer } from "@/renderer/players/usi";
 import { LanPlayer } from "@/renderer/players/lan_player";
 import { SearchInfo } from "@/renderer/players/player";
 import { ImmutableRecord } from "tsshogi";
-import { MultiPV, USIEngine, USIMultiPV } from "@/common/settings/usi";
 import { SearchInfoSenderType } from "./record.js";
 import { useAppSettings } from "./settings.js";
 import { Lazy } from "@/renderer/helpers/lazy";
-
-function cloneUSIEngineOptions(options: USIEngine["options"]): USIEngine["options"] {
-  return Object.fromEntries(
-    Object.entries(options).map(([name, option]) => [
-      name,
-      option.type === "combo" ? { ...option, vars: [...option.vars] } : { ...option },
-    ]),
-  );
-}
+import { isLanEngineURI } from "@/common/uri";
+import { t } from "@/common/i18n";
 
 function getSenderTypeByIndex(index: number): SearchInfoSenderType | undefined {
   switch (index) {
@@ -36,7 +27,7 @@ type UpdateSearchInfoCallback = (type: SearchInfoSenderType, info: SearchInfo) =
 type ResearchErrorCallback = (e: unknown) => void;
 
 type Engine = {
-  usi: USIPlayer | LanPlayer;
+  usi: LanPlayer;
   timer?: NodeJS.Timeout;
   paused: boolean;
 };
@@ -78,12 +69,12 @@ export class ResearchManager {
     this.settings = settings;
 
     // Validation
-    if (settings.usi === undefined) {
-      throw new Error("ResearchManager#launch: USIエンジンの設定は必須です。");
+    if (!settings.usi || !isLanEngineURI(settings.usi.uri)) {
+      throw new Error(t.engineNotSelected);
     }
     for (const s of settings.secondaries || []) {
-      if (s.usi === undefined) {
-        throw new Error("ResearchManager#launch: USIエンジンの設定は必須です。");
+      if (!s.usi || !isLanEngineURI(s.usi.uri)) {
+        throw new Error(t.engineNotSelected);
       }
     }
     if (this.engines.length > 0) {
@@ -99,55 +90,22 @@ export class ResearchManager {
     this.engines = usiEngines.map((usi, index) => {
       const type = getSenderTypeByIndex(index);
 
-      if (usi!.uri.startsWith("lan-engine")) {
-        const uri = usi!.uri;
-        let engineId = "research";
-        let engineName = uri;
-
-        if (uri.startsWith("lan-engine:")) {
-          engineId = uri.split(":")[1];
-          engineName = usi!.name || engineId;
-        } else if (uri === "lan-engine") {
-          // legacy
-          engineId = "research";
-        }
-
-        const sessionKey = index === 0 ? "research_main" : `research_sub_${index}`;
-
-        return {
-          usi: new LanPlayer(
-            sessionKey,
-            engineId,
-            engineName,
-            appSettings.engineTimeoutSeconds,
-            (info) => {
-              if (type !== undefined && this.synced) {
-                this.onUpdateSearchInfo(type, info);
-              }
-            },
-            (e) => {
-              this.onError(e);
-            },
-          ),
-          paused: false,
-        };
-      }
-
-      const options = cloneUSIEngineOptions(usi!.options);
-      if (settings.overrideMultiPV) {
-        if (options[USIMultiPV]?.type === "spin") {
-          options[USIMultiPV].value = settings.multiPV;
-        } else if (options[MultiPV]?.type === "spin") {
-          options[MultiPV].value = settings.multiPV;
-        }
-      }
-      const usiEngine: USIEngine = { ...usi!, options };
+      const uri = usi!.uri;
+      const engineId = uri === "lan-engine" ? "research" : uri.substring("lan-engine:".length);
+      const sessionKey = index === 0 ? "research_main" : `research_sub_${index}`;
       return {
-        usi: new USIPlayer(usiEngine, appSettings.engineTimeoutSeconds, (info) => {
-          if (type !== undefined && this.synced) {
-            this.onUpdateSearchInfo(type, info);
-          }
-        }),
+        usi: new LanPlayer(
+          sessionKey,
+          engineId,
+          usi!.name || engineId,
+          appSettings.engineTimeoutSeconds,
+          (info) => {
+            if (type !== undefined && this.synced) {
+              this.onUpdateSearchInfo(type, info);
+            }
+          },
+          (e) => this.onError(e),
+        ),
         paused: false,
       };
     });
@@ -298,10 +256,6 @@ export class ResearchManager {
 
   isSessionExists(sessionID: number): boolean {
     return this.engines.some((engine) => engine.usi.sessionID === sessionID);
-  }
-
-  hasLanEngine(): boolean {
-    return this.engines.some((engine) => engine.usi instanceof LanPlayer);
   }
 
   private setupTimer(engine: Engine) {

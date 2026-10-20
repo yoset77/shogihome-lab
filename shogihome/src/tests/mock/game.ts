@@ -1,8 +1,8 @@
 import { GameSettings, JishogiRule } from "@/common/settings/game";
 import { InitialPositionType } from "tsshogi";
 
-export const playerURI01 = "es://usi/test-engine-01";
-export const playerURI02 = "es://usi/test-engine-02";
+export const playerURI01 = "lan-engine:test-engine-01";
+export const playerURI02 = "lan-engine:test-engine-02";
 
 const blackPlayerSettings = {
   name: "USI Engine 01",
@@ -10,12 +10,6 @@ const blackPlayerSettings = {
   usi: {
     uri: playerURI01,
     name: "my usi engine 01",
-    defaultName: "engine 01",
-    author: "author01",
-    path: "/engines/engines01",
-    options: {},
-    labels: {},
-    enableEarlyPonder: false,
   },
 };
 
@@ -25,12 +19,6 @@ const whitePlayerSettings = {
   usi: {
     uri: playerURI02,
     name: "my usi engine 02",
-    defaultName: "engine 02",
-    author: "author02",
-    path: "/engines/engines02",
-    options: {},
-    labels: {},
-    enableEarlyPonder: false,
   },
 };
 

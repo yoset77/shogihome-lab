@@ -60,7 +60,6 @@ export default defineConfig({
         "src/renderer/ipc/api.ts",
         "src/renderer/ipc/bridge.ts",
         "src/renderer/ipc/web.ts",
-        "src/renderer/ipc/setup.ts",
 
         // UI
         "src/renderer/index.ts",

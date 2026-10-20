@@ -3,19 +3,7 @@
     <div class="root">
       <div class="title">{{ t.mateSearch }}</div>
       <div class="form-group">
-        <PlayerSelector
-          v-model:player-uri="engineURI"
-          :engines="engines"
-          :contains-lan="true"
-          :default-tag="getPredefinedUSIEngineTag('mate')"
-          :display-thread-state="true"
-          :display-multi-pv-state="false"
-          @update-engines="
-            (val: USIEngines) => {
-              engines = val;
-            }
-          "
-        />
+        <PlayerSelector v-model:player-uri="engineURI" engine-type="mate" />
         <div class="form-item">
           <ToggleButton v-model:value="mateSearchSettings.enableMaxSeconds" />
           <div class="form-item-small-label">{{ t.toPrefix }}</div>
@@ -42,12 +30,6 @@
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import { defaultMateSearchSettings, MateSearchSettings } from "@/common/settings/mate";
-import {
-  getPredefinedUSIEngineTag,
-  USIEngines,
-  USIEngine,
-  emptyUSIEngine,
-} from "@/common/settings/usi";
 import api from "@/renderer/ipc/api";
 import { useStore } from "@/renderer/store";
 import { onMounted, ref } from "vue";
@@ -57,10 +39,10 @@ import { useBusyState } from "@/renderer/store/busy";
 import DialogFrame from "./DialogFrame.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import { useLanStore } from "@/renderer/store/lan";
+import { resolveLanEngine } from "@/renderer/helpers/engine";
 
 const store = useStore();
 const busyState = useBusyState();
-const engines = ref(new USIEngines());
 const mateSearchSettings = ref<MateSearchSettings>(defaultMateSearchSettings());
 const engineURI = ref("");
 const lanStore = useLanStore();
@@ -70,7 +52,6 @@ busyState.retain();
 onMounted(async () => {
   try {
     mateSearchSettings.value = await api.loadMateSearchSettings();
-    engines.value = await api.loadUSIEngines();
     engineURI.value = mateSearchSettings.value.usi?.uri || "";
 
     if (lanStore.status.value === "disconnected") {
@@ -88,32 +69,10 @@ onMounted(async () => {
   }
 });
 
-const resolveEngine = (uri: string): USIEngine | undefined => {
-  if (uri.startsWith("lan-engine")) {
-    let name = uri;
-    if (uri.startsWith("lan-engine:")) {
-      const id = uri.split(":")[1];
-      const info = lanStore.engineList.value.find((e) => e.id === id);
-      if (info) {
-        name = info.name;
-      } else {
-        name = `${id} (Not Found)`;
-      }
-    }
-    return {
-      ...emptyUSIEngine(),
-      uri: uri,
-      name: name,
-      defaultName: "",
-    };
-  }
-  return engines.value.getEngine(uri);
-};
-
 const onStart = () => {
-  const engine = resolveEngine(engineURI.value);
+  const engine = resolveLanEngine(engineURI.value, lanStore.engineList.value);
   if (!engine) {
-    useErrorStore().add("エンジンを選択してください。");
+    useErrorStore().add(t.engineNotSelected);
     return;
   }
   const newSettings: MateSearchSettings = {
