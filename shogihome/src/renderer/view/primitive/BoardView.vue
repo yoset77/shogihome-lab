@@ -273,11 +273,6 @@ const props = defineProps({
     type: String as PropType<BoardImageType>,
     required: true,
   },
-  customBoardImageUrl: {
-    type: String,
-    required: false,
-    default: undefined,
-  },
   boardImageOpacity: {
     type: Number,
     required: false,
@@ -299,11 +294,6 @@ const props = defineProps({
   pieceStandImageType: {
     type: String as PropType<PieceStandImageType>,
     required: true,
-  },
-  customPieceStandImageUrl: {
-    type: String,
-    required: false,
-    default: undefined,
   },
   pieceStandImageOpacity: {
     type: Number,
@@ -951,9 +941,7 @@ const clickNotPromote = () => {
 const config = computed(() => {
   return newConfig({
     boardImageType: props.boardImageType,
-    customBoardImageURL: props.customBoardImageUrl,
     pieceStandImageType: props.pieceStandImageType,
-    customPieceStandImageURL: props.customPieceStandImageUrl,
     pieceImageURLTemplate: props.pieceImageUrlTemplate,
     kingPieceType: props.kingPieceType,
     boardImageOpacity: props.boardImageOpacity,

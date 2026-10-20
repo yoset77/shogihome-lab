@@ -3,11 +3,9 @@
     <BoardView
       :layout-type="layoutType || appSettings.boardLayoutType"
       :board-image-type="appSettings.boardImage"
-      :custom-board-image-url="appSettings.boardImageFileURL"
       :board-image-opacity="appSettings.enableTransparent ? appSettings.boardOpacity : 1"
       :board-grid-color="appSettings.boardGridColor || undefined"
       :piece-stand-image-type="appSettings.pieceStandImage"
-      :custom-piece-stand-image-url="appSettings.pieceStandImageFileURL"
       :piece-stand-image-opacity="appSettings.enableTransparent ? appSettings.pieceStandOpacity : 1"
       :promotion-selector-style="appSettings.promotionSelectorStyle"
       :board-label-type="appSettings.boardLabelType"
@@ -34,18 +32,10 @@
       @move="onMove"
     >
       <template #right-control>
-        <ControlPane
-          v-show="rightControlType !== RightSideControlType.NONE"
-          class="full"
-          :group="ControlGroup.Group1"
-        />
+        <ControlPane class="full" :group="ControlGroup.Group1" />
       </template>
       <template #left-control>
-        <ControlPane
-          v-show="leftControlType !== LeftSideControlType.NONE"
-          class="full"
-          :group="ControlGroup.Group2"
-        />
+        <ControlPane class="full" :group="ControlGroup.Group2" />
       </template>
     </BoardView>
   </div>
@@ -62,11 +52,7 @@ import ControlPane, { ControlGroup } from "@/renderer/view/main/ControlPane.vue"
 import { AppState } from "@/common/control/state.js";
 import { isMobileWebApp } from "@/renderer/ipc/api.js";
 import { useAppSettings } from "@/renderer/store/settings";
-import {
-  RightSideControlType,
-  LeftSideControlType,
-  getPieceImageURLTemplate,
-} from "@/common/settings/app";
+import { getPieceImageURLTemplate } from "@/common/settings/app";
 import { BoardLayoutType } from "@/common/settings/layout";
 
 defineProps({
@@ -78,16 +64,6 @@ defineProps({
     type: String as PropType<BoardLayoutType>,
     required: false,
     default: undefined,
-  },
-  leftControlType: {
-    type: String as PropType<LeftSideControlType>,
-    required: false,
-    default: LeftSideControlType.STANDARD,
-  },
-  rightControlType: {
-    type: String as PropType<RightSideControlType>,
-    required: false,
-    default: RightSideControlType.STANDARD,
   },
 });
 

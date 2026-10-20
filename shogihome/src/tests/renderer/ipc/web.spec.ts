@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { webAPI } from "@/renderer/ipc/web";
 import { toPng, toJpeg } from "html-to-image";
-import { FileQuickAction } from "@/common/settings/app";
+import {
+  defaultAppSettings,
+  FileQuickAction,
+  PieceImageType,
+  BoardImageType,
+  PieceStandImageType,
+  validateAppSettings,
+} from "@/common/settings/app";
+import { RecordFileFormat } from "@/common/file/record";
 
 vi.mock("html-to-image", () => ({
   toPng: vi.fn(),
@@ -177,6 +185,56 @@ describe("renderer/ipc/web", () => {
     expect(JSON.parse(await webAPI.loadAppSettings()).fileQuickAction).toBe(
       FileQuickAction.LOAD_FROM_SERVER,
     );
+  });
+
+  it.each([
+    ["server://", "server://"],
+    ["server://games", "server://games"],
+    ["server://games///", "server://games"],
+  ])(
+    "preserves auto-save directory %s across browser save/load cycles",
+    async (directory, expected) => {
+      let json = JSON.stringify({ ...defaultAppSettings(), autoSaveDirectory: directory });
+      for (let cycle = 0; cycle < 3; cycle++) {
+        await webAPI.saveAppSettings(json);
+        json = await webAPI.loadAppSettings();
+        expect(JSON.parse(json).autoSaveDirectory).toBe(expected);
+      }
+    },
+  );
+
+  it("normalizes retired images at the browser storage boundary without resetting live settings", async () => {
+    const stored = JSON.stringify({
+      pieceImage: "custom-image",
+      boardImage: "custom-image",
+      pieceStandImage: "custom-image",
+      defaultRecordFileFormat: RecordFileFormat.CSA,
+      pieceVolume: 42,
+      researchMultiPV: 3,
+    });
+    localStorage.setItem("appSetting", stored);
+    const settings = JSON.parse(await webAPI.loadAppSettings());
+    const defaults = defaultAppSettings();
+    expect(settings).toMatchObject({
+      pieceImage: defaults.pieceImage,
+      boardImage: defaults.boardImage,
+      pieceStandImage: defaults.pieceStandImage,
+      defaultRecordFileFormat: RecordFileFormat.CSA,
+      pieceVolume: 42,
+      researchMultiPV: 3,
+    });
+    expect(validateAppSettings(settings)).toBeUndefined();
+    expect(localStorage.getItem("appSetting")).toBe(stored);
+  });
+
+  it("retains bundled images when loading browser settings", async () => {
+    const selected = {
+      pieceImage: PieceImageType.FUTAMOJI,
+      boardImage: BoardImageType.DARK,
+      pieceStandImage: PieceStandImageType.DARK,
+    };
+    localStorage.setItem("appSetting", JSON.stringify(selected));
+    expect(JSON.parse(await webAPI.loadAppSettings())).toMatchObject(selected);
   });
 
   it("exportCaptureAsPNG", async () => {

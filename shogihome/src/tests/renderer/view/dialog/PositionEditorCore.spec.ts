@@ -10,11 +10,9 @@ import { BoardLayoutType } from "@/common/settings/layout";
 vi.mock("@/renderer/store/settings", () => ({
   useAppSettings: () => ({
     boardImage: "default",
-    boardImageFileURL: undefined,
     boardOpacity: 1,
     boardGridColor: "",
     pieceStandImage: "default",
-    pieceStandImageFileURL: undefined,
     pieceStandOpacity: 1,
     enableTransparent: false,
     promotionSelectorStyle: "horizontal",

@@ -22,7 +22,6 @@ const pieceStandBackgroundColorMap = {
   [PieceStandImageType.SNOW]: "#9c98b7",
   [PieceStandImageType.DARK_GREEN]: "#465e5e",
   [PieceStandImageType.DARK]: "#333333",
-  [PieceStandImageType.CUSTOM_IMAGE]: "rgba(0, 0, 0, 0)",
 };
 
 export class HandLayoutBuilder {

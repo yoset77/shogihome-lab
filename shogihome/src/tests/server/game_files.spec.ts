@@ -6,6 +6,7 @@ import { Record } from "tsshogi";
 import { gameRequest } from "./helpers/game";
 import { saveGameRecord, loadGamePositions } from "@/server/game/files";
 import { importRecordFromBuffer, RecordFileFormat } from "@/common/file/record";
+import { defaultAppSettings, normalizeAppSettings } from "@/common/settings/app";
 
 const config = vi.hoisted(() => ({ directory: "" }));
 vi.mock("@/server/config", async (original) => ({
@@ -32,6 +33,17 @@ describe("server game files", () => {
     const contents = await fs.readFile(path.join(config.directory, first));
     expect(importRecordFromBuffer(contents, RecordFileFormat.KIFU)).toBeInstanceOf(Record);
     expect((await fs.readdir(config.directory)).sort()).toEqual([first, second].sort());
+  });
+  it("saves to the server root after normalizing app settings", async () => {
+    const settings = normalizeAppSettings({
+      ...defaultAppSettings(),
+      autoSaveDirectory: "server://",
+    });
+    const request = gameRequest();
+    request.options.save.directory = settings.autoSaveDirectory;
+    request.options.save.template = "root";
+    expect(await saveGameRecord(request.source, request.options.save, "test")).toBe("root.kifu");
+    expect(await fs.readdir(config.directory)).toEqual(["root.kifu"]);
   });
   it("rejects traversal, symlink and reserved writer paths", async () => {
     const request = gameRequest();

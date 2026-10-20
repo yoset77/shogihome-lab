@@ -20,8 +20,6 @@
             <BoardPane
               :style="boardPaneStyle"
               :max-size="boardPaneMaxSize"
-              :left-control-type="appSettings.leftSideControlType"
-              :right-control-type="appSettings.rightSideControlType"
               @resize="onBoardPaneResize"
             />
             <RecordPane
