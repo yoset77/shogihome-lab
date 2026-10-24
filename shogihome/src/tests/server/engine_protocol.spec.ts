@@ -234,7 +234,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
     ws.send("stop_engine");
   });
 
-  it("should ignore late bestmove state transitions while terminating", async () => {
+  it("should stop before termination and ignore late bestmove state transitions", async () => {
     const sessionId = "test-late-bestmove-terminating";
     ws = new WebSocket(`${SERVER_URL}/?sessionId=${sessionId}`, {
       origin: `http://localhost:${SERVER_PORT}`,
@@ -243,6 +243,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
 
     const receivedStates: string[] = [];
     let stopRequested = false;
+    let stopReceived = false;
     const stoppedAfterTerminate = new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
         ws!.off("message", listener);
@@ -284,6 +285,10 @@ describe("Server USI Protocol & Implicit Stop", () => {
                 ws!.send("stop_engine");
               }, 10);
             }
+            if (cmd === "stop") {
+              stopReceived = true;
+              socket.write("info depth 100 score cp 20 pv 7g7f\nbestmove 7g7f\n");
+            }
           }
         });
 
@@ -302,9 +307,9 @@ describe("Server USI Protocol & Implicit Stop", () => {
     ws.send("position startpos");
     ws.send("go infinite");
 
-    await wrapperFinished;
-    await stoppedAfterTerminate;
+    await Promise.all([wrapperFinished, stoppedAfterTerminate]);
 
+    expect(stopReceived).toBe(true);
     expect(receivedStates).not.toContain("ready");
     expect(receivedStates).toContain("stopped");
   });
@@ -434,13 +439,7 @@ describe("Server USI Protocol & Implicit Stop", () => {
             const cmd = c.trim();
             if (cmd === "run test-engine") setTimeout(() => socket.write("usiok\n"), 10);
             if (cmd === "isready") setTimeout(() => socket.write("readyok\n"), 10);
-            if (cmd === "quit") {
-              quitProcessed = true;
-              ws!.send("setoption name MultiPV value 10");
-              ws!.send("position startpos");
-              ws!.send("go infinite");
-              setTimeout(resolve, 200);
-            } else if (
+            if (
               quitProcessed &&
               cmd &&
               !cmd.startsWith("run ") &&
@@ -452,12 +451,17 @@ describe("Server USI Protocol & Implicit Stop", () => {
             }
           }
         });
+        socket.on("end", () => setTimeout(resolve, 200));
       });
     });
 
     ws.send("start_engine test-engine");
     await waitForEngineReady(ws);
     ws.send("quit");
+    quitProcessed = true;
+    ws.send("setoption name MultiPV value 10");
+    ws.send("position startpos");
+    ws.send("go infinite");
     await testFinished;
     expect(receivedAfterQuit).toHaveLength(0);
     ws.send("stop_engine");

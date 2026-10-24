@@ -12,6 +12,7 @@ function setup() {
     engineState: EngineState;
     engineHandle: typeof engine;
     setupEngineHandlers(stream: PassThrough): void;
+    onEngineClose(): void;
     messageBuffer: unknown[];
   };
   internal.engineState = EngineState.READY;
@@ -148,9 +149,51 @@ describe("server-owned engine sessions", () => {
     const client = new InternalEngine();
     (client as unknown as { session: EngineSession }).session = session;
     const close = client.close();
-    const result = expect(close).rejects.toThrow("timed out");
     await vi.advanceTimersByTimeAsync(10_001);
-    await result;
+    await expect(close).resolves.toBeUndefined();
     expect(engine.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("allows search stopping and transport shutdown to use separate deadlines", async () => {
+    vi.useFakeTimers();
+    const { session, engine, internal } = setup();
+    const client = new InternalEngine();
+    (client as unknown as { session: EngineSession }).session = session;
+    internal.engineState = EngineState.THINKING;
+
+    const close = client.close();
+    expect(engine.write).toHaveBeenCalledExactlyOnceWith("stop\n");
+    await vi.advanceTimersByTimeAsync(10_001);
+    expect(engine.close).toHaveBeenCalledOnce();
+    expect(engine.destroy).not.toHaveBeenCalled();
+    expect(session.internalSnapshot.state).toBe(EngineState.TERMINATING);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(close).resolves.toBeUndefined();
+    expect(engine.destroy).toHaveBeenCalledOnce();
+    expect(session.internalSnapshot.state).toBe(EngineState.STOPPED);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("waits for transport closure after a late successful search stop", async () => {
+    vi.useFakeTimers();
+    const { session, stream, engine, internal } = setup();
+    const client = new InternalEngine();
+    (client as unknown as { session: EngineSession }).session = session;
+    internal.engineState = EngineState.THINKING;
+
+    const closed = vi.fn();
+    const close = client.close().then(closed);
+    await vi.advanceTimersByTimeAsync(9000);
+    stream.write("bestmove 7g7f\n");
+    await vi.advanceTimersByTimeAsync(9000);
+    expect(engine.close).toHaveBeenCalledOnce();
+    expect(engine.destroy).not.toHaveBeenCalled();
+    expect(closed).not.toHaveBeenCalled();
+
+    internal.onEngineClose();
+    await close;
+    expect(closed).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

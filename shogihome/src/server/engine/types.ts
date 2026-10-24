@@ -20,6 +20,7 @@ export enum EngineState {
   READY,
   THINKING,
   STOPPING_SEARCH,
+  STOPPING_ENGINE,
   TERMINATING,
   STOPPED,
 }
