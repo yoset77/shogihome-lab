@@ -57,6 +57,8 @@ Process treeの所有と回収は共有 [`process/`](../../engine-wrapper/proces
 
 Middle Serverがwrapperへの接続からUSI handshake、探索、停止、終了までを管理します。Browserからの検証済みcommandも現在のstate machineに従って送信・待機させ、handshakeを迂回しません。明示的終了、session失効、回復不能なfailureではtransportを終了してprocess cleanupへ収束させます。
 
+明示的終了と接続保護期限切れでは、探索中なら先に `stop` を送り、最終応答に対する既存のAnalysis DB保存処理を終えてからwrapperとのtransportを閉じます。この停止待ちはBrowser切断後も継続し、通常の探索停止とは異なり待機commandや新しい探索を再開しません。停止待ちとtransport終了待ちはそれぞれ有期限であり、最終応答が得られない場合は途中情報を保存せずcleanupへ進みます。終了要求の重複や再接続で期限を延長せず、resource予約はtransportの終了または破棄まで保持します。
+
 ### Server-owned Internal Sessions
 
 `GameSession` と `AnalysisJob` はWebSocketを持たない内部 `EngineSession` を所有します。公開relayのsession mapに登録せず、Browserから直接attach／closeできないようにします。内部探索にも既存の探索識別・取消境界とAnalysis DB保存経路を使用します。

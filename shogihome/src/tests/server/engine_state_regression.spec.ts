@@ -61,7 +61,8 @@ describe("Engine State Regression Tests", () => {
     mockWs.send.mockClear();
   });
 
-  it("should handle stop_engine immediately during STOPPING_SEARCH", async () => {
+  it("should finish the pending search before stop_engine closes the engine", () => {
+    const stream = new PassThrough();
     // 1. Move to THINKING
     tSession.engineState = EngineState.THINKING;
     tSession.engineHandle = {
@@ -69,6 +70,7 @@ describe("Engine State Regression Tests", () => {
       close: vi.fn(() => tSession.onEngineClose()),
       removeAllListeners: vi.fn(),
     };
+    tSession.setupEngineHandlers(stream);
 
     // 2. Trigger stop to enter STOPPING_SEARCH
     tSession.handleMessage({ type: "usi", command: "stop" });
@@ -77,7 +79,10 @@ describe("Engine State Regression Tests", () => {
     // 3. Send stop_engine while in STOPPING_SEARCH
     tSession.handleMessage({ type: "stopEngine" });
 
-    // Verification: State should be STOPPED
+    expect(tSession.engineState).toBe(EngineState.STOPPING_ENGINE);
+    expect(tSession.engineHandle.close).not.toHaveBeenCalled();
+    stream.write("bestmove 7g7f\n");
+
     expect(tSession.engineState).toBe(EngineState.STOPPED);
     expect(tSession.engineHandle).toBeNull();
   });
@@ -97,7 +102,7 @@ describe("Engine State Regression Tests", () => {
     expect(tSession.engineHandle.write).toHaveBeenCalledWith("stop\n");
   });
 
-  it("finishes termination when the browser disconnects before the transport closes", () => {
+  it("keeps graceful termination intact when the browser disconnects", () => {
     const engine = {
       write: vi.fn(),
       close: vi.fn(),
@@ -112,7 +117,9 @@ describe("Engine State Regression Tests", () => {
     tSession.handleDisconnect(mockWs);
 
     expect(engine.close).toHaveBeenCalledOnce();
-    expect(engine.destroy).toHaveBeenCalledOnce();
+    expect(engine.destroy).not.toHaveBeenCalled();
+    expect(tSession.engineState).toBe(EngineState.TERMINATING);
+    tSession.onEngineClose();
     expect(tSession.engineHandle).toBeNull();
     expect(tSession.engineState).toBe(EngineState.STOPPED);
   });

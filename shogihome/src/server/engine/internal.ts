@@ -50,7 +50,12 @@ export class InternalEngine implements ResearchEngine {
 
   constructor(private readonly sharedLease?: ResourceLease) {}
 
-  private wait(predicate: () => boolean, timeoutMs: number, signal?: AbortSignal): Promise<void> {
+  private wait(
+    predicate: () => boolean,
+    timeoutMs: number,
+    signal?: AbortSignal,
+    options: { ignoreErrors?: boolean } = {},
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       let unsubscribe = () => {};
       const finish = (error?: Error) => {
@@ -63,7 +68,7 @@ export class InternalEngine implements ResearchEngine {
       const abort = () => finish(new Error("Engine operation cancelled"));
       const check = (event?: SessionRelayPayload) => {
         if (predicate()) finish();
-        else if (event?.type === "error") finish(new Error(event.message));
+        else if (event?.type === "error" && !options.ignoreErrors) finish(new Error(event.message));
         else if (this.session.internalSnapshot.state === EngineState.STOPPED)
           finish(new Error("Engine closed unexpectedly"));
       };
@@ -197,7 +202,11 @@ export class InternalEngine implements ResearchEngine {
             [EngineState.STOPPED, EngineState.UNINITIALIZED].includes(
               this.session.internalSnapshot.state,
             ),
-          ENGINE_STOP_TIMEOUT_MS,
+          // Allow both the search stop and the subsequent transport shutdown.
+          2 * ENGINE_STOP_TIMEOUT_MS + 1000,
+          undefined,
+          // A stop failure must not release the lease before the transport closes.
+          { ignoreErrors: true },
         );
       } finally {
         this.session.destroyInternal();

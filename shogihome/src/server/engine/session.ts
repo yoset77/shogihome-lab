@@ -61,7 +61,7 @@ export class EngineSession {
   private terminationTimeout: NodeJS.Timeout | null = null;
   private currentEngineSfen: string | null = null;
   private pendingGoSfen: string | null = null;
-  private isExplicitlyTerminated = false;
+  private terminationRequested = false;
   private ws: ExtendedWebSocket | null = null;
   private cleanupTimeout: NodeJS.Timeout | null = null;
   private messageBuffer: { data: SessionRelayPayload; createdAt: number }[] = [];
@@ -222,7 +222,7 @@ export class EngineSession {
   ) {}
 
   private pushToQueue(queue: string[], command: string) {
-    if (this.isExplicitlyTerminated || this.engineState === EngineState.TERMINATING) {
+    if (this.terminationRequested || this.engineState === EngineState.TERMINATING) {
       return;
     }
     queue.push(command);
@@ -233,6 +233,10 @@ export class EngineSession {
 
   attach(ws: ExtendedWebSocket) {
     if (this.owner !== "relay") throw new Error("Session is owned by server");
+    if (this.terminationRequested) {
+      ws.close(1000, "Session terminated");
+      return;
+    }
     console.log(`Attaching session ${this.sessionId} to new WebSocket`);
     this.clearCleanupTimeout();
 
@@ -246,7 +250,6 @@ export class EngineSession {
     }
 
     this.ws = ws;
-    this.isExplicitlyTerminated = false;
     if (this.engineState === EngineState.STOPPING_SEARCH && !this.activeSearch) {
       this.startStopTimeout();
     }
@@ -302,6 +305,7 @@ export class EngineSession {
       case EngineState.READY:
         stateStr = "ready";
         break;
+      case EngineState.STOPPING_ENGINE:
       case EngineState.TERMINATING:
       case EngineState.STOPPED:
         stateStr = "stopped";
@@ -327,10 +331,11 @@ export class EngineSession {
 
     console.log(`WebSocket disconnected for session ${this.sessionId}`);
     this.ws = null;
-    if (!this.activeSearch) this.clearStopTimeout();
+    if (!this.activeSearch && this.engineState !== EngineState.STOPPING_ENGINE)
+      this.clearStopTimeout();
 
     if (
-      this.isExplicitlyTerminated ||
+      this.terminationRequested ||
       this.sessionId.startsWith("discovery-") ||
       this.engineState === EngineState.UNINITIALIZED
     ) {
@@ -364,30 +369,60 @@ export class EngineSession {
     this.clearStopTimeout();
     this.stopTimeout = setTimeout(() => {
       this.stopTimeout = null;
-      if (this.engineState !== EngineState.STOPPING_SEARCH || (!this.ws && !this.activeSearch)) {
+      if (
+        this.engineState !== EngineState.STOPPING_ENGINE &&
+        (this.engineState !== EngineState.STOPPING_SEARCH || (!this.ws && !this.activeSearch))
+      ) {
         return;
       }
       console.error(
         `Engine for session ${this.sessionId} did not respond to stop command within ${ENGINE_STOP_TIMEOUT_MS}ms. Resetting engine session.`,
       );
       this.sendError("Engine did not respond to stop command. Session reset.");
-      if (this.engineHandle) {
-        this.engineState = EngineState.TERMINATING;
-        this.engineHandle.close();
-      }
+      this.closeEngineTransport();
     }, ENGINE_STOP_TIMEOUT_MS);
   }
 
-  private terminate() {
+  private terminate(graceful = true) {
+    const alreadyTerminated = this.terminationRequested;
+    this.terminationRequested = true;
     this.clearCleanupTimeout();
-    this.clearStopTimeout();
+    if (alreadyTerminated && graceful) return;
+
     this.messageBuffer = [];
+    this.commandQueue.length = 0;
+    this.postStopCommandQueue.length = 0;
+    this.queuedSearch = null;
+    // Unregister only once: a new session may already be using the same ID.
+    if (!alreadyTerminated) this.removeSession(this.sessionId);
+
+    if (
+      graceful &&
+      this.engineHandle &&
+      (this.engineState === EngineState.THINKING ||
+        this.engineState === EngineState.STOPPING_SEARCH)
+    ) {
+      const needsStop = this.engineState === EngineState.THINKING;
+      this.engineState = EngineState.STOPPING_ENGINE;
+      // Preserve an existing stop deadline, including across browser disconnects.
+      if (!this.stopTimeout) this.startStopTimeout();
+      if (needsStop) this.sendToEngine("stop");
+      return;
+    }
+    this.closeEngineTransport();
+  }
+
+  private closeEngineTransport() {
+    if (this.engineState === EngineState.TERMINATING) return;
+    this.clearStopTimeout();
     this.lastInfos.clear();
+    this.currentEngineSfen = null;
+    this.pendingGoSfen = null;
     if (this.connectingSocket) {
       this.connectingSocket.destroy();
       this.connectingSocket = null;
     }
-    if (this.engineHandle && this.engineState !== EngineState.TERMINATING) {
+    if (this.engineHandle) {
       this.engineState = EngineState.TERMINATING;
       // Keep the lease until close, but bound a peer that never finishes shutdown.
       this.terminationTimeout = setTimeout(() => {
@@ -397,11 +432,8 @@ export class EngineSession {
       }, ENGINE_STOP_TIMEOUT_MS);
       this.engineHandle.close();
     } else {
-      // A repeated termination must release the transport, not only its state.
-      this.engineHandle?.destroy?.();
       this.onEngineClose();
     }
-    this.removeSession(this.sessionId);
   }
 
   private sendToClient(data: SessionRelayPayload, createdAt: number = Date.now()) {
@@ -567,6 +599,36 @@ export class EngineSession {
     this.sendToClient({ type: "notice", notice: "engineStopped" });
   }
 
+  private saveCurrentAnalysis() {
+    if (
+      !this.currentEngineConfig ||
+      this.currentEngineConfig.skipAnalysisDB ||
+      !this.pendingGoSfen ||
+      this.lastInfos.size === 0
+    ) {
+      return;
+    }
+    const validInfos = new Map<number, USIInfoCommand>();
+    const savedMoves = new Set<string>();
+    const sortedInfos = [...this.lastInfos.entries()].sort(([a], [b]) => a - b);
+    for (const [multipv, info] of sortedInfos) {
+      if (info.depth === undefined || info.depth < ANALYSIS_DB_MIN_DEPTH) continue;
+
+      const firstMove = info.pv?.[0];
+      if (firstMove && savedMoves.has(firstMove)) continue;
+      if (firstMove) savedMoves.add(firstMove);
+      validInfos.set(multipv, info);
+    }
+
+    if (validInfos.size === 0) return;
+    const parsedSfen = getNormalizedSfenAndHash(this.pendingGoSfen);
+    if (!parsedSfen) return;
+    const engineKey = this.currentEngineConfig.analysisDBGroupId || this.currentEngineConfig.id;
+    const engineName =
+      this.currentEngineConfig.analysisDBGroupName || this.currentEngineConfig.name;
+    saveAnalysisResults(parsedSfen.hash, parsedSfen.sfen, engineKey, engineName, validInfos);
+  }
+
   private setupEngineHandlers(stream: NodeJS.ReadableStream, rl?: readline.Interface) {
     const interface_ = rl || readline.createInterface({ input: stream });
     // Socket handlers own transport errors; consume readline's forwarded errors.
@@ -574,6 +636,13 @@ export class EngineSession {
     interface_.on("line", (line) => {
       if (!line.startsWith("info")) {
         console.log(`Engine output (${this.sessionId}): ${line}`);
+      }
+
+      if (
+        this.engineState === EngineState.TERMINATING ||
+        this.engineState === EngineState.STOPPED
+      ) {
+        return;
       }
 
       if (line.startsWith("info ")) {
@@ -603,24 +672,35 @@ export class EngineSession {
       if (line.trim().startsWith("WRAPPER_ERROR:")) {
         console.error(`Engine wrapper error: ${line}`);
         this.sendError(line);
-        this.terminate();
+        this.terminate(false);
         return;
       }
 
-      if (this.engineState === EngineState.TERMINATING) {
-        return;
+      const stoppingEngine = this.engineState === EngineState.STOPPING_ENGINE;
+      if (!stoppingEngine) {
+        this.sendToClient({
+          type: "engineOutput",
+          positionCommand: this.pendingGoSfen,
+          output: line,
+          ...(this.activeSearch
+            ? { instanceId: this.instanceId, searchId: this.activeSearch.searchId }
+            : {}),
+        });
       }
-
-      this.sendToClient({
-        type: "engineOutput",
-        positionCommand: this.pendingGoSfen,
-        output: line,
-        ...(this.activeSearch
-          ? { instanceId: this.instanceId, searchId: this.activeSearch.searchId }
-          : {}),
-      });
 
       if (line.startsWith("bestmove") || line.startsWith("checkmate")) {
+        if (line.startsWith("bestmove")) {
+          try {
+            this.saveCurrentAnalysis();
+          } catch (error) {
+            console.error(`Failed to persist analysis (${this.sessionId})`, error);
+          }
+        }
+        this.lastInfos.clear();
+        if (stoppingEngine) {
+          this.closeEngineTransport();
+          return;
+        }
         if (this.activeSearch) {
           this.terminalCreatedAt = Date.now();
           this.terminalSearch = {
@@ -632,44 +712,6 @@ export class EngineSession {
           this.activeSearch = null;
           this.settledThrough = this.cancelledThrough;
         }
-        if (
-          line.startsWith("bestmove") &&
-          this.currentEngineConfig &&
-          !this.currentEngineConfig.skipAnalysisDB &&
-          this.pendingGoSfen &&
-          this.lastInfos.size > 0
-        ) {
-          const validInfos = new Map<number, USIInfoCommand>();
-          const savedMoves = new Set<string>();
-          const sortedInfos = [...this.lastInfos.entries()].sort(([a], [b]) => a - b);
-          for (const [multipv, info] of sortedInfos) {
-            if (info.depth === undefined || info.depth < ANALYSIS_DB_MIN_DEPTH) continue;
-
-            const firstMove = info.pv?.[0];
-            if (firstMove && savedMoves.has(firstMove)) continue;
-            if (firstMove) savedMoves.add(firstMove);
-            validInfos.set(multipv, info);
-          }
-
-          if (validInfos.size > 0) {
-            const parsedSfen = getNormalizedSfenAndHash(this.pendingGoSfen);
-            if (parsedSfen) {
-              const engineKey =
-                this.currentEngineConfig.analysisDBGroupId || this.currentEngineConfig.id;
-              const engineName =
-                this.currentEngineConfig.analysisDBGroupName || this.currentEngineConfig.name;
-              saveAnalysisResults(
-                parsedSfen.hash,
-                parsedSfen.sfen,
-                engineKey,
-                engineName,
-                validInfos,
-              );
-            }
-          }
-        }
-        this.lastInfos.clear();
-
         if (this.engineState === EngineState.STOPPING_SEARCH) {
           this.clearStopTimeout();
 
@@ -709,6 +751,7 @@ export class EngineSession {
   }
 
   private async startEngine(engineId: string, config?: EngineConfig): Promise<void> {
+    if (this.terminationRequested) return;
     if (this.engineHandle || this.engineState === EngineState.STARTING) {
       this.sendError("engine already running or starting");
       return;
@@ -720,14 +763,14 @@ export class EngineSession {
       // Relay starts resolve their own catalog, independently of browser discovery.
       const resolvedConfig =
         config ?? (await fetchEngineConfigs()).find((entry) => entry.id === engineId);
-      if (this.instanceId !== instanceId || this.isExplicitlyTerminated) return;
+      if (this.instanceId !== instanceId || this.terminationRequested) return;
       if (!resolvedConfig) throw new Error(t.remoteEngineUnavailable);
       if (this.owner === "relay") {
         this.resourceLease = resourceRegistry.acquire(...engineRequirements(resolvedConfig));
       }
       this.currentEngineConfig = structuredClone(resolvedConfig);
     } catch (error) {
-      if (this.instanceId !== instanceId || this.isExplicitlyTerminated) return;
+      if (this.instanceId !== instanceId || this.terminationRequested) return;
       console.warn(`Engine start rejected for session ${this.sessionId}:`, error);
       this.sendError(error instanceof Error ? error.message : String(error));
       this.onEngineClose();
@@ -748,7 +791,7 @@ export class EngineSession {
 
     socket.on("connect", async () => {
       clearTimeout(connectionTimeout);
-      if (this.isExplicitlyTerminated || this.engineState === EngineState.TERMINATING) {
+      if (this.terminationRequested || this.engineState === EngineState.TERMINATING) {
         socket.destroy();
         return;
       }
@@ -757,7 +800,7 @@ export class EngineSession {
       const accessToken = process.env.WRAPPER_ACCESS_TOKEN;
 
       const setup = (rl?: readline.Interface) => {
-        if (this.isExplicitlyTerminated || this.engineState === EngineState.TERMINATING) {
+        if (this.terminationRequested || this.engineState === EngineState.TERMINATING) {
           socket.destroy();
           return;
         }
@@ -789,7 +832,7 @@ export class EngineSession {
           const rl = await authenticateSocket(socket, accessToken);
           setup(rl);
         } catch (err: unknown) {
-          if (this.isExplicitlyTerminated) {
+          if (this.terminationRequested) {
             return;
           }
           const message = err instanceof Error ? err.message : String(err);
@@ -811,7 +854,7 @@ export class EngineSession {
     socket.on("error", (err) => {
       clearTimeout(connectionTimeout);
       if (this.connectingSocket === socket) this.connectingSocket = null;
-      if (this.isExplicitlyTerminated || this.engineState === EngineState.TERMINATING) {
+      if (this.terminationRequested || this.engineState === EngineState.TERMINATING) {
         return;
       }
       if (this.engineState === EngineState.STARTING) {
@@ -825,7 +868,7 @@ export class EngineSession {
   }
 
   private handleMessage(message: ClientRelayMessage) {
-    if (this.isExplicitlyTerminated || this.engineState === EngineState.TERMINATING) {
+    if (this.terminationRequested || this.engineState === EngineState.TERMINATING) {
       return;
     }
     console.log(`Received command (${this.sessionId}): ${encodeClientRelayMessage(message)}`);
@@ -873,37 +916,9 @@ export class EngineSession {
         void this.startEngine(engineId);
         return;
       }
-      case "stopEngine": {
-        const hasActiveEngineSession =
-          this.connectingSocket ||
-          this.engineHandle ||
-          (this.engineState !== EngineState.UNINITIALIZED &&
-            this.engineState !== EngineState.STOPPED);
-        this.isExplicitlyTerminated = true;
-        if (!hasActiveEngineSession) {
-          return;
-        }
-        this.engineState = EngineState.TERMINATING;
-        this.currentEngineId = null;
-        this.commandQueue.length = 0;
-        this.postStopCommandQueue.length = 0;
-        this.clearStopTimeout();
-        this.currentEngineSfen = null;
-        this.pendingGoSfen = null;
-        this.lastInfos.clear();
-        if (this.connectingSocket) {
-          this.connectingSocket.destroy();
-          this.connectingSocket = null;
-          this.onEngineClose();
-          return;
-        }
-        if (this.engineHandle) {
-          this.engineHandle.close();
-        } else {
-          this.onEngineClose();
-        }
+      case "stopEngine":
+        this.terminate();
         return;
-      }
       case "usi":
         command = message.command;
         break;
@@ -925,8 +940,7 @@ export class EngineSession {
     }
 
     if (command === "quit") {
-      this.isExplicitlyTerminated = true;
-      this.sendToEngine(command);
+      this.terminate();
       return;
     }
 
