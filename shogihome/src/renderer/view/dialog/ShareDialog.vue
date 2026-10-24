@@ -51,20 +51,10 @@ const list = computed(() => {
       label: "Shogi Playground",
       url: shogiPlaygroundURL(store.record, appSettings.boardFlipping),
     },
-    // NOTE: 公式な文書で仕様への言及がないので除外する。
-    //{
-    //  label: "SHOGI-EXTEND",
-    //  url: shogiExtendSharedBoardURL(store.record),
-    //},
     {
       label: "ぴよ将棋",
       url: piyoShogiURL(store.record),
     },
-    // NOTE: 公式な文書で仕様への言及がないので除外する。
-    //{
-    //  label: "局面ぺディア",
-    //  url: kyokumenpediaURL(store.record.position),
-    //},
   ];
 });
 

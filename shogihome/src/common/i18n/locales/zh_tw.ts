@@ -124,7 +124,6 @@ export const zh_tw: Texts = {
   whiteWin: "後手勝ち", // TODO: Translate
   all: "全て", // TODO: Translate
   others: "その他", // TODO: Translate
-  minRate: "最小レート", // TODO: Translate
   mateSearch: "詰搜尋",
   startMateSearch: "開始詰搜尋",
   stopMateSearch: "結束詰搜尋",

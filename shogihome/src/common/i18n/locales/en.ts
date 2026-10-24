@@ -126,7 +126,6 @@ export const en: Texts = {
   whiteWin: "White Win",
   all: "All",
   others: "Others",
-  minRate: "Min Rate",
   mateSearch: "Mate Search",
   startMateSearch: "Start Mate Search",
   stopMateSearch: "Stop Mate Search",
