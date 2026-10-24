@@ -22,7 +22,6 @@ export const fileNameTemplateWikiPageURL = `${wikiPageBaseURL}${fileNameTemplate
 export const maxPVLengthSettingWikiPageURL = `${wikiPageBaseURL}${maxPVLengthTitle}`;
 export const licenseURL = `https://${ghDomain}/yoset77/shogihome-lab/blob/main/LICENSE`;
 export const wcscGameListsURL = `https://${ghioDomain}/${ghRepository}/wcsc/game-lists.json`;
-export const floodgateResourcesURL = `https://${ghioDomain}/${ghRepository}/floodgate/resources.json`;
 
 const webAppBaseURL = `https://${ghioDomain}/${ghRepository}/webapp/index.html`;
 

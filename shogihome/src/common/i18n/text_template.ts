@@ -122,7 +122,6 @@ export type Texts = {
   whiteWin: string;
   all: string;
   others: string;
-  minRate: string;
   mateSearch: string;
   startMateSearch: string;
   stopMateSearch: string;

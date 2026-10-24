@@ -124,7 +124,6 @@ export const ja: Texts = {
   whiteWin: "後手勝ち",
   all: "全て",
   others: "その他",
-  minRate: "最小レート",
   mateSearch: "詰み探索",
   startMateSearch: "詰み探索開始",
   stopMateSearch: "詰み探索終了",

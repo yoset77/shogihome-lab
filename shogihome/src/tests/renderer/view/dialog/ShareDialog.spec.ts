@@ -2,6 +2,7 @@ import { flushPromises, shallowMount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Record } from "tsshogi";
 import ShareDialog from "@/renderer/view/dialog/ShareDialog.vue";
+import { t } from "@/common/i18n";
 
 const closeModalDialog = vi.hoisted(() => vi.fn());
 const addError = vi.hoisted(() => vi.fn());
@@ -35,6 +36,16 @@ describe("ShareDialog", () => {
       configurable: true,
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
     });
+  });
+
+  it("retains the supported sharing destinations", () => {
+    const wrapper = mountDialog();
+    expect(wrapper.findAll(".form-item-label-wide").map((label) => label.text())).toEqual([
+      t.shogiHome,
+      "Shogi Playground",
+      "ぴよ将棋",
+    ]);
+    expect(wrapper.findAll("input.url")).toHaveLength(3);
   });
 
   it("notifies when a URL is copied", async () => {

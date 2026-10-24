@@ -124,7 +124,6 @@ export const vi: Texts = {
   whiteWin: "後手勝ち", // TODO: Translate
   all: "全て", // TODO: Translate
   others: "その他", // TODO: Translate
-  minRate: "最小レート", // TODO: Translate
   mateSearch: "Tìm chiếu hết",
   startMateSearch: "Bắt đầu tìm chiếu hết",
   stopMateSearch: "Dừng tìm chiếu hết",

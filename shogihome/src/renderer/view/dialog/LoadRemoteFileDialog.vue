@@ -21,90 +21,11 @@
       <div class="note">{{ t.redirectNotSupported }}</div>
     </div>
     <!-- Floodgate -->
-    <!--
-    <div v-show="tab === Tab.Floodgate" class="header row align-center">
-      <div class="filter row align-center">
-        <div class="player-name-filter row align-center">
-          <input v-model.trim="floodgatePlayerName" :placeholder="t.playerName" />
-          <button @click="floodgatePlayerName = ''">&#x2715;</button>
-        </div>
-        <div class="min-rate-filter row align-center">
-          <span>{{ t.minRate }}</span>
-          <input v-model.number="floodgateMinRate" type="number" />
-          <button @click="floodgateMinRate = 0">&#x2715;</button>
-        </div>
-        <HorizontalSelector
-          v-model:value="floodgateWinner"
-          :items="[
-            { label: t.all, value: 'all' },
-            { label: t.blackWin, value: Color.BLACK },
-            { label: t.whiteWin, value: Color.WHITE },
-            { label: t.others, value: 'other' },
-          ]"
-          :height="25"
-        />
-      </div>
-      <button class="reload" @click="updateFloodgateGameList()">{{ t.reload }}</button>
-    </div>
-    -->
     <div v-show="tab === Tab.Floodgate" class="form-group warning">
       <div class="note">
         Floodgate の仕様変更により外部ビューアー向けの対局リストが廃止されました。 Due to a
         specification change in Floodgate, the game list for external viewers has been discontinued.
       </div>
-      <!--
-      <div v-for="(game, index) in filteredFloodgateGames" :key="game.id">
-        <hr v-if="index !== 0" />
-        <div class="game-list-entry row" :class="{ playing: game.playing }">
-          <div class="game-label column space-evenly">
-            <div class="game-header">
-              <span>
-                {{ dayjs(game.dateTime).locale(appSettings.language.replace("_", "-")).fromNow() }}
-              </span>
-              <span
-                class="player-name link"
-                :class="{
-                  bold:
-                    floodgatePlayerName &&
-                    game.blackName.toLowerCase().includes(floodgatePlayerName.toLowerCase()),
-                }"
-                @click="floodgatePlayerName = game.blackName"
-              >
-                {{ game.blackName }}
-                <span v-if="floodgatePlayerRateMap?.get(game.blackName)">
-                  ({{ floodgatePlayerRateMap.get(game.blackName) }})
-                </span>
-              </span>
-              <span> vs </span>
-              <span
-                class="player-name link"
-                :class="{
-                  bold:
-                    floodgatePlayerName &&
-                    game.whiteName.toLowerCase().includes(floodgatePlayerName.toLowerCase()),
-                }"
-                @click="floodgatePlayerName = game.whiteName"
-              >
-                {{ game.whiteName }}
-                <span v-if="floodgatePlayerRateMap?.get(game.whiteName)">
-                  ({{ floodgatePlayerRateMap.get(game.whiteName) }})
-                </span>
-              </span>
-              <span v-if="game.winner" class="link" @click="floodgateWinner = game.winner">{{
-                game.winner === Color.BLACK ? t.blackWin : t.whiteWin
-              }}</span>
-            </div>
-            <div class="game-info">
-              <span>{{ getDateTimeString(game.dateTime) }}</span>
-              <span>{{ game.id }}</span>
-            </div>
-          </div>
-          <div class="column space-evenly">
-            <button @click="open(game.url)">{{ t.open }}</button>
-          </div>
-        </div>
-      </div>
-      -->
     </div>
     <!-- WCSC -->
     <div v-show="tab === Tab.WCSC" class="header row align-center">
@@ -162,8 +83,6 @@ enum Tab {
 }
 const localStorageLastTabKey = "LoadRemoteFileDialog.lastTab";
 const localStorageLastURLKey = "LoadRemoteFileDialog.lastURL";
-//const localStorageLastFloodgatePlayerNameKey = "LoadRemoteFileDialog.lastFloodgatePlayerName";
-//const localStorageLastFloodgateMinRateKey = "LoadRemoteFileDialog.lastFloodgateMinRate";
 const localStorageLastWCSCEditionKey = "LoadRemoteFileDialog.lastWCSCEdition";
 const localStorageLastWCSCSearchWordKey = "LoadRemoteFileDialog.lastWCSCSearchWord";
 </script>
@@ -190,54 +109,10 @@ const store = useStore();
 const busyState = useBusyState();
 const tab = ref(Tab.URL);
 const url = ref("");
-//const floodgatePlayerName = ref("");
-//const floodgateMinRate = ref(0);
-//const floodgateWinner = ref<Color | "all" | "other">("all");
-//const floodgateGames = ref<FloodgateGame[]>([]);
-//const floodgatePlayerRateMap = ref<Map<string, number> | null>(null);
 const wcscEdition = ref("");
 const wcscSearchWord = ref("");
 const wcscEditions = ref([] as WCSCEdition[]);
 const wcscGames = ref<WCSCGame[]>([]);
-
-//async function updateFloodgateGameList() {
-//  try {
-//    busyState.retain();
-//    floodgateGames.value = await listFloodgateLatestGames();
-//    if (floodgateGames.value.length > 0 && !floodgatePlayerRateMap.value) {
-//      const players = await listFloodgatePlayers();
-//      floodgatePlayerRateMap.value = new Map(players.map((player) => [player.name, player.rate]));
-//    }
-//  } catch (e) {
-//    useErrorStore().add(e);
-//  } finally {
-//    busyState.release();
-//  }
-//}
-
-//const filteredFloodgateGames = computed(() => {
-//  const name = floodgatePlayerName.value.toLowerCase();
-//  return floodgateGames.value.filter((game) => {
-//    if (
-//      name &&
-//      !game.blackName.toLowerCase().includes(name) &&
-//      !game.whiteName.toLowerCase().includes(name)
-//    ) {
-//      return false;
-//    }
-//    if (floodgateMinRate.value > 0) {
-//      const blackRate = floodgatePlayerRateMap.value?.get(game.blackName) || 0;
-//      const whiteRate = floodgatePlayerRateMap.value?.get(game.whiteName) || 0;
-//      if (blackRate < floodgateMinRate.value || whiteRate < floodgateMinRate.value) {
-//        return false;
-//      }
-//    }
-//    if (floodgateWinner.value !== "all" && floodgateWinner.value !== (game.winner || "other")) {
-//      return false;
-//    }
-//    return true;
-//  });
-//});
 
 async function updateWCSCGameList() {
   try {
@@ -271,9 +146,6 @@ const filteredWCSCGames = computed(() => {
 });
 
 function onUpdateTab(newTab: Tab) {
-  //if (newTab === Tab.Floodgate && floodgateGames.value.length === 0) {
-  //  updateFloodgateGameList();
-  //} else
   if (newTab === Tab.WCSC && wcscGames.value.length === 0) {
     updateWCSCGameList();
   }
@@ -286,8 +158,6 @@ function open(url: string) {
   }
   localStorage.setItem(localStorageLastTabKey, tab.value);
   localStorage.setItem(localStorageLastURLKey, url);
-  //localStorage.setItem(localStorageLastFloodgatePlayerNameKey, floodgatePlayerName.value);
-  //localStorage.setItem(localStorageLastFloodgateMinRateKey, String(floodgateMinRate.value));
   localStorage.setItem(localStorageLastWCSCEditionKey, wcscEdition.value);
   localStorage.setItem(localStorageLastWCSCSearchWordKey, wcscSearchWord.value);
   store.closeModalDialog();
@@ -303,10 +173,6 @@ onMounted(async () => {
   try {
     tab.value = (localStorage.getItem(localStorageLastTabKey) || tab.value) as Tab;
     url.value = localStorage.getItem(localStorageLastURLKey) || url.value;
-    //floodgatePlayerName.value =
-    //  localStorage.getItem(localStorageLastFloodgatePlayerNameKey) || floodgatePlayerName.value;
-    //floodgateMinRate.value =
-    //  Number(localStorage.getItem(localStorageLastFloodgateMinRateKey)) || floodgateMinRate.value;
     wcscEdition.value = localStorage.getItem(localStorageLastWCSCEditionKey) || wcscEdition.value;
     wcscSearchWord.value =
       localStorage.getItem(localStorageLastWCSCSearchWordKey) || wcscSearchWord.value;
@@ -346,13 +212,6 @@ onMounted(async () => {
   font-size: 0.62em;
   margin: 0;
 }
-.min-rate-filter > input {
-  width: 50px;
-}
-.min-rate-filter > button {
-  font-size: 0.62em;
-  margin: 0;
-}
 button.reload {
   width: 150px;
 }
@@ -367,9 +226,6 @@ button.reload {
   padding: 5px;
   box-sizing: border-box;
   width: 100%;
-}
-.game-list-entry.playing {
-  background-color: var(--text-bg-color-warning);
 }
 hr {
   margin: 0;
@@ -392,21 +248,9 @@ hr {
 .game-header > * {
   margin-right: 5px;
 }
-.player-name.bold {
-  font-weight: bold;
-}
 .link {
   cursor: pointer;
   text-decoration: underline;
-}
-.game-info {
-  font-size: 0.6em;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.game-info > * {
-  margin-right: 5px;
 }
 .reference {
   text-align: left;
