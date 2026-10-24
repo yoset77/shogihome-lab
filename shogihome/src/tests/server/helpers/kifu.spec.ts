@@ -15,6 +15,11 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 
+// Polling and write stability each take one second; leave scheduling slack for CI.
+const WATCH_EVENT_TIMEOUT = 5000;
+// Cover all event waits, initial scanning, and the negative observation windows.
+const WATCH_TEST_TIMEOUT = 30000;
+
 describe("server/helpers/kifu", () => {
   let tempDir: string;
   let outsideDir: string;
@@ -113,21 +118,21 @@ describe("server/helpers/kifu", () => {
         fs.mkdirSync(directory);
         fs.writeFileSync(target, "new");
         await vi.waitFor(() => expect(events).toContainEqual(["add", "games/game.kif"]), {
-          timeout: 3000,
+          timeout: WATCH_EVENT_TIMEOUT,
         });
         expect(allEvents).toContainEqual(["addDir", "games"]);
         expect(await getKifuList(tempDir)).toContain("games/game.kif");
         fs.writeFileSync(target, "updated");
         await vi.waitFor(() => expect(events).toContainEqual(["change", "games/game.kif"]), {
-          timeout: 3000,
+          timeout: WATCH_EVENT_TIMEOUT,
         });
         fs.rmSync(target);
         await vi.waitFor(() => expect(events).toContainEqual(["unlink", "games/game.kif"]), {
-          timeout: 3000,
+          timeout: WATCH_EVENT_TIMEOUT,
         });
         fs.rmdirSync(directory);
         await vi.waitFor(() => expect(events).toContainEqual(["unlinkDir", "games"]), {
-          timeout: 3000,
+          timeout: WATCH_EVENT_TIMEOUT,
         });
         expect(
           allEvents.some(([, relPath]) => relPath.split(path.sep).some(isReservedServerEntryName)),
@@ -136,7 +141,7 @@ describe("server/helpers/kifu", () => {
         await watcher?.close();
       }
     },
-    15000,
+    WATCH_TEST_TIMEOUT,
   );
 
   it.each([false, true])(
@@ -153,31 +158,38 @@ describe("server/helpers/kifu", () => {
       expect(watcher).not.toBeNull();
       try {
         await new Promise<void>((resolve) => watcher!.once("ready", resolve));
+        expect(Object.keys(watcher!.getWatched())).toContain(
+          fs.realpathSync(path.join(tempDir, "games")),
+        );
+        // `ready` ends the scan, but fs.watchFile still needs its initial stat sample.
+        if (usePolling) {
+          await new Promise((resolve) => setTimeout(resolve, watcher!.options.interval));
+        }
         const target = path.join(tempDir, "games", "game.kif");
         fs.writeFileSync(target, "old");
         await vi.waitFor(() => expect(events).toContainEqual(["add", "games/game.kif"]), {
-          timeout: 3000,
+          timeout: WATCH_EVENT_TIMEOUT,
         });
         expect(await getKifuList(linkedRoot)).toEqual(["games/game.kif"]);
 
         fs.writeFileSync(target, "updated");
         await vi.waitFor(() => expect(events).toContainEqual(["change", "games/game.kif"]), {
-          timeout: 3000,
+          timeout: WATCH_EVENT_TIMEOUT,
         });
         fs.rmSync(target);
         await vi.waitFor(() => expect(events).toContainEqual(["unlink", "games/game.kif"]), {
-          timeout: 3000,
+          timeout: WATCH_EVENT_TIMEOUT,
         });
         expect(await getKifuList(linkedRoot)).toEqual([]);
         fs.rmdirSync(path.join(tempDir, "games"));
         await vi.waitFor(() => expect(events).toContainEqual(["unlinkDir", "games"]), {
-          timeout: 3000,
+          timeout: WATCH_EVENT_TIMEOUT,
         });
       } finally {
         await watcher?.close();
       }
     },
-    10000,
+    WATCH_TEST_TIMEOUT,
   );
 
   it.each([false, true])(
@@ -205,21 +217,21 @@ describe("server/helpers/kifu", () => {
         const target = path.join(hiddenRealRoot, "game.kif");
         fs.writeFileSync(target, "old");
         await vi.waitFor(() => expect(events).toContainEqual(["add", "game.kif"]), {
-          timeout: 3000,
+          timeout: WATCH_EVENT_TIMEOUT,
         });
         fs.writeFileSync(target, "updated");
         await vi.waitFor(() => expect(events).toContainEqual(["change", "game.kif"]), {
-          timeout: 3000,
+          timeout: WATCH_EVENT_TIMEOUT,
         });
         fs.rmSync(target);
         await vi.waitFor(() => expect(events).toContainEqual(["unlink", "game.kif"]), {
-          timeout: 3000,
+          timeout: WATCH_EVENT_TIMEOUT,
         });
       } finally {
         await watcher?.close();
       }
     },
-    20000,
+    WATCH_TEST_TIMEOUT,
   );
 
   it.each([false, true])(
