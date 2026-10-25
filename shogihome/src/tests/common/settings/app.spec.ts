@@ -16,29 +16,29 @@ describe("settings/app", () => {
   it("normalize", () => {
     const result = normalizeAppSettings(defaultAppSettings(), {
       returnCode: "\r\n",
-      autoSaveDirectory: "/tmp",
     });
     expect(result).toStrictEqual(defaultAppSettings());
   });
 
-  it.each([
-    ["", ""],
-    ["server://", "server://"],
-    ["server:///", "server://"],
-    ["server://games", "server://games"],
-    ["server://games/", "server://games"],
-    ["server://games///", "server://games"],
-    ["server://games\\", "server://games"],
-    ["games/", "games"],
-    ["/tmp/games/", "/tmp/games"],
-    ["C:\\games\\", "C:\\games"],
-  ])("normalizes auto-save directory %s without changing its URI prefix", (directory, expected) => {
-    const settings = { ...defaultAppSettings(), autoSaveDirectory: directory };
-    const normalized = normalizeAppSettings(settings);
-    expect(normalized.autoSaveDirectory).toBe(expected);
-    expect(normalizeAppSettings(normalized)).toEqual(normalized);
-    expect(settings.autoSaveDirectory).toBe(directory);
+  it("does not include the retired auto-save directory in app defaults", () => {
+    expect(defaultAppSettings()).not.toHaveProperty("autoSaveDirectory");
   });
+
+  it.each(
+    ["", "server://games///", 1, false, null, [], {}].map((autoSaveDirectory) => ({
+      autoSaveDirectory,
+    })),
+  )(
+    "drops the legacy app destination $autoSaveDirectory without mutating the input",
+    ({ autoSaveDirectory }) => {
+      const settings = { ...defaultAppSettings(), autoSaveDirectory, pieceVolume: 42 };
+      const normalized = normalizeAppSettings(settings);
+      expect(normalized).not.toHaveProperty("autoSaveDirectory");
+      expect(normalized.pieceVolume).toBe(42);
+      expect(normalizeAppSettings(normalized)).toEqual(normalized);
+      expect(settings.autoSaveDirectory).toBe(autoSaveDirectory);
+    },
+  );
 
   it("normalize/analysisDBSearchMode", () => {
     const result = normalizeAppSettings({

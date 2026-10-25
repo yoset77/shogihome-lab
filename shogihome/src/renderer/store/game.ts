@@ -439,7 +439,6 @@ export class GameManager {
           commentFormat: app.searchCommentFormat,
           language: app.language,
           save: {
-            directory: app.autoSaveDirectory,
             template: app.recordFileNameTemplate,
             format: app.defaultRecordFileFormat,
             returnCode: app.returnCode,

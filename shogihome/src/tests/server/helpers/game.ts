@@ -25,6 +25,7 @@ export function gameRequest(record = new Record()): GameSessionRequest {
       ...defaultGameSettings(),
       timeLimit: { timeSeconds: 60, byoyomi: 10, increment: 0 },
       enableAutoSave: false,
+      autoSaveDirectory: "server://",
       enableComment: false,
     },
     options: {
@@ -32,7 +33,6 @@ export function gameRequest(record = new Record()): GameSessionRequest {
       commentFormat: SearchCommentFormat.SHOGIHOME,
       language: Language.JA,
       save: {
-        directory: "",
         template: "{datetime}",
         format: RecordFileFormat.KIFU,
         returnCode: "\n",

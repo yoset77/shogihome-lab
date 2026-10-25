@@ -388,28 +388,6 @@
             ]"
           />
         </div>
-        <!-- 自動保存先 -->
-        <div class="form-item row responsive">
-          <div class="form-item-label-wide">
-            {{ t.autoSavingDirectory }}
-          </div>
-          <div class="row grow">
-            <div class="server-prefix">server://</div>
-            <input
-              :value="
-                update.autoSaveDirectory.startsWith('server://')
-                  ? update.autoSaveDirectory.substring(9)
-                  : update.autoSaveDirectory
-              "
-              class="file-path grow"
-              type="text"
-              @input="
-                (e) =>
-                  (update.autoSaveDirectory = 'server://' + (e.target as HTMLInputElement).value)
-              "
-            />
-          </div>
-        </div>
         <!-- 棋譜ファイル名-->
         <div class="form-item row responsive">
           <div class="form-item-label-wide">
@@ -777,7 +755,6 @@ const update = ref({
   fileQuickAction: org.fileQuickAction,
   textDecodingRule: org.textDecodingRule,
   returnCode: org.returnCode,
-  autoSaveDirectory: org.autoSaveDirectory,
   recordFileNameTemplate: org.recordFileNameTemplate,
   useCSAV3: org.useCSAV3,
   useUTF8ForKifAndKi2: org.useUTF8ForKifAndKi2,
@@ -880,12 +857,6 @@ input.file-path {
 }
 input.file-path.full-width {
   width: min(520px, 100%);
-}
-.server-prefix {
-  margin-right: 5px;
-  line-height: 27px;
-  font-size: 0.9em;
-  opacity: 0.6;
 }
 @media (max-width: 600px) {
   .responsive {

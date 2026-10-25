@@ -3,12 +3,15 @@ import { ref } from "vue";
 import GameDialog from "@/renderer/view/dialog/GameDialog.vue";
 import PlayerSelector from "@/renderer/view/dialog/PlayerSelector.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
+import GameSaveDirectory from "@/renderer/view/dialog/GameSaveDirectory.vue";
 import { defaultGameSettings } from "@/common/settings/game";
 import { t } from "@/common/i18n";
 import { Language } from "@/common/i18n/languages";
 
-const mocks = vi.hoisted(() => ({ start: vi.fn(), load: vi.fn(), error: vi.fn() }));
-vi.mock("@/renderer/store", () => ({ useStore: () => ({ startGame: mocks.start }) }));
+const mocks = vi.hoisted(() => ({ start: vi.fn(), load: vi.fn(), error: vi.fn(), close: vi.fn() }));
+vi.mock("@/renderer/store", () => ({
+  useStore: () => ({ startGame: mocks.start, closeModalDialog: mocks.close }),
+}));
 vi.mock("@/renderer/store/error", () => ({ useErrorStore: () => ({ add: mocks.error }) }));
 vi.mock("@/renderer/store/settings", () => ({ useAppSettings: () => ({ language: Language.JA }) }));
 vi.mock("@/renderer/store/lan", () => ({
@@ -40,6 +43,36 @@ describe("parallel game settings dialog", () => {
     wrapper
       .findAllComponents(ToggleButton)
       .find((toggle) => toggle.props("label") === t.jobsBackground);
+  it("passes the edited auto-save directory to the game start", async () => {
+    mocks.load.mockResolvedValueOnce({
+      ...defaultGameSettings(),
+      enableAutoSave: true,
+      autoSaveDirectory: "server://saved",
+    });
+    const wrapper = mountDialog();
+    await flushPromises();
+    const picker = wrapper.getComponent(GameSaveDirectory);
+    expect(picker.props()).toMatchObject({ value: "server://saved", disabled: false });
+    picker.vm.$emit("update:value", "server://next");
+    await wrapper.get('button[data-hotkey="Enter"]').trigger("click");
+    expect(mocks.start).toHaveBeenCalledWith(
+      expect.objectContaining({ enableAutoSave: true, autoSaveDirectory: "server://next" }),
+      false,
+    );
+    wrapper.unmount();
+  });
+
+  it("does not start or persist edited settings when cancelled", async () => {
+    const wrapper = mountDialog();
+    await flushPromises();
+    expect(wrapper.getComponent(GameSaveDirectory).props("disabled")).toBe(true);
+    wrapper.getComponent(GameSaveDirectory).vm.$emit("update:value", "server://cancelled");
+    await wrapper.get('button[data-hotkey="Escape"]').trigger("click");
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.close).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  });
+
   it("defaults to serial and forces parallel games into the background", async () => {
     const wrapper = mountDialog();
     await flushPromises();

@@ -6,7 +6,7 @@ import { Record } from "tsshogi";
 import { gameRequest } from "./helpers/game";
 import { saveGameRecord, loadGamePositions } from "@/server/game/files";
 import { importRecordFromBuffer, RecordFileFormat } from "@/common/file/record";
-import { defaultAppSettings, normalizeAppSettings } from "@/common/settings/app";
+import { defaultGameSettings, normalizeGameSettings } from "@/common/settings/game";
 
 const config = vi.hoisted(() => ({ directory: "" }));
 vi.mock("@/server/config", async (original) => ({
@@ -25,9 +25,13 @@ describe("server game files", () => {
   });
   it("saves frozen records atomically without overwriting colliding filenames", async () => {
     const request = gameRequest();
-    request.options.save.template = "match";
-    const first = await saveGameRecord(request.source, request.options.save, "one");
-    const second = await saveGameRecord(request.source, request.options.save, "two");
+    const options = {
+      ...request.options.save,
+      directory: request.settings.autoSaveDirectory,
+      template: "match",
+    };
+    const first = await saveGameRecord(request.source, options, "one");
+    const second = await saveGameRecord(request.source, options, "two");
     expect(first).toBe("match.kifu");
     expect(second).toBe("match_two_1.kifu");
     const contents = await fs.readFile(path.join(config.directory, first));
@@ -35,7 +39,7 @@ describe("server game files", () => {
     expect((await fs.readdir(config.directory)).sort()).toEqual([first, second].sort());
   });
   it("publishes concurrent games with identical templates without overwriting one another", async () => {
-    const options = { ...gameRequest().options.save, template: "parallel" };
+    const options = { ...gameRequest().options.save, directory: "server://", template: "parallel" };
     const saved = await Promise.allSettled(
       Array.from({ length: 8 }, async (_, i) => {
         const record = new Record();
@@ -61,16 +65,32 @@ describe("server game files", () => {
     );
     expect(comments.sort()).toEqual(Array.from({ length: 8 }, (_, i) => `Game ${i}`));
   });
-  it("saves to the server root after normalizing app settings", async () => {
-    const settings = normalizeAppSettings({
-      ...defaultAppSettings(),
+  it("saves to the server root after normalizing game settings", async () => {
+    const settings = normalizeGameSettings({
+      ...defaultGameSettings(),
       autoSaveDirectory: "server://",
     });
     const request = gameRequest();
-    request.options.save.directory = settings.autoSaveDirectory;
-    request.options.save.template = "root";
-    expect(await saveGameRecord(request.source, request.options.save, "test")).toBe("root.kifu");
+    const options = {
+      ...request.options.save,
+      directory: settings.autoSaveDirectory,
+      template: "root",
+    };
+    expect(await saveGameRecord(request.source, options, "test")).toBe("root.kifu");
     expect(await fs.readdir(config.directory)).toEqual(["root.kifu"]);
+  });
+  it("saves into the selected existing subdirectory without creating missing directories", async () => {
+    await fs.mkdir(path.join(config.directory, "games"));
+    const request = gameRequest();
+    const options = { ...request.options.save, directory: "server://games", template: "selected" };
+    expect(await saveGameRecord(request.source, options, "test")).toBe("games/selected.kifu");
+    await expect(
+      saveGameRecord(request.source, { ...options, directory: "server://missing" }, "test"),
+    ).rejects.toThrow();
+    await expect(
+      saveGameRecord(request.source, { ...options, directory: "" }, "test"),
+    ).rejects.toThrow();
+    expect(await fs.readdir(config.directory)).toEqual(["games"]);
   });
   it("rejects traversal, symlink and reserved writer paths", async () => {
     const request = gameRequest();

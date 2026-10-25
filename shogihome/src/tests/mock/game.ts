@@ -39,6 +39,7 @@ export const gameSettings10m30s: GameSettings = {
   humanIsFront: false,
   enableComment: true,
   enableAutoSave: true,
+  autoSaveDirectory: "server://",
   repeat: 1,
   swapPlayers: true,
   maxMoves: 1000,

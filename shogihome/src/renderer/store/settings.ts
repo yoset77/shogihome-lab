@@ -142,9 +142,6 @@ class AppSettingsStore {
   get returnCode(): string {
     return this.merged.returnCode;
   }
-  get autoSaveDirectory(): string {
-    return this.merged.autoSaveDirectory;
-  }
   get recordFileNameTemplate(): string {
     return this.merged.recordFileNameTemplate;
   }

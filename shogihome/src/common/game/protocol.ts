@@ -31,6 +31,7 @@ import type { GameResults } from "./results";
 import type { USIInfoCommand } from "./usi";
 import { readJobAttachRequest, type JobAttachRequest } from "@/common/jobs/types";
 import { readParallelGameProgress, type ParallelGameProgress } from "./parallel";
+import { trimTrailingPathSeparators } from "@/common/helpers/path";
 
 export const GAME_STATES = [
   "preparing",
@@ -47,7 +48,6 @@ export type GameError = "engine" | "capacity" | "save";
 export type GameClock = { timeMs: number; byoyomiMs: number; elapsedMs: number; running: boolean };
 export type GameClocks = { black: GameClock; white: GameClock };
 export type GameSaveOptions = {
-  directory: string;
   template: string;
   format: RecordFileFormat;
   returnCode: string;
@@ -231,6 +231,7 @@ export function readGameSettings(value: unknown): GameSettings {
     humanIsFront: v.boolean(input.humanIsFront),
     enableComment: v.boolean(input.enableComment),
     enableAutoSave: v.boolean(input.enableAutoSave),
+    autoSaveDirectory: trimTrailingPathSeparators(v.text(input.autoSaveDirectory, 2048)),
     repeat: v.counter(input.repeat, 10_000),
     parallelism:
       input.parallelism === undefined ? 1 : v.counter(input.parallelism, MAX_GAME_PARALLELISM),
@@ -276,7 +277,6 @@ export function decodeGameRequest(value: unknown): DecodeResult<GameSessionReque
         commentFormat: v.enumeration(options.commentFormat, Object.values(SearchCommentFormat)),
         language: v.enumeration(options.language, Object.values(Language)),
         save: {
-          directory: v.text(save.directory, 2048),
           template: v.text(save.template, 1024),
           format: v.enumeration(
             save.format,

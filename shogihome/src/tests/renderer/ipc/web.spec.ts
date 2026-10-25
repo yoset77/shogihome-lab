@@ -10,6 +10,12 @@ import {
   validateAppSettings,
 } from "@/common/settings/app";
 import { RecordFileFormat } from "@/common/file/record";
+import {
+  defaultGameSettings,
+  validateGameSettings,
+  type GameSettings,
+} from "@/common/settings/game";
+import { t } from "@/common/i18n";
 
 vi.mock("html-to-image", () => ({
   toPng: vi.fn(),
@@ -92,6 +98,7 @@ describe("renderer/ipc/web", () => {
     vi.clearAllMocks();
     document.body.innerHTML = "";
     localStorage.removeItem("appSetting");
+    localStorage.removeItem("gameSetting");
   });
 
   it("retries a conflicting record save only after confirming the destination", async () => {
@@ -187,21 +194,269 @@ describe("renderer/ipc/web", () => {
     );
   });
 
-  it.each([
-    ["server://", "server://"],
-    ["server://games", "server://games"],
-    ["server://games///", "server://games"],
-  ])(
-    "preserves auto-save directory %s across browser save/load cycles",
-    async (directory, expected) => {
-      let json = JSON.stringify({ ...defaultAppSettings(), autoSaveDirectory: directory });
+  it.each([true, false, undefined])(
+    "preserves the migration input when app settings are saved first with auto-save=%s",
+    async (enableAutoSave) => {
+      localStorage.setItem(
+        "appSetting",
+        JSON.stringify({ autoSaveDirectory: "server://games///", pieceVolume: 42 }),
+      );
+      if (enableAutoSave !== undefined) {
+        const legacy: Partial<GameSettings> = { ...defaultGameSettings(), enableAutoSave };
+        delete legacy.autoSaveDirectory;
+        localStorage.setItem("gameSetting", JSON.stringify(legacy));
+      }
+      const storedGame = localStorage.getItem("gameSetting");
       for (let cycle = 0; cycle < 3; cycle++) {
-        await webAPI.saveAppSettings(json);
-        json = await webAPI.loadAppSettings();
-        expect(JSON.parse(json).autoSaveDirectory).toBe(expected);
+        const app = JSON.parse(await webAPI.loadAppSettings());
+        expect(app).not.toHaveProperty("autoSaveDirectory");
+        await webAPI.saveAppSettings(JSON.stringify({ ...app, pieceVolume: 43 + cycle }));
+        expect(JSON.parse(localStorage.getItem("appSetting")!)).toMatchObject({
+          autoSaveDirectory: "server://games///",
+          pieceVolume: 43 + cycle,
+        });
+        expect(JSON.parse(await webAPI.loadGameSettings())).toMatchObject({
+          enableAutoSave: enableAutoSave ?? false,
+          autoSaveDirectory: "server://games",
+        });
+        expect(localStorage.getItem("gameSetting")).toBe(storedGame);
       }
     },
   );
+
+  it("allows replacing malformed app settings without adding a legacy destination", async () => {
+    localStorage.setItem("appSetting", "invalid legacy JSON");
+    const json = JSON.stringify(defaultAppSettings());
+    await webAPI.saveAppSettings(json);
+    expect(localStorage.getItem("appSetting")).toBe(json);
+  });
+
+  it.each(["", "server://new"])(
+    "drops the legacy app destination once game destination %s is persisted",
+    async (autoSaveDirectory) => {
+      const settings = JSON.stringify({ ...defaultGameSettings(), autoSaveDirectory });
+      localStorage.setItem("gameSetting", settings);
+      localStorage.setItem(
+        "appSetting",
+        JSON.stringify({ autoSaveDirectory: "server://old", pieceVolume: 42 }),
+      );
+      const app = JSON.parse(await webAPI.loadAppSettings());
+      await webAPI.saveAppSettings(
+        JSON.stringify({ ...app, autoSaveDirectory: "server://stale", pieceVolume: 43 }),
+      );
+      const saved = JSON.parse(localStorage.getItem("appSetting")!);
+      expect(saved).not.toHaveProperty("autoSaveDirectory");
+      expect(saved.pieceVolume).toBe(43);
+      expect(localStorage.getItem("gameSetting")).toBe(settings);
+      expect(JSON.parse(await webAPI.loadGameSettings()).autoSaveDirectory).toBe(autoSaveDirectory);
+    },
+  );
+
+  it("preserves the migration input when stored game settings are malformed", async () => {
+    localStorage.setItem("gameSetting", "invalid game JSON");
+    localStorage.setItem("appSetting", JSON.stringify({ autoSaveDirectory: "server://old" }));
+    await webAPI.saveAppSettings(JSON.stringify(defaultAppSettings()));
+    expect(JSON.parse(localStorage.getItem("appSetting")!).autoSaveDirectory).toBe("server://old");
+  });
+
+  it.each(["", "server://new"])(
+    "retires the legacy destination after saving game destination %s without changing other app settings",
+    async (autoSaveDirectory) => {
+      const app = { pieceVolume: 42, futureSetting: { enabled: true } };
+      localStorage.setItem(
+        "appSetting",
+        JSON.stringify({ ...app, autoSaveDirectory: "server://old" }),
+      );
+      const settings = JSON.stringify({ ...defaultGameSettings(), autoSaveDirectory });
+      await webAPI.saveGameSettings(settings);
+      expect(localStorage.getItem("gameSetting")).toBe(settings);
+      expect(JSON.parse(localStorage.getItem("appSetting")!)).toEqual(app);
+      await webAPI.saveAppSettings(await webAPI.loadAppSettings());
+      expect(JSON.parse(localStorage.getItem("appSetting")!)).not.toHaveProperty(
+        "autoSaveDirectory",
+      );
+      localStorage.removeItem("gameSetting");
+      expect(JSON.parse(await webAPI.loadGameSettings())).toMatchObject({
+        enableAutoSave: false,
+        autoSaveDirectory: "",
+      });
+    },
+  );
+
+  it.each([undefined, null, 1])(
+    "does not retire the legacy destination for an unmigrated game destination %s",
+    async (autoSaveDirectory) => {
+      const app = JSON.stringify({ autoSaveDirectory: "server://old" });
+      localStorage.setItem("appSetting", app);
+      await webAPI.saveGameSettings(
+        JSON.stringify({ ...defaultGameSettings(), autoSaveDirectory }),
+      );
+      expect(localStorage.getItem("appSetting")).toBe(app);
+    },
+  );
+
+  it("keeps the migration input when saving game settings fails", async () => {
+    const app = JSON.stringify({ autoSaveDirectory: "server://old" });
+    const game = JSON.stringify({ enableAutoSave: true });
+    localStorage.setItem("appSetting", app);
+    localStorage.setItem("gameSetting", game);
+    const error = new DOMException("Storage is full", "QuotaExceededError");
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementationOnce(() => {
+      throw error;
+    });
+    try {
+      await expect(webAPI.saveGameSettings(JSON.stringify(defaultGameSettings()))).rejects.toBe(
+        error,
+      );
+      expect(localStorage.getItem("appSetting")).toBe(app);
+      expect(localStorage.getItem("gameSetting")).toBe(game);
+      expect(write).toHaveBeenCalledExactlyOnceWith("gameSetting", expect.any(String));
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it("keeps a successful game settings save when legacy cleanup fails and retries on app save", async () => {
+    const app = JSON.stringify({ autoSaveDirectory: "server://old", pieceVolume: 42 });
+    const game = JSON.stringify(defaultGameSettings());
+    localStorage.setItem("appSetting", app);
+    const setItem = Storage.prototype.setItem;
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      key,
+      value,
+    ) {
+      if (key === "appSetting") throw new DOMException("Storage is full", "QuotaExceededError");
+      setItem.call(this, key, value);
+    });
+    try {
+      await expect(webAPI.saveGameSettings(game)).resolves.toBeUndefined();
+      expect(write.mock.calls.map(([key]) => key)).toEqual(["gameSetting", "appSetting"]);
+      expect(localStorage.getItem("gameSetting")).toBe(game);
+      expect(localStorage.getItem("appSetting")).toBe(app);
+    } finally {
+      write.mockRestore();
+    }
+    await webAPI.saveAppSettings(await webAPI.loadAppSettings());
+    const saved = JSON.parse(localStorage.getItem("appSetting")!);
+    expect(saved).not.toHaveProperty("autoSaveDirectory");
+    expect(saved.pieceVolume).toBe(42);
+  });
+
+  it.each(["", "server://games"])(
+    "keeps new game auto-save disabled even with legacy app destination %s",
+    async (autoSaveDirectory) => {
+      localStorage.setItem("appSetting", JSON.stringify({ autoSaveDirectory }));
+      expect(JSON.parse(await webAPI.loadGameSettings())).toMatchObject({
+        enableAutoSave: false,
+        autoSaveDirectory,
+      });
+      expect(localStorage.getItem("gameSetting")).toBeNull();
+    },
+  );
+
+  it.each([
+    [true, "server://games///", "server://games"],
+    [false, "server://games", "server://games"],
+    [true, "", "server://"],
+    [false, "", ""],
+    [true, "games/", "games"],
+    [true, "server://../private", "server://../private"],
+  ])(
+    "migrates legacy auto-save=%s directory=%s without losing settings",
+    async (enableAutoSave, oldDirectory, expected) => {
+      const legacy: Partial<GameSettings> = {
+        ...defaultGameSettings(),
+        enableAutoSave,
+        maxMoves: 123,
+      };
+      delete legacy.autoSaveDirectory;
+      const storedGame = JSON.stringify(legacy);
+      const storedApp = JSON.stringify({ autoSaveDirectory: oldDirectory, pieceVolume: 42 });
+      localStorage.setItem("gameSetting", storedGame);
+      localStorage.setItem("appSetting", storedApp);
+      for (let cycle = 0; cycle < 3; cycle++) {
+        const loaded = await webAPI.loadGameSettings();
+        expect(JSON.parse(loaded)).toMatchObject({
+          enableAutoSave,
+          autoSaveDirectory: expected,
+          maxMoves: 123,
+        });
+        expect(localStorage.getItem("gameSetting")).toBe(cycle === 0 ? storedGame : loaded);
+        if (cycle === 0) expect(localStorage.getItem("appSetting")).toBe(storedApp);
+        await webAPI.saveGameSettings(loaded);
+        expect(JSON.parse(localStorage.getItem("appSetting")!)).toEqual({ pieceVolume: 42 });
+      }
+    },
+  );
+
+  it.each(["", "server://", "server://new", "server://new///"])(
+    "never overwrites the explicit game destination %s with the legacy value",
+    async (autoSaveDirectory) => {
+      const settings = { ...defaultGameSettings(), enableAutoSave: true, autoSaveDirectory };
+      localStorage.setItem("appSetting", "invalid legacy JSON");
+      await webAPI.saveGameSettings(JSON.stringify(settings));
+      for (let cycle = 0; cycle < 3; cycle++) {
+        const loaded = await webAPI.loadGameSettings();
+        expect(JSON.parse(loaded)).toMatchObject({
+          enableAutoSave: true,
+          autoSaveDirectory:
+            autoSaveDirectory === "server://new///" ? "server://new" : autoSaveDirectory,
+        });
+        await webAPI.saveGameSettings(loaded);
+      }
+    },
+  );
+
+  it.each([1, false, [], {}, null].map((autoSaveDirectory) => ({ autoSaveDirectory })))(
+    "clears a non-string stored game destination $autoSaveDirectory instead of using the legacy destination",
+    async ({ autoSaveDirectory }) => {
+      localStorage.setItem("appSetting", "invalid legacy JSON");
+      const stored = JSON.stringify({
+        ...defaultGameSettings(),
+        enableAutoSave: true,
+        autoSaveDirectory,
+      });
+      localStorage.setItem("gameSetting", stored);
+      const loaded = await webAPI.loadGameSettings();
+      const settings = JSON.parse(loaded);
+      expect(settings).toMatchObject({ enableAutoSave: true, autoSaveDirectory: "" });
+      expect(validateGameSettings(settings)?.message).toBe(t.autoSaveDirectoryNotSet);
+      expect(localStorage.getItem("gameSetting")).toBe(stored);
+      await webAPI.saveGameSettings(loaded);
+      expect(JSON.parse(await webAPI.loadGameSettings())).toEqual(settings);
+    },
+  );
+
+  it.each([1, false, [], {}, null].map((autoSaveDirectory) => ({ autoSaveDirectory })))(
+    "clears a non-string legacy app destination $autoSaveDirectory rather than selecting the server root",
+    async ({ autoSaveDirectory }) => {
+      localStorage.setItem("appSetting", JSON.stringify({ autoSaveDirectory }));
+      localStorage.setItem("gameSetting", JSON.stringify({ enableAutoSave: true, maxMoves: 123 }));
+      const storedGame = localStorage.getItem("gameSetting");
+      for (let cycle = 0; cycle < 2; cycle++) {
+        const app = await webAPI.loadAppSettings();
+        expect(JSON.parse(app)).not.toHaveProperty("autoSaveDirectory");
+        const settings = JSON.parse(await webAPI.loadGameSettings());
+        expect(settings).toMatchObject({
+          enableAutoSave: true,
+          autoSaveDirectory: "",
+          maxMoves: 123,
+        });
+        expect(validateGameSettings(settings)?.message).toBe(t.autoSaveDirectoryNotSet);
+        await webAPI.saveAppSettings(app);
+        expect(localStorage.getItem("gameSetting")).toBe(storedGame);
+      }
+    },
+  );
+
+  it("preserves the legacy enabled default when an old saved game omitted the flag", async () => {
+    localStorage.setItem("gameSetting", JSON.stringify({ maxMoves: 123 }));
+    expect(JSON.parse(await webAPI.loadGameSettings())).toMatchObject({
+      enableAutoSave: true,
+      autoSaveDirectory: "server://",
+    });
+  });
 
   it("normalizes retired images at the browser storage boundary without resetting live settings", async () => {
     const stored = JSON.stringify({

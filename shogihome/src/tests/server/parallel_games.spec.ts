@@ -72,6 +72,23 @@ describe("parallel server games", () => {
     return { request, players, build, saved, saveRecord, saveBackup, addHistory, resignOne };
   }
 
+  it.each([1, 2])(
+    "freezes the selected save directory for every game with parallelism=%s",
+    async (parallelism) => {
+      const f = setup({}, 4, parallelism);
+      f.request.settings.autoSaveDirectory = "server://selected";
+      const session = await manager.create(f.request);
+      f.request.settings.autoSaveDirectory = "server://next-run";
+      f.request.settings.enableAutoSave = false;
+      for (let index = 0; index < 4; index++) await f.resignOne();
+      await session.completion;
+      expect(session.snapshot().settings.autoSaveDirectory).toBe("server://selected");
+      expect(f.saveRecord).toHaveBeenCalledTimes(4);
+      for (const [, options] of f.saveRecord.mock.calls)
+        expect(options.directory).toBe("server://selected");
+    },
+  );
+
   it("allocates global game numbers dynamically, reuses players, and aggregates by identity, not name", async () => {
     const gate = Promise.withResolvers<void>();
     const f = setup();

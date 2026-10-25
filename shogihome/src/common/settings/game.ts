@@ -3,6 +3,7 @@ import { PlayerSettings, defaultPlayerSettings, validatePlayerSettings } from ".
 import { normalizeUSIEngine } from "./usi.js";
 import { t } from "@/common/i18n/index";
 import * as uri from "@/common/uri";
+import { trimTrailingPathSeparators } from "@/common/helpers/path";
 
 export type TimeLimitSettings = {
   timeSeconds: number;
@@ -46,6 +47,7 @@ export type GameSettings = {
   humanIsFront: boolean;
   enableComment: boolean;
   enableAutoSave: boolean;
+  autoSaveDirectory: string;
   repeat: number;
   parallelism?: number;
   swapPlayers: boolean;
@@ -64,7 +66,8 @@ export function defaultGameSettings(): GameSettings {
     enableEngineTimeout: false,
     humanIsFront: true,
     enableComment: true,
-    enableAutoSave: true,
+    enableAutoSave: false,
+    autoSaveDirectory: "",
     repeat: 1,
     parallelism: 1,
     swapPlayers: false,
@@ -81,6 +84,9 @@ export function normalizeGameSettings(settings: GameSettings): GameSettings {
       startPosition: "current",
     },
     ...settings,
+    autoSaveDirectory: trimTrailingPathSeparators(
+      typeof settings.autoSaveDirectory === "string" ? settings.autoSaveDirectory : "",
+    ),
     parallelism:
       Number.isInteger(settings.parallelism) &&
       settings.parallelism! >= 1 &&
@@ -112,6 +118,13 @@ export function validateGameSettings(gameSettings: GameSettings): Error | undefi
   const parallelism = gameSettings.parallelism ?? 1;
   if (!Number.isInteger(parallelism) || parallelism < 1 || parallelism > MAX_GAME_PARALLELISM)
     return new Error(t.gameInvalid);
+  if (
+    typeof gameSettings.autoSaveDirectory !== "string" ||
+    gameSettings.autoSaveDirectory.length > 2048
+  )
+    return new Error(t.gameInvalid);
+  if (gameSettings.enableAutoSave && !gameSettings.autoSaveDirectory)
+    return new Error(t.autoSaveDirectoryNotSet);
   const playerError =
     validatePlayerSettings(gameSettings.black) || validatePlayerSettings(gameSettings.white);
   if (playerError) {

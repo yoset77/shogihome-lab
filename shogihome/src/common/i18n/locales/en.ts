@@ -649,6 +649,7 @@ export const en: Texts = {
   enterBookSavePath: "Enter the destination path of the book.",
   sourceRecordFileNotSet: "Source record file is not set.",
   sourceDirectoryNotSet: "Source directory is not set.",
+  autoSaveDirectoryNotSet: "Select an auto-save directory.",
   minPlyMustBeLessThanMaxPly: "Min ply must be less than max ply.",
   playerNameNotSet: "Player name is not set.",
   largeSuggestionsCountMayCausePerformanceDegradation:
@@ -718,6 +719,8 @@ export const en: Texts = {
   uploadDestination: "Upload destination",
   uploadFileName: "Save name",
   rootDirectory: "Root",
+  directoryNotSelected: "Not selected",
+  selectCurrentDirectory: "Select This Folder",
   createNewFolder: "Create New Folder",
   folderName: "Folder name",
   invalidServerEntryName: (name: string) =>

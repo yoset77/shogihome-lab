@@ -142,6 +142,12 @@
               <div class="form-item-label">{{ t.saveRecordAutomatically }}</div>
               <ToggleButton v-model:value="settings.enableAutoSave" />
             </div>
+            <div class="form-item">
+              <GameSaveDirectory
+                v-model:value="settings.autoSaveDirectory"
+                :disabled="!settings.enableAutoSave"
+              />
+            </div>
             <div v-if="canStartInBackground" class="form-item">
               <div class="form-item-label">{{ t.jobsBackground }}</div>
               <ToggleButton v-model:value="background" :disabled="parallelGame" />
@@ -183,6 +189,7 @@ import { useErrorStore } from "@/renderer/store/error";
 import MobilePlayerSetting from "./MobilePlayerSetting.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
 import api from "@/renderer/ipc/api";
+import GameSaveDirectory from "@/renderer/view/dialog/GameSaveDirectory.vue";
 import * as uri from "@/common/uri";
 import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
 import {
@@ -219,6 +226,7 @@ const settings = reactive({
   swapPlayers: false,
   jishogiRule: JishogiRule.GENERAL27,
   enableAutoSave: false,
+  autoSaveDirectory: "",
 });
 
 const blackExtraBook = ref<USIEngineExtraBookConfig>(emptyUSIEngineExtraBookConfig());
@@ -304,6 +312,7 @@ onMounted(async () => {
     settings.swapPlayers = saved.swapPlayers || false;
     settings.jishogiRule = saved.jishogiRule || JishogiRule.GENERAL27;
     settings.enableAutoSave = saved.enableAutoSave;
+    settings.autoSaveDirectory = saved.autoSaveDirectory;
 
     if (saved.black.usi?.extraBook) {
       blackExtraBook.value = normalizeUSIEngineExtraBookConfig(saved.black.usi.extraBook);
@@ -381,6 +390,7 @@ const onStart = async () => {
     swapPlayers: settings.swapPlayers,
     jishogiRule: settings.jishogiRule,
     enableAutoSave: settings.enableAutoSave,
+    autoSaveDirectory: settings.autoSaveDirectory,
   };
 
   const err = validateGameSettings(newSettings);

@@ -217,7 +217,6 @@ export type AppSettings = {
   defaultRecordFileFormat: RecordFileFormat;
   textDecodingRule: TextDecodingRule;
   returnCode: string;
-  autoSaveDirectory: string;
   recordFileNameTemplate: string;
   useCSAV3: boolean;
   useUTF8ForKifAndKi2: boolean;
@@ -321,10 +320,7 @@ export function buildUpdatedAppSettings(org: AppSettings, update: AppSettingsUpd
   return updated;
 }
 
-export function defaultAppSettings(opt?: {
-  returnCode?: string;
-  autoSaveDirectory?: string;
-}): AppSettings {
+export function defaultAppSettings(opt?: { returnCode?: string }): AppSettings {
   return {
     language: Language.JA,
     thema: Thema.STANDARD,
@@ -358,7 +354,6 @@ export function defaultAppSettings(opt?: {
     defaultRecordFileFormat: RecordFileFormat.KIF,
     textDecodingRule: TextDecodingRule.AUTO_DETECT,
     returnCode: opt?.returnCode || "\r\n",
-    autoSaveDirectory: opt?.autoSaveDirectory || "",
     recordFileNameTemplate: defaultRecordFileNameTemplate,
     useCSAV3: false,
     useUTF8ForKifAndKi2: false,
@@ -408,19 +403,16 @@ export function normalizeAppSettings(
   settings: AppSettings,
   opt?: {
     returnCode?: string;
-    autoSaveDirectory?: string;
   },
 ): AppSettings {
   const defaults = defaultAppSettings(opt);
-  const result = {
+  const result: AppSettings & { autoSaveDirectory?: unknown } = {
     ...defaults,
     ...settings,
   };
+  // Game settings migration reads this legacy key directly from browser storage.
+  delete result.autoSaveDirectory;
   result.fileQuickAction = normalizeFileQuickAction(result.fileQuickAction);
-  // Trim path separators without changing the server URI prefix.
-  const prefix = result.autoSaveDirectory.startsWith("server://") ? "server://" : "";
-  result.autoSaveDirectory =
-    prefix + result.autoSaveDirectory.slice(prefix.length).replace(/[\\/]+$/, "");
   // 旧バージョンでは盤画像に合わせて自動で駒台の色が選ばれていた。
   if (!settings.pieceStandImage) {
     switch (settings.boardImage) {

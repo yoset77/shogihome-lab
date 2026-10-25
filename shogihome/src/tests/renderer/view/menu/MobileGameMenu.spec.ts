@@ -2,6 +2,7 @@ import { flushPromises, shallowMount } from "@vue/test-utils";
 import MobileGameMenu from "@/renderer/view/menu/MobileGameMenu.vue";
 import MobilePlayerSetting from "@/renderer/view/menu/MobilePlayerSetting.vue";
 import ToggleButton from "@/renderer/view/primitive/ToggleButton.vue";
+import GameSaveDirectory from "@/renderer/view/dialog/GameSaveDirectory.vue";
 import { defaultGameSettings } from "@/common/settings/game";
 import { t } from "@/common/i18n";
 import { Language } from "@/common/i18n/languages";
@@ -40,6 +41,43 @@ describe("mobile game background start", () => {
     settings.enableAutoSave = false;
     mocks.load.mockResolvedValue(settings);
     mocks.save.mockResolvedValue(undefined);
+  });
+
+  it("loads, edits, saves and starts with the game-specific destination", async () => {
+    const saved = {
+      ...defaultGameSettings(),
+      enableAutoSave: true,
+      autoSaveDirectory: "server://saved",
+    };
+    mocks.load.mockResolvedValueOnce(saved);
+    const wrapper = shallowMount(MobileGameMenu);
+    await flushPromises();
+    const picker = wrapper.getComponent(GameSaveDirectory);
+    expect(picker.props()).toMatchObject({ value: "server://saved", disabled: false });
+    picker.vm.$emit("update:value", "server://mobile");
+    await wrapper.get("button.start").trigger("click");
+    await flushPromises();
+    expect(mocks.save).toHaveBeenCalledWith(
+      expect.objectContaining({ enableAutoSave: true, autoSaveDirectory: "server://mobile" }),
+    );
+    expect(mocks.start).toHaveBeenCalledWith(
+      expect.objectContaining({ autoSaveDirectory: "server://mobile" }),
+      false,
+    );
+    expect(saved.autoSaveDirectory).toBe("server://saved");
+    wrapper.unmount();
+  });
+
+  it("does not save an edited destination when cancelled", async () => {
+    const wrapper = shallowMount(MobileGameMenu);
+    await flushPromises();
+    expect(wrapper.getComponent(GameSaveDirectory).props("disabled")).toBe(true);
+    wrapper.getComponent(GameSaveDirectory).vm.$emit("update:value", "server://cancelled");
+    await wrapper.get("button.cancel").trigger("click");
+    expect(mocks.save).not.toHaveBeenCalled();
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(wrapper.emitted("close")).toHaveLength(1);
+    wrapper.unmount();
   });
 
   it("starts engine games in the background only when explicitly selected", async () => {

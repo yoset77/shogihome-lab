@@ -13,6 +13,54 @@ vi.mock("@/server/file/history", () => ({
 }));
 
 describe("game API boundary", () => {
+  it.each([false, true])(
+    "accepts a single normalized destination with auto-save=%s",
+    (enableAutoSave) => {
+      const request = gameRequest();
+      request.settings.enableAutoSave = enableAutoSave;
+      request.settings.autoSaveDirectory = "server://selected///";
+      const decoded = decodeGameRequest(request);
+      expect(decoded).toMatchObject({
+        ok: true,
+        value: {
+          settings: { autoSaveDirectory: "server://selected" },
+        },
+      });
+      if (!decoded.ok) throw new Error(decoded.error);
+      expect(decoded.value.options.save).not.toHaveProperty("directory");
+    },
+  );
+
+  it("ignores the retired save option instead of overriding the game destination", () => {
+    const request = gameRequest();
+    request.settings.autoSaveDirectory = "server://selected";
+    const decoded = decodeGameRequest({
+      ...request,
+      options: {
+        ...request.options,
+        save: { ...request.options.save, directory: "server://other" },
+      },
+    });
+    expect(decoded).toMatchObject({
+      ok: true,
+      value: { settings: { autoSaveDirectory: "server://selected" } },
+    });
+    if (!decoded.ok) throw new Error(decoded.error);
+    expect(decoded.value.options.save).not.toHaveProperty("directory");
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["null", null],
+    ["number", 1],
+    ["oversized", "x".repeat(2049)],
+  ])("rejects %s game destinations", (_label, autoSaveDirectory) => {
+    const request = gameRequest();
+    expect(
+      decodeGameRequest({ ...request, settings: { ...request.settings, autoSaveDirectory } }).ok,
+    ).toBe(false);
+  });
+
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => {
     vi.clearAllTimers();
@@ -41,6 +89,23 @@ describe("game API boundary", () => {
       });
     return { manager, app, request, post };
   }
+  it.each([false, true])(
+    "rejects legacy requests without a game destination with auto-save=%s",
+    async (enableAutoSave) => {
+      const { manager, request, post } = setup();
+      try {
+        const response = await post({
+          ...request,
+          settings: { ...request.settings, enableAutoSave, autoSaveDirectory: undefined },
+          options: { ...request.options, save: { ...request.options.save, directory: "" } },
+        });
+        expect(response.status).toBe(400);
+      } finally {
+        await manager.close();
+      }
+    },
+  );
+
   it.each([false, true])(
     "never exposes control credentials in public responses ai=%s",
     async (ai) => {

@@ -74,7 +74,7 @@ export class GameSessionManager {
     this.cleanup();
     this.ensureCapacity();
     if (request.settings.enableAutoSave && !this.dependencies.saveRecord)
-      validateGameSaveDirectory(request.options.save);
+      validateGameSaveDirectory(request.settings.autoSaveDirectory);
     if ((request.settings.parallelism ?? 1) <= 1) return this.register(request, hash);
     // In-flight creation owns the session slot, including retries of the same request.
     const result = this.createParallel(request, hash);

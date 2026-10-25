@@ -621,6 +621,7 @@ export type Texts = {
   enterBookSavePath: string;
   sourceRecordFileNotSet: string;
   sourceDirectoryNotSet: string;
+  autoSaveDirectoryNotSet: string;
   minPlyMustBeLessThanMaxPly: string;
   playerNameNotSet: string;
   largeSuggestionsCountMayCausePerformanceDegradation: string;
@@ -672,6 +673,8 @@ export type Texts = {
   uploadDestination: string;
   uploadFileName: string;
   rootDirectory: string;
+  directoryNotSelected: string;
+  selectCurrentDirectory: string;
   createNewFolder: string;
   folderName: string;
   invalidServerEntryName: (name: string) => string;
