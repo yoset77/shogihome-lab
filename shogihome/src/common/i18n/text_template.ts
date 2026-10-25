@@ -316,10 +316,16 @@ export type Texts = {
   parallelGameBackgroundOnly: string;
   parallelGameNote: string;
   parallelGameProgress: (active: number, parallelism: number) => string;
-  parallelGameResults: (win1: number, win2: number, draw: number, invalid: number) => string;
+  parallelGameResults: (
+    name1: string,
+    win1: number,
+    name2: string,
+    win2: number,
+    draw: number,
+    invalid: number,
+  ) => string;
   parallelGameHistoryOnly: string;
   batchAnalysisBackgroundOnly: string;
-  batchAnalysisParallelNote: string;
   batchAnalysisParallelProgress: (active: number, parallelism: number) => string;
   currentRecord: string;
   serverFolder: string;
@@ -327,6 +333,7 @@ export type Texts = {
   skipAnalyzed: string;
   batchAnalysisSkipNote: string;
   checkBatchTargets: string;
+  batchAnalysisTargetFiles: string;
   analyzedRecordFilesWillBeOverwritten: string;
   batchAnalysisInvalid: string;
   batchAnalysisNoFiles: string;

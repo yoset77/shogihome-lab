@@ -62,16 +62,7 @@
                   t.parallelGameProgress(job.parallelGame.activeGames, job.parallelGame.parallelism)
                 }}
               </div>
-              <div>
-                {{
-                  t.parallelGameResults(
-                    job.parallelGame.results.player1.win,
-                    job.parallelGame.results.player2.win,
-                    job.parallelGame.results.draw,
-                    job.parallelGame.results.invalid,
-                  )
-                }}
-              </div>
+              <div>{{ gameResultLine(job.parallelGame.results) }}</div>
               <div v-if="job.parallelGame.error" role="alert">
                 {{ gameErrors[job.parallelGame.error] }}
               </div>
@@ -126,6 +117,7 @@
 import { computed, onMounted, onBeforeUnmount, reactive, ref } from "vue";
 import { t } from "@/common/i18n";
 import type { JobSummary } from "@/common/jobs/types";
+import type { GameResults } from "@/common/game/results";
 import { useStore } from "@/renderer/store";
 import { JobListManager } from "@/renderer/store/jobs";
 import DialogFrame from "./DialogFrame.vue";
@@ -137,6 +129,10 @@ const list = reactive(new JobListManager());
 const resultsJob = ref<string>();
 const gameResultsJob = ref<string>();
 const gameErrors = { engine: t.gameEngineError, capacity: t.gameCapacity, save: t.gameSaveFailed };
+const gameResultLine = (results: GameResults) => {
+  const { player1, player2, draw, invalid } = results;
+  return t.parallelGameResults(player1.name, player1.win, player2.name, player2.win, draw, invalid);
+};
 const states: Record<JobSummary["state"], string> = {
   preparing: t.jobsStatePreparing,
   running: t.jobsStateRunning,

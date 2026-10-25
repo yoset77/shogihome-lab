@@ -178,8 +178,11 @@ describe("AnalysisDialog MultiPV", () => {
     expect(input.element.value).toBe("1");
     expect(input.attributes()).toMatchObject({ min: "1", max: "16", step: "1" });
     await input.setValue("4");
-    expect(wrapper.text()).toContain(t.batchAnalysisParallelNote);
-    expect(wrapper.find('div[data-test="background"]').exists()).toBe(false);
+    const toggle = wrapper.get<HTMLInputElement>(
+      'div[data-test="background"] input[type="checkbox"]',
+    );
+    expect(toggle.attributes("disabled")).toBeDefined();
+    expect(toggle.element.checked).toBe(true);
     await wrapper.get('button[data-hotkey="Enter"]').trigger("click");
     await flushPromises();
     mocks.confirm.mock.calls[0][0].onOk();
@@ -191,6 +194,8 @@ describe("AnalysisDialog MultiPV", () => {
     );
     await selectTarget(wrapper, "record");
     expect(wrapper.find('div[data-test="background"]').exists()).toBe(true);
+    expect(toggle.attributes("disabled")).toBeUndefined();
+    expect(toggle.element.checked).toBe(false);
     await wrapper.get('button[data-hotkey="Enter"]').trigger("click");
     expect(mocks.startAnalysis).toHaveBeenCalledWith(expect.anything(), false);
   });
@@ -200,10 +205,15 @@ describe("AnalysisDialog MultiPV", () => {
     const wrapper = await dialog();
     const input = wrapper.get<HTMLInputElement>("#batch-analysis-parallelism");
     expect(input.element.value).toBe("3");
-    expect(wrapper.find('div[data-test="background"]').exists()).toBe(false);
+    const toggle = wrapper.get<HTMLInputElement>(
+      'div[data-test="background"] input[type="checkbox"]',
+    );
+    expect(toggle.attributes("disabled")).toBeDefined();
+    expect(toggle.element.checked).toBe(true);
     await input.setValue("1");
     expect(wrapper.find('div[data-test="background"]').exists()).toBe(true);
-    expect(wrapper.text()).not.toContain(t.batchAnalysisParallelNote);
+    expect(toggle.attributes("disabled")).toBeUndefined();
+    expect(toggle.element.checked).toBe(false);
     await wrapper.get('button[data-hotkey="Enter"]').trigger("click");
     await flushPromises();
     mocks.confirm.mock.calls[0][0].onOk();

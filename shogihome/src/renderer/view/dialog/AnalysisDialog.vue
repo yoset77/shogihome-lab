@@ -30,7 +30,6 @@
             step="1"
           />
         </div>
-        <div v-if="parallelBatch" class="note">{{ t.batchAnalysisParallelNote }}</div>
         <div v-show="target === 'folder'">
           <ServerDirectoryBrowser
             :selected-path="selectedDirectory"
@@ -70,7 +69,7 @@
         <template v-if="plan">
           <div class="note">{{ t.nKifuFound(plan.files.length) }}</div>
           <details>
-            <summary>{{ t.batchAnalysisDetails }} ({{ plan.files.length }})</summary>
+            <summary>{{ t.batchAnalysisTargetFiles }} ({{ plan.files.length }})</summary>
             <ol class="target-files">
               <li v-for="file in plan.files" :key="file">{{ file }}</li>
             </ol>
@@ -163,11 +162,12 @@
         </div>
       </div>
       <div class="form-group">
-        <div v-if="!parallelBatch" class="form-item">
+        <div class="form-item">
           <ToggleButton
             v-model:value="background"
             data-test="background"
             :label="t.jobsBackground"
+            :disabled="parallelBatch"
           />
         </div>
       </div>
@@ -224,6 +224,20 @@ const searchSource = store.analysisSource?.kind === "search" ? store.analysisSou
 const target = ref(searchSource ? "search" : "record");
 const parallelBatch = computed(
   () => target.value !== "record" && batchSettings.value.parallelism > 1,
+);
+// Parallel batch analysis runs only in the background; restore the user's choice otherwise.
+let userBackground = background.value;
+watch(
+  parallelBatch,
+  (value) => {
+    if (value) {
+      userBackground = background.value;
+      background.value = true;
+    } else {
+      background.value = userBackground;
+    }
+  },
+  { immediate: true },
 );
 const directories = ref<ServerDirectoryEntry[]>([]);
 const browseDirectory = ref("");

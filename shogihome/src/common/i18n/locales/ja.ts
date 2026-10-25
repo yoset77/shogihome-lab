@@ -317,16 +317,13 @@ export const ja: Texts = {
   parallelism: "並列数",
   parallelGameBackgroundOnly:
     "並列連続対局はエンジン同士のバックグラウンド実行専用です。結果はジョブの詳細から開いてください。",
-  parallelGameNote:
-    "並列対局はバックグラウンドで実行します。エンジンのThreads・Hash設定に応じてCPU・メモリ使用量が増えます。全棋譜を残すには自動保存を有効にしてください。",
+  parallelGameNote: "全棋譜を残すには自動保存を有効にしてください。",
   parallelGameProgress: (active, parallelism) => `対局中 ${active} 局 / 最大 ${parallelism} 並列`,
-  parallelGameResults: (win1, win2, draw, invalid) =>
-    `開始時の先手 ${win1} 勝 / 開始時の後手 ${win2} 勝 / 引分 ${draw} / 無効 ${invalid}`,
+  parallelGameResults: (name1, win1, name2, win2, draw, invalid) =>
+    `${name1} ${win1} 勝 / ${name2} ${win2} 勝 / 引分 ${draw} / 無効 ${invalid}`,
   parallelGameHistoryOnly: "自動保存なし（履歴のバックアップを使用）",
   batchAnalysisBackgroundOnly:
     "並列連続解析はバックグラウンド専用です。保存済みの結果はジョブの詳細から開いてください。",
-  batchAnalysisParallelNote:
-    "並列解析はバックグラウンドで実行します。エンジンのThreads・Hash設定に応じてCPU・メモリ使用量が増えます。",
   batchAnalysisParallelProgress: (active, parallelism) =>
     `実行中 ${active} 件 / 最大 ${parallelism} 並列`,
   currentRecord: "現在の棋譜",
@@ -336,6 +333,7 @@ export const ja: Texts = {
   batchAnalysisSkipNote:
     "解析済みの棋譜は解析時に除外されるため、実際の解析件数は表示より少なくなる場合があります。",
   checkBatchTargets: "対象を確認",
+  batchAnalysisTargetFiles: "対象ファイル",
   analyzedRecordFilesWillBeOverwritten:
     "解析した棋譜ファイルは上書きされます。重要なデータは事前にコピーを作成してください。",
   batchAnalysisInvalid: "連続解析の対象または設定が不正です。",
@@ -345,7 +343,7 @@ export const ja: Texts = {
   batchAnalysisConfirm: (count) => `最大${count}件の棋譜を順番に解析します。開始しますか？`,
   batchAnalysisSummary: (success, failed, skipped) =>
     `成功 ${success} / 失敗 ${failed} / スキップ ${skipped}`,
-  batchAnalysisDetails: "ファイル別の結果",
+  batchAnalysisDetails: "個別の結果",
   batchAnalysisReason: (reason) =>
     ({
       read: "読込失敗",

@@ -319,17 +319,14 @@ export const vi: Texts = {
   parallelism: "Số luồng song song",
   parallelGameBackgroundOnly:
     "Các ván song song cần hai động cơ và chỉ chạy nền. Mở kết quả từ chi tiết công việc.",
-  parallelGameNote:
-    "Các ván song song chạy nền. CPU và bộ nhớ tăng theo Threads và Hash. Bật tự động lưu để giữ mọi biên bản.",
+  parallelGameNote: "Bật tự động lưu để giữ mọi biên bản.",
   parallelGameProgress: (active, parallelism) =>
     `${active} ván đang chạy / tối đa ${parallelism} tác vụ song song`,
-  parallelGameResults: (win1, win2, draw, invalid) =>
-    `Bên đen ban đầu: ${win1} thắng / Bên trắng ban đầu: ${win2} thắng / Hòa: ${draw} / Không hợp lệ: ${invalid}`,
+  parallelGameResults: (name1, win1, name2, win2, draw, invalid) =>
+    `${name1}: ${win1} thắng / ${name2}: ${win2} thắng / Hòa: ${draw} / Không hợp lệ: ${invalid}`,
   parallelGameHistoryOnly: "Tắt tự động lưu (chỉ sao lưu lịch sử)",
   batchAnalysisBackgroundOnly:
     "Phân tích hàng loạt song song chỉ chạy nền. Mở kết quả đã lưu từ chi tiết công việc.",
-  batchAnalysisParallelNote:
-    "Phân tích song song chạy nền. Mức sử dụng CPU và bộ nhớ tăng theo thiết lập Threads và Hash của động cơ.",
   batchAnalysisParallelProgress: (active, parallelism) =>
     `${active} tệp đang chạy / tối đa ${parallelism} tác vụ song song`,
   currentRecord: "Kỳ phổ hiện tại",
@@ -339,6 +336,7 @@ export const vi: Texts = {
   batchAnalysisSkipNote:
     "Các ván đã phân tích sẽ được bỏ qua khi phân tích, nên số ván thực tế có thể ít hơn số đang hiển thị.",
   checkBatchTargets: "Kiểm tra đối tượng",
+  batchAnalysisTargetFiles: "Tệp mục tiêu",
   analyzedRecordFilesWillBeOverwritten:
     "Tệp kỳ phổ sau khi phân tích sẽ bị ghi đè. Vui lòng sao lưu dữ liệu quan trọng trước.",
   batchAnalysisInvalid: "Nguồn hoặc cài đặt phân tích hàng loạt không hợp lệ.",
@@ -348,7 +346,7 @@ export const vi: Texts = {
   batchAnalysisConfirm: (count) => `Phân tích lần lượt tối đa ${count} ván. Bắt đầu chứ?`,
   batchAnalysisSummary: (success, failed, skipped) =>
     `Thành công ${success} / Lỗi ${failed} / Bỏ qua ${skipped}`,
-  batchAnalysisDetails: "Kết quả từng tệp",
+  batchAnalysisDetails: "Kết quả từng mục",
   batchAnalysisReason: (reason) =>
     ({
       read: "Lỗi đọc",

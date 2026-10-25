@@ -317,16 +317,13 @@ export const zh_tw: Texts = {
   batchAnalysis: "連續分析",
   parallelism: "並行數",
   parallelGameBackgroundOnly: "並行對局僅支援兩個引擎並在背景執行。請從工作詳細資料開啟結果。",
-  parallelGameNote:
-    "並行對局會在背景執行。CPU 與記憶體用量會隨引擎的 Threads、Hash 設定增加。若要保留所有棋譜，請啟用自動儲存。",
+  parallelGameNote: "若要保留所有棋譜，請啟用自動儲存。",
   parallelGameProgress: (active, parallelism) =>
     `對局中 ${active} 局 / 最多 ${parallelism} 個並行工作`,
-  parallelGameResults: (win1, win2, draw, invalid) =>
-    `初始先手 ${win1} 勝 / 初始後手 ${win2} 勝 / 和局 ${draw} / 無效 ${invalid}`,
+  parallelGameResults: (name1, win1, name2, win2, draw, invalid) =>
+    `${name1} ${win1} 勝 / ${name2} ${win2} 勝 / 和局 ${draw} / 無效 ${invalid}`,
   parallelGameHistoryOnly: "未啟用自動儲存（僅有歷史備份）",
   batchAnalysisBackgroundOnly: "並行連續分析僅在背景執行。請從工作詳細資料開啟已儲存的結果。",
-  batchAnalysisParallelNote:
-    "並行分析會在背景執行。CPU 與記憶體用量會隨引擎的 Threads、Hash 設定增加。",
   batchAnalysisParallelProgress: (active, parallelism) =>
     `執行中 ${active} 個檔案 / 最多 ${parallelism} 個並行工作`,
   currentRecord: "目前棋譜",
@@ -335,6 +332,7 @@ export const zh_tw: Texts = {
   skipAnalyzed: "跳過已解析",
   batchAnalysisSkipNote: "已解析的棋譜會在解析時略過，實際解析的數量可能少於上方顯示的數量。",
   checkBatchTargets: "確認對象",
+  batchAnalysisTargetFiles: "目標檔案",
   analyzedRecordFilesWillBeOverwritten: "解析後的棋譜檔案將被覆寫。重要資料請事先備份。",
   batchAnalysisInvalid: "連續分析的來源或設定無效。",
   batchAnalysisNoFiles: "沒有符合的棋譜檔案。",
@@ -343,7 +341,7 @@ export const zh_tw: Texts = {
   batchAnalysisConfirm: (count) => `依序分析最多${count}份棋譜。要開始嗎？`,
   batchAnalysisSummary: (success, failed, skipped) =>
     `成功 ${success} / 失敗 ${failed} / 跳過 ${skipped}`,
-  batchAnalysisDetails: "各檔案結果",
+  batchAnalysisDetails: "個別結果",
   batchAnalysisReason: (reason) =>
     ({
       read: "讀取失敗",
