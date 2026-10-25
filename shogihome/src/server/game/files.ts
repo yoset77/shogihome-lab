@@ -17,6 +17,8 @@ import { writeStreamAtomic } from "@/server/file/atomic_stream";
 import { HttpError } from "@/server/errors";
 import { t } from "@/common/i18n";
 
+export type GameRecordSaveOptions = GameSaveOptions & { directory: string };
+
 export async function loadGamePositions(uri: string): Promise<string[]> {
   const file =
     KIFU_DIR &&
@@ -35,22 +37,20 @@ export async function loadGamePositions(uri: string): Promise<string[]> {
   return lines;
 }
 
-export function validateGameSaveDirectory(options: GameSaveOptions): string {
-  const directory = options.directory.startsWith("server://")
-    ? options.directory.substring(9)
-    : options.directory;
-  if (!KIFU_DIR || !resolveKifuDirectory(KIFU_DIR, directory))
+export function validateGameSaveDirectory(directory: string): string {
+  const relative = directory.startsWith("server://") ? directory.substring(9) : directory;
+  if (!directory || !KIFU_DIR || !resolveKifuDirectory(KIFU_DIR, relative))
     throw new HttpError(400, t.gameInvalid);
-  return directory;
+  return relative;
 }
 
 /** Never overwrite another game, even when an external writer races the save. */
 export async function saveGameRecord(
   source: RecordSnapshot,
-  options: GameSaveOptions,
+  options: GameRecordSaveOptions,
   suffix: string,
 ): Promise<string> {
-  const directory = validateGameSaveDirectory(options);
+  const directory = validateGameSaveDirectory(options.directory);
   const record = restoreRecord(source).record;
   const name = generateRecordFileName(record, {
     template: options.template,

@@ -108,7 +108,7 @@ export class ParallelGames {
           await persistGameRecord(
             snapshotRecord(records.record),
             options.save,
-            settings.enableAutoSave,
+            settings,
             summary,
             this.deps,
             this.onSaveError,

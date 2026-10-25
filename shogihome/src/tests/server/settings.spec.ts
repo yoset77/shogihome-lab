@@ -21,20 +21,21 @@ describe("server/settings", () => {
     await expect(loadAppSettings()).resolves.toEqual(
       defaultAppSettings({
         returnCode: process.platform === "win32" ? "\r\n" : "\n",
-        autoSaveDirectory: path.join(mockUserDataPath, "Documents", "ShogiHome"),
       }),
     );
   });
 
-  it("loads app settings from the server data directory", async () => {
-    fs.writeFileSync(
-      path.join(mockUserDataPath, "app_setting.json"),
-      JSON.stringify({ autoSaveDirectory: "path/to/autoSaveDirectory" }),
-      "utf8",
-    );
+  it.each(["path/to/autoSaveDirectory", 1, null])(
+    "loads current server app settings without the legacy destination %j",
+    async (autoSaveDirectory) => {
+      const file = path.join(mockUserDataPath, "app_setting.json");
+      const stored = JSON.stringify({ autoSaveDirectory, pieceVolume: 42 });
+      fs.writeFileSync(file, stored, "utf8");
 
-    await expect(loadAppSettings()).resolves.toMatchObject({
-      autoSaveDirectory: "path/to/autoSaveDirectory",
-    });
-  });
+      const settings = await loadAppSettings();
+      expect(settings.pieceVolume).toBe(42);
+      expect(settings).not.toHaveProperty("autoSaveDirectory");
+      expect(fs.readFileSync(file, "utf8")).toBe(stored);
+    },
+  );
 });

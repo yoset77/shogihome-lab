@@ -1,6 +1,6 @@
 import { defaultAnalysisSettings } from "@/common/settings/analysis";
 import { defaultAppSettings, normalizeAppSettings } from "@/common/settings/app";
-import { defaultGameSettings } from "@/common/settings/game";
+import { defaultGameSettings, normalizeGameSettings } from "@/common/settings/game";
 import { defaultResearchSettings } from "@/common/settings/research";
 import { LogLevel } from "@/common/log";
 import { Bridge } from "@/renderer/ipc/bridge";
@@ -15,7 +15,7 @@ import { defaultBookImportSettings, normalizeBookImportSettings } from "@/common
 import { getEmptyHistory } from "@/common/file/history";
 import { BookLoadingMode } from "@/common/book";
 import * as uri from "@/common/uri";
-import { normalizePath } from "@/common/helpers/path";
+import { normalizePath, trimTrailingPathSeparators } from "@/common/helpers/path";
 import { KifuSearchResult, KifuListEntry } from "@/common/file/record";
 import {
   decodeKifuSearchStatistics,
@@ -56,6 +56,14 @@ enum STORAGE_KEY {
   GAME_SETTINGS = "gameSetting",
   MATE_SEARCH_SETTINGS = "mateSearchSetting",
   BOOK_IMPORT_SETTINGS = "bookImportSetting",
+}
+
+function hasGameSaveDirectory(json: string | null): boolean {
+  try {
+    return typeof JSON.parse(json ?? "null")?.autoSaveDirectory === "string";
+  } catch {
+    return false;
+  }
 }
 
 const fileCache = new Map<string, ArrayBuffer>();
@@ -108,7 +116,19 @@ export const webAPI: Bridge = {
     return JSON.stringify(normalizeAppSettings(JSON.parse(json)));
   },
   async saveAppSettings(json: string): Promise<void> {
-    localStorage.setItem(STORAGE_KEY.APP_SETTINGS, json);
+    const settings: Record<string, unknown> = JSON.parse(json);
+    delete settings.autoSaveDirectory;
+    if (!hasGameSaveDirectory(localStorage.getItem(STORAGE_KEY.GAME_SETTINGS))) {
+      const stored = localStorage.getItem(STORAGE_KEY.APP_SETTINGS);
+      try {
+        const directory: unknown = stored ? JSON.parse(stored)?.autoSaveDirectory : undefined;
+        // Keep migration input only until a destination (including empty) is saved in game settings.
+        if (directory !== undefined) settings.autoSaveDirectory = directory;
+      } catch {
+        // Allow replacing malformed persisted settings.
+      }
+    }
+    localStorage.setItem(STORAGE_KEY.APP_SETTINGS, JSON.stringify(settings));
   },
   async loadResearchSettings(): Promise<string> {
     const json = localStorage.getItem(STORAGE_KEY.RESEARCH_SETTINGS);
@@ -138,19 +158,38 @@ export const webAPI: Bridge = {
   },
   async loadGameSettings(): Promise<string> {
     const json = localStorage.getItem(STORAGE_KEY.GAME_SETTINGS);
-    if (!json) {
-      return JSON.stringify({
-        ...defaultGameSettings(),
-        enableAutoSave: false,
-      });
-    }
-    return JSON.stringify({
+    const stored = json ? JSON.parse(json) : undefined;
+    const legacy = stored && stored.autoSaveDirectory === undefined;
+    const settings = {
       ...defaultGameSettings(),
-      ...JSON.parse(json),
-    });
+      ...(legacy ? { enableAutoSave: true } : {}),
+      ...stored,
+    };
+    if (stored?.autoSaveDirectory === undefined) {
+      const appJson = localStorage.getItem(STORAGE_KEY.APP_SETTINGS);
+      const directory: unknown = appJson ? JSON.parse(appJson)?.autoSaveDirectory : undefined;
+      // An empty legacy directory meant the server root, not an unset destination.
+      settings.autoSaveDirectory =
+        typeof directory === "string" || directory === undefined
+          ? trimTrailingPathSeparators(directory ?? "") ||
+            (legacy && settings.enableAutoSave ? "server://" : "")
+          : "";
+    }
+    return JSON.stringify(normalizeGameSettings(settings));
   },
   async saveGameSettings(json: string): Promise<void> {
     localStorage.setItem(STORAGE_KEY.GAME_SETTINGS, json);
+    if (!hasGameSaveDirectory(json)) return;
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY.APP_SETTINGS);
+      const settings = stored ? JSON.parse(stored) : undefined;
+      if (settings?.autoSaveDirectory === undefined) return;
+      // Retire the migration input only after the new settings are persisted.
+      delete settings.autoSaveDirectory;
+      localStorage.setItem(STORAGE_KEY.APP_SETTINGS, JSON.stringify(settings));
+    } catch {
+      // Legacy cleanup must not turn a successful game settings save into a failure.
+    }
   },
   async loadMateSearchSettings(): Promise<string> {
     const json = localStorage.getItem(STORAGE_KEY.MATE_SEARCH_SETTINGS);

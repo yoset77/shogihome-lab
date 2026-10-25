@@ -643,6 +643,7 @@ export const ja: Texts = {
   enterBookSavePath: "定跡の保存先パスを入力してください。",
   sourceRecordFileNotSet: "棋譜ファイルが指定されていません。",
   sourceDirectoryNotSet: "フォルダを選択してください。",
+  autoSaveDirectoryNotSet: "棋譜の自動保存先を指定してください。",
   minPlyMustBeLessThanMaxPly: "最小手数は最大手数より小さくしてください。",
   playerNameNotSet: "対局者名が設定されていません。",
   largeSuggestionsCountMayCausePerformanceDegradation:
@@ -709,6 +710,8 @@ export const ja: Texts = {
   uploadDestination: "アップロード先",
   uploadFileName: "保存名",
   rootDirectory: "Root",
+  directoryNotSelected: "未設定",
+  selectCurrentDirectory: "このフォルダを選択",
   createNewFolder: "フォルダを作成",
   folderName: "フォルダ名",
   invalidServerEntryName: (name: string) =>

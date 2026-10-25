@@ -817,7 +817,7 @@ export class GameSession {
     await persistGameRecord(
       source,
       this.request.options.save,
-      this.core.settings.enableAutoSave,
+      this.request.settings,
       summary,
       this.deps,
       () => {

@@ -8,8 +8,50 @@ import {
 import { InitialPositionType } from "tsshogi";
 import * as uri from "@/common/uri";
 import { BookMoveSelectionRule } from "@/common/settings/usi";
+import { t } from "@/common/i18n";
 
 describe("settings/game", () => {
+  it("defaults to auto-save disabled and no destination", () => {
+    expect(defaultGameSettings()).toMatchObject({ enableAutoSave: false, autoSaveDirectory: "" });
+  });
+
+  it.each(["", "server://", "server://games", "server://games///"])(
+    "normalizes the game destination %s without mutating the input",
+    (autoSaveDirectory) => {
+      const settings = { ...defaultGameSettings(), autoSaveDirectory };
+      const expected =
+        autoSaveDirectory === "server://games///" ? "server://games" : autoSaveDirectory;
+      expect(normalizeGameSettings(settings).autoSaveDirectory).toBe(expected);
+      expect(settings.autoSaveDirectory).toBe(autoSaveDirectory);
+    },
+  );
+
+  it.each([undefined, null, 1, false, [], {}].map((autoSaveDirectory) => ({ autoSaveDirectory })))(
+    "clears a non-string game destination $autoSaveDirectory without disabling auto-save",
+    ({ autoSaveDirectory }) => {
+      const settings = {
+        ...defaultGameSettings(),
+        enableAutoSave: true,
+        autoSaveDirectory,
+      } as GameSettings;
+      const normalized = normalizeGameSettings(settings);
+      expect(normalized).toMatchObject({ enableAutoSave: true, autoSaveDirectory: "" });
+      expect(validateGameSettings(normalized)?.message).toBe(t.autoSaveDirectoryNotSet);
+      expect(settings.autoSaveDirectory).toBe(autoSaveDirectory);
+    },
+  );
+
+  it("requires an explicit destination only when auto-save is enabled", () => {
+    const settings = defaultGameSettings();
+    expect(validateGameSettings(settings)).toBeUndefined();
+    expect(validateGameSettings({ ...settings, enableAutoSave: true })?.message).toBe(
+      t.autoSaveDirectoryNotSet,
+    );
+    expect(
+      validateGameSettings({ ...settings, enableAutoSave: true, autoSaveDirectory: "server://" }),
+    ).toBeUndefined();
+  });
+
   it("defaults both players to humans", () => {
     const settings = defaultGameSettings();
     expect(settings.black.uri).toBe(uri.ES_HUMAN);
@@ -64,6 +106,7 @@ describe("settings/game", () => {
       humanIsFront: false,
       enableComment: false,
       enableAutoSave: false,
+      autoSaveDirectory: "",
       repeat: 3,
       swapPlayers: false,
       maxMoves: 80,

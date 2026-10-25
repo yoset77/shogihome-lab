@@ -646,6 +646,7 @@ export const vi: Texts = {
   enterBookSavePath: "Enter the destination path of the book.",
   sourceRecordFileNotSet: "Chưa chỉ định tệp kỳ phổ gốc.",
   sourceDirectoryNotSet: "Vui lòng chọn một tập tin.",
+  autoSaveDirectoryNotSet: "Vui lòng chọn thư mục lưu kỳ phổ tự động.",
   minPlyMustBeLessThanMaxPly: "Số nước ít nhất phải nhỏ hơn số nước lớn nhất.",
   playerNameNotSet: "Tên người chơi chưa được đặt.",
   largeSuggestionsCountMayCausePerformanceDegradation:
@@ -711,6 +712,8 @@ export const vi: Texts = {
   uploadDestination: "Thư mục tải lên",
   uploadFileName: "Tên lưu",
   rootDirectory: "Gốc",
+  directoryNotSelected: "Chưa chọn",
+  selectCurrentDirectory: "Chọn thư mục này",
   createNewFolder: "Tạo thư mục mới",
   folderName: "Tên thư mục",
   invalidServerEntryName: (name: string) => `Tên không hợp lệ. Kiểm tra ký tự và độ dài.\n${name}`,

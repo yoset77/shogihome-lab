@@ -22,6 +22,7 @@ import type { GameDependencies } from "@/server/game/session";
 import { t } from "@/common/i18n";
 import api from "@/renderer/ipc/api";
 import { USIMonitor } from "@/renderer/store/usi";
+import { useAppSettings } from "@/renderer/store/settings";
 import {
   setOnStartSearchHandler,
   setOnUpdateUSIInfoHandler,
@@ -44,7 +45,7 @@ function storedReference(): string | null {
 
 function setup(deps: GameDependencies = {}) {
   const fake = fakeGamePlayer();
-  const saveRecord = vi.fn(async () => {
+  const saveRecord = vi.fn<NonNullable<GameDependencies["saveRecord"]>>(async () => {
     throw new Error("Disk unavailable");
   });
   const server = new GameSessionManager({
@@ -171,6 +172,7 @@ function setup(deps: GameDependencies = {}) {
   const settings = {
     ...defaultGameSettings(),
     enableAutoSave: false,
+    autoSaveDirectory: "server://",
     enableComment: false,
     timeLimit: { timeSeconds: 3600, byoyomi: 10, increment: 0 },
   };
@@ -222,6 +224,7 @@ describe("game session client", () => {
     useToastStore().clear();
   });
   afterEach(async () => {
+    useAppSettings().clearTemporaryUpdate();
     vi.restoreAllMocks();
     for (const game of extraClients.splice(0)) game.dispose();
     for (const value of fixtures.splice(0)) {
@@ -254,6 +257,28 @@ describe("game session client", () => {
     });
     return () => deliver();
   }
+
+  it("saves to the game destination frozen at startup, ignoring later edits", async () => {
+    const value = fixture();
+    value.settings.enableAutoSave = true;
+    value.settings.autoSaveDirectory = "server://selected";
+    value.saveRecord.mockResolvedValue("selected/game.kifu");
+    await start(value);
+    const request = value.client.create.mock.calls[0][0];
+    expect(request.settings.autoSaveDirectory).toBe("server://selected");
+    expect(request.options.save).not.toHaveProperty("directory");
+    value.settings.autoSaveDirectory = "server://next-game";
+    await value.game.resign();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(value.saveRecord).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ directory: "server://selected" }),
+      expect.any(String),
+    );
+    expect(value.game.status!.records).toMatchObject([
+      { state: "saved", path: "selected/game.kifu" },
+    ]);
+  });
 
   it("displays all budget details from a rejected game startup", async () => {
     const message = t.resourceGroupCapacity("CPU", 8, 6, 4);

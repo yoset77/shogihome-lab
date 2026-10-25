@@ -262,6 +262,12 @@
             />
           </div>
           <div class="form-item">
+            <GameSaveDirectory
+              v-model:value="gameSettings.autoSaveDirectory"
+              :disabled="!gameSettings.enableAutoSave"
+            />
+          </div>
+          <div class="form-item">
             <ToggleButton
               v-model:value="gameSettings.humanIsFront"
               :label="t.adjustBoardToHumanPlayer"
@@ -331,6 +337,7 @@ import { useLanStore } from "@/renderer/store/lan";
 import DropdownList from "@/renderer/view/primitive/DropdownList.vue";
 import ExtraBookSettingsDialog from "./ExtraBookSettingsDialog.vue";
 import { resolveLanEngine } from "@/renderer/helpers/engine";
+import GameSaveDirectory from "./GameSaveDirectory.vue";
 
 const store = useStore();
 const background = ref(false);
