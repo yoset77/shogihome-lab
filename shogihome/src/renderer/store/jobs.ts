@@ -13,6 +13,8 @@ export class JobListManager {
   private timer?: ReturnType<typeof setTimeout>;
   private retryMs = 5000;
   private retryNotBefore = 0;
+  private retryAfterNotBefore = 0;
+  private retryAfterTimer?: ReturnType<typeof setTimeout>;
   private running = false;
   constructor(
     private readonly analysis = createAnalysisJobsClient(),
@@ -20,6 +22,7 @@ export class JobListManager {
   ) {}
   start(): void {
     this.running = true;
+    this.scheduleRetryAfterReset();
     void this.refresh();
   }
   stop(): void {
@@ -27,6 +30,7 @@ export class JobListManager {
     ++this.generation;
     this.loading = false;
     clearTimeout(this.timer);
+    clearTimeout(this.retryAfterTimer);
   }
   canCancel(job: JobSummary): boolean {
     return (
@@ -35,7 +39,7 @@ export class JobListManager {
       ["preparing", "running"].includes(job.state) &&
       !this.loading &&
       !this.cancelling.has(job.id) &&
-      Date.now() >= this.retryNotBefore
+      Date.now() >= this.retryAfterNotBefore
     );
   }
   async cancel(job: JobSummary): Promise<void> {
@@ -74,7 +78,10 @@ export class JobListManager {
       );
       this.error = undefined;
     } catch (error) {
-      if (generation === this.generation) this.backoff(error);
+      if (generation === this.generation) {
+        this.error = error;
+        this.honorRetryAfter(error);
+      }
     } finally {
       this.cancelling.delete(job.id);
       if (generation === this.generation) this.scheduleRefresh();
@@ -85,23 +92,39 @@ export class JobListManager {
     if (this.running)
       this.timer = setTimeout(
         () => void this.refresh(),
-        Math.max(this.retryMs, this.retryNotBefore - Date.now()),
+        Math.max(
+          this.retryMs,
+          Math.max(this.retryNotBefore, this.retryAfterNotBefore) - Date.now(),
+        ),
       );
+  }
+  private honorRetryAfter(error: unknown): void {
+    if (!(error instanceof ApiResponseError) || !error.retryAfterMs) return;
+    this.retryAfterNotBefore = Math.max(this.retryAfterNotBefore, Date.now() + error.retryAfterMs);
+    this.scheduleRetryAfterReset();
+  }
+  private scheduleRetryAfterReset(): void {
+    clearTimeout(this.retryAfterTimer);
+    const delay = this.retryAfterNotBefore - Date.now();
+    // Re-enable manual cancellation even if polling is still backing off.
+    if (this.running && delay > 0)
+      this.retryAfterTimer = setTimeout(() => {
+        this.retryAfterNotBefore = 0;
+      }, delay);
   }
   private backoff(error: unknown): void {
     this.error = error;
-    this.retryMs = Math.max(
-      Math.min(30_000, this.retryMs * 2),
-      error instanceof ApiResponseError ? (error.retryAfterMs ?? 0) : 0,
-    );
+    this.retryMs = Math.min(30_000, this.retryMs * 2);
     this.retryNotBefore = Date.now() + this.retryMs;
+    this.honorRetryAfter(error);
   }
   async refresh(): Promise<void> {
     if (this.loading || this.cancelling.size) return;
     clearTimeout(this.timer);
-    if (Date.now() < this.retryNotBefore) {
+    const retryNotBefore = Math.max(this.retryNotBefore, this.retryAfterNotBefore);
+    if (Date.now() < retryNotBefore) {
       if (this.running)
-        this.timer = setTimeout(() => void this.refresh(), this.retryNotBefore - Date.now());
+        this.timer = setTimeout(() => void this.refresh(), retryNotBefore - Date.now());
       return;
     }
     this.loading = true;
