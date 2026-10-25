@@ -312,6 +312,10 @@ export type Texts = {
   suggestionsCount: string;
   multiPVInvalid: (min: number, max: number) => string;
   batchAnalysis: string;
+  parallelism: string;
+  batchAnalysisBackgroundOnly: string;
+  batchAnalysisParallelNote: string;
+  batchAnalysisParallelProgress: (active: number, parallelism: number) => string;
   currentRecord: string;
   serverFolder: string;
   batchAnalysisSearch: string;

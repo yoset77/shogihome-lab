@@ -1586,6 +1586,7 @@ class Store {
         plan,
         settings.skipAnalyzed,
         background,
+        settings.parallelism,
       );
       this._appState = background ? AppState.NORMAL : AppState.ANALYSIS;
       if (background) useToastStore().success(t.analysisStartedInBackground);

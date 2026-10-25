@@ -318,6 +318,13 @@ export const en: Texts = {
   suggestionsCount: "Suggestions Count",
   multiPVInvalid: (min, max) => `Suggestions count must be an integer from ${min} to ${max}.`,
   batchAnalysis: "Batch Analysis",
+  parallelism: "Parallelism",
+  batchAnalysisBackgroundOnly:
+    "Parallel batch analysis runs only in the background. Open saved results from the job details.",
+  batchAnalysisParallelNote:
+    "Parallel analysis runs in the background. CPU and memory usage increase with the engine's Threads and Hash settings.",
+  batchAnalysisParallelProgress: (active, parallelism) =>
+    `${active} active files / up to ${parallelism} parallel workers`,
   currentRecord: "Current Record",
   serverFolder: "Server Folder",
   batchAnalysisSearch: "All matching records",

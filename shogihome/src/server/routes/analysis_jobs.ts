@@ -128,9 +128,11 @@ export const createAnalysisJobRoutes = (manager: AnalysisJobManager = analysisJo
         );
       },
     )
-    .post("/:jobId/attach", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), attachInput, (c) =>
-      c.json(manager.get(id(c.req.param("jobId"))).attachment.claim(c.req.valid("json"))),
-    )
+    .post("/:jobId/attach", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), attachInput, (c) => {
+      const job = manager.get(id(c.req.param("jobId")));
+      if (job instanceof BatchAnalysisJob) job.ensureAttachable();
+      return c.json(job.attachment.claim(c.req.valid("json")));
+    })
     .post("/:jobId/detach", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), bindingInput, (c) => {
       const job = manager.get(id(c.req.param("jobId")));
       job.attachment.release(c.req.valid("json"));

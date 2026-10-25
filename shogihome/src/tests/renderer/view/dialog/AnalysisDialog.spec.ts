@@ -171,6 +171,56 @@ describe("AnalysisDialog MultiPV", () => {
     expect(mocks.error).toHaveBeenCalledWith(t.batchAnalysisInvalid);
     expect(mocks.prepareBatch).not.toHaveBeenCalled();
   });
+  it("forces parallel batch analysis into the background without adding another viewer", async () => {
+    mocks.analysisSource = { kind: "search", search: { player1: "Test" } };
+    const wrapper = await dialog();
+    const input = wrapper.get<HTMLInputElement>("#batch-analysis-parallelism");
+    expect(input.element.value).toBe("1");
+    expect(input.attributes()).toMatchObject({ min: "1", max: "16", step: "1" });
+    await input.setValue("4");
+    expect(wrapper.text()).toContain(t.batchAnalysisParallelNote);
+    expect(wrapper.find('div[data-test="background"]').exists()).toBe(false);
+    await wrapper.get('button[data-hotkey="Enter"]').trigger("click");
+    await flushPromises();
+    mocks.confirm.mock.calls[0][0].onOk();
+    expect(mocks.startBatchAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({ parallelism: 4 }),
+      expect.anything(),
+      expect.objectContaining({ planId: "plan" }),
+      true,
+    );
+    await selectTarget(wrapper, "record");
+    expect(wrapper.find('div[data-test="background"]').exists()).toBe(true);
+    await wrapper.get('button[data-hotkey="Enter"]').trigger("click");
+    expect(mocks.startAnalysis).toHaveBeenCalledWith(expect.anything(), false);
+  });
+  it("restores parallel batch settings and retains foreground support at parallelism one", async () => {
+    localStorage.setItem("shogihome-batch-analysis-settings", JSON.stringify({ parallelism: 3 }));
+    mocks.analysisSource = { kind: "search", search: {} };
+    const wrapper = await dialog();
+    const input = wrapper.get<HTMLInputElement>("#batch-analysis-parallelism");
+    expect(input.element.value).toBe("3");
+    expect(wrapper.find('div[data-test="background"]').exists()).toBe(false);
+    await input.setValue("1");
+    expect(wrapper.find('div[data-test="background"]').exists()).toBe(true);
+    expect(wrapper.text()).not.toContain(t.batchAnalysisParallelNote);
+    await wrapper.get('button[data-hotkey="Enter"]').trigger("click");
+    await flushPromises();
+    mocks.confirm.mock.calls[0][0].onOk();
+    expect(mocks.startBatchAnalysis.mock.calls[0][3]).toBe(false);
+  });
+  it.each(["", "0", "-1", "1.5", "17"])(
+    "rejects invalid parallelism '%s' before checking targets",
+    async (value) => {
+      mocks.analysisSource = { kind: "search", search: {} };
+      const wrapper = await dialog();
+      await wrapper.get("#batch-analysis-parallelism").setValue(value);
+      await wrapper.get('button[data-hotkey="Enter"]').trigger("click");
+      expect(mocks.error).toHaveBeenCalledWith(t.batchAnalysisInvalid);
+      expect(mocks.prepareBatch).not.toHaveBeenCalled();
+      expect(mocks.startBatchAnalysis).not.toHaveBeenCalled();
+    },
+  );
 
   it("lists target files on demand without starting batch analysis", async () => {
     mocks.listServerDirectories.mockImplementation(async (path: string) => ({

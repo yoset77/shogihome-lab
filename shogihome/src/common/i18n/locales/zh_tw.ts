@@ -315,6 +315,12 @@ export const zh_tw: Texts = {
   suggestionsCount: "候補手數量",
   multiPVInvalid: (min, max) => `候補手數量必須是${min}到${max}之間的整數。`,
   batchAnalysis: "連續分析",
+  parallelism: "並行數",
+  batchAnalysisBackgroundOnly: "並行連續分析僅在背景執行。請從工作詳細資料開啟已儲存的結果。",
+  batchAnalysisParallelNote:
+    "並行分析會在背景執行。CPU 與記憶體用量會隨引擎的 Threads、Hash 設定增加。",
+  batchAnalysisParallelProgress: (active, parallelism) =>
+    `執行中 ${active} 個檔案 / 最多 ${parallelism} 個並行工作`,
   currentRecord: "目前棋譜",
   serverFolder: "伺服器資料夾",
   batchAnalysisSearch: "所有符合搜尋的棋譜",

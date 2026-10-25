@@ -9,7 +9,11 @@ import {
   decodeBatchJobRequest,
 } from "@/common/analysis/types";
 import { identifier, object, counter } from "@/common/analysis/validation";
-import type { BatchAnalysisPlan, BatchAnalysisJobRequest } from "@/common/analysis/batch";
+import {
+  readBatchParallelism,
+  type BatchAnalysisPlan,
+  type BatchAnalysisJobRequest,
+} from "@/common/analysis/batch";
 import { TextDecodingRule } from "@/common/settings/app";
 import { t } from "@/common/i18n/index";
 import { getLanEngineId } from "@/common/uri";
@@ -324,15 +328,24 @@ export class AnalysisManager {
     plan: BatchAnalysisPlan,
     skipAnalyzed: boolean,
     background = false,
+    parallelism = 1,
   ) {
-    return this.start(settings, background, { plan, skipAnalyzed });
+    return this.start(settings, background, { plan, skipAnalyzed, parallelism });
   }
 
   async start(
     settings: AnalysisSettings,
     background = false,
-    batch?: { plan: BatchAnalysisPlan; skipAnalyzed: boolean },
+    batch?: { plan: BatchAnalysisPlan; skipAnalyzed: boolean; parallelism: number },
   ): Promise<void> {
+    if (batch) {
+      try {
+        readBatchParallelism(batch.parallelism);
+      } catch {
+        throw new Error(t.batchAnalysisInvalid);
+      }
+      if (batch.parallelism > 1 && !background) throw new Error(t.batchAnalysisBackgroundOnly);
+    }
     if (!this.active) this.reference = loadReferences()[0];
     if (this.reference || this.active) throw new Error(t.analysisJobCapacity);
     const engineId = settings.usi && getLanEngineId(settings.usi.uri, "research");
@@ -375,6 +388,7 @@ export class AnalysisManager {
                 requestId,
                 serverInstanceId: "pending",
                 planId: batch.plan.planId,
+                parallelism: batch.parallelism,
                 options: input.options,
                 skipAnalyzed: batch.skipAnalyzed,
                 fileOptions: {
@@ -656,6 +670,7 @@ export class AnalysisManager {
     confirmTakeover: () => Promise<boolean>,
   ): Promise<boolean> {
     if (this.active || this.recovering) return false;
+    if (job.batch?.parallel) throw new Error(t.batchAnalysisBackgroundOnly);
     if (job.attachment.attached && !(await confirmTakeover())) return false;
     this.background = false;
     this.reference = {

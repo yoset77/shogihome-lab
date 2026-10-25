@@ -16,6 +16,21 @@
         <div class="note">{{ t.analyzedRecordFilesWillBeOverwritten }}</div>
       </div>
       <div v-show="target !== 'record'" class="form-group">
+        <div class="form-item">
+          <label class="form-item-label-wide" for="batch-analysis-parallelism">{{
+            t.parallelism
+          }}</label>
+          <input
+            id="batch-analysis-parallelism"
+            v-model.number="batchSettings.parallelism"
+            class="small"
+            type="number"
+            min="1"
+            :max="MAX_BATCH_PARALLELISM"
+            step="1"
+          />
+        </div>
+        <div v-if="parallelBatch" class="note">{{ t.batchAnalysisParallelNote }}</div>
         <div v-show="target === 'folder'">
           <ServerDirectoryBrowser
             :selected-path="selectedDirectory"
@@ -148,7 +163,7 @@
         </div>
       </div>
       <div class="form-group">
-        <div class="form-item">
+        <div v-if="!parallelBatch" class="form-item">
           <ToggleButton
             v-model:value="background"
             data-test="background"
@@ -187,7 +202,11 @@ import { useBusyState } from "@/renderer/store/busy";
 import DialogFrame from "./DialogFrame.vue";
 import { useLanStore } from "@/renderer/store/lan";
 import { loadBatchAnalysisSettings, prepareBatchAnalysis } from "@/renderer/store/batch_analysis";
-import type { BatchAnalysisPlan } from "@/common/analysis/batch";
+import {
+  MAX_BATCH_PARALLELISM,
+  readBatchParallelism,
+  type BatchAnalysisPlan,
+} from "@/common/analysis/batch";
 import type { ServerDirectoryEntry } from "@/common/file/upload";
 import { useConfirmationStore } from "@/renderer/store/confirm";
 import { Move } from "tsshogi";
@@ -203,6 +222,9 @@ const batchSettings = ref(loadBatchAnalysisSettings());
 const selectedDirectory = ref<string | undefined>(batchSettings.value.directory || undefined);
 const searchSource = store.analysisSource?.kind === "search" ? store.analysisSource : undefined;
 const target = ref(searchSource ? "search" : "record");
+const parallelBatch = computed(
+  () => target.value !== "record" && batchSettings.value.parallelism > 1,
+);
 const directories = ref<ServerDirectoryEntry[]>([]);
 const browseDirectory = ref("");
 const browserOpen = ref(false);
@@ -311,6 +333,12 @@ const onStart = async () => {
     store.startAnalysis(newSettings, background.value);
     return;
   }
+  try {
+    readBatchParallelism(batchSettings.value.parallelism);
+  } catch {
+    useErrorStore().add(t.batchAnalysisInvalid);
+    return;
+  }
   if (target.value === "folder" && selectedDirectory.value === undefined) {
     useErrorStore().add(t.batchAnalysisInvalid);
     return;
@@ -326,7 +354,7 @@ const onStart = async () => {
     ...batchSettings.value,
     directory: selectedDirectory.value ?? batchSettings.value.directory,
   };
-  const runInBackground = background.value;
+  const runInBackground = background.value || parallelBatch.value;
   useConfirmationStore().show({
     message: t.batchAnalysisConfirm(confirmedPlan.files.length),
     onOk: () => {

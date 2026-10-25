@@ -27,6 +27,7 @@ import {
   type BatchAnalysisProgress,
   type BatchAnalysisJobRequest,
   MAX_BATCH_FILES,
+  readBatchParallelism,
 } from "./batch";
 
 export const DEFAULT_ANALYSIS_POLL_MS = 1000;
@@ -189,6 +190,7 @@ export function decodeBatchJobRequest(value: unknown): DecodeResult<BatchAnalysi
       requestId: v.identifier(input.requestId),
       serverInstanceId: v.identifier(input.serverInstanceId),
       planId: v.identifier(input.planId),
+      parallelism: readBatchParallelism(input.parallelism),
       options: readAnalysisOptions(input.options),
       skipAnalyzed: v.boolean(input.skipAnalyzed),
       fileOptions: {

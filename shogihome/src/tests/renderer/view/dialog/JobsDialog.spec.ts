@@ -3,10 +3,12 @@ import JobsDialog from "@/renderer/view/dialog/JobsDialog.vue";
 import { Language } from "@/common/i18n/languages";
 import type { JobSummary } from "@/common/jobs/types";
 import { ApiResponseError } from "@/renderer/api/client";
+import { t } from "@/common/i18n";
 
 const mocks = vi.hoisted(() => ({
   analysis: vi.fn(),
   games: vi.fn(),
+  cancel: vi.fn(),
   store: {
     canAttachJob: true,
     canDetachJob: false,
@@ -19,7 +21,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/renderer/store", () => ({ useStore: () => mocks.store }));
 vi.mock("@/renderer/store/settings", () => ({ useAppSettings: () => ({ language: Language.JA }) }));
 vi.mock("@/renderer/api/analysis_jobs", () => ({
-  createAnalysisJobsClient: () => ({ list: mocks.analysis }),
+  createAnalysisJobsClient: () => ({ list: mocks.analysis, cancel: mocks.cancel }),
 }));
 vi.mock("@/renderer/api/game_sessions", () => ({
   createGameSessionsClient: () => ({ list: mocks.games }),
@@ -41,6 +43,22 @@ const mountDialog = () =>
   shallowMount(JobsDialog, {
     global: { stubs: { DialogFrame: { template: "<div><slot /></div>" } } },
   });
+const parallelJob: JobSummary = {
+  ...job,
+  batch: {
+    totalFiles: 3,
+    processedFiles: 1,
+    successTotal: 1,
+    failedTotal: 0,
+    skippedTotal: 0,
+    currentFile: 0,
+    currentPath: "",
+    recordIndex: 0,
+    recordPath: "",
+    saved: false,
+    parallel: { parallelism: 2, activeFiles: 2 },
+  },
+};
 
 describe("JobsDialog", () => {
   beforeEach(() => {
@@ -106,6 +124,66 @@ describe("JobsDialog", () => {
     const wrapper = mountDialog();
     await flushPromises();
     expect(wrapper.text()).toContain("2 / 10 局");
+    wrapper.unmount();
+  });
+  it("shows parallel progress and stops without attaching even while the board is occupied", async () => {
+    mocks.store.canAttachJob = false;
+    mocks.analysis.mockResolvedValue([parallelJob]);
+    mocks.games.mockResolvedValue([]);
+    const pending = Promise.withResolvers<unknown>();
+    mocks.cancel.mockReturnValue(pending.promise);
+    const wrapper = mountDialog();
+    await flushPromises();
+    expect(wrapper.text()).toContain("1 / 3 局");
+    expect(wrapper.text()).toContain(t.batchAnalysisParallelProgress(2, 2));
+    expect(wrapper.text()).not.toContain(t.jobsAttach);
+    const stop = wrapper.findAll("button").find((button) => button.text() === t.stopAnalysis)!;
+    expect(stop.attributes("disabled")).toBeUndefined();
+    await stop.trigger("click");
+    expect(mocks.cancel).toHaveBeenCalledExactlyOnceWith("job");
+    expect(stop.attributes("disabled")).toBeDefined();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(mocks.analysis).toHaveBeenCalledOnce();
+    pending.resolve({
+      jobId: "job",
+      serverInstanceId: "server",
+      state: "cancelling",
+      batch: parallelJob.batch,
+    });
+    await flushPromises();
+    expect(wrapper.text()).toContain(t.jobsStateCancelling);
+    expect(stop.attributes("disabled")).toBeDefined();
+    expect(mocks.store.attachJob).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+  it("offers saved-file details rather than attachment for completed parallel batches", async () => {
+    mocks.analysis.mockResolvedValue([{ ...parallelJob, state: "completed" }]);
+    mocks.games.mockResolvedValue([]);
+    const wrapper = mountDialog();
+    await flushPromises();
+    expect(wrapper.findAll("li button").map((button) => button.text())).toEqual([
+      t.batchAnalysisDetails,
+    ]);
+    wrapper.unmount();
+  });
+  it("honors cancellation Retry-After before polling or accepting another stop", async () => {
+    mocks.analysis.mockResolvedValue([parallelJob]);
+    mocks.games.mockResolvedValue([]);
+    mocks.cancel.mockRejectedValueOnce(new ApiResponseError(429, "Wait before retrying", 30_000));
+    const wrapper = mountDialog();
+    await flushPromises();
+    const stop = wrapper.findAll("button").find((button) => button.text() === t.stopAnalysis)!;
+    await stop.trigger("click");
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toBe("Wait before retrying");
+    expect(stop.attributes("disabled")).toBeDefined();
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(mocks.analysis).toHaveBeenCalledOnce();
+    expect(mocks.cancel).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    await flushPromises();
+    expect(mocks.analysis).toHaveBeenCalledTimes(2);
+    expect(stop.attributes("disabled")).toBeUndefined();
     wrapper.unmount();
   });
 

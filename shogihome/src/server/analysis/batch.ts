@@ -24,6 +24,15 @@ import { BatchAnalysisFiles, BatchFileError } from "./files";
 
 export const BATCH_ANALYSIS_MAX_RUNTIME_MS = 14 * 24 * 60 * 60 * 1000;
 
+type Worker = {
+  engine: ResearchEngine;
+  current?: AnalysisJob;
+  outcome?: BatchFileResult;
+  launched: boolean;
+  multiPVApplied: boolean;
+  saving: boolean;
+};
+
 export class BatchAnalysisJob {
   readonly attachment = new JobAttachment();
   readonly createdAt = Date.now();
@@ -33,9 +42,10 @@ export class BatchAnalysisJob {
   private error?: AnalysisJobError;
   private current?: AnalysisJob;
   private cancelled = false;
-  private launched = false;
-  private saving = false;
   private config?: EngineConfig;
+  private configPromise?: Promise<EngineConfig>;
+  private workers: Worker[];
+  private nextFile = 0;
   private cancellations = new Set<string>();
   private progress: BatchAnalysisProgress;
   private outcomes: BatchFileResult[];
@@ -47,11 +57,17 @@ export class BatchAnalysisJob {
     readonly id: string,
     readonly batchRequest: BatchAnalysisJobRequest,
     plan: BatchAnalysisPlan,
-    private readonly engine: ResearchEngine,
+    engines: readonly ResearchEngine[],
     private readonly resolveEngine: (id: string) => Promise<EngineConfig>,
     private readonly files: BatchAnalysisFiles,
     private resourceLease?: ResourceLease,
   ) {
+    this.workers = engines.map((engine) => ({
+      engine,
+      launched: false,
+      multiPVApplied: false,
+      saving: false,
+    }));
     this.request = {
       requestId: batchRequest.requestId,
       serverInstanceId: batchRequest.serverInstanceId,
@@ -77,6 +93,7 @@ export class BatchAnalysisJob {
     });
   }
   source(index?: number) {
+    this.ensureAttachable();
     this.checkIndex(index);
     if (!this.current) throw new HttpError(423, t.batchAnalysisPreparing);
     return this.current.source();
@@ -86,6 +103,7 @@ export class BatchAnalysisJob {
       throw new HttpError(423, t.batchAnalysisPreparing);
   }
   result(after = 0, index?: number): AnalysisJobResult {
+    this.ensureAttachable();
     this.checkIndex(index);
     const result = this.current?.result(after) ?? {
       jobId: this.id,
@@ -115,7 +133,18 @@ export class BatchAnalysisJob {
       resultRevision: current?.resultRevision ?? 0,
       current: current?.current ?? null,
       attachment: this.attachment.status(),
-      batch: { ...this.progress },
+      batch: {
+        ...this.progress,
+        ...(this.backgroundOnly
+          ? {
+              parallel: {
+                parallelism: this.batchRequest.parallelism!,
+                activeFiles: this.workers.filter((worker) => worker.outcome?.state === "running")
+                  .length,
+              },
+            }
+          : {}),
+      },
       ...(this.error ? { error: this.error } : {}),
     };
   }
@@ -135,7 +164,15 @@ export class BatchAnalysisJob {
     if (this.endedAt !== undefined || this.state === "finishing") return;
     this.cancelled = true;
     this.state = "cancelling";
-    if (!this.saving) this.current?.cancel();
+    for (const worker of this.workers) {
+      if (!worker.saving) worker.current?.cancel();
+    }
+  }
+  get backgroundOnly(): boolean {
+    return (this.batchRequest.parallelism ?? 1) > 1;
+  }
+  ensureAttachable(): void {
+    if (this.backgroundOnly) throw new HttpError(409, t.batchAnalysisBackgroundOnly);
   }
   private complete(
     outcome: BatchFileResult,
@@ -149,38 +186,37 @@ export class BatchAnalysisJob {
       state === "saved" ? "successTotal" : state === "failed" ? "failedTotal" : "skippedTotal"
     ]++;
   }
-  private async run(): Promise<void> {
-    const deadline = setTimeout(() => {
-      this.error = "deadline";
-      this.cancel();
-    }, BATCH_ANALYSIS_MAX_RUNTIME_MS);
+  private async runWorker(worker: Worker): Promise<void> {
+    const engine = worker.engine;
     try {
       const adapter: ResearchEngine = {
         launch: async (config, timeout, signal, lease) => {
-          if (!this.launched) {
-            // The batch owns one shared lease for the whole run; per-file
-            // jobs have none of their own.
-            await this.engine.launch(config, timeout, signal, lease ?? this.resourceLease);
-            this.launched = true;
+          if (!worker.launched) {
+            // The parent owns the lease and every worker's engine lifetime.
+            await engine.launch(config, timeout, signal, lease ?? this.resourceLease);
+            worker.launched = true;
           }
         },
         setMultiPV: (value) => {
-          if (!this.progress.recordIndex || !this.launched) return;
-          if (!this.multiPVApplied) {
-            this.engine.setMultiPV(value);
-            this.multiPVApplied = true;
+          if (worker.launched && !worker.multiPVApplied) {
+            engine.setMultiPV(value);
+            worker.multiPVApplied = true;
           }
         },
-        readyNewGame: () => this.engine.readyNewGame(),
+        readyNewGame: () => engine.readyNewGame(),
         startResearch: (position, onOutput, signal) =>
-          this.engine.startResearch(position, onOutput, signal),
-        // The batch owns the shared engine's lifetime, not its child jobs.
+          engine.startResearch(position, onOutput, signal),
         close: async () => {},
       };
-      for (const outcome of this.outcomes) {
-        if (this.cancelled) break;
-        this.progress.currentFile = outcome.index;
-        this.progress.currentPath = outcome.path;
+      while (!this.cancelled) {
+        // Claim synchronously so no two workers can process the same file.
+        const outcome = this.outcomes[this.nextFile++];
+        if (!outcome) break;
+        worker.outcome = outcome;
+        if (!this.backgroundOnly) {
+          this.progress.currentFile = outcome.index;
+          this.progress.currentPath = outcome.path;
+        }
         outcome.state = "running";
         let loaded;
         try {
@@ -208,57 +244,82 @@ export class BatchAnalysisJob {
           this.id,
           { ...this.request, source: loaded.source },
           adapter,
-          async (id) => (this.config ??= structuredClone(await this.resolveEngine(id))),
+          (id) =>
+            (this.configPromise ??= this.resolveEngine(id).then(
+              (config) => (this.config = structuredClone(config)),
+            )),
         );
         if (!candidate.status().totalPositions) {
           this.complete(outcome, "skipped", "noPositions");
           continue;
         }
-        this.current = candidate;
-        this.progress.recordIndex = outcome.index;
-        this.progress.recordPath = outcome.path;
-        this.progress.saved = false;
+        worker.current = candidate;
+        if (!this.backgroundOnly) {
+          this.current = candidate;
+          this.progress.recordIndex = outcome.index;
+          this.progress.recordPath = outcome.path;
+          this.progress.saved = false;
+        }
         this.state = "running";
-        this.current.start();
-        await this.current.completion;
+        candidate.start();
+        await candidate.completion;
         if (this.cancelled) {
           outcome.state = "cancelled";
           break;
         }
-        if (this.current.status().state !== "completed") {
-          this.error = this.current.status().error ?? "engine";
+        if (candidate.status().state !== "completed") {
+          this.error ??= candidate.status().error ?? "engine";
           this.complete(outcome, "failed", "engine");
+          this.cancel();
           break;
         }
         const source = structuredClone(loaded.source);
         const nodes = new Map(source.nodes.map((node) => [node.id, node]));
-        for (const update of this.current.result().nodes) {
+        for (const update of candidate.result().nodes) {
           const node = nodes.get(update.id)!;
           node.comment = update.comment;
           if (update.researchInfo)
             node.customData = { ...node.customData, researchInfo: update.researchInfo };
         }
-        this.saving = true;
+        worker.saving = true;
         try {
           await this.files.save(loaded, source, this.batchRequest.fileOptions);
-          this.progress.saved = true;
+          if (!this.backgroundOnly) this.progress.saved = true;
           this.complete(outcome, "saved");
         } catch (error) {
           this.complete(outcome, "failed", error instanceof BatchFileError ? error.reason : "save");
         } finally {
-          this.saving = false;
+          worker.saving = false;
+          worker.current = undefined;
         }
       }
     } catch (error) {
       console.error("Batch analysis failed:", error);
       this.error ??= error instanceof HttpError && error.status === 503 ? "capacity" : "engine";
+      if (worker.outcome?.state === "running") this.complete(worker.outcome, "failed", "engine");
+      this.cancel();
+    } finally {
+      worker.current = undefined;
+      worker.outcome = undefined;
+    }
+  }
+  private async run(): Promise<void> {
+    const deadline = setTimeout(() => {
+      this.error ??= "deadline";
+      this.cancel();
+    }, BATCH_ANALYSIS_MAX_RUNTIME_MS);
+    try {
+      await Promise.allSettled(this.workers.map((worker) => this.runWorker(worker)));
     } finally {
       if (!this.cancelled) this.state = "finishing";
-      try {
-        await this.engine.close();
-      } catch (error) {
-        console.error("Batch engine cleanup failed:", error);
-        this.error ??= "engine";
+      const cleanup = await Promise.allSettled(
+        this.workers.map(async (worker) => worker.engine.close()),
+      );
+      for (const result of cleanup) {
+        if (result.status === "rejected") {
+          console.error("Batch engine cleanup failed:", result.reason);
+          this.error ??= "engine";
+        }
       }
       this.resourceLease?.release();
       this.resourceLease = undefined;
@@ -268,5 +329,4 @@ export class BatchAnalysisJob {
       this.resolveCompletion();
     }
   }
-  private multiPVApplied = false;
 }
