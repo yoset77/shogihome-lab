@@ -61,11 +61,18 @@ const parallelJob: JobSummary = {
     parallel: { parallelism: 2, activeFiles: 2 },
   },
 };
+const parallelGame: JobSummary = {
+  ...job,
+  kind: "game",
+  parallelGame: { parallelism: 2, activeGames: 2, results: newGameResults("Black", "White") },
+};
 
 describe("JobsDialog", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    mocks.cancel.mockReset();
+    mocks.cancelGame.mockReset();
     mocks.store.canAttachJob = true;
     mocks.store.canDetachJob = false;
     mocks.store.canDetachListedJob.mockImplementation(
@@ -105,11 +112,6 @@ describe("JobsDialog", () => {
   it("shows fixed-player parallel game results and stops without acquiring the board", async () => {
     mocks.store.canAttachJob = false;
     mocks.analysis.mockResolvedValue([]);
-    const parallelGame = {
-      ...job,
-      kind: "game" as const,
-      parallelGame: { parallelism: 2, activeGames: 2, results: newGameResults("Black", "White") },
-    };
     mocks.games.mockResolvedValue([parallelGame]);
     mocks.cancelGame.mockResolvedValue({ ...parallelGame, state: "cancelling" });
     const wrapper = mountDialog();
@@ -193,25 +195,123 @@ describe("JobsDialog", () => {
     ]);
     wrapper.unmount();
   });
-  it("honors cancellation Retry-After before polling or accepting another stop", async () => {
-    mocks.analysis.mockResolvedValue([parallelJob]);
-    mocks.games.mockResolvedValue([]);
-    mocks.cancel.mockRejectedValueOnce(new ApiResponseError(429, "Wait before retrying", 30_000));
+  it.each([parallelJob, parallelGame])(
+    "allows immediate manual retry after a failed $kind cancellation",
+    async (candidate) => {
+      mocks.analysis.mockResolvedValue(candidate.kind === "analysis" ? [candidate] : []);
+      mocks.games.mockResolvedValue(candidate.kind === "game" ? [candidate] : []);
+      const cancel = candidate.kind === "analysis" ? mocks.cancel : mocks.cancelGame;
+      cancel.mockRejectedValueOnce(new TypeError("Network failure")).mockResolvedValueOnce({
+        ...candidate,
+        jobId: candidate.id,
+        state: "cancelling",
+      });
+      const wrapper = mountDialog();
+      await flushPromises();
+      const label = candidate.kind === "analysis" ? t.stopAnalysis : t.interrupt;
+      const stop = wrapper.findAll("button").find((button) => button.text() === label)!;
+      await stop.trigger("click");
+      await flushPromises();
+      expect(wrapper.get('[role="alert"]').text()).toBe("Network failure");
+      expect(stop.attributes("disabled")).toBeUndefined();
+      await stop.trigger("click");
+      await flushPromises();
+      expect(cancel).toHaveBeenCalledTimes(2);
+      expect(wrapper.text()).toContain(t.jobsStateCancelling);
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+      expect(mocks.analysis).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(mocks.analysis).toHaveBeenCalledTimes(2);
+      wrapper.unmount();
+    },
+  );
+  it.each([parallelJob, parallelGame])(
+    "allows $kind cancellation during polling backoff",
+    async (candidate) => {
+      mocks.analysis.mockResolvedValue(candidate.kind === "analysis" ? [candidate] : []);
+      mocks.games.mockResolvedValue(candidate.kind === "game" ? [candidate] : []);
+      const cancel = candidate.kind === "analysis" ? mocks.cancel : mocks.cancelGame;
+      cancel.mockResolvedValueOnce({ ...candidate, jobId: candidate.id, state: "cancelling" });
+      const wrapper = mountDialog();
+      await flushPromises();
+      mocks.analysis.mockRejectedValueOnce(new ApiResponseError(500, "List unavailable"));
+      await vi.advanceTimersByTimeAsync(5000);
+      await flushPromises();
+      expect(wrapper.get('[role="alert"]').text()).toBe("List unavailable");
+      const label = candidate.kind === "analysis" ? t.stopAnalysis : t.interrupt;
+      const stop = wrapper.findAll("button").find((button) => button.text() === label)!;
+      expect(stop.attributes("disabled")).toBeUndefined();
+      await stop.trigger("click");
+      await flushPromises();
+      expect(cancel).toHaveBeenCalledExactlyOnceWith(candidate.id);
+      expect(wrapper.text()).toContain(t.jobsStateCancelling);
+      expect(mocks.analysis).toHaveBeenCalledTimes(2);
+      wrapper.unmount();
+    },
+  );
+  it.each([3000, 30_000])(
+    "honors cancellation Retry-After (%i ms) before polling or accepting another stop",
+    async (retryAfterMs) => {
+      mocks.analysis.mockResolvedValue([parallelJob]);
+      mocks.games.mockResolvedValue([]);
+      mocks.cancel.mockRejectedValueOnce(
+        new ApiResponseError(429, "Wait before retrying", retryAfterMs),
+      );
+      const wrapper = mountDialog();
+      await flushPromises();
+      const stop = wrapper.findAll("button").find((button) => button.text() === t.stopAnalysis)!;
+      await stop.trigger("click");
+      await flushPromises();
+      expect(wrapper.get('[role="alert"]').text()).toBe("Wait before retrying");
+      expect(stop.attributes("disabled")).toBeDefined();
+      await vi.advanceTimersByTimeAsync(retryAfterMs - 1);
+      expect(mocks.analysis).toHaveBeenCalledOnce();
+      expect(mocks.cancel).toHaveBeenCalledOnce();
+      expect(stop.attributes("disabled")).toBeDefined();
+      await vi.advanceTimersByTimeAsync(1);
+      await flushPromises();
+      expect(stop.attributes("disabled")).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(Math.max(5000, retryAfterMs) - retryAfterMs);
+      expect(mocks.analysis).toHaveBeenCalledTimes(2);
+      wrapper.unmount();
+    },
+  );
+  it("honors polling Retry-After without waiting for the longer polling backoff to allow stop", async () => {
+    mocks.analysis.mockResolvedValue([]);
+    mocks.games.mockResolvedValue([parallelGame]);
     const wrapper = mountDialog();
     await flushPromises();
-    const stop = wrapper.findAll("button").find((button) => button.text() === t.stopAnalysis)!;
-    await stop.trigger("click");
+    mocks.analysis.mockRejectedValueOnce(new ApiResponseError(429, "Rate limited", 3000));
+    await vi.advanceTimersByTimeAsync(5000);
     await flushPromises();
-    expect(wrapper.get('[role="alert"]').text()).toBe("Wait before retrying");
+    const stop = wrapper.findAll("button").find((button) => button.text() === t.interrupt)!;
     expect(stop.attributes("disabled")).toBeDefined();
-    await vi.advanceTimersByTimeAsync(29_999);
-    expect(mocks.analysis).toHaveBeenCalledOnce();
-    expect(mocks.cancel).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(2999);
+    expect(stop.attributes("disabled")).toBeDefined();
     await vi.advanceTimersByTimeAsync(1);
     await flushPromises();
-    expect(mocks.analysis).toHaveBeenCalledTimes(2);
     expect(stop.attributes("disabled")).toBeUndefined();
+    expect(mocks.analysis).toHaveBeenCalledTimes(2);
+    mocks.cancelGame.mockResolvedValueOnce({ ...parallelGame, state: "cancelling" });
+    await stop.trigger("click");
+    await flushPromises();
+    expect(mocks.cancelGame).toHaveBeenCalledExactlyOnceWith(parallelGame.id);
+    expect(wrapper.text()).toContain(t.jobsStateCancelling);
     wrapper.unmount();
+  });
+  it("clears the Retry-After timer when the dialog is closed", async () => {
+    mocks.analysis.mockResolvedValue([parallelJob]);
+    mocks.games.mockResolvedValue([]);
+    mocks.cancel.mockRejectedValueOnce(new ApiResponseError(429, "Rate limited", 30_000));
+    const wrapper = mountDialog();
+    await flushPromises();
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === t.stopAnalysis)!
+      .trigger("click");
+    await flushPromises();
+    wrapper.unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("offers detachment but disables new attachments while the screen is occupied", async () => {
