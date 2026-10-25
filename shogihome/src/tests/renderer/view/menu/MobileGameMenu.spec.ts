@@ -73,7 +73,10 @@ describe("mobile game background start", () => {
     await flushPromises();
     await wrapper.get("#mobile-game-parallelism").setValue("4");
     expect(wrapper.text()).toContain(t.parallelGameNote);
-    expect(backgroundItem(wrapper)).toBeUndefined();
+    expect(backgroundItem(wrapper)!.findComponent(ToggleButton).props()).toMatchObject({
+      disabled: true,
+      value: true,
+    });
     await wrapper.find("button.start").trigger("click");
     await flushPromises();
     expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ parallelism: 4 }), true);

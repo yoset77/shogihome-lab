@@ -321,17 +321,14 @@ export const en: Texts = {
   parallelism: "Parallelism",
   parallelGameBackgroundOnly:
     "Parallel games require two engines and run only in the background. Open results from the job details.",
-  parallelGameNote:
-    "Parallel games run in the background. CPU and memory usage increase with the engine's Threads and Hash settings. Enable auto-save to keep every record.",
+  parallelGameNote: "Enable auto-save to keep every record.",
   parallelGameProgress: (active, parallelism) =>
     `${active} active games / up to ${parallelism} parallel workers`,
-  parallelGameResults: (win1, win2, draw, invalid) =>
-    `Initial Black: ${win1} wins / Initial White: ${win2} wins / Draws: ${draw} / Invalid: ${invalid}`,
+  parallelGameResults: (name1, win1, name2, win2, draw, invalid) =>
+    `${name1}: ${win1} wins / ${name2}: ${win2} wins / Draws: ${draw} / Invalid: ${invalid}`,
   parallelGameHistoryOnly: "Auto-save disabled (history backup only)",
   batchAnalysisBackgroundOnly:
     "Parallel batch analysis runs only in the background. Open saved results from the job details.",
-  batchAnalysisParallelNote:
-    "Parallel analysis runs in the background. CPU and memory usage increase with the engine's Threads and Hash settings.",
   batchAnalysisParallelProgress: (active, parallelism) =>
     `${active} active files / up to ${parallelism} parallel workers`,
   currentRecord: "Current Record",
@@ -341,6 +338,7 @@ export const en: Texts = {
   batchAnalysisSkipNote:
     "Analyzed records are excluded during analysis, so the number actually analyzed may be lower than the number shown.",
   checkBatchTargets: "Check targets",
+  batchAnalysisTargetFiles: "Target files",
   analyzedRecordFilesWillBeOverwritten:
     "Analyzed record files will be overwritten. Please make a copy of important data in advance.",
   batchAnalysisInvalid: "Invalid batch analysis source or settings.",
@@ -350,7 +348,7 @@ export const en: Texts = {
   batchAnalysisConfirm: (count) => `Analyze up to ${count} records in order. Start?`,
   batchAnalysisSummary: (success, failed, skipped) =>
     `Success ${success} / Failed ${failed} / Skipped ${skipped}`,
-  batchAnalysisDetails: "Per-file results",
+  batchAnalysisDetails: "Individual results",
   batchAnalysisReason: (reason) =>
     ({
       read: "Read failed",

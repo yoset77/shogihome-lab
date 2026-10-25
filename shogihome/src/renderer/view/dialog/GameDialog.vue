@@ -267,8 +267,12 @@
               :label="t.adjustBoardToHumanPlayer"
             />
           </div>
-          <div v-if="isBlackEngine && isWhiteEngine && !parallelGame" class="form-item">
-            <ToggleButton v-model:value="background" :label="t.jobsBackground" />
+          <div v-if="isBlackEngine && isWhiteEngine" class="form-item">
+            <ToggleButton
+              v-model:value="background"
+              :label="t.jobsBackground"
+              :disabled="parallelGame"
+            />
           </div>
         </div>
       </div>
@@ -356,6 +360,20 @@ const isBlackEngine = computed(() => uri.isLanEngineURI(blackPlayerURI.value));
 const isWhiteEngine = computed(() => uri.isLanEngineURI(whitePlayerURI.value));
 const parallelGame = computed(
   () => isBlackEngine.value && isWhiteEngine.value && (gameSettings.value.parallelism ?? 1) > 1,
+);
+// Parallel games run only in the background; restore the user's choice otherwise.
+let userBackground = background.value;
+watch(
+  parallelGame,
+  (value) => {
+    if (value) {
+      userBackground = background.value;
+      background.value = true;
+    } else {
+      background.value = userBackground;
+    }
+  },
+  { immediate: true },
 );
 watch(
   () => isBlackEngine.value && isWhiteEngine.value,

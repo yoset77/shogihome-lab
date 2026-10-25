@@ -1,8 +1,8 @@
 <template>
   <div style="display: inline-block">
-    <div class="container">
+    <div class="container" :class="{ disabled: disabled }">
       <div class="toggle" :style="toggleStyle">
-        <input :id="id" v-model="model" type="checkbox" />
+        <input :id="id" v-model="model" type="checkbox" :disabled="disabled" />
         <div class="slider" :style="sliderStyle"></div>
         <div class="knob" :style="knobStyle"></div>
       </div>
@@ -27,6 +27,10 @@ const props = defineProps({
   height: {
     type: Number,
     default: 20,
+  },
+  disabled: {
+    type: Boolean,
+    default: false,
   },
 });
 
@@ -53,6 +57,13 @@ div.container {
   display: flex;
   flex-direction: row;
   align-items: center;
+}
+div.container.disabled {
+  opacity: 0.5;
+}
+div.container.disabled input,
+div.container.disabled label {
+  cursor: default;
 }
 div.toggle {
   position: relative;

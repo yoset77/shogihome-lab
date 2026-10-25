@@ -142,9 +142,9 @@
               <div class="form-item-label">{{ t.saveRecordAutomatically }}</div>
               <ToggleButton v-model:value="settings.enableAutoSave" />
             </div>
-            <div v-if="canStartInBackground && !parallelGame" class="form-item">
+            <div v-if="canStartInBackground" class="form-item">
               <div class="form-item-label">{{ t.jobsBackground }}</div>
-              <ToggleButton v-model:value="background" />
+              <ToggleButton v-model:value="background" :disabled="parallelGame" />
             </div>
           </div>
         </div>
@@ -227,6 +227,20 @@ const canStartInBackground = computed(
   () => isEnginePlayer(settings.black.uri) && isEnginePlayer(settings.white.uri),
 );
 const parallelGame = computed(() => canStartInBackground.value && settings.parallelism > 1);
+// Parallel games run only in the background; restore the user's choice otherwise.
+let userBackground = background.value;
+watch(
+  parallelGame,
+  (value) => {
+    if (value) {
+      userBackground = background.value;
+      background.value = true;
+    } else {
+      background.value = userBackground;
+    }
+  },
+  { immediate: true },
+);
 watch(canStartInBackground, (available) => {
   if (!available) background.value = false;
 });

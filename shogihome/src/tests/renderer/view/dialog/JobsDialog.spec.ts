@@ -117,7 +117,7 @@ describe("JobsDialog", () => {
     const wrapper = mountDialog();
     await flushPromises();
     expect(wrapper.text()).toContain(t.parallelGameProgress(2, 2));
-    expect(wrapper.text()).toContain(t.parallelGameResults(0, 0, 0, 0));
+    expect(wrapper.text()).toContain(t.parallelGameResults("Black", 0, "White", 0, 0, 0));
     expect(wrapper.text()).not.toContain(t.jobsAttach);
     await wrapper
       .findAll("li button")
@@ -127,6 +127,22 @@ describe("JobsDialog", () => {
     expect(mocks.cancelGame).toHaveBeenCalledExactlyOnceWith("job");
     expect(mocks.store.attachJob).not.toHaveBeenCalled();
     expect(wrapper.text()).toContain(t.jobsStateCancelling);
+    wrapper.unmount();
+  });
+  it("shows identical player names without color prefixes", async () => {
+    mocks.analysis.mockResolvedValue([]);
+    mocks.games.mockResolvedValue([
+      {
+        ...parallelGame,
+        parallelGame: {
+          ...parallelGame.parallelGame!,
+          results: newGameResults("Same", "Same"),
+        },
+      },
+    ]);
+    const wrapper = mountDialog();
+    await flushPromises();
+    expect(wrapper.text()).toContain(t.parallelGameResults("Same", 0, "Same", 0, 0, 0));
     wrapper.unmount();
   });
   it("shows the file progress of a background batch in games", async () => {

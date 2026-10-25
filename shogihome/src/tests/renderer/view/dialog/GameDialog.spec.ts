@@ -44,13 +44,14 @@ describe("parallel game settings dialog", () => {
     const wrapper = mountDialog();
     await flushPromises();
     expect(wrapper.get<HTMLInputElement>("#game-parallelism").element.value).toBe("1");
-    expect(background(wrapper)).toBeDefined();
+    expect(background(wrapper)!.props("disabled")).toBe(false);
     await wrapper.get("#game-parallelism").setValue("4");
-    expect(background(wrapper)).toBeUndefined();
+    expect(background(wrapper)!.props()).toMatchObject({ disabled: true, value: true });
     expect(wrapper.text()).toContain(t.parallelGameNote);
     await wrapper.get('button[data-hotkey="Enter"]').trigger("click");
     expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ parallelism: 4 }), true);
     await wrapper.get("#game-parallelism").setValue("1");
+    expect(background(wrapper)!.props()).toMatchObject({ disabled: false, value: false });
     await wrapper.get('button[data-hotkey="Enter"]').trigger("click");
     expect(mocks.start).toHaveBeenLastCalledWith(
       expect.objectContaining({ parallelism: 1 }),
