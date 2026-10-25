@@ -1598,8 +1598,15 @@ class Store {
   }
 
   async openBatchAnalysisFile(path: string): Promise<boolean> {
+    return this.openJobRecordFile(path, "analysis");
+  }
+  async openJobRecordFile(path: string, kind: "analysis" | "game"): Promise<boolean> {
     if (!this.canAttachJob) return false;
-    if (this.recordManager.unsaved && !(await this.confirmJob(t.analysisRecover))) return false;
+    if (
+      this.recordManager.unsaved &&
+      !(await this.confirmJob(kind === "game" ? t.gameRecover : t.analysisRecover))
+    )
+      return false;
     if (!this.canAttachJob) return false;
     useBusyState().retain();
     try {

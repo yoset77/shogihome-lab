@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { Color, SpecialMoveType, exportKIF, type ImmutableNode } from "tsshogi";
+import { Color, SpecialMoveType, type ImmutableNode } from "tsshogi";
 import { GameRecord } from "@/common/game/record";
 import {
   MAX_GAME_ERROR_MESSAGE_LENGTH,
@@ -36,6 +36,10 @@ import { GameController, type PlayerBuilder } from "./controller";
 import { GamePlayer, HumanPlayer } from "./player";
 import { GameBook } from "./book";
 import { loadGamePositions, saveGameRecord } from "./files";
+import { persistGameRecord } from "./persistence";
+import { ParallelGames } from "./parallel";
+import { newGameResults } from "@/common/game/results";
+import { MAX_GAME_SNAPSHOT_BYTES } from "./limits";
 import { addHistory, saveBackup } from "@/server/file/history";
 import { GAME_DETACHED_TTL_MS } from "@/server/config";
 import type {
@@ -53,15 +57,18 @@ import {
 
 export const GAME_HEARTBEAT_MS = 5000;
 export const GAME_CONTROLLER_TIMEOUT_MS = 30_000;
-export const MAX_GAME_SNAPSHOT_BYTES = 16 * 1024 * 1024;
+export { MAX_GAME_SNAPSHOT_BYTES } from "./limits";
 
 export type GameDependencies = {
   createEngine?: () => GameEngine;
   resolveEngine?: (id: string) => Promise<EngineConfig>;
-  // Reserves the shared budget for both engines before the game starts.
+  // Reserves all workers' shared budget before any engine starts.
   // The production manager wires the default provider; tests without it
   // skip resource accounting.
-  acquireResourceLease?: (configs: readonly EngineConfig[]) => Promise<ResourceLease | undefined>;
+  acquireResourceLease?: (
+    configs: readonly EngineConfig[],
+    parallelism?: number,
+  ) => Promise<ResourceLease | undefined>;
   loadPositions?: (uri: string) => Promise<string[]>;
   saveRecord?: typeof saveGameRecord;
   addHistory?: typeof addHistory;
@@ -76,6 +83,36 @@ function resolveEngine(id: string, configs: EngineConfig[]): EngineConfig {
     throw new Error("Unknown game engine");
   return engine;
 }
+
+export async function resolveGameEngineConfigs(
+  request: GameSessionRequest,
+  deps: GameDependencies,
+): Promise<ReadonlyMap<string, EngineConfig>> {
+  const configs = new Map<string, EngineConfig>();
+  if (deps.playerBuilder) return configs;
+  const ids = [
+    ...new Set(
+      [request.settings.black, request.settings.white]
+        .filter((settings) => settings.uri !== ES_HUMAN)
+        .map((settings) => getLanEngineId(settings.uri, "game")!),
+    ),
+  ];
+  if (ids.length > 0) {
+    const catalog = deps.resolveEngine ? undefined : await fetchEngineConfigs();
+    for (const id of ids) {
+      const config = deps.resolveEngine
+        ? await deps.resolveEngine(id)
+        : resolveEngine(id, catalog!);
+      configs.set(id, structuredClone(config));
+    }
+  }
+  return configs;
+}
+
+export type GameStartup = {
+  configs: ReadonlyMap<string, EngineConfig>;
+  resourceLease?: ResourceLease;
+};
 
 export class GameSession {
   private readonly records: GameRecord;
@@ -113,6 +150,7 @@ export class GameSession {
   private lastResult?: SpecialMoveType;
   private terminal = false;
   private resourceLease?: ResourceLease;
+  private parallel?: ParallelGames;
   private summaries: GameRecordSummary[] = [];
   private commands = new Map<
     string,
@@ -134,7 +172,9 @@ export class GameSession {
     readonly id: string,
     readonly request: GameSessionRequest,
     private readonly deps: GameDependencies = {},
+    private readonly startup?: GameStartup,
   ) {
+    this.resourceLease = startup?.resourceLease;
     this.now = deps.now ?? (() => performance.now());
     this.controllerId = request.controllerId;
     this.detachedSince = this.now();
@@ -165,6 +205,20 @@ export class GameSession {
   }
   get gameId(): string {
     return `${this.id}_${this.core.gameNumber}`;
+  }
+  get backgroundOnly(): boolean {
+    return (this.request.settings.parallelism ?? 1) > 1;
+  }
+  private ensureAttachable(): void {
+    if (this.backgroundOnly) throw new HttpError(409, t.parallelGameBackgroundOnly);
+  }
+  cancelParallel(): JobSummary {
+    if (!this.backgroundOnly) throw new HttpError(409, t.gameInvalid);
+    if (!this.terminal) {
+      this.abort.abort();
+      this.parallel?.stop();
+    }
+    return this.summary();
   }
 
   start(): void {
@@ -213,33 +267,39 @@ export class GameSession {
       return;
     }
     try {
-      const configs = new Map<string, EngineConfig>();
-      if (!this.deps.playerBuilder) {
-        const ids = [
-          ...new Set(
-            [this.request.settings.black, this.request.settings.white]
-              .filter((settings) => settings.uri !== ES_HUMAN)
-              .map((settings) => getLanEngineId(settings.uri, "game")!),
-          ),
-        ];
-        if (ids.length > 0) {
-          const catalog = this.deps.resolveEngine ? undefined : await fetchEngineConfigs();
-          for (const id of ids) {
-            const config = this.deps.resolveEngine
-              ? await this.deps.resolveEngine(id)
-              : resolveEngine(id, catalog!);
-            configs.set(id, structuredClone(config));
-          }
-        }
-      }
+      const configs =
+        this.startup?.configs ?? (await resolveGameEngineConfigs(this.request, this.deps));
       if (this.abort.signal.aborted) throw new Error("Game startup cancelled");
       // Reserve the shared budget before either engine is launched. AI
       // engines search alternately (no ponder), so the reservation is the
-      // per-group maximum of both engines, held for the whole session.
-      if (this.deps.acquireResourceLease) {
-        this.resourceLease = await this.deps.acquireResourceLease([...configs.values()]);
+      // per-group maximum of both engines per worker, summed across workers.
+      if (!this.startup && this.deps.acquireResourceLease) {
+        this.resourceLease = await this.deps.acquireResourceLease(
+          [...configs.values()],
+          Math.min(this.request.settings.parallelism ?? 1, this.request.settings.repeat),
+        );
       }
       if (this.abort.signal.aborted) throw new Error("Game startup cancelled");
+      if (this.backgroundOnly) {
+        this.parallel = new ParallelGames(
+          this.id,
+          this.request,
+          this.deps,
+          configs,
+          this.resourceLease,
+          (error) =>
+            this.fail(
+              error,
+              error instanceof HttpError && error.status === 503 ? "capacity" : "engine",
+            ),
+          () => {
+            this.error ??= "save";
+          },
+        );
+        await this.parallel.run();
+        this.finish();
+        return;
+      }
       const builder: PlayerBuilder = this.deps.playerBuilder ?? {
         build: async (settings, onInfo) => {
           if (settings.uri === ES_HUMAN) return new HumanPlayer();
@@ -335,40 +395,72 @@ export class GameSession {
     return { black: read(this.blackClock), white: read(this.whiteClock) };
   }
   private state(): GameSnapshot["state"] {
-    return this.terminal
-      ? this.error && this.error !== "save"
-        ? "failed"
-        : "completed"
-      : this.core.isPaused
-        ? "paused"
-        : this.core.isTakingBack
-          ? "takingBack"
-          : this.core.isActive
-            ? "running"
-            : this.core.phase === "busy"
-              ? "finishing"
-              : "preparing";
+    if (this.terminal) return this.error && this.error !== "save" ? "failed" : "completed";
+    if (this.backgroundOnly) {
+      if (
+        this.abort.signal.aborted ||
+        (this.parallel && this.parallel.results.total >= this.request.settings.repeat)
+      )
+        return "finishing";
+      return this.parallel ? "running" : "preparing";
+    }
+    return this.core.isPaused
+      ? "paused"
+      : this.core.isTakingBack
+        ? "takingBack"
+        : this.core.isActive
+          ? "running"
+          : this.core.phase === "busy"
+            ? "finishing"
+            : "preparing";
   }
   summary(): JobSummary {
     const settings = this.core.gameNumber ? this.core.settings : this.request.settings;
+    const cancelled =
+      this.lastResult === SpecialMoveType.INTERRUPT ||
+      (this.backgroundOnly && this.abort.signal.aborted);
+    let state: JobSummary["state"] = this.state();
+    if (this.backgroundOnly && this.abort.signal.aborted && !this.terminal) state = "cancelling";
+    else if (
+      this.terminal &&
+      cancelled &&
+      (!this.error || (this.backgroundOnly && this.error === "save"))
+    )
+      state = "cancelled";
     return {
       kind: "game",
       id: this.id,
       requestId: this.request.requestId,
       serverInstanceId: this.request.serverInstanceId,
       createdAt: this.createdAt,
-      state:
-        this.terminal && this.lastResult === SpecialMoveType.INTERRUPT && !this.error
-          ? "cancelled"
-          : this.state(),
-      engines: [settings.black.name, settings.white.name],
-      completed: this.terminal ? this.core.gameNumber : Math.max(0, this.core.gameNumber - 1),
+      state,
+      engines: this.parallel
+        ? [this.parallel.results.player1.name, this.parallel.results.player2.name]
+        : [settings.black.name, settings.white.name],
+      completed: this.backgroundOnly
+        ? (this.parallel?.results.total ?? 0)
+        : this.terminal
+          ? this.core.gameNumber
+          : Math.max(0, this.core.gameNumber - 1),
       total: this.request.settings.repeat,
       attachment: this.attachment(),
+      ...(this.backgroundOnly ? { parallelGame: this.parallelProgress() } : {}),
+    };
+  }
+  private parallelProgress() {
+    return {
+      ...(this.parallel?.progress() ?? {
+        parallelism: this.request.settings.parallelism!,
+        activeGames: 0,
+        results: newGameResults(this.request.settings.black.name, this.request.settings.white.name),
+      }),
+      ...(this.error ? { error: this.error } : {}),
     };
   }
   snapshot(): GameSnapshot {
+    const parallel = this.backgroundOnly ? this.parallelProgress() : undefined;
     return {
+      ...(parallel ? { parallel } : {}),
       controllerGeneration: this.controllerGeneration,
       controllerRecoveryId: this.controllerRecoveryId,
       controllerOwnerId: this.controllerId,
@@ -389,7 +481,7 @@ export class GameSession {
       settings: structuredClone(this.core.gameNumber ? this.core.settings : this.request.settings),
       record: this.source(),
       clocks: this.clocks(),
-      results: structuredClone(this.core.results),
+      results: structuredClone(parallel?.results ?? this.core.results),
       canMove: !!this.controller && this.core.isActive && this.core.isHumanTurn,
       canTakeback: !!this.controller && this.core.canTakeback,
       supportsTakeback: this.core.supportsTakeback,
@@ -397,7 +489,7 @@ export class GameSession {
       ...(this.lastResult ? { lastResult: this.lastResult } : {}),
       ...(this.error ? { error: this.error } : {}),
       ...(this.errorMessage ? { errorMessage: this.errorMessage } : {}),
-      records: structuredClone(this.summaries),
+      records: structuredClone(this.parallel?.records ?? this.summaries),
     };
   }
   publicSnapshot(): GameSnapshot {
@@ -408,6 +500,7 @@ export class GameSession {
     return snapshot;
   }
   creationSnapshot(): GameSnapshot {
+    if (this.backgroundOnly) return this.publicSnapshot();
     return this.controllerId === this.request.controllerId
       ? this.snapshot()
       : this.publicSnapshot();
@@ -425,6 +518,7 @@ export class GameSession {
   }
 
   recover(request: GameRecoveryRequest): GameSnapshot {
+    this.ensureAttachable();
     if (request.ownerId !== this.controllerId) throw new HttpError(409, t.gameConflict);
     // The creator's private owner ID authorizes the first claim, including a lost create response.
     if (
@@ -482,6 +576,7 @@ export class GameSession {
     close: (code?: number) => void = () => {},
     connection?: GameConnection,
   ): { epoch: number; heartbeat: () => void; disconnect: () => void } {
+    this.ensureAttachable();
     if (
       controllerId !== this.controllerId ||
       !connection?.screenId ||
@@ -535,6 +630,7 @@ export class GameSession {
   }
 
   attach(request: JobAttachRequest): GameSnapshot {
+    this.ensureAttachable();
     if (
       this.request.settings.black.uri === ES_HUMAN ||
       this.request.settings.white.uri === ES_HUMAN
@@ -566,6 +662,7 @@ export class GameSession {
     return this.snapshot();
   }
   detach(binding: JobBinding): void {
+    this.ensureAttachable();
     if (
       this.request.settings.black.uri === ES_HUMAN ||
       this.request.settings.white.uri === ES_HUMAN
@@ -583,6 +680,7 @@ export class GameSession {
   }
 
   command(command: GameCommand, authorization?: JobBinding): Promise<GameSnapshot> {
+    this.ensureAttachable();
     if (command.serverInstanceId !== this.request.serverInstanceId)
       throw new HttpError(410, t.gameSessionExpired);
     if (command.controllerId !== this.controllerId) throw new HttpError(409, t.gameConflict);
@@ -716,35 +814,16 @@ export class GameSession {
     const source = this.source();
     const summary: GameRecordSummary = { gameId: this.gameId, state: "unsaved" };
     this.summaries.push(summary);
-    if (this.core.settings.enableAutoSave) {
-      try {
-        summary.path = await (this.deps.saveRecord ?? saveGameRecord)(
-          source,
-          this.request.options.save,
-          this.gameId,
-        );
-        summary.state = "saved";
-      } catch (error) {
-        console.error("Game save failed", error);
-        summary.state = "failed";
+    await persistGameRecord(
+      source,
+      this.request.options.save,
+      this.core.settings.enableAutoSave,
+      summary,
+      this.deps,
+      () => {
         this.error ??= "save";
-      }
-    }
-    try {
-      if (summary.state === "saved") {
-        await (this.deps.addHistory ?? addHistory)("server://" + summary.path);
-      } else {
-        await (this.deps.saveBackup ?? saveBackup)(
-          exportKIF(restoreRecord(source).record, {
-            returnCode: this.request.options.save.returnCode,
-          }),
-        );
-      }
-    } catch (error) {
-      console.error("Game history failed", error);
-      summary.state = "failed";
-      this.error ??= "save";
-    }
+      },
+    );
     this.publish();
   }
   private fail(error: unknown, kind: GameError = "engine"): void {
@@ -752,6 +831,7 @@ export class GameSession {
     if (this.error && this.error !== "save") return;
     this.error = kind;
     this.abort.abort();
+    this.parallel?.stop();
     this.core.stop();
   }
   private finish(): void {
@@ -768,8 +848,11 @@ export class GameSession {
   }
   close(): Promise<void> {
     return (this.closing ??= (async () => {
-      this.abort.abort();
-      this.core.stop();
+      if (!this.terminal) {
+        this.abort.abort();
+        this.parallel?.stop();
+        this.core.stop();
+      }
       await this.completion;
       this.dispose();
     })());

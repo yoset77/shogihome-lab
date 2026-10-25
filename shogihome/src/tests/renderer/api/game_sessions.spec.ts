@@ -101,4 +101,35 @@ describe("typed game job client", () => {
     );
     await expect(createGameSessionsClient().list()).rejects.toThrow();
   });
+  it("cancels a parallel game without attachment and rejects cancellation of serial games", async () => {
+    const manager = new GameSessionManager({ playerBuilder: fakeGamePlayer().builder });
+    const app = new Hono()
+      .route("/api/game-sessions", createGameSessionRoutes(manager))
+      .onError(handleError);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) =>
+      app.request(input, init),
+    );
+    const client = createGameSessionsClient();
+    const request = gameRequest();
+    request.serverInstanceId = manager.serverInstanceId;
+    request.settings.black = request.settings.white = { uri: "lan-engine:test", name: "AI" };
+    request.settings.parallelism = 2;
+    request.settings.repeat = 3;
+    const created = await client.create(request);
+    await vi.advanceTimersByTimeAsync(1);
+    const stopped = await client.cancel(created.sessionId);
+    expect(stopped).toMatchObject({ id: created.sessionId, kind: "game", state: "cancelling" });
+    await vi.advanceTimersByTimeAsync(1);
+    await manager.get(created.sessionId).completion;
+    expect((await client.list())[0].state).toBe("cancelled");
+    const serial = await client.create({
+      ...request,
+      requestId: "serial",
+      settings: { ...request.settings, parallelism: 1 },
+    });
+    await expect(client.cancel(serial.sessionId)).rejects.toMatchObject({ status: 409 });
+    const closing = manager.close();
+    await vi.advanceTimersByTimeAsync(1);
+    await closing;
+  });
 });

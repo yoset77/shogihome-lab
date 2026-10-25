@@ -68,4 +68,23 @@ describe("mobile game background start", () => {
     expect(mocks.start).toHaveBeenCalledWith(expect.anything(), false);
     wrapper.unmount();
   });
+  it("forces parallel games into the background and resets parallelism for human games", async () => {
+    const wrapper = shallowMount(MobileGameMenu);
+    await flushPromises();
+    await wrapper.get("#mobile-game-parallelism").setValue("4");
+    expect(wrapper.text()).toContain(t.parallelGameNote);
+    expect(backgroundItem(wrapper)).toBeUndefined();
+    await wrapper.find("button.start").trigger("click");
+    await flushPromises();
+    expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ parallelism: 4 }), true);
+    wrapper.findAllComponents(MobilePlayerSetting)[0].vm.$emit("update:playerUri", "es://human");
+    await flushPromises();
+    await wrapper.find("button.start").trigger("click");
+    await flushPromises();
+    expect(mocks.start).toHaveBeenLastCalledWith(
+      expect.objectContaining({ parallelism: 1 }),
+      false,
+    );
+    wrapper.unmount();
+  });
 });

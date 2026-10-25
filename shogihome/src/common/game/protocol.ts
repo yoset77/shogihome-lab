@@ -12,6 +12,7 @@ import {
 } from "@/common/record/snapshot";
 import {
   JishogiRule,
+  MAX_GAME_PARALLELISM,
   validateGameSettings,
   type GameSettings,
   type TimeLimitSettings,
@@ -29,6 +30,7 @@ import { ES_HUMAN, isLanEngineURI } from "@/common/uri";
 import type { GameResults } from "./results";
 import type { USIInfoCommand } from "./usi";
 import { readJobAttachRequest, type JobAttachRequest } from "@/common/jobs/types";
+import { readParallelGameProgress, type ParallelGameProgress } from "./parallel";
 
 export const GAME_STATES = [
   "preparing",
@@ -71,6 +73,7 @@ export type GameRecordSummary = {
   path?: string;
 };
 export type GameSnapshot = {
+  parallel?: ParallelGameProgress;
   controllerGeneration: number;
   controllerRecoveryId?: string;
   controllerOwnerId?: string;
@@ -229,6 +232,8 @@ export function readGameSettings(value: unknown): GameSettings {
     enableComment: v.boolean(input.enableComment),
     enableAutoSave: v.boolean(input.enableAutoSave),
     repeat: v.counter(input.repeat, 10_000),
+    parallelism:
+      input.parallelism === undefined ? 1 : v.counter(input.parallelism, MAX_GAME_PARALLELISM),
     swapPlayers: v.boolean(input.swapPlayers),
     maxMoves: v.counter(input.maxMoves, 2047),
     jishogiRule: v.enumeration(input.jishogiRule, Object.values(JishogiRule)),
@@ -349,6 +354,17 @@ export function decodeGameSnapshot(value: unknown): DecodeResult<GameSnapshot> {
       results = v.object(input.results);
     const record = decodeRecordSnapshot(input.record);
     if (!record.ok) throw new Error(record.error);
+    const settings = readGameSettings(input.settings);
+    const parallel =
+      input.parallel === undefined ? undefined : readParallelGameProgress(input.parallel);
+    if (
+      parallel &&
+      (parallel.parallelism !== settings.parallelism ||
+        parallel.results.total + parallel.activeGames > settings.repeat ||
+        input.canMove !== false ||
+        input.canTakeback !== false)
+    )
+      throw new Error("Invalid parallel game snapshot");
     const player = (value: unknown) => {
       const input = v.object(value);
       return {
@@ -360,6 +376,7 @@ export function decodeGameSnapshot(value: unknown): DecodeResult<GameSnapshot> {
     };
     return {
       controllerGeneration: v.counter(input.controllerGeneration),
+      ...(parallel ? { parallel } : {}),
       ...(input.controllerRecoveryId === undefined
         ? {}
         : { controllerRecoveryId: v.identifier(input.controllerRecoveryId) }),
@@ -380,7 +397,7 @@ export function decodeGameSnapshot(value: unknown): DecodeResult<GameSnapshot> {
       gameNumber: v.counter(input.gameNumber),
       interactionId: v.counter(input.interactionId),
       state: v.enumeration(input.state, GAME_STATES),
-      settings: readGameSettings(input.settings),
+      settings,
       record: record.value,
       clocks: readClocks(input.clocks),
       results: {

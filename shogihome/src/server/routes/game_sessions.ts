@@ -33,6 +33,9 @@ export const createGameSessionRoutes = (manager: GameSessionManager = gameSessio
     })
     .get("/capabilities", (c) => c.json(manager.capabilities()))
     .get("/", (c) => c.json(manager.list()))
+    .post("/:sessionId/cancel", (c) =>
+      c.json(manager.get(id(c.req.param("sessionId"))).cancelParallel(), 202),
+    )
     .get("/:sessionId/commands/:requestId", async (c) =>
       c.json(
         await manager
@@ -88,7 +91,7 @@ export const createGameSessionRoutes = (manager: GameSessionManager = gameSessio
         if (!decoded.ok) throw new HttpError(400, t.gameInvalid);
         return decoded.value;
       }),
-      (c) => c.json(manager.create(c.req.valid("json")).creationSnapshot(), 202),
+      async (c) => c.json((await manager.create(c.req.valid("json"))).creationSnapshot(), 202),
     )
     .get("/by-request/:requestId", (c) =>
       c.json(manager.byRequest(id(c.req.param("requestId"))).publicSnapshot()),

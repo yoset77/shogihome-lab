@@ -63,6 +63,9 @@ function setup(deps: GameDependencies = {}) {
   };
   let request: GameSessionRequest | undefined;
   const client = {
+    cancel: vi.fn<GameSessionsClient["cancel"]>(async (id) =>
+      asHttp(() => server.get(id).cancelParallel()),
+    ),
     commandOutcome: vi.fn<GameSessionsClient["commandOutcome"]>(async (id, requestId) =>
       asHttp(() => server.get(id).commandOutcome(requestId)),
     ),
@@ -508,6 +511,67 @@ describe("game session client", () => {
     expect(value.sockets).toHaveLength(0);
     expect(value.server.list()).toHaveLength(1);
     expect(value.searches).toHaveLength(1);
+  });
+  it("starts parallel games without sockets or replacing the board and refuses attachment", async () => {
+    const value = fixture();
+    value.settings.black = { uri: "lan-engine:black", name: "Black" };
+    value.settings.white = { uri: "lan-engine:white", name: "White" };
+    value.settings.parallelism = 2;
+    value.settings.repeat = 4;
+    value.records.updateComment("Local work");
+    await expect(value.game.start(value.settings)).rejects.toThrow(t.parallelGameBackgroundOnly);
+    expect(value.client.capabilities).not.toHaveBeenCalled();
+    await value.game.start(value.settings, true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.client.create).toHaveBeenCalledWith(
+      expect.objectContaining({ settings: expect.objectContaining({ parallelism: 2 }) }),
+    );
+    expect(value.game.isActive).toBe(false);
+    expect(value.records.analysisLocked).toBe(false);
+    expect(value.records.record.current.comment).toBe("Local work");
+    expect(value.sockets).toHaveLength(0);
+    expect(storedReference()).toBeNull();
+    await expect(
+      value.game.attach(
+        value.server.list()[0],
+        async () => true,
+        async () => true,
+      ),
+    ).rejects.toThrow(t.parallelGameBackgroundOnly);
+    expect(value.client.attach).not.toHaveBeenCalled();
+  });
+
+  it("rejects a parallel start with budget details and releases local state for retry", async () => {
+    const message = t.resourceGroupCapacity("CPU", 8, 2, 8);
+    const acquireResourceLease = vi
+      .fn<NonNullable<GameDependencies["acquireResourceLease"]>>()
+      .mockRejectedValueOnce(new HttpError(503, message))
+      .mockResolvedValue(undefined);
+    const value = fixture({ acquireResourceLease });
+    value.settings.black = { uri: "lan-engine:black", name: "Black" };
+    value.settings.white = { uri: "lan-engine:white", name: "White" };
+    value.settings.parallelism = 2;
+    value.settings.repeat = 4;
+    value.records.updateComment("Local work");
+    await expect(value.game.start(value.settings, true)).rejects.toMatchObject({
+      status: 503,
+      message,
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.server.list()).toEqual([]);
+    expect(value.game.isActive).toBe(false);
+    expect(value.game.isStarting).toBe(false);
+    expect(value.game.hasRetainedSession).toBe(false);
+    expect(value.records.analysisLocked).toBe(false);
+    expect(value.records.record.current.comment).toBe("Local work");
+    expect(storedReference()).toBeNull();
+    expect(value.sockets).toHaveLength(0);
+    expect(value.searches).toHaveLength(0);
+    expect(value.client.create).toHaveBeenCalledOnce();
+    await value.game.start(value.settings, true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.server.list()).toHaveLength(1);
+    expect(acquireResourceLease).toHaveBeenCalledTimes(2);
   });
 
   it("detaches engine games without stopping and attaches from another device", async () => {

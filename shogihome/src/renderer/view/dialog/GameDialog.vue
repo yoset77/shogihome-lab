@@ -222,6 +222,19 @@
             <div class="form-item-label">{{ t.gameRepetition }}</div>
             <input v-model.number="gameSettings.repeat" class="number" type="number" min="1" />
           </div>
+          <div v-if="isBlackEngine && isWhiteEngine" class="form-item">
+            <label class="form-item-label" for="game-parallelism">{{ t.parallelism }}</label>
+            <input
+              id="game-parallelism"
+              v-model.number="gameSettings.parallelism"
+              class="number"
+              type="number"
+              min="1"
+              :max="MAX_GAME_PARALLELISM"
+              step="1"
+            />
+          </div>
+          <div v-if="parallelGame" class="note">{{ t.parallelGameNote }}</div>
           <div class="form-item">
             <div class="form-item-label">{{ t.jishogi }}</div>
             <select v-model="gameSettings.jishogiRule">
@@ -254,7 +267,7 @@
               :label="t.adjustBoardToHumanPlayer"
             />
           </div>
-          <div v-if="isBlackEngine && isWhiteEngine" class="form-item">
+          <div v-if="isBlackEngine && isWhiteEngine && !parallelGame" class="form-item">
             <ToggleButton v-model:value="background" :label="t.jobsBackground" />
           </div>
         </div>
@@ -295,6 +308,7 @@ import api from "@/renderer/ipc/api";
 import { useStore } from "@/renderer/store";
 import {
   defaultGameSettings,
+  MAX_GAME_PARALLELISM,
   GameSettings,
   JishogiRule,
   validateGameSettings,
@@ -340,6 +354,9 @@ const lanStore = useLanStore();
 
 const isBlackEngine = computed(() => uri.isLanEngineURI(blackPlayerURI.value));
 const isWhiteEngine = computed(() => uri.isLanEngineURI(whitePlayerURI.value));
+const parallelGame = computed(
+  () => isBlackEngine.value && isWhiteEngine.value && (gameSettings.value.parallelism ?? 1) > 1,
+);
 watch(
   () => isBlackEngine.value && isWhiteEngine.value,
   (available) => {
@@ -435,6 +452,8 @@ const buildPlayerSettings = (
 const onStart = () => {
   const newSettings: GameSettings = {
     ...gameSettings.value,
+    parallelism:
+      isBlackEngine.value && isWhiteEngine.value ? (gameSettings.value.parallelism ?? 1) : 1,
     black: buildPlayerSettings(blackPlayerURI.value, blackExtraBook.value),
     white: buildPlayerSettings(whitePlayerURI.value, whiteExtraBook.value),
     timeLimit: {
@@ -460,7 +479,10 @@ const onStart = () => {
   if (error) {
     useErrorStore().add(error);
   } else {
-    store.startGame(newSettings, background.value && isBlackEngine.value && isWhiteEngine.value);
+    store.startGame(
+      newSettings,
+      (background.value || parallelGame.value) && isBlackEngine.value && isWhiteEngine.value,
+    );
   }
 };
 

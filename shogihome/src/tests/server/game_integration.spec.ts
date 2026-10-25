@@ -10,7 +10,8 @@ import { once } from "node:events";
 import { getRequestListener } from "@hono/node-server";
 import { Hono } from "hono";
 import WebSocket from "ws";
-import { GameSessionManager } from "@/server/game/manager";
+import { GameSessionManager, acquireGameResourceLease } from "@/server/game/manager";
+import { resourceRegistry } from "@/server/engine/resources";
 import { createGameSessionRoutes } from "@/server/routes/game_sessions";
 import { createEngineWebSocketServer } from "@/server/websocket";
 import { handleError } from "@/server/errors";
@@ -152,6 +153,7 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
     for (const browser of browsers) browser.terminate();
     browsers.clear();
     await manager?.close();
+    resourceRegistry.resetForTest();
     if (middle) await new Promise<void>((resolve) => middle.close(() => resolve()));
     for (const socket of connections) socket.destroy();
     connections.clear();
@@ -333,6 +335,45 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
     expect(commands.filter((line) => line === "usinewgame")).toHaveLength(4);
     expect(commands.some((line) => line.startsWith("go btime "))).toBe(true);
     expect(commands.some((line) => line.startsWith("go ponder"))).toBe(false);
+    await vi.waitFor(() => expect(connections.size).toBe(0));
+  });
+  it("runs parallel games without a browser, reuses four TCP engines, and holds aggregate resources", async () => {
+    resourceRegistry.resetForTest(true, [{ id: "g", name: "G", budget: 8 }]);
+    manager = new GameSessionManager({
+      resolveEngine: async () => ({ ...config, threads: 4, resource: { groupId: "g" } }),
+      acquireResourceLease: acquireGameResourceLease,
+      saveRecord,
+    });
+    const request = gameRequest();
+    request.serverInstanceId = manager.serverInstanceId;
+    request.settings.black = request.settings.white = { uri: "lan-engine:test-game", name: "Same" };
+    Object.assign(request.settings, {
+      repeat: 4,
+      parallelism: 2,
+      swapPlayers: true,
+      enableAutoSave: true,
+    });
+    // This manager uses the same actual TCP/USI bridge as the HTTP fixture.
+    const session = await manager.create(request);
+    await vi.waitFor(() => expect(resourceRegistry.groupSnapshot()[0].used).toBe(8));
+    if (mode === "tcp") await vi.waitFor(() => expect(connections.size).toBe(4));
+    await session.completion;
+    expect(session.summary()).toMatchObject({
+      state: "completed",
+      completed: 4,
+      parallelGame: {
+        activeGames: 0,
+        results: { player1: { win: 2, winWhite: 2 }, player2: { win: 2, winWhite: 2 }, total: 4 },
+      },
+    });
+    expect(saveRecord).toHaveBeenCalledTimes(4);
+    expect(new Set(saveRecord.mock.calls.map((call) => (call as unknown[])[2])).size).toBe(4);
+    if (mode === "rust" && directory)
+      commands = (await fs.readFile(path.join(directory, "engine.log"), "utf8")).trim().split("\n");
+    expect(commands.filter((line) => line === "usi")).toHaveLength(4);
+    expect(commands.filter((line) => line === "usinewgame")).toHaveLength(8);
+    expect(commands.filter((line) => line.startsWith("go btime "))).toHaveLength(20);
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
     await vi.waitFor(() => expect(connections.size).toBe(0));
   });
 

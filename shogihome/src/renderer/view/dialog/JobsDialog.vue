@@ -19,7 +19,7 @@
               }}</strong>
               <span class="actions">
                 <button
-                  v-if="!job.batch?.parallel"
+                  v-if="!job.batch?.parallel && !job.parallelGame"
                   :disabled="!store.canAttachJob"
                   @click="onAttach(job)"
                 >
@@ -31,12 +31,15 @@
                 <button v-if="job.batch" @click="resultsJob = job.id">
                   {{ t.batchAnalysisDetails }}
                 </button>
+                <button v-if="job.parallelGame" @click="gameResultsJob = job.id">
+                  {{ t.batchAnalysisDetails }}
+                </button>
                 <button
-                  v-if="job.batch?.parallel && !terminal(job)"
+                  v-if="(job.batch?.parallel || job.parallelGame) && !terminal(job)"
                   :disabled="!list.canCancel(job)"
                   @click="list.cancel(job)"
                 >
-                  {{ t.stopAnalysis }}
+                  {{ job.kind === "game" ? t.interrupt : t.stopAnalysis }}
                 </button>
               </span>
             </div>
@@ -53,6 +56,26 @@
               }}</span>
             </div>
             <div>{{ job.engines.join(" / ") }}</div>
+            <template v-if="job.parallelGame">
+              <div>
+                {{
+                  t.parallelGameProgress(job.parallelGame.activeGames, job.parallelGame.parallelism)
+                }}
+              </div>
+              <div>
+                {{
+                  t.parallelGameResults(
+                    job.parallelGame.results.player1.win,
+                    job.parallelGame.results.player2.win,
+                    job.parallelGame.results.draw,
+                    job.parallelGame.results.invalid,
+                  )
+                }}
+              </div>
+              <div v-if="job.parallelGame.error" role="alert">
+                {{ gameErrors[job.parallelGame.error] }}
+              </div>
+            </template>
             <template v-if="job.batch">
               <div v-if="job.batch.parallel">
                 {{
@@ -91,6 +114,12 @@
     :job-id="resultsJob"
     @close="resultsJob = undefined"
   />
+  <GameJobResultsDialog
+    v-if="gameResultsJob"
+    :key="gameResultsJob"
+    :job-id="gameResultsJob"
+    @close="gameResultsJob = undefined"
+  />
 </template>
 
 <script setup lang="ts">
@@ -101,10 +130,13 @@ import { useStore } from "@/renderer/store";
 import { JobListManager } from "@/renderer/store/jobs";
 import DialogFrame from "./DialogFrame.vue";
 import BatchAnalysisResultsDialog from "./BatchAnalysisResultsDialog.vue";
+import GameJobResultsDialog from "./GameJobResultsDialog.vue";
 
 const store = useStore();
 const list = reactive(new JobListManager());
 const resultsJob = ref<string>();
+const gameResultsJob = ref<string>();
+const gameErrors = { engine: t.gameEngineError, capacity: t.gameCapacity, save: t.gameSaveFailed };
 const states: Record<JobSummary["state"], string> = {
   preparing: t.jobsStatePreparing,
   running: t.jobsStateRunning,

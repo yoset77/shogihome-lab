@@ -34,6 +34,33 @@ describe("server game files", () => {
     expect(importRecordFromBuffer(contents, RecordFileFormat.KIFU)).toBeInstanceOf(Record);
     expect((await fs.readdir(config.directory)).sort()).toEqual([first, second].sort());
   });
+  it("publishes concurrent games with identical templates without overwriting one another", async () => {
+    const options = { ...gameRequest().options.save, template: "parallel" };
+    const saved = await Promise.allSettled(
+      Array.from({ length: 8 }, async (_, i) => {
+        const record = new Record();
+        record.current.comment = `Game ${i}`;
+        return saveGameRecord(gameRequest(record).source, options, `game_${i}`);
+      }),
+    );
+    expect(saved.every((result) => result.status === "fulfilled")).toBe(true);
+    const paths = saved.map((result) => {
+      if (result.status === "rejected") throw result.reason;
+      return result.value;
+    });
+    expect(new Set(paths).size).toBe(8);
+    const comments = await Promise.all(
+      paths.map(async (name) => {
+        const record = importRecordFromBuffer(
+          await fs.readFile(path.join(config.directory, name)),
+          RecordFileFormat.KIFU,
+        );
+        expect(record).toBeInstanceOf(Record);
+        return (record as Record).moves[0].comment.trim();
+      }),
+    );
+    expect(comments.sort()).toEqual(Array.from({ length: 8 }, (_, i) => `Game ${i}`));
+  });
   it("saves to the server root after normalizing app settings", async () => {
     const settings = normalizeAppSettings({
       ...defaultAppSettings(),

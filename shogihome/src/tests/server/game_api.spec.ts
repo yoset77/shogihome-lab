@@ -49,7 +49,7 @@ describe("game API boundary", () => {
       request.serverInstanceId = manager.serverInstanceId;
       if (ai)
         request.settings.black = request.settings.white = { uri: "lan-engine:test", name: "AI" };
-      const session = manager.create(request);
+      const session = await manager.create(request);
       await vi.advanceTimersByTimeAsync(0);
       connectGame(session);
       const app = new Hono().route("/api/game-sessions", createGameSessionRoutes(manager));
@@ -86,7 +86,7 @@ describe("game API boundary", () => {
     const manager = new GameSessionManager({ playerBuilder: fakeGamePlayer().builder });
     const request = gameRequest();
     request.serverInstanceId = manager.serverInstanceId;
-    const session = manager.create(request);
+    const session = await manager.create(request);
     await vi.advanceTimersByTimeAsync(0);
     const connection = connectGame(session);
     await session.command(gameCommand(session.snapshot(), "resume"));

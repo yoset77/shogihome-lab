@@ -413,6 +413,8 @@ export class GameManager {
     }
   }
   async start(settings: GameSettings, background = false): Promise<void> {
+    if ((settings.parallelism ?? 1) > 1 && !background)
+      throw new Error(t.parallelGameBackgroundOnly);
     if (this.active || this.hasRetainedSession) throw new Error(t.gameCapacity);
     if (background && [settings.black.uri, settings.white.uri].includes("es://human"))
       throw new Error(t.gameInvalid);
@@ -633,6 +635,7 @@ export class GameManager {
     confirmTakeover: () => Promise<boolean>,
   ): Promise<boolean> {
     if (this.active) return false;
+    if (job.parallelGame) throw new Error(t.parallelGameBackgroundOnly);
     let lifecycle = this.lifecycle;
     if (job.attachment.attached && !(await confirmTakeover())) return false;
     const caps = await this.client.capabilities();

@@ -30,8 +30,8 @@ export class JobListManager {
   }
   canCancel(job: JobSummary): boolean {
     return (
-      job.kind === "analysis" &&
-      !!job.batch?.parallel &&
+      ((job.kind === "analysis" && !!job.batch?.parallel) ||
+        (job.kind === "game" && !!job.parallelGame)) &&
       ["preparing", "running"].includes(job.state) &&
       !this.loading &&
       !this.cancelling.has(job.id) &&
@@ -43,7 +43,26 @@ export class JobListManager {
     this.cancelling.add(job.id);
     const generation = this.generation;
     try {
-      // Parallel batches cannot be attached, so their cancellation stays unowned and idempotent.
+      // Parallel jobs cannot be attached, so their cancellation stays unowned and idempotent.
+      if (job.kind === "game") {
+        const status = await this.games.cancel(job.id);
+        if (generation !== this.generation) return;
+        if (
+          status.id !== job.id ||
+          status.serverInstanceId !== job.serverInstanceId ||
+          !status.parallelGame
+        )
+          throw new Error(t.jobsInvalid);
+        this.jobs = this.jobs.map((current) =>
+          current.kind === "game" &&
+          current.id === job.id &&
+          current.serverInstanceId === job.serverInstanceId
+            ? status
+            : current,
+        );
+        this.error = undefined;
+        return;
+      }
       const status = await this.analysis.cancel(job.id);
       if (generation !== this.generation) return;
       if (status.jobId !== job.id || status.serverInstanceId !== job.serverInstanceId)
