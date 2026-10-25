@@ -316,6 +316,13 @@ export const vi: Texts = {
   suggestionsCount: "Số nước đề xuất",
   multiPVInvalid: (min, max) => `Số nước đề xuất phải là số nguyên từ ${min} đến ${max}.`,
   batchAnalysis: "Phân tích hàng loạt",
+  parallelism: "Số luồng song song",
+  batchAnalysisBackgroundOnly:
+    "Phân tích hàng loạt song song chỉ chạy nền. Mở kết quả đã lưu từ chi tiết công việc.",
+  batchAnalysisParallelNote:
+    "Phân tích song song chạy nền. Mức sử dụng CPU và bộ nhớ tăng theo thiết lập Threads và Hash của động cơ.",
+  batchAnalysisParallelProgress: (active, parallelism) =>
+    `${active} tệp đang chạy / tối đa ${parallelism} tác vụ song song`,
   currentRecord: "Kỳ phổ hiện tại",
   serverFolder: "Thư mục máy chủ",
   batchAnalysisSearch: "Tất cả ván phù hợp",

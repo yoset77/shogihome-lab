@@ -4,17 +4,17 @@
 
 ## Responsibilities
 
-| 所有者                                                                               | 責務                                                                  |
-| ------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
-| [`server/analysis/job.ts`](../../shogihome/src/server/analysis/job.ts)               | 固定棋譜、解析順序・進捗、局面ごとの探索、注釈生成、途中結果、取消    |
-| [`server/analysis/batch.ts`](../../shogihome/src/server/analysis/batch.ts)           | 直列バッチ、内部の単一解析、engine再利用、棋譜別成否、保存中取消      |
-| [`server/analysis/files.ts`](../../shogihome/src/server/analysis/files.ts)           | 確認用対象一覧、検証済みファイル読込、原本変更検出、atomic保存        |
-| [`server/analysis/jobManager.ts`](../../shogihome/src/server/analysis/jobManager.ts) | engine 定義の解決、作成の冪等性、実行数と保持の制約、終了時 cleanup   |
-| [`server/engine/internal.ts`](../../shogihome/src/server/engine/internal.ts)         | 既存 USI state machine への内部探索・停止・取消・終了 adapter         |
-| [`renderer/store/analysis.ts`](../../shogihome/src/renderer/store/analysis.ts)       | 作成要求、HTTP 同期、reload 復元、局面追従、文書 lock、安全な結果反映 |
-| [`server/jobs/attachment.ts`](../../shogihome/src/server/jobs/attachment.ts)         | アタッチ所有者、heartbeat、移譲の世代照合                             |
-| [`renderer/store/job_storage.ts`](../../shogihome/src/renderer/store/job_storage.ts) | タブの復帰意図と端末の未確認要求台帳の分離                            |
-| [`common/analysis/types.ts`](../../shogihome/src/common/analysis/types.ts)           | 共有型と runtime decoder                                              |
+| 所有者                                                                               | 責務                                                                     |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| [`server/analysis/job.ts`](../../shogihome/src/server/analysis/job.ts)               | 固定棋譜、解析順序・進捗、局面ごとの探索、注釈生成、途中結果、取消       |
+| [`server/analysis/batch.ts`](../../shogihome/src/server/analysis/batch.ts)           | 棋譜の割当、内部の単一解析、worker別engine再利用、棋譜別成否、保存中取消 |
+| [`server/analysis/files.ts`](../../shogihome/src/server/analysis/files.ts)           | 確認用対象一覧、検証済みファイル読込、原本変更検出、atomic保存           |
+| [`server/analysis/jobManager.ts`](../../shogihome/src/server/analysis/jobManager.ts) | engine 定義の解決、作成の冪等性、実行数と保持の制約、終了時 cleanup      |
+| [`server/engine/internal.ts`](../../shogihome/src/server/engine/internal.ts)         | 既存 USI state machine への内部探索・停止・取消・終了 adapter            |
+| [`renderer/store/analysis.ts`](../../shogihome/src/renderer/store/analysis.ts)       | 作成要求、HTTP 同期、reload 復元、局面追従、文書 lock、安全な結果反映    |
+| [`server/jobs/attachment.ts`](../../shogihome/src/server/jobs/attachment.ts)         | アタッチ所有者、heartbeat、移譲の世代照合                                |
+| [`renderer/store/job_storage.ts`](../../shogihome/src/renderer/store/job_storage.ts) | タブの復帰意図と端末の未確認要求台帳の分離                               |
+| [`common/analysis/types.ts`](../../shogihome/src/common/analysis/types.ts)           | 共有型と runtime decoder                                                 |
 
 解析 job の内部 `EngineSession` は公開 relay の registry に登録せず、Browser の attach／close で操作できないようにします。USI state と Analysis DB 保存経路は [Remote Engine Architecture](remote-engine.md) と共有し、job 側から結果を二重保存しません。
 
@@ -29,7 +29,9 @@
 
 棋譜 snapshot の共有境界は [`common/record/snapshot.ts`](../../shogihome/src/common/record/snapshot.ts) を使います。
 
-連続解析は確認用planの対象path・処理順を固定して開始します。内容は各棋譜の処理開始時に既存importerとsnapshot decoderで検証し、本譜の固定入力へ変換します。バッチ内部の単一解析は公開ジョブとして登録せず、同じengine adapterを再利用します。Managerの実行枠と作成要求台帳は単一解析と共有します。
+連続解析は確認用planの対象path・割当順を固定して開始します。内容は各棋譜の処理開始時に既存importerとsnapshot decoderで検証し、本譜の固定入力へ変換します。バッチ内部の単一解析は公開ジョブとして登録せず、各workerが専用engine adapterを再利用します。棋譜内の局面解析は直列のままです。親jobが全worker分の資源を起動前にまとめて予約し、全workerの保存・cleanup完了まで保持します。Managerの実行枠と作成要求台帳は単一解析と共有します。
+
+並列バッチはバックグラウンド専用です。Serverはアタッチと単一棋譜用source/result取得を拒否し、処理中のsnapshotを代表棋譜として公開しません。JobsDialogが全体進捗と冪等な停止を扱い、保存済み棋譜はファイル別結果から通常の棋譜open経路で回収します。取消・engine異常では全workerへの新規割当を停止し、保存開始済みの処理は確定を待ちます。
 
 確認用planは実行枠ではなく有界キャッシュとして保持します。受付後は解放し、期限切れ・退避済みのplanは再確認を求めます。受付済みの作成要求はplanの保持に依存せず要求台帳から解決します。各棋譜は解析開始前に既存の保存先validatorも通し、名前の制約で上書きできない対象にはengine resourceを費やしません。
 
@@ -42,7 +44,7 @@
 - バックグラウンド開始とデタッチは実行や取消を変更しません。デタッチ時に文書 lock と表示への同期を解放し、旧世代の遅延応答は別の棋譜へ反映しません。
 - 取消は冪等です。進行中の探索を無効化し、停止完了まで Renderer も文書 lock を保持します。取消後の出力や新しい隣接局面コメントは採用しません。
 - 終了処理に入った後の取消は状態や結果を変更しません。Engine cleanup の完了は待ち、cleanup 失敗は引き続き失敗として報告します。
-- 有効な途中結果は取消・失敗後も保持します。入力、実行時間、出力、終了待ち、完了 job と作成要求台帳は有界です。棋譜単位とバッチ全体の実行期限は独立しています。
+- 単一解析と直列バッチの有効な途中結果は取消・失敗後も保持します。並列バッチは未保存の途中棋譜を回収対象にしません。入力、実行時間、出力、終了待ち、完了 job と作成要求台帳は有界です。棋譜単位とバッチ全体の実行期限は独立しています。
 - バッチのファイル別成否と保持中棋譜は別のデータです。全棋譜のsnapshotは保持しません。完了時の原本保存はServerが所有し、Browserの反映・保存確認を待ちません。保存公開前の内容照合とatomic writerの保証は [Storage Architecture](storage.md) に従います。
 - 失効や Server 再起動では既存 job が失われたことを返し、空の job の再生成や自動再実行はしません。
 

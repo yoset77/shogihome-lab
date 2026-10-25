@@ -3,6 +3,7 @@ import {
   type AnalysisJobRequest,
   DEFAULT_ANALYSIS_POLL_MS,
   isAnalysisTerminal,
+  decodeBatchJobRequest,
 } from "@/common/analysis/types";
 import { t } from "@/common/i18n";
 import { MAX_SNAPSHOT_NODES } from "@/common/record/snapshot";
@@ -141,6 +142,9 @@ export class AnalysisJobManager {
   }
 
   async createBatch(request: BatchAnalysisJobRequest): Promise<BatchAnalysisJob> {
+    const decoded = decodeBatchJobRequest(request);
+    if (!decoded.ok) throw new HttpError(400, t.batchAnalysisInvalid);
+    request = decoded.value;
     this.cleanup();
     if (request.serverInstanceId !== this.serverInstanceId)
       throw new HttpError(410, t.analysisJobExpired);
@@ -153,15 +157,21 @@ export class AnalysisJobManager {
     if (reaccepted) return reaccepted as BatchAnalysisJob;
     this.ensureCapacity();
     const plan = this.batchFiles.get(request.planId);
+    const workerCount = Math.min(request.parallelism ?? 1, plan.files.length);
     const lease = snapshot.config
-      ? resourceRegistry.acquire(...engineRequirements(snapshot.config))
+      ? resourceRegistry.acquire(
+          ...engineRequirements(snapshot.config).map((requirement) => ({
+            ...requirement,
+            cost: requirement.cost * workerCount,
+          })),
+        )
       : undefined;
     const batch = this.buildJob(() => {
       const created = new BatchAnalysisJob(
         randomUUID(),
         structuredClone(request),
         plan,
-        this.createEngine(lease),
+        Array.from({ length: workerCount }, () => this.createEngine(lease)),
         snapshot.resolve,
         this.batchFiles,
         lease,

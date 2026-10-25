@@ -314,6 +314,13 @@ export const ja: Texts = {
   suggestionsCount: "候補手の数",
   multiPVInvalid: (min, max) => `候補手の数は${min}〜${max}の整数を指定してください。`,
   batchAnalysis: "連続解析",
+  parallelism: "並列数",
+  batchAnalysisBackgroundOnly:
+    "並列連続解析はバックグラウンド専用です。保存済みの結果はジョブの詳細から開いてください。",
+  batchAnalysisParallelNote:
+    "並列解析はバックグラウンドで実行します。エンジンのThreads・Hash設定に応じてCPU・メモリ使用量が増えます。",
+  batchAnalysisParallelProgress: (active, parallelism) =>
+    `実行中 ${active} 件 / 最大 ${parallelism} 並列`,
   currentRecord: "現在の棋譜",
   serverFolder: "サーバーフォルダ",
   batchAnalysisSearch: "検索一致の全棋譜",

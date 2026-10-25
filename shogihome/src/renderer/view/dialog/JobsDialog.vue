@@ -18,7 +18,11 @@
                 job.batch ? t.batchAnalysis : job.kind === "analysis" ? t.jobsAnalysis : t.jobsGame
               }}</strong>
               <span class="actions">
-                <button :disabled="!store.canAttachJob" @click="onAttach(job)">
+                <button
+                  v-if="!job.batch?.parallel"
+                  :disabled="!store.canAttachJob"
+                  @click="onAttach(job)"
+                >
                   {{ terminal(job) ? t.jobsOpenResults : t.jobsAttach }}
                 </button>
                 <button v-if="store.canDetachListedJob(job)" @click="onDetach(job)">
@@ -26,6 +30,13 @@
                 </button>
                 <button v-if="job.batch" @click="resultsJob = job.id">
                   {{ t.batchAnalysisDetails }}
+                </button>
+                <button
+                  v-if="job.batch?.parallel && !terminal(job)"
+                  :disabled="!list.canCancel(job)"
+                  @click="list.cancel(job)"
+                >
+                  {{ t.stopAnalysis }}
                 </button>
               </span>
             </div>
@@ -43,6 +54,14 @@
             </div>
             <div>{{ job.engines.join(" / ") }}</div>
             <template v-if="job.batch">
+              <div v-if="job.batch.parallel">
+                {{
+                  t.batchAnalysisParallelProgress(
+                    job.batch.parallel.activeFiles,
+                    job.batch.parallel.parallelism,
+                  )
+                }}
+              </div>
               <div>
                 {{
                   t.batchAnalysisSummary(

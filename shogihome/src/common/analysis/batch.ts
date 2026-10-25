@@ -7,6 +7,13 @@ import { Position } from "tsshogi";
 import * as v from "./validation";
 
 export const MAX_BATCH_FILES = 10_000;
+export const MAX_BATCH_PARALLELISM = 16;
+
+export function readBatchParallelism(value: unknown): number {
+  const parallelism = value === undefined ? 1 : v.counter(value, MAX_BATCH_PARALLELISM);
+  if (parallelism < 1) throw new Error("Invalid batch parallelism");
+  return parallelism;
+}
 export type BatchAnalysisSource =
   | { kind: "folder"; directory: string; subdirectories: boolean }
   | { kind: "search"; search: KifuSearchQuery };
@@ -21,6 +28,7 @@ export type BatchAnalysisJobRequest = {
   requestId: string;
   serverInstanceId: string;
   planId: string;
+  parallelism?: number;
   options: AnalysisJobOptions;
   skipAnalyzed: boolean;
   fileOptions: BatchFileOptions;
@@ -49,6 +57,7 @@ export type BatchFileResult = {
   reason?: (typeof BATCH_FILE_REASONS)[number];
 };
 export type BatchAnalysisProgress = {
+  parallel?: { parallelism: number; activeFiles: number };
   totalFiles: number;
   processedFiles: number;
   currentFile: number;
@@ -92,7 +101,18 @@ export function readBatchProgress(value: unknown): BatchAnalysisProgress {
   const processedFiles = v.counter(input.processedFiles, totalFiles);
   if (processedFiles !== successTotal + failedTotal + skippedTotal)
     throw new Error("Invalid batch counts");
+  let parallel: BatchAnalysisProgress["parallel"];
+  if (input.parallel !== undefined) {
+    const data = v.object(input.parallel);
+    const parallelism = readBatchParallelism(data.parallelism);
+    if (parallelism === 1) throw new Error("Invalid parallel batch progress");
+    parallel = {
+      parallelism,
+      activeFiles: v.counter(data.activeFiles, Math.min(parallelism, totalFiles - processedFiles)),
+    };
+  }
   return {
+    ...(parallel ? { parallel } : {}),
     totalFiles,
     processedFiles,
     successTotal,

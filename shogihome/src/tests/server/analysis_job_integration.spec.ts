@@ -15,6 +15,7 @@ import type { AppEnv } from "@/server/hono";
 import { requestFor } from "./helpers/analysis";
 import { BatchAnalysisFiles } from "@/server/analysis/files";
 import { exportRecordAsBuffer, RecordFileFormat } from "@/common/file/record";
+import { resourceRegistry } from "@/server/engine/resources";
 
 const wrapperConfig = vi.hoisted(() => ({ port: 0 }));
 vi.mock("@/server/config", async (importOriginal) => ({
@@ -97,6 +98,7 @@ describe("HTTP analysis through the real TCP/USI session", () => {
       await manager.close();
     } finally {
       vi.unstubAllEnvs();
+      resourceRegistry.resetForTest();
     }
   });
   afterAll(async () => {
@@ -167,74 +169,92 @@ describe("HTTP analysis through the real TCP/USI session", () => {
     await vi.waitFor(() => expect(sockets.size).toBe(0));
   });
 
-  it("runs a detached batch through one TCP session and saves each file without duplicating DB writes", async () => {
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "batch-tcp-"));
-    try {
-      const record = Record.newByUSI("position startpos moves 7g7f resign") as Record;
-      for (const name of ["a.kifu", "b.kifu"])
-        await fs.writeFile(
-          path.join(directory, name),
-          exportRecordAsBuffer(record, RecordFileFormat.KIFU, {}).data,
+  it.each([1, 2])(
+    "runs a detached batch through %s TCP sessions without duplicating DB writes",
+    async (parallelism) => {
+      const directory = await fs.mkdtemp(path.join(os.tmpdir(), "batch-tcp-"));
+      try {
+        resourceRegistry.resetForTest(true, [{ id: "g", name: "G", budget: 8 }]);
+        const record = Record.newByUSI("position startpos moves 7g7f resign") as Record;
+        for (const name of ["a.kifu", "b.kifu", "c.kifu", "d.kifu"])
+          await fs.writeFile(
+            path.join(directory, name),
+            exportRecordAsBuffer(record, RecordFileFormat.KIFU, {}).data,
+          );
+        manager = new AnalysisJobManager(
+          undefined,
+          async () => ({
+            id: "test",
+            name: "Server engine",
+            type: ["research"],
+            threads: 4,
+            resource: { groupId: "g" },
+            analysisDBGroupId: "group",
+            analysisDBGroupName: "Group",
+          }),
+          new BatchAnalysisFiles(() => directory),
         );
-      manager = new AnalysisJobManager(
-        undefined,
-        undefined,
-        new BatchAnalysisFiles(() => directory),
-      );
-      app = new Hono<AppEnv>()
-        .route("/api/analysis-jobs", createAnalysisJobRoutes(manager))
-        .onError(handleError);
-      const plan = await manager.prepareBatch({
-        kind: "folder",
-        directory: "",
-        subdirectories: true,
-      });
-      const request = {
-        requestId: "batch-tcp",
-        serverInstanceId: manager.serverInstanceId,
-        planId: plan.planId,
-        options: {
-          ...requestFor().options,
-          perMoveCriteria: { maxSeconds: 0.05 },
-          overrideMultiPV: true,
-          multiPV: 3,
-        },
-        skipAnalyzed: false,
-        fileOptions: {
-          autoDetect: true,
-          returnCode: "\n",
-          useCSAV3: false,
-          useUTF8ForKifAndKi2: false,
-        },
-      };
-      const response = await app.request("/api/analysis-jobs/batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-      });
-      expect(response.status).toBe(202);
-      const status = await response.json();
-      const job = manager.get(status.jobId);
-      await job.completion;
-      expect(job.status()).toMatchObject({
-        state: "completed",
-        batch: { successTotal: 2, failedTotal: 0 },
-      });
-      expect(commands.filter((line) => line === "usi")).toHaveLength(1);
-      expect(commands.filter((line) => line === "usinewgame")).toHaveLength(2);
-      expect(commands.filter((line) => line === "setoption name MultiPV value 3")).toHaveLength(1);
-      expect(commands.filter((line) => line === "go infinite")).toHaveLength(4);
-      expect(saveAnalysisResults).toHaveBeenCalledTimes(4);
-      for (const call of vi.mocked(saveAnalysisResults).mock.calls)
-        expect([...call[4].keys()]).toEqual([1, 2, 3]);
-      expect(await fs.readFile(path.join(directory, "a.kifu"), "utf8")).toContain("#評価値=");
-      expect(await fs.readFile(path.join(directory, "b.kifu"), "utf8")).toContain("#評価値=");
-      await vi.waitFor(() => expect(sockets.size).toBe(0));
-    } finally {
-      await manager.close();
-      await fs.rm(directory, { recursive: true, force: true });
-    }
-  });
+        app = new Hono<AppEnv>()
+          .route("/api/analysis-jobs", createAnalysisJobRoutes(manager))
+          .onError(handleError);
+        const plan = await manager.prepareBatch({
+          kind: "folder",
+          directory: "",
+          subdirectories: true,
+        });
+        const request = {
+          requestId: "batch-tcp",
+          serverInstanceId: manager.serverInstanceId,
+          planId: plan.planId,
+          parallelism,
+          options: {
+            ...requestFor().options,
+            perMoveCriteria: { maxSeconds: 0.05 },
+            overrideMultiPV: true,
+            multiPV: 3,
+          },
+          skipAnalyzed: false,
+          fileOptions: {
+            autoDetect: true,
+            returnCode: "\n",
+            useCSAV3: false,
+            useUTF8ForKifAndKi2: false,
+          },
+        };
+        const response = await app.request("/api/analysis-jobs/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request),
+        });
+        expect(response.status).toBe(202);
+        const status = await response.json();
+        const job = manager.get(status.jobId);
+        expect(resourceRegistry.groupSnapshot()[0].used).toBe(4 * parallelism);
+        await vi.waitFor(() => expect(sockets.size).toBe(parallelism));
+        await job.completion;
+        expect(job.status()).toMatchObject({
+          state: "completed",
+          batch: { successTotal: 4, failedTotal: 0 },
+        });
+        expect(commands.filter((line) => line === "usi")).toHaveLength(parallelism);
+        expect(commands.filter((line) => line === "usinewgame")).toHaveLength(4);
+        expect(commands.filter((line) => line === "setoption name MultiPV value 3")).toHaveLength(
+          parallelism,
+        );
+        expect(commands.filter((line) => line === "go infinite")).toHaveLength(8);
+        expect(saveAnalysisResults).toHaveBeenCalledTimes(8);
+        for (const call of vi.mocked(saveAnalysisResults).mock.calls)
+          expect([...call[4].keys()]).toEqual([1, 2, 3]);
+        expect(await fs.readFile(path.join(directory, "a.kifu"), "utf8")).toContain("#評価値=");
+        expect(await fs.readFile(path.join(directory, "b.kifu"), "utf8")).toContain("#評価値=");
+        await vi.waitFor(() => expect(sockets.size).toBe(0));
+        expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+      } finally {
+        await manager.close();
+        await fs.rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("inherits configured MultiPV without sending an override", async () => {
     configuredMultiPV = 3;

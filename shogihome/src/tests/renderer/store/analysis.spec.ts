@@ -221,6 +221,49 @@ describe("analysis job client", () => {
       }),
     );
   });
+  it("passes parallelism without attaching or locking the current document", async () => {
+    const f = batchFixture();
+    const original = f.records.record;
+    await f.manager.startBatch(settings, plan, true, true, 4);
+    expect(f.client.createBatch).toHaveBeenCalledWith(expect.objectContaining({ parallelism: 4 }));
+    expect(f.client.attach).not.toHaveBeenCalled();
+    expect(f.records.record).toBe(original);
+    expect(f.records.analysisLocked).toBe(false);
+    expect(f.manager.isActive).toBe(false);
+  });
+  it("rejects foreground parallel batches before acquiring a document lock", async () => {
+    const f = batchFixture();
+    await expect(f.manager.startBatch(settings, plan, true, false, 2)).rejects.toThrow(
+      t.batchAnalysisBackgroundOnly,
+    );
+    expect(f.records.analysisLocked).toBe(false);
+    expect(f.client.capabilities).not.toHaveBeenCalled();
+    expect(f.client.createBatch).not.toHaveBeenCalled();
+  });
+  it("rejects invalid parallelism before sending a creation request", async () => {
+    const f = batchFixture();
+    await expect(f.manager.startBatch(settings, plan, true, true, 1.5)).rejects.toThrow(
+      t.batchAnalysisInvalid,
+    );
+    expect(f.records.analysisLocked).toBe(false);
+    expect(f.client.capabilities).not.toHaveBeenCalled();
+  });
+  it("rejects attachment to a parallel batch without replacing or locking the current document", async () => {
+    const f = batchFixture();
+    f.status.batch!.parallel = { parallelism: 2, activeFiles: 2 };
+    await f.manager.startBatch(settings, plan, true, true, 2);
+    const original = f.records.record;
+    await expect(
+      f.manager.attach(
+        { ...f.summary(), batch: f.status.batch },
+        async () => true,
+        async () => true,
+      ),
+    ).rejects.toThrow(t.batchAnalysisBackgroundOnly);
+    expect(f.client.attach).not.toHaveBeenCalled();
+    expect(f.records.record).toBe(original);
+    expect(f.records.analysisLocked).toBe(false);
+  });
   it("does not validate or send the unrelated current document when creating a batch", async () => {
     const f = batchFixture();
     f.records.updateComment("x".repeat(65_537));
