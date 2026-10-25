@@ -31,6 +31,7 @@ export enum JishogiRule {
 }
 
 export const DeclarableJishogiRules = [JishogiRule.GENERAL24, JishogiRule.GENERAL27];
+export const MAX_GAME_PARALLELISM = 16;
 
 export type GameSettings = {
   black: PlayerSettings;
@@ -46,6 +47,7 @@ export type GameSettings = {
   enableComment: boolean;
   enableAutoSave: boolean;
   repeat: number;
+  parallelism?: number;
   swapPlayers: boolean;
   maxMoves: number;
   jishogiRule: JishogiRule;
@@ -64,6 +66,7 @@ export function defaultGameSettings(): GameSettings {
     enableComment: true,
     enableAutoSave: true,
     repeat: 1,
+    parallelism: 1,
     swapPlayers: false,
     maxMoves: 1000,
     jishogiRule: JishogiRule.GENERAL27,
@@ -78,6 +81,12 @@ export function normalizeGameSettings(settings: GameSettings): GameSettings {
       startPosition: "current",
     },
     ...settings,
+    parallelism:
+      Number.isInteger(settings.parallelism) &&
+      settings.parallelism! >= 1 &&
+      settings.parallelism! <= MAX_GAME_PARALLELISM
+        ? settings.parallelism
+        : 1,
     black: settings.black.uri.startsWith("es://basic-engine/")
       ? defaultPlayerSettings()
       : {
@@ -100,6 +109,9 @@ export function normalizeGameSettings(settings: GameSettings): GameSettings {
 }
 
 export function validateGameSettings(gameSettings: GameSettings): Error | undefined {
+  const parallelism = gameSettings.parallelism ?? 1;
+  if (!Number.isInteger(parallelism) || parallelism < 1 || parallelism > MAX_GAME_PARALLELISM)
+    return new Error(t.gameInvalid);
   const playerError =
     validatePlayerSettings(gameSettings.black) || validatePlayerSettings(gameSettings.white);
   if (playerError) {
@@ -131,6 +143,7 @@ export function validateGameSettings(gameSettings: GameSettings): Error | undefi
   }
   const containsHuman =
     gameSettings.black.uri === uri.ES_HUMAN || gameSettings.white.uri === uri.ES_HUMAN;
+  if (containsHuman && parallelism > 1) return new Error(t.parallelGameBackgroundOnly);
   if (containsHuman && gameSettings.repeat > 1) {
     return new Error(t.repeatsMustBeOneIfHumanPlayerIncluded);
   }

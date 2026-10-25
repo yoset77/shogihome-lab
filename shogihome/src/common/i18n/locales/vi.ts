@@ -317,6 +317,15 @@ export const vi: Texts = {
   multiPVInvalid: (min, max) => `Số nước đề xuất phải là số nguyên từ ${min} đến ${max}.`,
   batchAnalysis: "Phân tích hàng loạt",
   parallelism: "Số luồng song song",
+  parallelGameBackgroundOnly:
+    "Các ván song song cần hai động cơ và chỉ chạy nền. Mở kết quả từ chi tiết công việc.",
+  parallelGameNote:
+    "Các ván song song chạy nền. CPU và bộ nhớ tăng theo Threads và Hash. Bật tự động lưu để giữ mọi biên bản.",
+  parallelGameProgress: (active, parallelism) =>
+    `${active} ván đang chạy / tối đa ${parallelism} tác vụ song song`,
+  parallelGameResults: (win1, win2, draw, invalid) =>
+    `Bên đen ban đầu: ${win1} thắng / Bên trắng ban đầu: ${win2} thắng / Hòa: ${draw} / Không hợp lệ: ${invalid}`,
+  parallelGameHistoryOnly: "Tắt tự động lưu (chỉ sao lưu lịch sử)",
   batchAnalysisBackgroundOnly:
     "Phân tích hàng loạt song song chỉ chạy nền. Mở kết quả đã lưu từ chi tiết công việc.",
   batchAnalysisParallelNote:

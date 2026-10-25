@@ -313,6 +313,11 @@ export type Texts = {
   multiPVInvalid: (min: number, max: number) => string;
   batchAnalysis: string;
   parallelism: string;
+  parallelGameBackgroundOnly: string;
+  parallelGameNote: string;
+  parallelGameProgress: (active: number, parallelism: number) => string;
+  parallelGameResults: (win1: number, win2: number, draw: number, invalid: number) => string;
+  parallelGameHistoryOnly: string;
   batchAnalysisBackgroundOnly: string;
   batchAnalysisParallelNote: string;
   batchAnalysisParallelProgress: (active: number, parallelism: number) => string;

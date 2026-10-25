@@ -316,6 +316,14 @@ export const zh_tw: Texts = {
   multiPVInvalid: (min, max) => `候補手數量必須是${min}到${max}之間的整數。`,
   batchAnalysis: "連續分析",
   parallelism: "並行數",
+  parallelGameBackgroundOnly: "並行對局僅支援兩個引擎並在背景執行。請從工作詳細資料開啟結果。",
+  parallelGameNote:
+    "並行對局會在背景執行。CPU 與記憶體用量會隨引擎的 Threads、Hash 設定增加。若要保留所有棋譜，請啟用自動儲存。",
+  parallelGameProgress: (active, parallelism) =>
+    `對局中 ${active} 局 / 最多 ${parallelism} 個並行工作`,
+  parallelGameResults: (win1, win2, draw, invalid) =>
+    `初始先手 ${win1} 勝 / 初始後手 ${win2} 勝 / 和局 ${draw} / 無效 ${invalid}`,
+  parallelGameHistoryOnly: "未啟用自動儲存（僅有歷史備份）",
   batchAnalysisBackgroundOnly: "並行連續分析僅在背景執行。請從工作詳細資料開啟已儲存的結果。",
   batchAnalysisParallelNote:
     "並行分析會在背景執行。CPU 與記憶體用量會隨引擎的 Threads、Hash 設定增加。",

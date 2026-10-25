@@ -1,6 +1,7 @@
 import * as v from "@/common/analysis/validation";
 import type { DecodeResult } from "@/common/engine/relay_protocol";
 import { readBatchProgress, type BatchAnalysisProgress } from "@/common/analysis/batch";
+import { readParallelGameProgress, type ParallelGameProgress } from "@/common/game/parallel";
 
 export type JobBinding = {
   ownerId: string;
@@ -51,6 +52,7 @@ export type JobSummary = {
   total: number;
   attachment: JobAttachmentState;
   batch?: BatchAnalysisProgress;
+  parallelGame?: ParallelGameProgress;
 };
 
 export function readJobBinding(value: unknown): JobBinding {
@@ -96,8 +98,25 @@ export function decodeJobList(value: unknown): DecodeResult<JobSummary[]> {
       ok: true,
       value: v.array(value, 22).map((value) => {
         const input = v.object(value);
+        const kind = v.enumeration(input.kind, ["analysis", "game"] as const);
+        const completed = v.counter(input.completed);
+        const total = v.counter(input.total);
+        const attachment = readJobAttachment(input.attachment);
+        const parallelGame =
+          input.parallelGame === undefined
+            ? undefined
+            : readParallelGameProgress(input.parallelGame);
+        if (
+          parallelGame &&
+          (kind !== "game" ||
+            input.batch !== undefined ||
+            attachment.attached ||
+            parallelGame.results.total !== completed ||
+            completed + parallelGame.activeGames > total)
+        )
+          throw new Error("Invalid parallel game job");
         return {
-          kind: v.enumeration(input.kind, ["analysis", "game"] as const),
+          kind,
           id: v.identifier(input.id),
           requestId: v.identifier(input.requestId),
           serverInstanceId: v.identifier(input.serverInstanceId),
@@ -114,10 +133,11 @@ export function decodeJobList(value: unknown): DecodeResult<JobSummary[]> {
             "failed",
           ] as const),
           engines: v.array(input.engines, 2).map((value) => v.text(value, 1024)),
-          completed: v.counter(input.completed),
-          total: v.counter(input.total),
-          attachment: readJobAttachment(input.attachment),
+          completed,
+          total,
+          attachment,
           ...(input.batch === undefined ? {} : { batch: readBatchProgress(input.batch) }),
+          ...(parallelGame ? { parallelGame } : {}),
         };
       }),
     };

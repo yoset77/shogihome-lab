@@ -14,7 +14,17 @@ describe("settings/game", () => {
     const settings = defaultGameSettings();
     expect(settings.black.uri).toBe(uri.ES_HUMAN);
     expect(settings.white.uri).toBe(uri.ES_HUMAN);
+    expect(settings.parallelism).toBe(1);
   });
+  it.each([undefined, null, "2", 0, -1, 1.5, 17])(
+    "safely normalizes stored parallelism %s",
+    (parallelism) => {
+      expect(
+        normalizeGameSettings({ ...defaultGameSettings(), parallelism } as GameSettings)
+          .parallelism,
+      ).toBe(1);
+    },
+  );
 
   it.each(["static_rook/v1", "ranging_rook/v1", "random"])(
     "falls back to humans for retired built-in AI settings: %s",
@@ -60,7 +70,7 @@ describe("settings/game", () => {
       jishogiRule: JishogiRule.NONE,
     };
     const result = normalizeGameSettings(settings);
-    expect(result).toStrictEqual(settings);
+    expect(result).toStrictEqual({ ...settings, parallelism: 1 });
 
     const legacy = {
       ...settings,

@@ -39,6 +39,7 @@ import { t } from "@/common/i18n";
 import type { AnalysisJobStatus } from "@/common/analysis/types";
 import type { GameSnapshot } from "@/common/game/protocol";
 import type { JobSummary } from "@/common/jobs/types";
+import { ApiResponseError } from "@/renderer/api/client";
 import { snapshotRecord } from "@/common/record/snapshot";
 
 vi.mock("@/renderer/devices/audio.js");
@@ -736,6 +737,20 @@ describe("store/index", () => {
     expect(useToastStore().toasts).toMatchObject([
       { type: "success", message: t.gameStartedInBackground },
     ]);
+  });
+
+  it("keeps parallel game settings open and shows budget errors instead of a success toast", async () => {
+    mockAPI.saveGameSettings.mockResolvedValue();
+    const message = t.resourceGroupCapacity("CPU", 8, 2, 8);
+    mockGameManager.prototype.start.mockRejectedValueOnce(new ApiResponseError(503, message));
+    const store = createStore();
+    store.showGameDialog();
+    store.startGame({ ...gameSettings10m30s, parallelism: 2 }, true);
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(useBusyState().isBusy).toBe(false);
+    expect(store.appState).toBe(AppState.GAME_DIALOG);
+    expect(useToastStore().toasts).toEqual([]);
+    expect(useErrorStore().errors).toEqual([{ message, count: 1 }]);
   });
 
   it("startResearch/success", async () => {

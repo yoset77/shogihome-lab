@@ -319,6 +319,15 @@ export const en: Texts = {
   multiPVInvalid: (min, max) => `Suggestions count must be an integer from ${min} to ${max}.`,
   batchAnalysis: "Batch Analysis",
   parallelism: "Parallelism",
+  parallelGameBackgroundOnly:
+    "Parallel games require two engines and run only in the background. Open results from the job details.",
+  parallelGameNote:
+    "Parallel games run in the background. CPU and memory usage increase with the engine's Threads and Hash settings. Enable auto-save to keep every record.",
+  parallelGameProgress: (active, parallelism) =>
+    `${active} active games / up to ${parallelism} parallel workers`,
+  parallelGameResults: (win1, win2, draw, invalid) =>
+    `Initial Black: ${win1} wins / Initial White: ${win2} wins / Draws: ${draw} / Invalid: ${invalid}`,
+  parallelGameHistoryOnly: "Auto-save disabled (history backup only)",
   batchAnalysisBackgroundOnly:
     "Parallel batch analysis runs only in the background. Open saved results from the job details.",
   batchAnalysisParallelNote:

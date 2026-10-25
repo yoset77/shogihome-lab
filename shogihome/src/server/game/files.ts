@@ -87,7 +87,8 @@ export async function saveGameRecord(
       );
       return path.posix.normalize(relative);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      // A concurrently saving game may still hold this candidate's lock.
+      if (!["EEXIST", "ELOCKED"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
     }
   }
   throw new Error("Game filename collision limit reached");

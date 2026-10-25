@@ -315,6 +315,14 @@ export const ja: Texts = {
   multiPVInvalid: (min, max) => `候補手の数は${min}〜${max}の整数を指定してください。`,
   batchAnalysis: "連続解析",
   parallelism: "並列数",
+  parallelGameBackgroundOnly:
+    "並列連続対局はエンジン同士のバックグラウンド実行専用です。結果はジョブの詳細から開いてください。",
+  parallelGameNote:
+    "並列対局はバックグラウンドで実行します。エンジンのThreads・Hash設定に応じてCPU・メモリ使用量が増えます。全棋譜を残すには自動保存を有効にしてください。",
+  parallelGameProgress: (active, parallelism) => `対局中 ${active} 局 / 最大 ${parallelism} 並列`,
+  parallelGameResults: (win1, win2, draw, invalid) =>
+    `開始時の先手 ${win1} 勝 / 開始時の後手 ${win2} 勝 / 引分 ${draw} / 無効 ${invalid}`,
+  parallelGameHistoryOnly: "自動保存なし（履歴のバックアップを使用）",
   batchAnalysisBackgroundOnly:
     "並列連続解析はバックグラウンド専用です。保存済みの結果はジョブの詳細から開いてください。",
   batchAnalysisParallelNote:

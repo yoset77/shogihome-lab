@@ -5,6 +5,7 @@ import {
   Z_VALUE_95,
   Z_VALUE_99,
 } from "@/common/statistics";
+import * as v from "@/common/analysis/validation";
 
 export type PlayerGameResults = {
   name: string;
@@ -37,6 +38,31 @@ export function newGameResults(name1: string, name2: string): GameResults {
     invalid: 0,
     total: 0,
   };
+}
+
+export function readGameResults(value: unknown): GameResults {
+  const input = v.object(value);
+  const player = (value: unknown): PlayerGameResults => {
+    const data = v.object(value);
+    const result = {
+      name: v.text(data.name, 256),
+      win: v.counter(data.win, 10_000),
+      winBlack: v.counter(data.winBlack, 10_000),
+      winWhite: v.counter(data.winWhite, 10_000),
+    };
+    if (result.win !== result.winBlack + result.winWhite) throw new Error("Invalid game wins");
+    return result;
+  };
+  const result = {
+    player1: player(input.player1),
+    player2: player(input.player2),
+    draw: v.counter(input.draw, 10_000),
+    invalid: v.counter(input.invalid, 10_000),
+    total: v.counter(input.total, 10_000),
+  };
+  if (result.total !== result.player1.win + result.player2.win + result.draw + result.invalid)
+    throw new Error("Invalid game totals");
+  return result;
 }
 
 export function calculateGameStatistics(results: GameResults): GameStatistics {

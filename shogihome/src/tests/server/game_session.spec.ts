@@ -172,14 +172,14 @@ describe("server game sessions", () => {
     const request = gameRequest();
     request.serverInstanceId = manager.serverInstanceId;
     request.settings.white = { uri: "lan-engine:test", name: "AI" };
-    const session = manager.create(request);
+    const session = await manager.create(request);
     await vi.advanceTimersByTimeAsync(0);
     const connection = connectGame(session);
     await session.command(gameCommand(session.snapshot(), "resume"));
     connection.disconnect();
     await vi.advanceTimersByTimeAsync(59_999);
     expect(session.snapshot().state).toBe("paused");
-    expect(() => manager.create({ ...request, requestId: "other" })).toThrow();
+    await expect(manager.create({ ...request, requestId: "other" })).rejects.toThrow();
     await vi.advanceTimersByTimeAsync(1);
     await session.completion;
     expect(session.snapshot().lastResult).toBe(SpecialMoveType.INTERRUPT);
@@ -187,7 +187,7 @@ describe("server game sessions", () => {
     const saved = importKIF(vi.mocked(saveBackup).mock.calls[0][0]) as Record;
     saved.goto(saved.length);
     expect(saved.current.move).toEqual({ type: SpecialMoveType.INTERRUPT });
-    const next = manager.create({ ...request, requestId: "other" });
+    const next = await manager.create({ ...request, requestId: "other" });
     await vi.advanceTimersByTimeAsync(0);
     await manager.close();
     await session.close();
@@ -849,11 +849,11 @@ describe("server game sessions", () => {
     const manager = new GameSessionManager({ now: () => Date.now() });
     const request = gameRequest();
     request.serverInstanceId = manager.serverInstanceId;
-    const session = manager.create(request);
-    expect(manager.create(request)).toBe(session);
-    expect(() =>
+    const session = await manager.create(request);
+    expect(await manager.create(request)).toBe(session);
+    await expect(
       manager.create({ ...request, settings: { ...request.settings, maxMoves: 200 } }),
-    ).toThrow();
+    ).rejects.toThrow();
     request.settings.timeLimit.timeSeconds = 500;
     expect(session.request.settings.timeLimit.timeSeconds).toBe(60);
     await vi.advanceTimersByTimeAsync(0);
@@ -863,7 +863,9 @@ describe("server game sessions", () => {
     await session.completion;
     await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
     expect(() => manager.byRequest(request.requestId)).toThrow();
-    expect(() => manager.create({ ...request, settings: session.request.settings })).toThrow();
+    await expect(
+      manager.create({ ...request, settings: session.request.settings }),
+    ).rejects.toThrow();
     await manager.close();
   });
 

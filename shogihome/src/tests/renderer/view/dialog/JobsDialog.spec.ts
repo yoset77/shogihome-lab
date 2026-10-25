@@ -4,11 +4,13 @@ import { Language } from "@/common/i18n/languages";
 import type { JobSummary } from "@/common/jobs/types";
 import { ApiResponseError } from "@/renderer/api/client";
 import { t } from "@/common/i18n";
+import { newGameResults } from "@/common/game/results";
 
 const mocks = vi.hoisted(() => ({
   analysis: vi.fn(),
   games: vi.fn(),
   cancel: vi.fn(),
+  cancelGame: vi.fn(),
   store: {
     canAttachJob: true,
     canDetachJob: false,
@@ -24,7 +26,7 @@ vi.mock("@/renderer/api/analysis_jobs", () => ({
   createAnalysisJobsClient: () => ({ list: mocks.analysis, cancel: mocks.cancel }),
 }));
 vi.mock("@/renderer/api/game_sessions", () => ({
-  createGameSessionsClient: () => ({ list: mocks.games }),
+  createGameSessionsClient: () => ({ list: mocks.games, cancel: mocks.cancelGame }),
 }));
 
 const job: JobSummary = {
@@ -99,6 +101,31 @@ describe("JobsDialog", () => {
     const calls = mocks.analysis.mock.calls.length;
     await vi.advanceTimersByTimeAsync(10_000);
     expect(mocks.analysis).toHaveBeenCalledTimes(calls);
+  });
+  it("shows fixed-player parallel game results and stops without acquiring the board", async () => {
+    mocks.store.canAttachJob = false;
+    mocks.analysis.mockResolvedValue([]);
+    const parallelGame = {
+      ...job,
+      kind: "game" as const,
+      parallelGame: { parallelism: 2, activeGames: 2, results: newGameResults("Black", "White") },
+    };
+    mocks.games.mockResolvedValue([parallelGame]);
+    mocks.cancelGame.mockResolvedValue({ ...parallelGame, state: "cancelling" });
+    const wrapper = mountDialog();
+    await flushPromises();
+    expect(wrapper.text()).toContain(t.parallelGameProgress(2, 2));
+    expect(wrapper.text()).toContain(t.parallelGameResults(0, 0, 0, 0));
+    expect(wrapper.text()).not.toContain(t.jobsAttach);
+    await wrapper
+      .findAll("li button")
+      .find((b) => b.text() === t.interrupt)!
+      .trigger("click");
+    await flushPromises();
+    expect(mocks.cancelGame).toHaveBeenCalledExactlyOnceWith("job");
+    expect(mocks.store.attachJob).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain(t.jobsStateCancelling);
+    wrapper.unmount();
   });
   it("shows the file progress of a background batch in games", async () => {
     mocks.analysis.mockResolvedValue([

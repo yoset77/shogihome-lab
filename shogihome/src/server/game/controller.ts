@@ -27,6 +27,7 @@ import { getTranslationTable } from "@/common/i18n/translation_table";
 import { Language } from "@/common/i18n/languages";
 import { newGameResults, type GameResults } from "@/common/game/results";
 import { loadGamePositions } from "./files";
+import type { GameCoordinator } from "./coordinator";
 import {
   snapshotRecord,
   restoreRecord,
@@ -44,6 +45,7 @@ export interface PlayerBuilder {
   ): Promise<Player>;
 }
 type Environment = {
+  coordinator?: GameCoordinator;
   loadPositions: (path: string) => Promise<string[]>;
   commentFormat: SearchCommentFormat;
   language: Language;
@@ -62,6 +64,7 @@ enum GameState {
 type SaveRecordCallback = () => void | Promise<void>;
 type GameNextCallback = () => void;
 type GameEndCallback = (results: GameResults, specialMoveType: SpecialMoveType) => void;
+type GameResultCallback = (result: GameResult | null) => void;
 type FlipBoardCallback = (flip: boolean) => void;
 type PieceBeatCallback = () => void;
 type BeepShortCallback = () => void;
@@ -172,6 +175,8 @@ export class GameController {
   private playerBuilder!: PlayerBuilder;
   private connected = true;
   private interrupted = false;
+  private playersSwapped = false;
+  private onGameResult: GameResultCallback = () => {};
   private onUpdate = () => {};
   private onRecordEnd: SaveRecordCallback = () => {};
   private _results: GameResults = newGameResults("", "");
@@ -231,8 +236,12 @@ export class GameController {
   on(event: "error", handler: ErrorCallback): this;
   on(event: "update", handler: () => void): this;
   on(event: "recordEnd", handler: SaveRecordCallback): this;
+  on(event: "gameResult", handler: GameResultCallback): this;
   on(event: string, handler: unknown): this {
     switch (event) {
+      case "gameResult":
+        this.onGameResult = handler as GameResultCallback;
+        break;
       case "update":
         this.onUpdate = handler as () => void;
         break;
@@ -391,6 +400,7 @@ export class GameController {
     this._settings = settings;
     this.playerBuilder = playerBuilder;
     this.repeat = 0;
+    this.playersSwapped = false;
     if (settings.startPosition === "current") {
       // 連続対局用に何手目から開始するかを記憶する。
       this.startPly = this.recordManager.record.current.ply;
@@ -399,7 +409,7 @@ export class GameController {
     this._results = newGameResults(settings.black.name, settings.white.name);
     try {
       // 初期局面リストを読み込む。
-      if (settings.startPosition === "list") {
+      if (settings.startPosition === "list" && !this.environment.coordinator) {
         await this.startPositionList.reset({
           filePath: settings.startPositionListFile,
           swapPlayers: settings.swapPlayers,
@@ -443,21 +453,42 @@ export class GameController {
     if (this.blackPlayer === undefined || this.whitePlayer === undefined) {
       throw new Error("GameManager#goNextGame: プレイヤーが初期化されていません。");
     }
-    // 連続対局の回数をカウントアップする。
-    this.repeat++;
-    // 初期局面を設定する。
-    switch (this.settings.startPosition) {
-      case "current":
-        if (this.repeat > 1) this.recordManager.record = restoreRecord(this.initialSource!).record;
-        break;
-      case "list":
-        this.recordManager.importRecord(this.startPositionList.next());
-        this.recordManager.updateComment(
-          getTranslationTable(this.environment.language).beginFromThisPosition,
+    if (this.environment.coordinator) {
+      const assignment = this.interrupted
+        ? undefined
+        : this.environment.coordinator.next(this.recordManager);
+      if (!assignment) {
+        await this.closePlayers();
+        this.state = GameState.IDLE;
+        this.onGameEnd(
+          this.results,
+          this.interrupted ? SpecialMoveType.INTERRUPT : SpecialMoveType.START,
         );
-        break;
-      default:
-        this.recordManager.resetByInitialPositionType(this.settings.startPosition);
+        return;
+      }
+      this.repeat = assignment.gameNumber;
+      if (assignment.swapped !== this.playersSwapped) {
+        this.swapPlayers();
+        this.playersSwapped = assignment.swapped;
+      }
+    } else {
+      // 連続対局の回数をカウントアップする。
+      this.repeat++;
+      // 初期局面を設定する。
+      switch (this.settings.startPosition) {
+        case "current":
+          if (this.repeat > 1)
+            this.recordManager.record = restoreRecord(this.initialSource!).record;
+          break;
+        case "list":
+          this.recordManager.importRecord(this.startPositionList.next());
+          this.recordManager.updateComment(
+            getTranslationTable(this.environment.language).beginFromThisPosition,
+          );
+          break;
+        default:
+          this.recordManager.resetByInitialPositionType(this.settings.startPosition);
+      }
     }
     // 対局のメタデータを設定する。
     this.recordManager.setGameStartMetadata({
@@ -799,6 +830,7 @@ export class GameController {
         this.recordManager.setGameEndMetadata();
         // 連続対局の記録に追加する。
         this.addGameResults(color, specialMoveType);
+        this.onGameResult(specialMoveToPlayerGameResult(color, Color.BLACK, specialMoveType));
         await this.onRecordEnd();
         // 自動保存が有効な場合は棋譜を保存する。
         if (this._settings.enableAutoSave) {
@@ -808,7 +840,7 @@ export class GameController {
         const complete =
           this.interrupted ||
           specialMoveType === SpecialMoveType.INTERRUPT ||
-          this.repeat >= this.settings.repeat;
+          (!this.environment.coordinator && this.repeat >= this.settings.repeat);
         if (complete) {
           // プレイヤーを解放する。
           this.closePlayers()
@@ -823,7 +855,7 @@ export class GameController {
           return;
         }
         // 連続対局時の手番入れ替えが有効ならプレイヤーを入れ替える。
-        if (this.settings.swapPlayers) {
+        if (this.settings.swapPlayers && !this.environment.coordinator) {
           this.swapPlayers();
         }
         // 次の対局を開始する。
@@ -923,17 +955,11 @@ export class GameController {
   }
 
   private async closePlayers(): Promise<void> {
-    const tasks: Promise<void>[] = [];
-    if (this.blackPlayer) {
-      tasks.push(this.blackPlayer.close());
-      this.blackPlayer = undefined;
-    }
-    if (this.whitePlayer) {
-      tasks.push(this.whitePlayer.close());
-      this.whitePlayer = undefined;
-    }
+    const players = [this.blackPlayer, this.whitePlayer];
+    this.blackPlayer = undefined;
+    this.whitePlayer = undefined;
     try {
-      const results = await Promise.allSettled(tasks);
+      const results = await Promise.allSettled(players.map(async (player) => player?.close()));
       const failure = results.find((result) => result.status === "rejected");
       if (failure?.status === "rejected") throw failure.reason;
     } catch (e) {

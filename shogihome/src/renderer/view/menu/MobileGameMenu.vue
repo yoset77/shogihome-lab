@@ -106,6 +106,21 @@
               <div class="form-item-label">{{ t.gameRepetition }}</div>
               <input v-model.number="settings.repeat" class="number" type="number" min="1" />
             </div>
+            <div v-if="canStartInBackground" class="form-item">
+              <label class="form-item-label" for="mobile-game-parallelism">{{
+                t.parallelism
+              }}</label>
+              <input
+                id="mobile-game-parallelism"
+                v-model.number="settings.parallelism"
+                class="number"
+                type="number"
+                min="1"
+                :max="MAX_GAME_PARALLELISM"
+                step="1"
+              />
+            </div>
+            <p v-if="parallelGame" class="note">{{ t.parallelGameNote }}</p>
             <!-- Jishogi Rule -->
             <div class="form-item">
               <div class="form-item-label">{{ t.jishogi }}</div>
@@ -127,7 +142,7 @@
               <div class="form-item-label">{{ t.saveRecordAutomatically }}</div>
               <ToggleButton v-model:value="settings.enableAutoSave" />
             </div>
-            <div v-if="canStartInBackground" class="form-item">
+            <div v-if="canStartInBackground && !parallelGame" class="form-item">
               <div class="form-item-label">{{ t.jobsBackground }}</div>
               <ToggleButton v-model:value="background" />
             </div>
@@ -149,7 +164,12 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
-import { TimeLimitSettings, JishogiRule, validateGameSettings } from "@/common/settings/game";
+import {
+  TimeLimitSettings,
+  JishogiRule,
+  validateGameSettings,
+  MAX_GAME_PARALLELISM,
+} from "@/common/settings/game";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
 import { IconType } from "@/renderer/assets/icons";
@@ -195,6 +215,7 @@ const settings = reactive({
   startPositionListPly: 1,
   maxMoves: 1000,
   repeat: 1,
+  parallelism: 1,
   swapPlayers: false,
   jishogiRule: JishogiRule.GENERAL27,
   enableAutoSave: false,
@@ -205,6 +226,7 @@ const isEnginePlayer = (playerURI: string) => uri.isLanEngineURI(playerURI);
 const canStartInBackground = computed(
   () => isEnginePlayer(settings.black.uri) && isEnginePlayer(settings.white.uri),
 );
+const parallelGame = computed(() => canStartInBackground.value && settings.parallelism > 1);
 watch(canStartInBackground, (available) => {
   if (!available) background.value = false;
 });
@@ -264,6 +286,7 @@ onMounted(async () => {
     settings.startPositionListPly = saved.startPositionListPly ?? 1;
     settings.maxMoves = saved.maxMoves || 1000;
     settings.repeat = saved.repeat || 1;
+    settings.parallelism = saved.parallelism ?? 1;
     settings.swapPlayers = saved.swapPlayers || false;
     settings.jishogiRule = saved.jishogiRule || JishogiRule.GENERAL27;
     settings.enableAutoSave = saved.enableAutoSave;
@@ -340,6 +363,7 @@ const onStart = async () => {
       : undefined,
     maxMoves: settings.maxMoves,
     repeat: settings.repeat,
+    parallelism: canStartInBackground.value ? settings.parallelism : 1,
     swapPlayers: settings.swapPlayers,
     jishogiRule: settings.jishogiRule,
     enableAutoSave: settings.enableAutoSave,
@@ -353,11 +377,17 @@ const onStart = async () => {
 
   try {
     await api.saveGameSettings(newSettings);
-    store.startGame(newSettings, background.value && canStartInBackground.value);
+    store.startGame(
+      newSettings,
+      (background.value || parallelGame.value) && canStartInBackground.value,
+    );
     emit("close");
   } catch (e) {
     console.error("Failed to save game settings:", e);
-    store.startGame(newSettings, background.value && canStartInBackground.value);
+    store.startGame(
+      newSettings,
+      (background.value || parallelGame.value) && canStartInBackground.value,
+    );
     emit("close");
   }
 };

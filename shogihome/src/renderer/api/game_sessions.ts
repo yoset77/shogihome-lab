@@ -20,6 +20,7 @@ import {
 } from "@/common/jobs/types";
 
 export interface GameSessionsClient {
+  cancel(id: string): Promise<JobSummary>;
   commandOutcome(id: string, requestId: string): Promise<JobOperationOutcome>;
   list(): Promise<JobSummary[]>;
   attach(id: string, request: JobAttachRequest): Promise<GameSnapshot>;
@@ -41,6 +42,12 @@ async function decode<T>(
 export function createGameSessionsClient(): GameSessionsClient {
   const client = createHonoApiClient().api["game-sessions"];
   return {
+    cancel: async (id) => {
+      const response = await client[":sessionId"].cancel.$post({ param: { sessionId: id } });
+      const decoded = decodeJobList([await parseJsonResponse<unknown>(response)]);
+      if (!decoded.ok || decoded.value[0].kind !== "game") throw new Error(t.gameInvalid);
+      return decoded.value[0];
+    },
     commandOutcome: async (id, requestId) =>
       decode(
         await client[":sessionId"].commands[":requestId"].$get({

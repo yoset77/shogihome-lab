@@ -1,0 +1,1 @@
+export const MAX_GAME_SNAPSHOT_BYTES = 16 * 1024 * 1024;

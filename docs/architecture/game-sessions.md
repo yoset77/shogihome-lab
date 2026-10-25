@@ -4,14 +4,17 @@
 
 ## Responsibilities
 
-| 所有者                                                                       | 責務                                                                            |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| [`server/game/controller.ts`](../../shogihome/src/server/game/controller.ts) | 対局ルール、手番、終局、連続対局、checkpoint と巻き戻し                         |
-| [`server/game/clock.ts`](../../shogihome/src/server/game/clock.ts)           | monotonic time に基づく時計と deadline の確定                                   |
-| [`server/game/session.ts`](../../shogihome/src/server/game/session.ts)       | 固定入力、棋譜・時計 snapshot、操作の冪等性、接続の制御権、各局の保存・履歴登録 |
-| [`server/game/manager.ts`](../../shogihome/src/server/game/manager.ts)       | 作成要求の解決、実行数・保持期間の制約、session cleanup                         |
-| [`server/game/player.ts`](../../shogihome/src/server/game/player.ts)         | 人間／LAN player、内部 engine session と外部定跡の寿命・取消                    |
-| [`renderer/store/game.ts`](../../shogihome/src/renderer/store/game.ts)       | 操作要求、同期、着手プレビュー、reload 復元、時計の表示、対局中の文書編集 lock  |
+| 所有者                                                                         | 責務                                                                            |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| [`server/game/controller.ts`](../../shogihome/src/server/game/controller.ts)   | 対局ルール、手番、終局、連続対局、checkpoint と巻き戻し                         |
+| [`server/game/coordinator.ts`](../../shogihome/src/server/game/coordinator.ts) | 並列対局の全体番号、先後交代、開始局面の共有割当                                |
+| [`server/game/parallel.ts`](../../shogihome/src/server/game/parallel.ts)       | 有界worker、worker別player再利用、固定プレイヤー基準の戦績集計、全体停止        |
+| [`server/game/clock.ts`](../../shogihome/src/server/game/clock.ts)             | monotonic time に基づく時計と deadline の確定                                   |
+| [`server/game/session.ts`](../../shogihome/src/server/game/session.ts)         | 固定入力、棋譜・時計 snapshot、操作の冪等性、接続の制御権、各局の保存・履歴登録 |
+| [`server/game/manager.ts`](../../shogihome/src/server/game/manager.ts)         | 作成要求の解決、実行数・保持期間の制約、session cleanup                         |
+| [`server/game/player.ts`](../../shogihome/src/server/game/player.ts)           | 人間／LAN player、内部 engine session と外部定跡の寿命・取消                    |
+| [`server/game/persistence.ts`](../../shogihome/src/server/game/persistence.ts) | 直列・並列共通の終局棋譜保存と履歴backup                                        |
+| [`renderer/store/game.ts`](../../shogihome/src/renderer/store/game.ts)         | 操作要求、同期、着手プレビュー、reload 復元、時計の表示、対局中の文書編集 lock  |
 
 USI 遷移は player に複製せず、[`engine/internal.ts`](../../shogihome/src/server/engine/internal.ts) を通じて `EngineSession` を使用します。対局用の内部 session は公開 relay の registry へ登録しません。通常検討・詰み探索は Browser 側の既存経路に残ります。Engine 境界は [Remote Engine Architecture](remote-engine.md) を参照してください。
 
@@ -26,6 +29,18 @@ USI 遷移は player に複製せず、[`engine/internal.ts`](../../shogihome/sr
 - 対局・時計・checkpoint は Server の停止・再起動で失われ、未完了対局の保存と自動再開は保証しません。Launcher の停止・再起動（Windows の強制終了を含む）や SIGTERM／SIGINT による終了も同じ扱いです。終局棋譜の永続化は session 保持とは独立しています。
 
 ファイル公開と履歴の保証は [Storage Architecture](storage.md) を参照してください。
+
+## Parallel Engine Games
+
+並列連続対局も公開上は1つの親sessionであり、通常対局と同じ実行枠を占有します。各workerは専用の`GameController`・棋譜・時計・2つのplayerを持ち、playerを対局間で再利用します。RendererやWrapperへexecutorを追加しません。
+
+共通coordinatorが対局番号と開始局面を同期的に割り当てます。先後交代と局面集のペアはworker番号・完了順ではなく全体の対局番号で決まり、局面集の検証・shuffleは親sessionで一度だけ行います。戦績は名前の一致に依存せず、開始時のプレイヤーと各局の割当で集計します。保存と履歴処理が収束してからworkerへ次局を割り当てます。
+
+Managerは作成受付中にengine定義を固定し、全worker分のCPU予算を一括予約します。予算超過はHTTPエラーとして返し、失敗sessionを登録しません。受付中の同一要求は処理を共有し、別要求は同じ実行枠を使えません。親sessionは予約に使った定義と予約を引き継ぎます。各worker内はponderなしの交互探索のためgroup別最大、worker間は合計とし、全workerの保存・player終了まで予約を保持します。停止・engine異常は新規割当を止めて全workerへ伝え、保存開始済みの棋譜と開始中のplayerも回収を待ちます。保存・履歴の失敗だけでは他の対局を止めません。
+
+並列sessionはバックグラウンド専用です。Serverはアタッチ・復帰・WebSocket接続・盤面操作を拒否し、JobsDialogが全体進捗・固定プレイヤー戦績・冪等な停止を扱います。公開snapshotの棋譜は作成時の入力のままで、代表workerの進行を公開しません。終局棋譜は保持せず、詳細画面から保存ファイルを通常の棋譜open経路で回収します。自動保存なし・保存失敗時は既存の履歴backupを使用します。
+
+実行・停止・予算の保証は [parallel tests](../../shogihome/src/tests/server/parallel_games.spec.ts)、USI経路は [integration tests](../../shogihome/src/tests/server/game_integration.spec.ts) を参照してください。
 
 ## Clock and Disconnect Policy
 
