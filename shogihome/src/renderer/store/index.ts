@@ -585,7 +585,7 @@ class Store {
 
   showGameDialog(): void {
     if (this.appState === AppState.NORMAL) {
-      if (this.hasRetainedGame) void this.restoreGame();
+      if (this.hasRetainedGame || this.hasGameRecoveryCandidate) void this.restoreGame();
       else this._appState = AppState.GAME_DIALOG;
     }
   }
@@ -965,6 +965,9 @@ class Store {
   get hasRetainedGame(): boolean {
     return this.gameManager.hasRetainedSession;
   }
+  get hasGameRecoveryCandidate(): boolean {
+    return this.gameManager.hasRecoveryCandidate;
+  }
   showJobsDialog(): void {
     this.isJobsDialogVisible = true;
   }
@@ -1058,7 +1061,7 @@ class Store {
       if (isReloadNavigation()) {
         await this.restoreGame();
         await this.restoreAnalysis();
-      }
+      } else await this.restoreGame();
       await Promise.all([
         this.analysisManager.reconcilePending(),
         this.gameManager.reconcilePending(),
@@ -1075,6 +1078,10 @@ class Store {
     if (this.appState !== AppState.NORMAL || useBusyState().isBusy) return;
     useBusyState().retain();
     try {
+      if (!this.gameManager.hasRetainedSession) {
+        await this.gameManager.recover(() => this.confirmJob(t.gameReconnect));
+        return;
+      }
       if (!(await guardJobRecovery("game"))) {
         sessionStorage.removeItem("shogihome-job-attachment:game");
         return;

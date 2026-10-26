@@ -23,6 +23,8 @@ import { t } from "@/common/i18n";
 import api from "@/renderer/ipc/api";
 import { USIMonitor } from "@/renderer/store/usi";
 import { useAppSettings } from "@/renderer/store/settings";
+import { GameRecoveryStorage } from "@/renderer/store/game_recovery";
+import { guardJobRecovery, releaseJobTab } from "@/renderer/store/job_tab_guard";
 import {
   setOnStartSearchHandler,
   setOnUpdateUSIInfoHandler,
@@ -32,6 +34,11 @@ import {
 vi.mock("@/server/file/history", () => ({
   saveBackup: vi.fn().mockResolvedValue(undefined),
   addHistory: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/renderer/store/job_tab_guard", async (original) => ({
+  ...(await original<typeof import("@/renderer/store/job_tab_guard")>()),
+  guardJobRecovery: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("@/renderer/ipc/api", () => ({
@@ -220,6 +227,7 @@ describe("game session client", () => {
     localStorage.clear();
     sessionStorage.clear();
     vi.useFakeTimers();
+    vi.mocked(guardJobRecovery).mockReset().mockResolvedValue(true);
     vi.mocked(api.saveRecordFileBackup).mockReset().mockResolvedValue(undefined);
     useToastStore().clear();
   });
@@ -237,6 +245,7 @@ describe("game session client", () => {
     vi.useRealTimers();
     setOnStartSearchHandler(() => {});
     setOnUpdateUSIInfoHandler(() => {});
+    releaseJobTab("game");
   });
   async function start(value: ReturnType<typeof setup>, ai = false) {
     if (ai) value.settings.white = { uri: "lan-engine:test", name: "AI" };
@@ -1461,6 +1470,391 @@ describe("game session client", () => {
     expect(confirm).not.toHaveBeenCalled();
     expect(beat).not.toHaveBeenCalled();
     recovered.dispose();
+  });
+
+  function reopen(value: ReturnType<typeof setup>, records?: RecordManager) {
+    value.game.dispose();
+    releaseJobTab("game");
+    sessionStorage.clear();
+    const game = records
+      ? new GameManager(
+          records,
+          new GameClockDisplay(),
+          new GameClockDisplay(),
+          value.client,
+          value.socketFactory,
+          "reopened-screen",
+        )
+      : value.reload("reopened-screen");
+    extraClients.push(game);
+    return game;
+  }
+
+  it("offers explicit recovery after the PWA closes and synchronizes an engine reply", async () => {
+    const value = fixture();
+    await start(value, true);
+    await vi.advanceTimersByTimeAsync(1250);
+    await value.game.move(value.records.record.position.createMoveByUSI("7g7f")!);
+    const before = value.game.status!;
+    const game = reopen(value);
+    value.searches[0].handler.onMove(value.records.record.position.createMoveByUSI("3c3d")!);
+    await vi.advanceTimersByTimeAsync(0);
+    const confirm = vi.fn(async () => {
+      expect(game.isActive).toBe(false);
+      expect(storedReference()).toBeNull();
+      expect(value.sockets).toHaveLength(1);
+      return true;
+    });
+    expect(game.hasRecoveryCandidate).toBe(true);
+    expect(await game.recover(confirm)).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(game.status?.sessionId).toBe(before.sessionId);
+    expect(game.status?.record.nodes).toHaveLength(3);
+    expect(game.status?.clocks.black.timeMs).toBe(before.clocks.black.timeMs);
+    expect(game.canMove).toBe(true);
+    expect(value.client.create).toHaveBeenCalledOnce();
+    expect(value.client.attach).not.toHaveBeenCalled();
+  });
+
+  it("keeps a declined candidate without claiming control or locking the record", async () => {
+    const value = fixture();
+    await start(value, true);
+    const game = reopen(value);
+    const backups = vi.mocked(api.saveRecordFileBackup).mock.calls.length;
+    expect(await game.recover(async () => false)).toBe(false);
+    expect(game.hasRecoveryCandidate).toBe(true);
+    expect(game.isActive).toBe(false);
+    expect(storedReference()).toBeNull();
+    expect(value.client.snapshot.mock.calls.every(([, recovery]) => !recovery)).toBe(true);
+    expect(api.saveRecordFileBackup).toHaveBeenCalledTimes(backups);
+    expect(await game.recover(async () => true)).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(game.canMove).toBe(true);
+  });
+
+  it("does not notify or claim control while another tab holds the recovery guard", async () => {
+    const value = fixture();
+    await start(value, true);
+    const game = reopen(value);
+    vi.mocked(guardJobRecovery).mockResolvedValue(false);
+    const confirm = vi.fn(async () => true);
+    expect(await game.recover(confirm)).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(value.client.snapshot).not.toHaveBeenCalled();
+    expect(game.hasRecoveryCandidate).toBe(true);
+    expect(storedReference()).toBeNull();
+  });
+
+  it("cannot replace a live server controller even if the local guard is available", async () => {
+    const value = fixture();
+    await start(value, true);
+    const epoch = value.session().snapshot().controllerEpoch;
+    sessionStorage.clear();
+    const game = value.reload("another-screen");
+    extraClients.push(game);
+    expect(await game.recover(async () => true)).toBe(true);
+    expect(game.canMove).toBe(false);
+    expect(value.game.canMove).toBe(true);
+    expect(value.session().snapshot().controllerEpoch).toBe(epoch);
+    expect(value.sockets).toHaveLength(1);
+  });
+
+  it("recovers again after a delivered HTTP recovery response was lost before closing", async () => {
+    const value = fixture();
+    await start(value, true);
+    const first = reopen(value);
+    const original = value.client.snapshot.getMockImplementation()!;
+    let lost = false;
+    value.client.snapshot.mockImplementation(async (id, recovery) => {
+      const snapshot = await original(id, recovery);
+      if (recovery && !lost) {
+        lost = true;
+        throw new TypeError("Recovery response lost");
+      }
+      return snapshot;
+    });
+    expect(await first.recover(async () => true)).toBe(true);
+    expect(first.canMove).toBe(false);
+    first.dispose();
+    releaseJobTab("game");
+    sessionStorage.clear();
+    const second = value.reload("second-reopened-screen");
+    extraClients.push(second);
+    expect(await second.recover(async () => true)).toBe(true);
+    await vi.advanceTimersByTimeAsync(31_001);
+    expect(second.canMove).toBe(true);
+    expect(second.status?.sessionId).toBe(value.session().id);
+    expect(value.client.create).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a lost HTTP claim candidate after reload conflicts and requires explicit recovery", async () => {
+    const value = fixture();
+    await start(value, true);
+    const first = reopen(value);
+    const original = value.client.snapshot.getMockImplementation()!;
+    let lost = false;
+    value.client.snapshot.mockImplementation(async (id, recovery) => {
+      const snapshot = await original(id, recovery);
+      if (recovery && !lost) {
+        lost = true;
+        throw new TypeError("Recovery response lost");
+      }
+      return snapshot;
+    });
+    expect(await first.recover(async () => true)).toBe(true);
+    expect(first.canMove).toBe(false);
+    const reference = storedReference();
+    const candidates = new GameRecoveryStorage().list();
+    const claimed = value.session().snapshot();
+    expect(claimed.controllerEpoch).toBeGreaterThan(candidates[0].controllerEpoch!);
+    first.dispose();
+    releaseJobTab("game");
+    expect(storedReference()).toBe(reference);
+    const reloaded = value.reload("reloaded-screen");
+    extraClients.push(reloaded);
+    const error = vi.fn();
+    reloaded.on("error", error);
+    expect(await reloaded.resume(async () => true)).toBe(false);
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ status: 409 }));
+    expect(reloaded.isActive).toBe(false);
+    expect(reloaded.hasRetainedSession).toBe(false);
+    expect(storedReference()).toBeNull();
+    expect(new GameRecoveryStorage().list()).toEqual(candidates);
+    expect(value.client.snapshot.mock.calls.at(-1)?.[1]?.takeover).toBe(false);
+    await vi.advanceTimersByTimeAsync(31_001);
+    expect(value.session().snapshot().controllerEpoch).toBe(claimed.controllerEpoch);
+    expect(value.sockets).toHaveLength(1);
+    const confirm = vi.fn(async () => true);
+    expect(await reloaded.recover(confirm)).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(value.client.snapshot.mock.calls.at(-1)?.[1]?.takeover).toBe(true);
+    expect(reloaded.canMove).toBe(true);
+    expect(reloaded.status?.sessionId).toBe(claimed.sessionId);
+    expect(value.client.create).toHaveBeenCalledOnce();
+  });
+
+  it("preserves another unsaved record and its candidate when backup fails", async () => {
+    const value = fixture();
+    await start(value, true);
+    const records = new RecordManager(Record.newByUSI("position startpos moves 2g2f") as Record);
+    records.updateComment("Unsaved analysis");
+    const game = reopen(value, records);
+    vi.mocked(api.saveRecordFileBackup).mockRejectedValueOnce(new Error("Backup failed"));
+    await expect(game.recover(async () => true)).rejects.toThrow("Backup failed");
+    expect(records.record.usi).toBe("position startpos moves 2g2f");
+    expect(records.analysisLocked).toBe(false);
+    expect(game.hasRecoveryCandidate).toBe(true);
+    expect(storedReference()).toBeNull();
+    expect(value.client.snapshot.mock.calls.every(([, recovery]) => !recovery)).toBe(true);
+  });
+
+  it("does not resurrect a closed screen after a late modal confirmation", async () => {
+    const value = fixture();
+    await start(value, true);
+    const game = reopen(value);
+    const answer = Promise.withResolvers<boolean>();
+    const confirm = vi.fn(() => answer.promise);
+    const recovered = game.recover(confirm);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(confirm).toHaveBeenCalledOnce();
+    game.dispose();
+    answer.resolve(true);
+    expect(await recovered).toBe(false);
+    expect(game.isActive).toBe(false);
+    expect(game.hasRecoveryCandidate).toBe(true);
+    expect(storedReference()).toBeNull();
+    expect(value.sockets).toHaveLength(1);
+  });
+
+  it.each(["accepted", "pending"] as const)(
+    "can close and recover again while the new socket handshake is %s",
+    async (handshake) => {
+      const value = fixture();
+      await start(value, true);
+      const sessionId = value.game.status!.sessionId;
+      const first = reopen(value);
+      if (handshake === "accepted") value.dropNextConnectionFrames();
+      else value.delayConnections(60_000);
+      expect(await first.recover(async () => true)).toBe(true);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(first.canMove).toBe(false);
+      first.dispose();
+      releaseJobTab("game");
+      sessionStorage.clear();
+      value.delayConnections(0);
+      const second = value.reload("second-reopened-screen");
+      extraClients.push(second);
+      expect(await second.recover(async () => true)).toBe(true);
+      await vi.advanceTimersByTimeAsync(handshake === "accepted" ? 1 : 31_001);
+      expect(second.canMove).toBe(true);
+      expect(second.status?.sessionId).toBe(sessionId);
+      expect(value.client.create).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["completed", "failed", "expired", "restarted", "transferred"] as const)(
+    "discards a %s candidate without prompting, opening a record, or creating a game",
+    async (state) => {
+      const value = fixture();
+      await start(value, true);
+      const game = reopen(value);
+      if (state === "expired")
+        value.client.snapshot.mockRejectedValueOnce(new ApiResponseError(410, "Expired"));
+      else if (state === "restarted")
+        value.client.capabilities.mockResolvedValue({
+          ...value.server.capabilities(),
+          serverInstanceId: "00000000-0000-0000-0000-000000000000",
+        });
+      else if (state === "transferred") {
+        const snapshot = value.session().publicSnapshot();
+        value.client.snapshot.mockResolvedValueOnce({
+          ...snapshot,
+          controllerGeneration: snapshot.controllerGeneration + 1,
+        });
+      } else
+        value.client.snapshot.mockResolvedValueOnce({ ...value.session().publicSnapshot(), state });
+      const confirm = vi.fn(async () => true);
+      expect(await game.recover(confirm)).toBe(false);
+      expect(confirm).not.toHaveBeenCalled();
+      expect(game.hasRecoveryCandidate).toBe(false);
+      expect(game.status).toBeUndefined();
+      expect(storedReference()).toBeNull();
+      expect(value.client.create).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("rechecks terminal state after the confirmation before replacing the current record", async () => {
+    const value = fixture();
+    await start(value, true);
+    const game = reopen(value);
+    const confirm = vi.fn(async () => {
+      value.client.snapshot.mockResolvedValueOnce({
+        ...value.session().publicSnapshot(),
+        state: "completed",
+      });
+      return true;
+    });
+    expect(await game.recover(confirm)).toBe(false);
+    expect(game.status).toBeUndefined();
+    expect(game.hasRecoveryCandidate).toBe(false);
+    expect(storedReference()).toBeNull();
+    expect(value.sockets).toHaveLength(1);
+  });
+
+  it("does not prompt during game finalization or discard a potential next game", async () => {
+    const value = fixture();
+    await start(value, true);
+    const game = reopen(value);
+    value.client.snapshot.mockResolvedValueOnce({
+      ...value.session().publicSnapshot(),
+      state: "finishing",
+    });
+    const confirm = vi.fn(async () => true);
+    expect(await game.recover(confirm)).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(game.hasRecoveryCandidate).toBe(true);
+    expect(storedReference()).toBeNull();
+  });
+
+  it("does not restore a terminal snapshot arriving during the recovery handshake", async () => {
+    const value = fixture();
+    await start(value, true);
+    const game = reopen(value);
+    const original = value.client.snapshot.getMockImplementation()!;
+    value.client.snapshot.mockImplementation(async (id, recovery) => {
+      const snapshot = await original(id, recovery);
+      return recovery ? { ...snapshot, state: "completed" } : snapshot;
+    });
+    expect(await game.recover(async () => true)).toBe(false);
+    expect(game.status).toBeUndefined();
+    expect(game.hasRecoveryCandidate).toBe(false);
+    expect(storedReference()).toBeNull();
+    expect(value.sockets).toHaveLength(1);
+  });
+
+  it("retains candidates on network failures and rate limits", async () => {
+    const value = fixture();
+    await start(value, true);
+    const game = reopen(value);
+    const confirm = vi.fn(async () => true);
+    for (const error of [new TypeError("Offline"), new ApiResponseError(429, "Try later")]) {
+      value.client.snapshot.mockRejectedValueOnce(error);
+      await expect(game.recover(confirm)).rejects.toBe(error);
+      expect(game.hasRecoveryCandidate).toBe(true);
+    }
+    expect(confirm).not.toHaveBeenCalled();
+    expect(storedReference()).toBeNull();
+  });
+
+  it("finds an accepted creation after closing before its HTTP response arrives", async () => {
+    const value = fixture();
+    value.settings.white = { uri: "lan-engine:test", name: "AI" };
+    const original = value.client.create.getMockImplementation()!;
+    value.client.create.mockImplementationOnce(async (request) => {
+      await original(request);
+      throw new TypeError("Response lost");
+    });
+    await value.game.start(value.settings);
+    const game = reopen(value);
+    expect(await game.recover(async () => true)).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(game.canMove).toBe(true);
+    expect(value.client.byRequest).toHaveBeenCalled();
+    expect(value.client.create).toHaveBeenCalledOnce();
+  });
+
+  it("resends an unconfirmed move with its original request ID after PWA recovery", async () => {
+    const value = fixture();
+    await start(value);
+    const original = value.client.command.getMockImplementation()!;
+    value.client.command.mockImplementationOnce(async (id, command, authorization) => {
+      await original(id, command, authorization);
+      throw new TypeError("Response lost");
+    });
+    await value.game.move(value.records.record.position.createMoveByUSI("7g7f")!);
+    const game = reopen(value);
+    expect(await game.recover(async () => true)).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    const moves = value.client.command.mock.calls.filter(
+      ([, command]) => command.action === "move",
+    );
+    expect(moves).toHaveLength(2);
+    expect(moves[0][1]).toEqual(moves[1][1]);
+    expect(game.status?.record.nodes).toHaveLength(2);
+    expect(game.canMove).toBe(true);
+  });
+
+  it("requires a durable recovery candidate before starting a human game", async () => {
+    const value = fixture();
+    const original = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, raw) {
+      if (key.startsWith("shogihome-game-recovery:")) throw new Error("Storage full");
+      original.call(this, key, raw);
+    });
+    await expect(value.game.start(value.settings)).rejects.toThrow("Storage full");
+    expect(value.client.create).not.toHaveBeenCalled();
+    expect(value.records.analysisLocked).toBe(false);
+    expect(new GameRecoveryStorage().list()).toEqual([]);
+  });
+
+  it("does not create durable recovery candidates for engine-only games", async () => {
+    const value = fixture();
+    value.settings.black = value.settings.white = { uri: "lan-engine:test", name: "AI" };
+    await value.game.start(value.settings);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.game.hasRecoveryCandidate).toBe(false);
+  });
+
+  it("removes its durable candidate on normal game completion", async () => {
+    const value = fixture();
+    await start(value, true);
+    expect(value.game.hasRecoveryCandidate).toBe(true);
+    await value.game.resign();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(value.game.isActive).toBe(false);
+    expect(value.game.hasRecoveryCandidate).toBe(false);
   });
 
   it("does not replace another unsaved record when recovery is declined", async () => {

@@ -1,7 +1,8 @@
-import { JobTabGuard } from "@/renderer/store/job_tab_guard";
+import { guardJobRecovery, JobTabGuard, releaseJobTab } from "@/renderer/store/job_tab_guard";
 
 describe("job document recovery guard", () => {
   afterEach(() => {
+    releaseJobTab("game");
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
@@ -76,5 +77,24 @@ describe("job document recovery guard", () => {
     vi.stubGlobal("navigator", {});
     vi.stubGlobal("BroadcastChannel", undefined);
     expect(await new JobTabGuard().acquire("authority")).toBe(false);
+  });
+
+  it("guards a durable candidate without attaching it and retries after an occupied tab closes", async () => {
+    let occupied = true;
+    vi.stubGlobal("navigator", {
+      locks: {
+        request: async (
+          _name: string,
+          _options: unknown,
+          callback: (lock: object | null) => Promise<void>,
+        ) => callback(occupied ? null : {}),
+      },
+    });
+    sessionStorage.clear();
+    const reference = { serverInstanceId: "server", requestId: "request", controllerId: "owner" };
+    expect(await guardJobRecovery("game", reference)).toBe(false);
+    occupied = false;
+    expect(await guardJobRecovery("game", reference)).toBe(true);
+    expect(sessionStorage.getItem("shogihome-job-attachment:game")).toBeNull();
   });
 });

@@ -32,6 +32,7 @@ const store = reactive({
   stopMateSearch: vi.fn(),
   isAnalysisCancelling: false,
   hasRetainedGame: false,
+  hasGameRecoveryCandidate: false,
   hasRetainedAnalysis: true,
   gameReconnecting: true,
   gamePaused: true,
@@ -55,6 +56,7 @@ describe("FileMenu mate search", () => {
     store.showGameDialog.mockReset();
     store.isAnalysisCancelling = false;
     store.hasRetainedGame = false;
+    store.hasGameRecoveryCandidate = false;
     isMobileWebApp.mockReturnValue(true);
     useStore.mockReturnValue(store);
   });
@@ -134,13 +136,26 @@ describe("FileMenu mate search", () => {
     },
   );
 
-  it("opens a retained game from the ordinary game action rather than a new settings menu", async () => {
-    store.hasRetainedGame = true;
+  it.each(["retained", "candidate"])(
+    "opens a %s game from the ordinary game action rather than a new settings menu",
+    async (kind) => {
+      store.hasRetainedGame = kind === "retained";
+      store.hasGameRecoveryCandidate = kind === "candidate";
+      const wrapper = mountMenu();
+      const button = wrapper.findAll("button").find((button) => button.text() === t.game)!;
+      await button.trigger("click");
+      expect(store.showGameDialog).toHaveBeenCalledOnce();
+      expect(wrapper.findComponent(MobileGameMenu).exists()).toBe(false);
+      expect(wrapper.emitted("close")).toHaveLength(1);
+    },
+  );
+
+  it("opens the mobile game settings when no game can be recovered", async () => {
     const wrapper = mountMenu();
     const button = wrapper.findAll("button").find((button) => button.text() === t.game)!;
     await button.trigger("click");
-    expect(store.showGameDialog).toHaveBeenCalledOnce();
-    expect(wrapper.findComponent(MobileGameMenu).exists()).toBe(false);
-    expect(wrapper.emitted("close")).toHaveLength(1);
+    expect(store.showGameDialog).not.toHaveBeenCalled();
+    expect(wrapper.findComponent(MobileGameMenu).exists()).toBe(true);
+    expect(wrapper.emitted("close")).toBeUndefined();
   });
 });

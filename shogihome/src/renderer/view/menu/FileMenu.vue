@@ -277,7 +277,7 @@ const onFlip = () => {
   emit("close");
 };
 const onGame = () => {
-  if (store.hasRetainedGame) {
+  if (store.hasRetainedGame || store.hasGameRecoveryCandidate) {
     store.showGameDialog();
     emit("close");
     return;

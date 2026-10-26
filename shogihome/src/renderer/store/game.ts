@@ -32,6 +32,8 @@ import { encodeSearchInfo } from "@/common/record/snapshot";
 import { RecordManager } from "./record";
 import { GameClockDisplay } from "./game_clock";
 import { JobStorage } from "./job_storage";
+import { GameRecoveryStorage, type GameRecoveryReference } from "./game_recovery";
+import { guardJobRecovery, releaseJobTab } from "./job_tab_guard";
 import {
   readJobAttachRequest,
   readJobBinding,
@@ -49,6 +51,7 @@ export type { GameResults, GameStatistics } from "@/common/game/results";
 const STORAGE_KEY = "shogihome-game-session";
 const MONITOR_IDS = { [Color.BLACK]: 200200, [Color.WHITE]: 200201 };
 const SCREEN_ID = generateSessionId();
+const recoveryStorage = new GameRecoveryStorage();
 
 function gameErrorMessage(error: GameError): string {
   switch (error) {
@@ -60,15 +63,7 @@ function gameErrorMessage(error: GameError): string {
       return t.gameSaveFailed;
   }
 }
-type Reference = {
-  requestId: string;
-  serverInstanceId: string;
-  controllerId: string;
-  connectionId?: string;
-  controllerEpoch?: number;
-  controllerGeneration?: number;
-  recoveryId?: string;
-  sessionId?: string;
+type Reference = GameRecoveryReference & {
   content: string;
   pending: GameCommand[];
   stopRequested?: boolean;
@@ -172,6 +167,9 @@ const storage = new JobStorage(
 function loadReferences(): Reference[] {
   const ref = storage.load();
   if (!ref) return [];
+  return [withPending(ref)];
+}
+function withPending(ref: Reference): Reference {
   const pending = storage
     .journal()
     .filter(
@@ -180,23 +178,24 @@ function loadReferences(): Reference[] {
         value.serverInstanceId === ref.serverInstanceId &&
         value.controllerId === ref.controllerId,
     );
-  return [
-    {
-      ...ref,
-      pending: pending.flatMap((value) => value.pending),
-      stopRequested: pending.some((value) => value.stopRequested),
-      pendingAttach: pending.find((value) => value.pendingAttach)?.pendingAttach,
-    },
-  ];
+  return {
+    ...ref,
+    pending: pending.flatMap((value) => value.pending),
+    stopRequested: pending.some((value) => value.stopRequested),
+    pendingAttach: pending.find((value) => value.pendingAttach)?.pendingAttach,
+  };
 }
 function forgetReference(ref: Reference): void {
   storage.detach(ref);
   storage.forgetJournal(ref);
+  recoveryStorage.forget(ref);
 }
 
 export class GameManager {
   private reference?: Reference;
   private background = false;
+  private humanGame = false;
+  private recovering = false;
   private pendingRequest?: GameSessionRequest;
   private _status?: GameSnapshot;
   private movePreview?: MovePreview;
@@ -275,6 +274,9 @@ export class GameManager {
   }
   get hasRetainedSession(): boolean {
     return this.active ? !!this.reference : loadReferences().length > 0;
+  }
+  get hasRecoveryCandidate(): boolean {
+    return recoveryStorage.list().length > 0;
   }
   get reconnecting(): boolean {
     return this.active && !this.socketReady;
@@ -357,6 +359,7 @@ export class GameManager {
     if (!ref.sessionId || ref.pending.length || ref.stopRequested || ref.pendingAttach)
       storage.writeJournal(ref);
     else storage.forgetJournal(ref);
+    if (this.humanGame) recoveryStorage.save(ref);
     if (!this.background)
       storage.save({ ...ref, pending: [], stopRequested: undefined, pendingAttach: undefined });
   }
@@ -419,6 +422,7 @@ export class GameManager {
     if (background && [settings.black.uri, settings.white.uri].includes("es://human"))
       throw new Error(t.gameInvalid);
     this.background = background;
+    this.humanGame = [settings.black.uri, settings.white.uri].includes(ES_HUMAN);
     const requestId = generateSessionId();
     const source = this.bind(requestId);
     this.starting = !background;
@@ -507,6 +511,7 @@ export class GameManager {
       if (durableContent(snapshotRecord(this.recordManager.record)) !== local)
         throw new Error(t.gameConflict);
       this.reference = ref;
+      this.humanGame = !!recoveryStorage.get(ref);
       this.bind(ref.requestId);
       this.controllerEpoch = ref.controllerEpoch;
       await this.synchronize(!ref.sessionId && index < references.length - 1);
@@ -514,6 +519,89 @@ export class GameManager {
       if (this.reference) return false;
     }
     return false;
+  }
+  async recover(confirmRecovery: () => Promise<boolean>): Promise<boolean> {
+    if (this.active || this.hasRetainedSession) return false;
+    const candidates = recoveryStorage.list();
+    if (!candidates.length) return false;
+    const lifecycle = this.lifecycle;
+    const caps = await this.client.capabilities();
+    if (lifecycle !== this.lifecycle) return false;
+    for (let ref of candidates) {
+      if (ref.serverInstanceId !== caps.serverInstanceId) {
+        recoveryStorage.forget(ref);
+        continue;
+      }
+      if (!(await guardJobRecovery("game", ref))) continue;
+      let bound = false;
+      try {
+        if (lifecycle !== this.lifecycle) return false;
+        const current = recoveryStorage.get(ref);
+        if (!current) continue;
+        ref = current;
+        if (!(await this.recoverySnapshot(ref))) continue;
+        if (lifecycle !== this.lifecycle) return false;
+        const local = durableContent(snapshotRecord(this.recordManager.record));
+        if (!(await confirmRecovery()) || lifecycle !== this.lifecycle) return false;
+        const latest = recoveryStorage.get(ref);
+        if (!latest) return false;
+        ref = latest;
+        const snapshot = await this.recoverySnapshot(ref);
+        if (!snapshot || lifecycle !== this.lifecycle) return false;
+        await this.recordManager.saveBackup();
+        if (lifecycle !== this.lifecycle) return false;
+        if (durableContent(snapshotRecord(this.recordManager.record)) !== local)
+          throw new Error(t.gameConflict);
+        this.background = false;
+        this.humanGame = true;
+        this.recovering = true;
+        this.pendingRequest = undefined;
+        this.reference = withPending({
+          ...ref,
+          sessionId: snapshot.sessionId,
+          content: local,
+          pending: [],
+        });
+        this.bind(ref.requestId);
+        bound = true;
+        this.controllerEpoch = ref.controllerEpoch;
+        this.persist();
+        await this.synchronize();
+        return this.active;
+      } catch (error) {
+        if (bound) this.release(ref.requestId, false);
+        if (error instanceof ApiResponseError && error.status === 410) {
+          recoveryStorage.forget(ref);
+          continue;
+        }
+        throw error;
+      } finally {
+        if (!this.active) releaseJobTab("game");
+      }
+    }
+    return false;
+  }
+  private async recoverySnapshot(ref: GameRecoveryReference): Promise<GameSnapshot | undefined> {
+    const snapshot = ref.sessionId
+      ? await this.client.snapshot(ref.sessionId)
+      : await this.client.byRequest(ref.requestId);
+    if (
+      snapshot.requestId !== ref.requestId ||
+      snapshot.serverInstanceId !== ref.serverInstanceId ||
+      (ref.sessionId && snapshot.sessionId !== ref.sessionId)
+    )
+      throw new Error(t.gameInvalid);
+    if (
+      isGameTerminal(snapshot.state) ||
+      ![snapshot.settings.black.uri, snapshot.settings.white.uri].includes(ES_HUMAN) ||
+      (ref.controllerGeneration !== undefined &&
+        ref.controllerGeneration !== snapshot.controllerGeneration)
+    ) {
+      recoveryStorage.forget(ref);
+      return;
+    }
+    if (snapshot.state === "finishing") return;
+    return snapshot;
   }
   private async synchronize(skipMissingRequest = false): Promise<void> {
     const ref = this.reference;
@@ -571,7 +659,10 @@ export class GameManager {
         this.backoff(error);
         this.schedule();
       } else {
-        if (error instanceof ApiResponseError && error.status === 409) storage.detach(ref);
+        if (error instanceof ApiResponseError && error.status === 409) {
+          // A lost HTTP claim can conflict after reload; keep the candidate for explicit recovery.
+          storage.detach(ref);
+        }
         this.release(ref.requestId, error instanceof ApiResponseError && error.status === 410);
         if (!(skipMissingRequest && error instanceof ApiResponseError && error.status === 410))
           this.handlers.error(error);
@@ -586,7 +677,7 @@ export class GameManager {
       epoch: ref.controllerEpoch ?? this.controllerEpoch ?? 0,
       recoveryId: ref.recoveryId,
       screenId: this.screenId,
-      takeover: false,
+      takeover: this.recovering,
       connectionId: ref.connectionId ?? this.connectionId,
     };
   }
@@ -744,6 +835,7 @@ export class GameManager {
         this.frame(decoded.value, initial);
         if (decoded.value.type === "snapshot" && initial && this.reference) {
           this.socketReady = true;
+          this.recovering = false;
           this.completeStartup();
           this.retryMs = 1000;
           this.heartbeat();
@@ -775,6 +867,7 @@ export class GameManager {
       clearInterval(this.heartbeatTimer);
       if (event.code === 4001) {
         storage.detach(ref);
+        recoveryStorage.forget(ref);
         this.release(ref.requestId, false);
         this.handlers.error(new Error(t.jobsTransferred));
       } else if (event.code === 4004) {
@@ -877,6 +970,13 @@ export class GameManager {
         snapshot.controllerEpoch < this._status.controllerEpoch)
     )
       return;
+    if (this.recovering && (isGameTerminal(snapshot.state) || snapshot.state === "finishing")) {
+      if (isGameTerminal(snapshot.state)) recoveryStorage.forget(ref);
+      storage.detach(ref);
+      this.release(ref.requestId, false);
+      this.reference = undefined;
+      return;
+    }
     if (this._status?.revision === snapshot.revision && snapshot.sampleId <= this.lastSampleId)
       return;
     if (this._status && this._status.gameId !== snapshot.gameId) this.resetMonitors();
@@ -903,6 +1003,7 @@ export class GameManager {
       ref.controllerEpoch = snapshot.controllerEpoch;
     }
     this._status = snapshot;
+    this.humanGame = [snapshot.settings.black.uri, snapshot.settings.white.uri].includes(ES_HUMAN);
     this.lastSampleId = Math.max(this.lastSampleId, snapshot.sampleId);
     this.persist();
     this.updateClocks(snapshot.clocks, silent);
@@ -1039,6 +1140,7 @@ export class GameManager {
       }
     }
     ++this.lifecycle;
+    this.recovering = false;
     this.detach();
     this.recordManager.endGame(token);
     this.bindingToken = undefined;

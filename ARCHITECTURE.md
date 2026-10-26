@@ -122,6 +122,8 @@ flowchart LR
 | Game session            | Game session manager              | 対局・時計・checkpointを持つ有期限の揮発性状態                               |
 | Browser storage         | Renderer                          | タブ固有のアタッチ復帰情報、端末・origin固有の設定・棋譜復元・未確認要求台帳 |
 
+人間参加対局の明示復帰候補も Browser storage が保持し、Server 所有の対局実体やタブ固有のアタッチ状態とは区別します。
+
 Database、filesystem、browser storage は互いに代替可能な正本ではありません。特に kifu index は派生データであり、ユーザーファイルの正本として扱いません。
 
 棋譜局面indexの走査・位置選択規則はCommonのkifu domain utilityが所有し、indexing、検索結果の次手、preview、棋譜openが同じ代表箇所を参照します。検索統計は一覧上限に依存しない検索条件全体の集計をServerのDBが担当し、共有decoderが集計全体との整合性を検証します。詳細は [Storage Architecture](docs/architecture/storage.md) と [Server Kifu Search](docs/features/server-kifu-search.md) を参照してください。
