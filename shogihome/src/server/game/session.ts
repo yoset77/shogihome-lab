@@ -520,6 +520,17 @@ export class GameSession {
   recover(request: GameRecoveryRequest): GameSnapshot {
     this.ensureAttachable();
     if (request.ownerId !== this.controllerId) throw new HttpError(409, t.gameConflict);
+    this.expireDetached();
+    // Explicit recovery can reconcile a lost HTTP claim, but never replace a live screen.
+    if (
+      request.takeover &&
+      request.recoveryId === this.controllerRecoveryId &&
+      request.epoch <= this.controllerEpoch
+    ) {
+      if (this.attachment().attached && request.screenId !== this.screenId)
+        throw new HttpError(423, t.jobsOccupied);
+      request = { ...request, epoch: this.controllerEpoch };
+    }
     // The creator's private owner ID authorizes the first claim, including a lost create response.
     if (
       this.controllerEpoch === 0 &&

@@ -811,6 +811,7 @@ export const zh_tw: Texts = {
   gameCapacity: "已達對局執行或棋譜大小的上限。",
   gameSaveFailed: "無法儲存對局棋譜。",
   gameRecover: "開啟伺服器上的對局棋譜嗎？目前的棋譜將被取代。",
+  gameReconnect: "上一場對局仍在進行中。要返回對局嗎？",
   jobsTitle: "工作",
   jobsBackground: "在背景開始",
   jobsDetach: "分離",

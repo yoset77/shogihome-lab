@@ -41,6 +41,7 @@ import type { GameSnapshot } from "@/common/game/protocol";
 import type { JobSummary } from "@/common/jobs/types";
 import { ApiResponseError } from "@/renderer/api/client";
 import { snapshotRecord } from "@/common/record/snapshot";
+import * as jobStorage from "@/renderer/store/job_storage";
 
 vi.mock("@/renderer/devices/audio.js");
 vi.mock("@/renderer/ipc/api.js");
@@ -182,6 +183,7 @@ const sampleEncodingKIF = `手合割：平手
 describe("store/index", () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     mockGameManager.prototype.on.mockReturnThis();
     mockAnalysisManager.prototype.on.mockReturnThis();
     mockMateSearchManager.prototype.on.mockReturnThis();
@@ -211,6 +213,119 @@ describe("store/index", () => {
       expect(mockGameManager.prototype.start).not.toHaveBeenCalled();
       expect(store.appState).not.toBe(AppState.GAME_DIALOG);
     } finally {
+      retained.mockRestore();
+    }
+  });
+
+  it("offers a durable candidate through the ordinary game action without a new dialog", async () => {
+    const retained = vi
+      .spyOn(GameManager.prototype, "hasRetainedSession", "get")
+      .mockReturnValue(false);
+    const candidate = vi
+      .spyOn(GameManager.prototype, "hasRecoveryCandidate", "get")
+      .mockReturnValue(true);
+    try {
+      mockGameManager.prototype.recover.mockImplementation(async (confirm) => confirm());
+      const store = createStore();
+      expect(store.hasRetainedGame).toBe(false);
+      expect(store.hasGameRecoveryCandidate).toBe(true);
+      store.showGameDialog();
+      expect(useConfirmationStore().message).toBe(t.gameReconnect);
+      expect(store.appState).toBe(AppState.NORMAL);
+      useConfirmationStore().cancel();
+      await vi.waitFor(() => expect(useBusyState().isBusy).toBe(false));
+      expect(mockGameManager.prototype.recover).toHaveBeenCalledOnce();
+      expect(mockGameManager.prototype.start).not.toHaveBeenCalled();
+      expect(mockGameManager.prototype.resume).not.toHaveBeenCalled();
+    } finally {
+      retained.mockRestore();
+      candidate.mockRestore();
+      mockGameManager.prototype.recover.mockReset();
+    }
+  });
+
+  it("offers recovery on ordinary startup and only prompts once during initialization", async () => {
+    const navigation = vi.spyOn(jobStorage, "isReloadNavigation").mockReturnValue(false);
+    const retained = vi
+      .spyOn(GameManager.prototype, "hasRetainedSession", "get")
+      .mockReturnValue(false);
+    const candidate = vi
+      .spyOn(GameManager.prototype, "hasRecoveryCandidate", "get")
+      .mockReturnValue(true);
+    try {
+      mockGameManager.prototype.recover.mockImplementation(async (confirm) => confirm());
+      const store = createStore();
+      const initialized = store.initializeJobs();
+      expect(useConfirmationStore().message).toBe(t.gameReconnect);
+      useConfirmationStore().cancel();
+      await initialized;
+      expect(useConfirmationStore().message).toBeUndefined();
+      expect(mockGameManager.prototype.recover).toHaveBeenCalledOnce();
+      expect(mockGameManager.prototype.resume).not.toHaveBeenCalled();
+      expect(mockGameManager.prototype.reconcilePending).toHaveBeenCalledOnce();
+      expect(mockAnalysisManager.prototype.reconcilePending).toHaveBeenCalledOnce();
+      expect(useBusyState().isBusy).toBe(false);
+      store.showGameDialog();
+      expect(useConfirmationStore().message).toBe(t.gameReconnect);
+      useConfirmationStore().cancel();
+      await vi.waitFor(() => expect(useBusyState().isBusy).toBe(false));
+      expect(mockGameManager.prototype.recover).toHaveBeenCalledTimes(2);
+      expect(mockGameManager.prototype.start).not.toHaveBeenCalled();
+    } finally {
+      navigation.mockRestore();
+      retained.mockRestore();
+      candidate.mockRestore();
+      mockGameManager.prototype.recover.mockReset();
+    }
+  });
+
+  it("retries a candidate through the ordinary game action after startup recovery fails", async () => {
+    const navigation = vi.spyOn(jobStorage, "isReloadNavigation").mockReturnValue(false);
+    const retained = vi
+      .spyOn(GameManager.prototype, "hasRetainedSession", "get")
+      .mockReturnValue(false);
+    const candidate = vi
+      .spyOn(GameManager.prototype, "hasRecoveryCandidate", "get")
+      .mockReturnValue(true);
+    try {
+      const error = new TypeError("Offline");
+      mockGameManager.prototype.recover
+        .mockRejectedValueOnce(error)
+        .mockImplementation(async (confirm) => confirm());
+      const store = createStore();
+      await store.initializeJobs();
+      expect(useErrorStore().errors).toEqual([{ message: error.message, count: 1 }]);
+      expect(store.hasGameRecoveryCandidate).toBe(true);
+      expect(mockGameManager.prototype.recover).toHaveBeenCalledOnce();
+      store.showGameDialog();
+      expect(useConfirmationStore().message).toBe(t.gameReconnect);
+      useConfirmationStore().cancel();
+      await vi.waitFor(() => expect(useBusyState().isBusy).toBe(false));
+      expect(mockGameManager.prototype.recover).toHaveBeenCalledTimes(2);
+      expect(mockGameManager.prototype.start).not.toHaveBeenCalled();
+      expect(mockGameManager.prototype.resume).not.toHaveBeenCalled();
+      expect(store.appState).toBe(AppState.NORMAL);
+    } finally {
+      navigation.mockRestore();
+      retained.mockRestore();
+      candidate.mockRestore();
+      mockGameManager.prototype.recover.mockReset();
+    }
+  });
+
+  it("preserves automatic reload recovery without an extra durable-candidate prompt", async () => {
+    const navigation = vi.spyOn(jobStorage, "isReloadNavigation").mockReturnValue(true);
+    const retained = vi
+      .spyOn(GameManager.prototype, "hasRetainedSession", "get")
+      .mockReturnValue(true);
+    try {
+      mockGameManager.prototype.resume.mockResolvedValue(true);
+      await createStore().initializeJobs();
+      expect(mockGameManager.prototype.resume).toHaveBeenCalledOnce();
+      expect(mockGameManager.prototype.recover).not.toHaveBeenCalled();
+      expect(useConfirmationStore().message).toBeUndefined();
+    } finally {
+      navigation.mockRestore();
       retained.mockRestore();
     }
   });

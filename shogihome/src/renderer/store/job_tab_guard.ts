@@ -92,6 +92,12 @@ export class JobTabGuard {
 }
 
 const guards = new Map<string, JobTabGuard>();
+type JobTabReference = {
+  serverInstanceId: string;
+  requestId: string;
+  ownerId?: string;
+  controllerId?: string;
+};
 function guard(kind: string): JobTabGuard {
   let guard = guards.get(kind);
   if (!guard) {
@@ -100,22 +106,21 @@ function guard(kind: string): JobTabGuard {
   }
   return guard;
 }
-function name(
-  kind: string,
-  value: { serverInstanceId: string; requestId: string; ownerId?: string; controllerId?: string },
-): string {
+function name(kind: string, value: JobTabReference): string {
   return `shogihome-attachment:${kind}:${value.serverInstanceId}:${value.requestId}:${value.ownerId ?? value.controllerId}`;
 }
-export async function guardJobRecovery(kind: "analysis" | "game"): Promise<boolean> {
-  const raw = sessionStorage.getItem(`shogihome-job-attachment:${kind}`);
-  if (!raw) return true;
-  const value = JSON.parse(raw);
-  return guard(kind).acquire(name(kind, value));
+export async function guardJobRecovery(
+  kind: "analysis" | "game",
+  reference?: JobTabReference,
+): Promise<boolean> {
+  const raw = reference ? undefined : sessionStorage.getItem(`shogihome-job-attachment:${kind}`);
+  if (!reference && !raw) return true;
+  const value = reference ?? JSON.parse(raw!);
+  const acquired = await guard(kind).acquire(name(kind, value));
+  if (!acquired) releaseJobTab(kind);
+  return acquired;
 }
-export function holdJobTab(
-  kind: string,
-  value: { serverInstanceId: string; requestId: string; ownerId?: string; controllerId?: string },
-): void {
+export function holdJobTab(kind: string, value: JobTabReference): void {
   void guard(kind)
     .acquire(name(kind, value))
     .catch(() => {});

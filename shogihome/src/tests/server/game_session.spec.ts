@@ -292,6 +292,26 @@ describe("server game sessions", () => {
     await session.close();
   });
 
+  it("does not let HTTP recovery reset an expired human turn before the interval tick", async () => {
+    const { session, connection } = await humanGame(true);
+    const before = session.snapshot();
+    connection.disconnect();
+    vi.setSystemTime(Date.now() + 60_000);
+    const recovered = session.recover({
+      ownerId: before.controllerOwnerId!,
+      epoch: before.controllerEpoch,
+      recoveryId: before.controllerRecoveryId,
+      connectionId: before.controllerConnectionId,
+      screenId: "reopened-screen",
+      takeover: false,
+    });
+    expect(recovered.state).toBe("finishing");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(session.snapshot().lastResult).toBe(SpecialMoveType.INTERRUPT);
+    expect(session.snapshot().state).toBe("completed");
+    await session.close();
+  });
+
   it("measures detach time independently of wall clock changes", async () => {
     let monotonic = 0;
     const session = new GameSession("monotonic", gameRequest(), { now: () => monotonic });
@@ -367,6 +387,35 @@ describe("server game sessions", () => {
     await vi.advanceTimersByTimeAsync(0);
     await session.command(pending, authorization);
     expect(session.snapshot().lastResult).toBe(SpecialMoveType.INTERRUPT);
+    await session.close();
+  });
+  it("only reconciles an old HTTP claim explicitly, with valid rights and no live screen", async () => {
+    const { session, connection } = await humanGame(true);
+    const before = session.snapshot();
+    connection.disconnect();
+    const request = {
+      ownerId: before.controllerOwnerId!,
+      epoch: before.controllerEpoch,
+      recoveryId: before.controllerRecoveryId,
+      connectionId: before.controllerConnectionId,
+      screenId: "first-recovery",
+      takeover: false,
+    };
+    const first = session.recover(request);
+    const next = { ...request, screenId: "second-recovery" };
+    expect(() => session.recover(next)).toThrow(expect.objectContaining({ status: 409 }));
+    expect(() => session.recover({ ...next, takeover: true })).toThrow(
+      expect.objectContaining({ status: 423 }),
+    );
+    expect(() => session.recover({ ...next, takeover: true, recoveryId: "wrong" })).toThrow(
+      expect.objectContaining({ status: 409 }),
+    );
+    await vi.advanceTimersByTimeAsync(30_001);
+    expect(() => session.recover(next)).toThrow(expect.objectContaining({ status: 409 }));
+    const recovered = session.recover({ ...next, takeover: true });
+    expect(recovered.controllerEpoch).toBeGreaterThan(first.controllerEpoch);
+    expect(recovered.controllerGeneration).toBe(before.controllerGeneration);
+    expect(recovered.controllerRecoveryId).toBe(before.controllerRecoveryId);
     await session.close();
   });
   it("releases an attachment lease on socket disconnect so a reload need not wait for expiry", () => {

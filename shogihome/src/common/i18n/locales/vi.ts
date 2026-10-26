@@ -830,6 +830,7 @@ export const vi: Texts = {
   gameCapacity: "Đã đạt giới hạn thực thi ván đấu hoặc kích thước bản ghi.",
   gameSaveFailed: "Không thể lưu bản ghi ván đấu.",
   gameRecover: "Mở bản ghi ván đấu trên máy chủ? Bản ghi hiện tại sẽ bị thay thế.",
+  gameReconnect: "Ván đấu trước vẫn đang diễn ra. Quay lại ván đấu?",
   jobsTitle: "Tác vụ",
   jobsBackground: "Bắt đầu ở chế độ nền",
   jobsDetach: "Ngắt kết nối",

@@ -839,6 +839,7 @@ export const en: Texts = {
   gameCapacity: "The game execution or record size limit has been reached.",
   gameSaveFailed: "The game record could not be saved.",
   gameRecover: "Open the server game record? The current record will be replaced.",
+  gameReconnect: "Your previous game is still in progress. Return to the game?",
   jobsTitle: "Jobs",
   jobsBackground: "Start in background",
   jobsDetach: "Detach",
