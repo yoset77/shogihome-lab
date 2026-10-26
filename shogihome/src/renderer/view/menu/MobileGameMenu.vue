@@ -102,9 +102,15 @@
               <input v-model.number="settings.maxMoves" class="number" type="number" min="1" />
             </div>
             <!-- Game Repetition -->
-            <div class="form-item">
-              <div class="form-item-label">{{ t.gameRepetition }}</div>
-              <input v-model.number="settings.repeat" class="number" type="number" min="1" />
+            <div v-if="canStartInBackground" class="form-item">
+              <label class="form-item-label" for="mobile-game-repeat">{{ t.gameRepetition }}</label>
+              <input
+                id="mobile-game-repeat"
+                v-model.number="settings.repeat"
+                class="number"
+                type="number"
+                min="1"
+              />
             </div>
             <div v-if="canStartInBackground" class="form-item">
               <label class="form-item-label" for="mobile-game-parallelism">{{
@@ -133,7 +139,7 @@
               </div>
             </div>
             <!-- Swap Players -->
-            <div class="form-item">
+            <div v-if="canStartInBackground" class="form-item">
               <div class="form-item-label">{{ t.swapTurnWhenGameRepetition }}</div>
               <ToggleButton v-model:value="settings.swapPlayers" />
             </div>
@@ -385,7 +391,7 @@ const onStart = async () => {
       ? settings.startPositionListPly
       : undefined,
     maxMoves: settings.maxMoves,
-    repeat: settings.repeat,
+    repeat: canStartInBackground.value ? settings.repeat : 1,
     parallelism: canStartInBackground.value ? settings.parallelism : 1,
     swapPlayers: settings.swapPlayers,
     jishogiRule: settings.jishogiRule,

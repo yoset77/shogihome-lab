@@ -29,9 +29,13 @@ vi.mock("@/renderer/ipc/api", () => ({
   },
 }));
 
-describe("mobile game background start", () => {
+describe("mobile game settings", () => {
   const backgroundItem = (wrapper: ReturnType<typeof shallowMount>) =>
     wrapper.findAll(".form-item").find((item) => item.text().includes(t.jobsBackground));
+  const swapItem = (wrapper: ReturnType<typeof shallowMount>) =>
+    wrapper
+      .findAll(".form-item")
+      .find((item) => item.text().includes(t.swapTurnWhenGameRepetition));
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -106,6 +110,77 @@ describe("mobile game background start", () => {
     expect(mocks.start).toHaveBeenCalledWith(expect.anything(), false);
     wrapper.unmount();
   });
+
+  it.each([
+    [0, false],
+    [0, true],
+    [1, false],
+    [1, true],
+  ] as const)(
+    "uses one game when player %i is human and restores the engine settings with swap %s",
+    async (playerIndex, swapPlayers) => {
+      const wrapper = shallowMount(MobileGameMenu);
+      await flushPromises();
+      await wrapper.get("#mobile-game-repeat").setValue("6");
+      const swap = swapItem(wrapper)!.getComponent(ToggleButton);
+      swap.vm.$emit("update:value", swapPlayers);
+      const player = wrapper.findAllComponents(MobilePlayerSetting)[playerIndex];
+      player.vm.$emit("update:playerUri", "es://human");
+      await flushPromises();
+      expect(wrapper.find("#mobile-game-repeat").exists()).toBe(false);
+      expect(swapItem(wrapper)).toBeUndefined();
+      await wrapper.get("button.start").trigger("click");
+      await flushPromises();
+      expect(mocks.error).not.toHaveBeenCalled();
+      expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ repeat: 1, swapPlayers }));
+      expect(mocks.start).toHaveBeenCalledWith(
+        expect.objectContaining({ repeat: 1, swapPlayers }),
+        false,
+      );
+      player.vm.$emit(
+        "update:playerUri",
+        playerIndex === 0 ? "lan-engine:black" : "lan-engine:white",
+      );
+      await flushPromises();
+      expect(wrapper.get<HTMLInputElement>("#mobile-game-repeat").element.value).toBe("6");
+      expect(swapItem(wrapper)!.getComponent(ToggleButton).props()).toMatchObject({
+        value: swapPlayers,
+        disabled: false,
+      });
+      await wrapper.get("button.start").trigger("click");
+      await flushPromises();
+      expect(mocks.save).toHaveBeenLastCalledWith(
+        expect.objectContaining({ repeat: 6, swapPlayers }),
+      );
+      expect(mocks.start).toHaveBeenLastCalledWith(
+        expect.objectContaining({ repeat: 6, swapPlayers }),
+        false,
+      );
+      wrapper.unmount();
+    },
+  );
+
+  it("ignores a saved repetition count when both players are human", async () => {
+    const saved = { ...defaultGameSettings(), repeat: 4, swapPlayers: true };
+    mocks.load.mockResolvedValueOnce(saved);
+    const wrapper = shallowMount(MobileGameMenu);
+    await flushPromises();
+    expect(wrapper.find("#mobile-game-repeat").exists()).toBe(false);
+    expect(swapItem(wrapper)).toBeUndefined();
+    await wrapper.get("button.start").trigger("click");
+    await flushPromises();
+    expect(mocks.error).not.toHaveBeenCalled();
+    expect(mocks.save).toHaveBeenCalledWith(
+      expect.objectContaining({ repeat: 1, swapPlayers: true }),
+    );
+    expect(mocks.start).toHaveBeenCalledWith(
+      expect.objectContaining({ repeat: 1, swapPlayers: true }),
+      false,
+    );
+    expect(saved.repeat).toBe(4);
+    wrapper.unmount();
+  });
+
   it("forces parallel games into the background and resets parallelism for human games", async () => {
     const wrapper = shallowMount(MobileGameMenu);
     await flushPromises();

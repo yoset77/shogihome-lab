@@ -63,19 +63,30 @@
             <div class="form-item-small-label">{{ t.minutesSuffix }}</div>
           </div>
           <div class="form-item">
-            <div class="form-item-label">{{ t.byoyomi }}</div>
-            <input v-model.number="byoyomi" class="time" type="number" min="0" max="60" step="1" />
+            <label class="form-item-label" for="game-byoyomi">{{ t.byoyomi }}</label>
+            <input
+              id="game-byoyomi"
+              v-model.number="byoyomi"
+              class="time"
+              type="number"
+              min="0"
+              max="60"
+              step="1"
+              @input="byoyomi > 0 && (increment = 0)"
+            />
             <div class="form-item-small-label">{{ t.secondsSuffix }}</div>
           </div>
           <div class="form-item">
-            <div class="form-item-label">{{ t.increments }}</div>
+            <label class="form-item-label" for="game-increment">{{ t.increments }}</label>
             <input
+              id="game-increment"
               v-model.number="increment"
               class="time"
               type="number"
               min="0"
               max="99"
               step="1"
+              @input="increment > 0 && (byoyomi = 0)"
             />
             <div class="form-item-small-label">{{ t.secondsSuffix }}</div>
           </div>
@@ -111,8 +122,9 @@
             <div class="form-item-small-label">{{ t.minutesSuffix }}</div>
           </div>
           <div class="form-item">
-            <div class="form-item-label">{{ t.byoyomi }}</div>
+            <label class="form-item-label" for="game-white-byoyomi">{{ t.byoyomi }}</label>
             <input
+              id="game-white-byoyomi"
               v-model.number="whiteByoyomi"
               class="time"
               type="number"
@@ -120,12 +132,14 @@
               max="60"
               step="1"
               :disabled="!setDifferentTime"
+              @input="whiteByoyomi > 0 && (whiteIncrement = 0)"
             />
             <div class="form-item-small-label">{{ t.secondsSuffix }}</div>
           </div>
           <div class="form-item">
-            <div class="form-item-label">{{ t.increments }}</div>
+            <label class="form-item-label" for="game-white-increment">{{ t.increments }}</label>
             <input
+              id="game-white-increment"
               v-model.number="whiteIncrement"
               class="time"
               type="number"
@@ -133,6 +147,7 @@
               max="99"
               step="1"
               :disabled="!setDifferentTime"
+              @input="whiteIncrement > 0 && (whiteByoyomi = 0)"
             />
             <div class="form-item-small-label">{{ t.secondsSuffix }}</div>
           </div>
@@ -218,9 +233,15 @@
             <div class="form-item-label">{{ t.maxMoves }}</div>
             <input v-model.number="gameSettings.maxMoves" class="number" type="number" min="1" />
           </div>
-          <div class="form-item">
-            <div class="form-item-label">{{ t.gameRepetition }}</div>
-            <input v-model.number="gameSettings.repeat" class="number" type="number" min="1" />
+          <div v-if="isBlackEngine && isWhiteEngine" class="form-item">
+            <label class="form-item-label" for="game-repeat">{{ t.gameRepetition }}</label>
+            <input
+              id="game-repeat"
+              v-model.number="gameSettings.repeat"
+              class="number"
+              type="number"
+              min="1"
+            />
           </div>
           <div v-if="isBlackEngine && isWhiteEngine" class="form-item">
             <label class="form-item-label" for="game-parallelism">{{ t.parallelism }}</label>
@@ -246,7 +267,7 @@
           </div>
         </div>
         <div class="half-column">
-          <div class="form-item">
+          <div v-if="isBlackEngine && isWhiteEngine" class="form-item">
             <ToggleButton
               v-model:value="gameSettings.swapPlayers"
               :label="t.swapTurnWhenGameRepetition"
@@ -267,7 +288,7 @@
               :disabled="!gameSettings.enableAutoSave"
             />
           </div>
-          <div class="form-item">
+          <div v-if="isHumanVsEngine" class="form-item">
             <ToggleButton
               v-model:value="gameSettings.humanIsFront"
               :label="t.adjustBoardToHumanPlayer"
@@ -365,6 +386,11 @@ const lanStore = useLanStore();
 
 const isBlackEngine = computed(() => uri.isLanEngineURI(blackPlayerURI.value));
 const isWhiteEngine = computed(() => uri.isLanEngineURI(whitePlayerURI.value));
+const isHumanVsEngine = computed(
+  () =>
+    (blackPlayerURI.value === uri.ES_HUMAN && isWhiteEngine.value) ||
+    (whitePlayerURI.value === uri.ES_HUMAN && isBlackEngine.value),
+);
 const parallelGame = computed(
   () => isBlackEngine.value && isWhiteEngine.value && (gameSettings.value.parallelism ?? 1) > 1,
 );
@@ -477,6 +503,7 @@ const buildPlayerSettings = (
 const onStart = () => {
   const newSettings: GameSettings = {
     ...gameSettings.value,
+    repeat: isBlackEngine.value && isWhiteEngine.value ? gameSettings.value.repeat : 1,
     parallelism:
       isBlackEngine.value && isWhiteEngine.value ? (gameSettings.value.parallelism ?? 1) : 1,
     black: buildPlayerSettings(blackPlayerURI.value, blackExtraBook.value),
