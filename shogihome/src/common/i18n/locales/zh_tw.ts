@@ -812,6 +812,7 @@ export const zh_tw: Texts = {
   gameSaveFailed: "無法儲存對局棋譜。",
   gameRecover: "開啟伺服器上的對局棋譜嗎？目前的棋譜將被取代。",
   gameReconnect: "上一場對局仍在進行中。要返回對局嗎？",
+  gameRecoveryUnavailable: "無法確認可返回的對局。請檢查其他畫面的使用狀況，或稍候再試。",
   jobsTitle: "工作",
   jobsBackground: "在背景開始",
   jobsDetach: "分離",

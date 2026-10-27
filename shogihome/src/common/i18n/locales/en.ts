@@ -840,6 +840,8 @@ export const en: Texts = {
   gameSaveFailed: "The game record could not be saved.",
   gameRecover: "Open the server game record? The current record will be replaced.",
   gameReconnect: "Your previous game is still in progress. Return to the game?",
+  gameRecoveryUnavailable:
+    "Could not confirm a game to return to. Check whether another screen is using it, or wait a moment and try again.",
   jobsTitle: "Jobs",
   jobsBackground: "Start in background",
   jobsDetach: "Detach",

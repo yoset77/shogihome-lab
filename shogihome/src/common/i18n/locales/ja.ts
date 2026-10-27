@@ -829,6 +829,8 @@ export const ja: Texts = {
   gameSaveFailed: "対局棋譜を保存できませんでした。",
   gameRecover: "サーバー上の対局棋譜を開きますか？ 現在の棋譜は置き換えられます。",
   gameReconnect: "前回の対局が残っています。対局に戻りますか？",
+  gameRecoveryUnavailable:
+    "復帰できる対局を確認できませんでした。別の画面の使用状況を確認するか、少し待ってから再度お試しください。",
   jobsTitle: "ジョブ",
   jobsBackground: "バックグラウンドで開始",
   jobsDetach: "デタッチ",

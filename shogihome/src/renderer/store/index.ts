@@ -585,7 +585,8 @@ class Store {
 
   showGameDialog(): void {
     if (this.appState === AppState.NORMAL) {
-      if (this.hasRetainedGame || this.hasGameRecoveryCandidate) void this.restoreGame();
+      if (this.hasRetainedGame || this.hasGameRecoveryCandidate)
+        void this.restoreGame({ notifyUnavailable: true });
       else this._appState = AppState.GAME_DIALOG;
     }
   }
@@ -1074,12 +1075,30 @@ class Store {
     if (this.gameManager.isActive) this._appState = AppState.GAME;
     else if (this.appState === AppState.GAME) this._appState = AppState.NORMAL;
   }
-  async restoreGame(): Promise<void> {
+  async restoreGame(options?: { notifyUnavailable: boolean }): Promise<void> {
     if (this.appState !== AppState.NORMAL || useBusyState().isBusy) return;
     useBusyState().retain();
     try {
       if (!this.gameManager.hasRetainedSession) {
-        await this.gameManager.recover(() => this.confirmJob(t.gameReconnect));
+        let cancelled = false;
+        const restored = await this.gameManager.recover(async () => {
+          const confirmed = await this.confirmJob(t.gameReconnect);
+          cancelled = !confirmed;
+          return confirmed;
+        });
+        if (
+          options?.notifyUnavailable &&
+          !restored &&
+          !cancelled &&
+          this.appState === AppState.NORMAL &&
+          !useErrorStore().hasError
+        ) {
+          if (this.hasGameRecoveryCandidate)
+            useToastStore().warning(t.gameRecoveryUnavailable, {
+              key: "game-recovery-unavailable",
+            });
+          else this._appState = AppState.GAME_DIALOG;
+        }
         return;
       }
       if (!(await guardJobRecovery("game"))) {
