@@ -2,15 +2,97 @@
 upstream: https://github.com/sunfish-shogi/shogihome
 
 # Exclusive start and inclusive first-pass cursor, not an integration baseline.
+# Includes PR #1500 through the pinned main containing #1864 (not a PR-number filter).
 coverage:
-  after: 467aad070af14799801e3cb4b0ecae8b0ab2d1bf
-  through: 3c112be4bc85f2fbb84ccd9edf68bc294433f80f
+  after: e0c7d4bb058f226ab00884115e5d136e1c8b2231
+  through: 5852b06f174e63b67900ee595049962769746df9
 
 last_review:
-  date: "2026-10-16"
-  lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+  date: "2026-10-27"
+  lab_sha: 9db54899d2d318d1135776d958205f098305216b
+  notes:
+    - >-
+      #1500のmergeから旧coverage.afterまでの168 PR・直接コミット23件と、
+      旧coverage.through以降の21 PRをfirst-parentで確認。189 PRのGitHub mergeCommitと
+      landed SHAを照合し、既存範囲との間に未調査の隙間はない。未merge PRは対象外。
+    - >-
+      Lab mainの固定SHAをdisposable worktreeに展開し、lockfileどおりignore-scriptsで依存を導入。
+      最小再現4件を含む対象14ファイル338テストとUSIベンチマーク1件が成功。
+      Chromiumでは実コンポーネントの限定ハーネスも確認。全体E2E・WebKit・PWA更新の通し試験は未実施。
+      修正の移植は行っていない。
 
 candidates:
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1714
+    summary: PWA更新の自動再読込を利用者操作に変更
+    status: candidate
+    priority: high
+    effort: medium
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    targets:
+      - shogihome/vite.config-pwa.mts
+      - shogihome/src/renderer/index.ts
+    evidence: >-
+      autoUpdate・skipWaiting・clientsClaimとregisterSWを併用している。
+      固定依存vite-plugin-pwa 1.3.0のactivatedハンドラーは更新時に無条件reloadするため、
+      現行コードに利用者が適用を延期する経路がない。実更新時のデータ消失は再現していない。
+    next: >-
+      prompt方式と更新通知をLabに適応する。上流の「棋譜は自動保存されるので確認不要」を
+      流用せず、未保存定跡・人間参加対局・Serverジョブの復帰を含めて適用条件を決める。
+      複数タブ、待機中SW、拒否・延期、更新失敗を回帰確認する。画像キャッシュ拡張は別判断とする。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1671
+    summary: 破損した利用者設定の退避と復旧
+    status: candidate
+    priority: medium
+    effort: medium
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    targets:
+      - shogihome/src/renderer/ipc/web.ts
+      - shogihome/src/server/settings.ts
+    evidence: >-
+      browserの6種類の設定とServerのapp_setting.jsonで、不正JSONはSyntaxErrorになり、
+      自動退避・既定値復旧されないことを最小テストで確認。起動のアプリ設定読込はcatchされるが、
+      他の設定ダイアログやServerの定跡取込は読込失敗になり得る。元データは現状も保持される。
+    next: >-
+      browser storageとServerファイルの所有者別に、元データ保持・衝突しない退避・通知を設計する。
+      JSON構文エラーとI/O・schemaエラーを区別し、退避失敗時は上書きしない。
+      Rustのエンジン設定・認証設定まで無断で既定値化する変更に広げない。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1697
+    summary: GitHub Actionsの参照をcommit SHAへ固定
+    status: candidate
+    priority: medium
+    effort: small
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    targets:
+      - .github/workflows/test.yml
+      - .github/workflows/release.yml
+    evidence: >-
+      checkout・setup-node等が可変のversion tag参照で、同等のSHA固定がない。
+      侵害を確認したものではなく、ビルド依存の予防的な固定化。
+    next: >-
+      Labが現在使用する各actionの公式commitを確認して固定する。上流の版へ一括更新せず、
+      Rust・Tauri・配布用actionも含めた更新運用を決める。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1698
+    summary: CI checkout後のGit認証情報の非永続化
+    status: candidate
+    priority: medium
+    effort: small
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    targets:
+      - .github/workflows/test.yml
+      - .github/workflows/release.yml
+    evidence: >-
+      checkoutにpersist-credentials: falseがない。現在のreleaseはLFSを取得し、
+      配布物の公開は専用actionで行う。認証情報流出を再現したものではなく予防的な対策。
+    next: >-
+      checkout後の認証付きGit操作が不要なjobで無効化し、LFS取得・release公開をCIで確認する。
+
   - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1768
     summary: 起動時の評価値復元
@@ -67,12 +149,13 @@ candidates:
     status: candidate
     priority: medium
     effort: small
-    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
     targets:
       - shogihome/src/renderer/view/dialog/AppSettingsDialog.vue
     evidence: >-
-      USI形式などに余計なform-item rowが残る。現行CSSの狭幅最小再現で、
-      除去するとselectorの不要な2段表示が解消した。実アプリE2Eは未実施。
+      設定画面の整理後もUSI形式などに余計なform-item rowが残ることをmainで再点検。
+      前回のCSS最小再現では、除去するとselectorの不要な2段表示が解消した。
+      今回の実アプリE2Eは未実施。
     next: >-
       desktop/mobileで検証して局所修正する。Labでresponsive化済みの
       ファイル名設定は重複変更しない。
@@ -94,27 +177,30 @@ candidates:
 
   - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1827
+      - https://github.com/sunfish-shogi/shogihome/pull/1853
     summary: 既存機能の繁体字・ベトナム語翻訳
     status: candidate
     priority: low
     effort: small-to-medium
-    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
     targets:
       - shogihome/src/common/i18n/locales/vi.ts
       - shogihome/src/common/i18n/locales/zh_tw.ts
-    evidence: 既存機能のキーに未翻訳が残る。
+    evidence: >-
+      不要キー削除後のlocaleを再点検。既存キーの未翻訳は残り、#1853の繁体字totalMovesも未反映。
+      同PRの他の変更キーは現行Labに存在しない。上流のAI翻訳方針変更はLabの指示として採用しない。
     next: Labに存在するキーと意味を照合して翻訳を取り込み、上流専用機能のキーは追加しない。
 
   - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1813
     summary: 外部URLを開く境界の検証
     status: investigate
-    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
     targets:
       - shogihome/src/renderer/ipc/web.ts
     evidence: >-
-      browser側のwindow.openとTauri openerはElectronとは異なる。
-      現行経路で到達可能な脆弱性は未確定。
+      IPC整理後のopenWebBrowserと呼出元を再点検。browser側は引き続きwindow.openで、
+      Tauri openerともElectronの実装とも異なる。現行経路で到達可能な脆弱性は未確定。
     next: >-
       入力の信頼源とschemeを確認する。相対URLのライセンス導線を壊す
       一律http/https限定チェックは避ける。
@@ -157,12 +243,231 @@ candidates:
     next: 実アプリのリサイズ等で確認し、不要なら閉じる。差分だけを理由に移植しない。
 
   - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1662
       - https://github.com/sunfish-shogi/shogihome/pull/1726
     summary: 依存の入手元・identityの監査方針
     status: investigate
-    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
-    evidence: Labには前提のverify-lockfileがなく、alias禁止だけの移植では完結しない。
-    next: 監査方針と、既存の依存更新・監査との役割分担を判断する。
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    targets:
+      - shogihome/package-lock.json
+      - shogihome/scripts/audit-scripts.ts
+      - engine-wrapper/launcher-app/package-lock.json
+    evidence: >-
+      #1662のinstall前に動くverify-lockfileがLabになく、#1726のalias禁止だけでは完結しない。
+      lifecycle script監査と、lockfileの入手元・name/version/integrity照合は異なる保証。
+    next: >-
+      registry・identity・alias・link等の許容方針と監査範囲を決める。
+      採用時は別npm rootであるlauncher-appへの適用要否も判断する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1500
+      - https://github.com/sunfish-shogi/shogihome/pull/1509
+      - https://github.com/sunfish-shogi/shogihome/pull/1606
+    summary: アプリ設定のカテゴリ別タブ化
+    status: optional
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: >-
+      Labは全カテゴリを縦に並べる方式のまま。後続のタブの見た目・操作カテゴリ分離も未反映。
+      Lab独自のUIモード・検討DB・カメラ設定等を残した再構成が必要。
+    next: 設定の探しやすさを評価して採否を判断し、mobileで必要な項目を上流と同じ条件で隠さない。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1508
+    summary: 候補手の矢印に最善手との評価値差を表示
+    status: optional
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: >-
+      Labには矢印表示と#1511の評価値範囲設定はあるが、矢印上の評価値差ラベルはない。
+    next: 複数エンジンの優先順位・盤反転・ラベルの重なりを含め、表示追加の採否を判断する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1588
+    summary: ダイアログをマウスで移動する機能
+    status: optional
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: LabのDialogFrame・メッセージダイアログにドラッグ操作はない。
+    next: 要望があれば追加する。盤操作・テキスト選択・スクロールと競合させず、画面外へ出ないようにする。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1641
+      - https://github.com/sunfish-shogi/shogihome/pull/1651
+    summary: しおり一覧の可変幅と入力欄の寸法調整
+    status: optional
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: >-
+      一覧ボタンは200px固定。実コンポーネントをChromiumの限定ハーネスで確認し、
+      320〜800px幅では枠内、240px幅では内容領域からはみ出した。通常幅の不具合は未再現。
+    next: 長いしおりの可読性と対応最小幅を基準に採否を判断する。入力欄の変更は別途mobileで確認する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1663
+    summary: 局面図ダイアログからの先後反転
+    status: optional
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: >-
+      対局画面風の局面図は既存boardFlippingを使うが、書籍風SimpleBoardViewにflipがない。
+      ダイアログ内の反転トグルも未反映。
+    next: 書籍風の反転を含めて採否を判断し、ラベル・最終手・両駒台の位置をまとめて検証する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1666
+      - https://github.com/sunfish-shogi/shogihome/pull/1707
+    summary: 定跡ファイル情報・局面メタデータの表示とコメント編集
+    status: optional
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: >-
+      Server内部ではSBK作者・説明・勝敗・解析情報を保持するが、UI向けの局面情報取得・
+      コメント編集・プロパティ画面はない。定跡手の表示・編集とは別の機能。
+    next: 必要な情報を選び、Serverのsession所有・decoder・反転時の勝敗対応を維持してAPIとUIを設計する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1670
+    summary: lintのキャッシュによる高速化
+    status: optional
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: Labのlintには専用incremental tsconfig・ESLint/Prettierキャッシュがない。
+    next: 実行時間が問題になったら計測し、設定変更や削除ファイルで検査漏れが起きないか確認して採否を判断する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1672
+    summary: 駒台の持ち駒の左右順を選択する設定
+    status: optional
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: >-
+      Labの配置は固定で設定項目がない。上流は標準配置自体も変えるため、既存の見た目を
+      意図せず変えない既定値・互換性判断が必要。
+    next: 盤・検討プレビュー・局面編集・画像出力への一貫した適用と、配置の既定値を決める。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1674
+    summary: ランチャーの手動更新確認
+    status: optional
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: >-
+      Labは起動時にRustのcheck_updateを使うが、手動再確認用のUIはない。
+      24時間throttleはなく、snoozeした版の通知を抑える独自の挙動がある。
+    next: 必要ならTauri/Rustの責務内で追加し、手動確認がsnoozeを無視するかと「更新なし」の表示を決める。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1675
+      - https://github.com/sunfish-shogi/shogihome/pull/1681
+    summary: 棋譜の分岐ツリー表示
+    status: optional
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: >-
+      Labには分岐リスト・分岐ポップアップはあるが、SVGのツリー表示とモバイル用切替はない。
+    next: 要望があれば現行棋譜ペイン・分岐操作との共存を評価する。削除済みカスタムレイアウトは戻さない。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1683
+      - https://github.com/sunfish-shogi/shogihome/pull/1687
+      - https://github.com/sunfish-shogi/shogihome/pull/1702
+    summary: 解析棋譜からの次の一手問題集生成・持込・出題
+    status: optional
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: >-
+      Lab独自の同梱puzzle機能はあるが、この問題集形式の生成・持込とは異なる。
+      大型PR内の共通変更も確認し、確認ダイアログの改行は既存global CSSのpre-wrapで充足する。
+    next: >-
+      同梱問題との統合方針と生成の必要性を先に決める。採用する場合はServer jobとして設計し、
+      JSON拡張子検証だけでなくサイズ・内容・保存先境界も維持する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1846
+    summary: 局面図を画像としてクリップボードへコピー
+    status: optional
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: >-
+      Labはhtml-to-imageによるPNG/JPEGダウンロードのみ。上流のawait追加はElectronの
+      ファイル書込に対する修正であり、Labの画像生成待機には既にawaitがある。
+    next: 必要ならbrowserの画像Clipboard APIで実装し、secure context・権限・非対応環境の扱いを決める。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1851
+    summary: ネイティブエンジンのバナー表示
+    status: optional
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: >-
+      LabのPlayerSelectorには同等のバナー探索がない。エンジンは別ホストのWrapper配下にもあり、
+      上流のローカルファイル探索・file URL表示はそのまま使えない。
+    next: 要望があれば画像の配信・検証境界から設計する。Serverからエンジンの任意ディレクトリを直接公開しない。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1552
+    summary: npm依存の公開後待機期間とGit依存の制限
+    status: investigate
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: >-
+      Labの.npmrcはignore-scriptsのみ。上流のmin-release-age・allow-git方針は未反映だが、
+      待機期間は緊急修正の適用にも関わる。lockfile固定・script監査とは別の方針判断。
+    next: 対応npm版、lockfile確定済み依存への適用範囲、緊急更新の例外、別npm rootへの適用を決める。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1616
+    summary: USI表示の初回・局面変更時の反映を早める
+    status: optional
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: >-
+      USIMonitorの初回描画は50msでなく500ms待つことをfake timerで確認。
+      上流の解析タイマー直前flushとは分けて評価した。Labの解析結果はServerで逐次取り込み、
+      stop完了後に確定するため、そのflush処理の移植は不要。
+    next: 表示遅延が問題なら局面変更時の短縮を評価し、既存の間引き・session削除・検索世代の保証を維持する。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1858
+    summary: 共有依存の小更新
+    status: optional
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: >-
+      Vue 3.5.43→3.5.44、jsdom 30.1.2→30.1.3、typescript-eslint 8.71.1→8.71.2等に差がある。
+      #1860/#1861/#1859の対象はLab lockfileで同版以上、tar等の削除済み依存も確認。
+      Vitest 5向けのベンチマーク変更はLabで対応済みで、USIベンチマークが成功した。
+    next: 必要な修正・互換性を確認したうえで通常の依存更新として扱い、上流lockfileをコピーしない。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1703
+    summary: 連続解析で古い探索結果が別の棋譜へ混入する問題
+    status: closed
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    targets:
+      - shogihome/src/server/analysis/job.ts
+      - shogihome/src/server/analysis/batch.ts
+    evidence: >-
+      LabはファイルごとのAnalysisJobとsearchIdで出力先を分離し、stop完了を待つ。
+      最小テストで前局面・前ファイルのcallbackを遅延呼出しても結果が変わらないことを確認。
+    resolution: Server所有の解析で同等の保証を持つため移植不要。実エンジンE2Eでの再現は未実施。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1517
+    summary: 局面図のハイライト描画順
+    status: closed
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: SimpleBoardViewはハイライト後に枠線を描画する。
+    resolution: 既存コードで充足するため移植不要。今回の画像出力E2Eは未実施。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1519
+    summary: 消費時間0の局面マーカー
+    status: closed
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: 0秒時のマーカーfallbackは抽出後のElapsedTimeChart.vueに存在する。
+    resolution: >-
+      既存コードで充足。元のElapsedTimeChartDialog.vueの差だけで欠落と判定しない。
+      マーカー描画そのもののブラウザーテストは未実施。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1673
+      - https://github.com/sunfish-shogi/shogihome/pull/1682
+    summary: 分岐リストと本譜復帰ボタンの収まり
+    status: closed
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    evidence: >-
+      上流とCSS差はあるが、Labには分岐領域のmin-height: 70pxがある。
+      実RecordViewをChromiumの限定ハーネスで9分岐・親の高さ180〜600pxにして確認し、
+      リストが内部スクロールしボタンも枠内に収まった。
+    resolution: >-
+      この条件で修正の必要は認められず移植しない。全体レイアウト・WebKitは未確認で、
+      Safariの分岐アイコン候補#1784とは分けて扱う。
 
   - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1798
