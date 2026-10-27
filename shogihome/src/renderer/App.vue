@@ -90,6 +90,13 @@
       :pv-end="store.pvPreview.pvEnd"
       @close="store.closePVPreviewDialog()"
     />
+    <FileSaveDialog
+      v-if="fileSave.options"
+      :key="fileSave.id"
+      :options="fileSave.options"
+      @select="fileSave.finish($event)"
+      @cancel="fileSave.finish()"
+    />
     <!-- PCブラウザの場合のみライセンスへの遷移が無いので、画面の隅にボタンを表示する。 -->
     <button v-if="!isMobileWebApp()" class="copyright" @click="openCopyright">&copy;</button>
     <!-- copy/paste イベントを拾えない問題があるので隠しボタンを置いて google/hotkey でイベントを受け取る。 -->
@@ -102,7 +109,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import StandardLayout from "@/renderer/view/main/StandardLayout.vue";
 import GameDialog from "@/renderer/view/dialog/GameDialog.vue";
 import MobileGameMenu from "@/renderer/view/menu/MobileGameMenu.vue";
@@ -148,6 +155,8 @@ import api, { isMobileWebApp } from "./ipc/api";
 import { openCopyright } from "./helpers/copyright";
 import { installHotKeyForMainWindow } from "./devices/hotkey";
 import ToastMessage from "./view/toast/ToastMessage.vue";
+import FileSaveDialog from "./view/dialog/FileSaveDialog.vue";
+import { useFileSaveStore } from "./store/fileSave";
 
 const clipboard = ref();
 const appSettings = useAppSettings();
@@ -155,6 +164,8 @@ const store = useStore();
 const messageStore = useMessageStore();
 const errorStore = useErrorStore();
 const busyState = useBusyState();
+const fileSave = useFileSaveStore();
+onBeforeUnmount(() => fileSave.finish());
 
 const themeColors: { [key in Thema]: string } = {
   [Thema.STANDARD]: "#6d8a6d",

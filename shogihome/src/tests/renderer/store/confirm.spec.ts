@@ -22,4 +22,28 @@ describe("store/confirm", () => {
     expect(store.message).toBeUndefined();
     expect(confirmation2.onOk).toBeCalledTimes(0);
   });
+
+  it.each([true, false])("resolves an asynchronous confirmation with %s", async (ok) => {
+    const store = createConfirmationStore();
+    const result = store.ask("Overwrite?");
+    expect(store.message).toBe("Overwrite?");
+    if (ok) store.ok();
+    else store.cancel();
+    await expect(result).resolves.toBe(ok);
+    expect(store.message).toBeUndefined();
+  });
+
+  it("settles a replaced asynchronous confirmation as cancelled", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const store = createConfirmationStore();
+      const first = store.ask("First");
+      const second = store.ask("Second");
+      await expect(first).resolves.toBe(false);
+      store.ok();
+      await expect(second).resolves.toBe(true);
+    } finally {
+      warning.mockRestore();
+    }
+  });
 });

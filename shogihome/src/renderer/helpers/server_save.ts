@@ -1,4 +1,5 @@
 import { t } from "@/common/i18n";
+import { useConfirmationStore } from "@/renderer/store/confirm";
 
 // False means the user cancelled; errors still reject and success returns true.
 export async function saveWithOverwriteConfirmation(
@@ -8,7 +9,7 @@ export async function saveWithOverwriteConfirmation(
 ): Promise<boolean> {
   let response = await send(overwriteCurrent);
   if (!overwriteCurrent && response.status === 409) {
-    if (!window.confirm(t.overwriteUploadConflicts(path))) return false;
+    if (!(await useConfirmationStore().ask(t.overwriteUploadConflicts(path)))) return false;
     response = await send(true);
   }
   if (!response.ok) throw new Error(await response.text());

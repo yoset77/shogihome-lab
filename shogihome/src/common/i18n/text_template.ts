@@ -618,7 +618,6 @@ export type Texts = {
   anyBookMovesAreUnsavedDoYouReallyWantToDiscardThemAndCloseTheBook: string;
   selectedBookFileIsAlreadyOpen: string;
   saveOrClearCurrentBookBeforeOpeningAnother: string;
-  enterBookSavePath: string;
   sourceRecordFileNotSet: string;
   sourceDirectoryNotSet: string;
   autoSaveDirectoryNotSet: string;
@@ -667,7 +666,6 @@ export type Texts = {
   finalPosition: string;
   noKifuFound: string;
   noKifuFoundCheckKifuDir: string;
-  enterFileName: string;
   saveToServer: string;
   upload: string;
   uploadDestination: string;

@@ -249,6 +249,8 @@ import { defaultResearchSettings } from "@/common/settings/research";
 import { resolveLanEngine } from "@/renderer/helpers/engine";
 import { useLanStore } from "@/renderer/store/lan";
 import { generateRecordFileName } from "@/renderer/helpers/path";
+import { getStandardRecordFileFormats } from "@/common/file/record";
+import { useFileSaveStore } from "@/renderer/store/fileSave";
 import { FileQuickAction } from "@/common/settings/app";
 import { isFileQuickActionEnabled, runFileQuickAction } from "@/renderer/helpers/fileQuickAction";
 
@@ -376,7 +378,7 @@ const onSave = () => {
   store.saveRecord({ overwrite: true });
   emit("close");
 };
-const onSaveToServer = () => {
+const onSaveToServer = async () => {
   const defaultName =
     store.serverKifuPath ||
     (store.recordFilePath ? store.recordFilePath.split(/[\\/]/).pop() : undefined) ||
@@ -384,22 +386,30 @@ const onSaveToServer = () => {
       template: appSettings.recordFileNameTemplate,
       extension: appSettings.defaultRecordFileFormat,
     });
-  const name = window.prompt(t.enterFileName, defaultName);
-  if (name) {
-    store.saveRecord({ path: "server://" + name });
-  }
+  const selection = useFileSaveStore().show({
+    title: t.saveToServer,
+    defaultPath: defaultName,
+    server: true,
+    extensions: getStandardRecordFileFormats(),
+  });
   emit("close");
+  const path = await selection;
+  if (path) await store.saveRecord({ path });
 };
-const onSaveLocal = () => {
+const onSaveLocal = async () => {
   const defaultName = generateRecordFileName(store.record, {
     template: appSettings.recordFileNameTemplate,
     extension: appSettings.defaultRecordFileFormat,
   });
-  const name = window.prompt(t.enterFileName, defaultName);
-  if (name) {
-    store.saveRecord({ path: name });
-  }
+  const selection = useFileSaveStore().show({
+    title: t.saveAs,
+    defaultPath: defaultName,
+    server: false,
+    extensions: getStandardRecordFileFormats(),
+  });
   emit("close");
+  const path = await selection;
+  if (path) await store.saveRecord({ path });
 };
 const onHistory = () => {
   runFileQuickAction(FileQuickAction.HISTORY, store);

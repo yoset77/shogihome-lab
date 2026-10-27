@@ -643,7 +643,6 @@ export const vi: Texts = {
   selectedBookFileIsAlreadyOpen: "Tệp định thức đã chọn đang được mở.",
   saveOrClearCurrentBookBeforeOpeningAnother:
     "Hãy lưu hoặc xóa định thức hiện tại trước khi mở định thức khác.",
-  enterBookSavePath: "Enter the destination path of the book.",
   sourceRecordFileNotSet: "Chưa chỉ định tệp kỳ phổ gốc.",
   sourceDirectoryNotSet: "Vui lòng chọn một tập tin.",
   autoSaveDirectoryNotSet: "Vui lòng chọn thư mục lưu kỳ phổ tự động.",
@@ -706,7 +705,6 @@ export const vi: Texts = {
   finalPosition: "Thế cờ cuối",
   noKifuFound: "Không tìm thấy kỳ phổ.",
   noKifuFoundCheckKifuDir: "Không tìm thấy kỳ phổ. Vui lòng kiểm tra cấu hình KIFU_DIR.",
-  enterFileName: "Vui lòng nhập tên tệp",
   saveToServer: "Lưu vào máy chủ",
   upload: "Tải lên",
   uploadDestination: "Thư mục tải lên",

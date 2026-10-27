@@ -1,6 +1,4 @@
-import { LogLevel } from "@/common/log";
-import api from "@/renderer/ipc/api";
-import { reactive, UnwrapNestedRefs } from "vue";
+import { nextTick, reactive, UnwrapNestedRefs } from "vue";
 
 export type Confirmation = {
   message: string;
@@ -21,8 +19,7 @@ class ConfirmationStore {
    */
   show(confirmation: Confirmation): void {
     if (this._confirmation) {
-      api.log(
-        LogLevel.WARN,
+      console.warn(
         "ConfirmationStore#show: 確認ダイアログを多重に表示しようとしました。" +
           ` currentMessage=${this._confirmation.message}` +
           ` newMessage=${confirmation.message}`,
@@ -32,6 +29,14 @@ class ConfirmationStore {
       }
     }
     this._confirmation = confirmation;
+  }
+
+  async ask(message: string): Promise<boolean> {
+    const confirmed = await new Promise<boolean>((resolve) => {
+      this.show({ message, onOk: () => resolve(true), onCancel: () => resolve(false) });
+    });
+    await nextTick();
+    return confirmed;
   }
 
   ok(): void {

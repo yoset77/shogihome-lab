@@ -16,12 +16,17 @@ import { getEmptyHistory } from "@/common/file/history";
 import { BookLoadingMode } from "@/common/book";
 import * as uri from "@/common/uri";
 import { normalizePath, trimTrailingPathSeparators } from "@/common/helpers/path";
-import { KifuSearchResult, KifuListEntry } from "@/common/file/record";
+import {
+  getStandardRecordFileFormats,
+  KifuSearchResult,
+  KifuListEntry,
+} from "@/common/file/record";
 import {
   decodeKifuSearchStatistics,
   type KifuSearchStatistics,
 } from "@/common/file/kifu_statistics";
 import {
+  BOOK_UPLOAD_EXTENSIONS,
   SERVER_UPLOAD_TIMEOUT_MS,
   type ServerDirectoryEntry,
   type ServerDirectoryList,
@@ -29,6 +34,7 @@ import {
 } from "@/common/file/upload";
 import { decodeText } from "@/common/helpers/encode";
 import { saveWithOverwriteConfirmation } from "@/renderer/helpers/server_save";
+import { useFileSaveStore } from "@/renderer/store/fileSave";
 import { toJpeg, toPng } from "html-to-image";
 import dayjs from "dayjs";
 import { Rect } from "@/common/assets/geometry";
@@ -244,8 +250,14 @@ export const webAPI: Bridge = {
       };
     });
   },
-  async showSaveRecordDialog(defualtPath: string): Promise<string> {
-    return defualtPath;
+  async showSaveRecordDialog(defaultPath: string): Promise<string> {
+    const server = defaultPath.startsWith("server://");
+    return useFileSaveStore().show({
+      title: server ? t.saveToServer : t.saveAs,
+      defaultPath,
+      server,
+      extensions: getStandardRecordFileFormats(),
+    });
   },
   async openRecord(uri: string): Promise<Uint8Array> {
     const cached = fileCache.get(uri);
@@ -384,11 +396,14 @@ export const webAPI: Bridge = {
     if (!json.enabled) {
       throw new Error(t.thisFeatureNotAvailableOnWebApp);
     }
-    const path = window.prompt(t.enterBookSavePath, defaultPath);
-    if (!path) {
-      return "";
-    }
-    return "server://" + path;
+    const extension = BOOK_UPLOAD_EXTENSIONS.find((ext) => defaultPath.toLowerCase().endsWith(ext));
+    if (!extension) throw new Error(t.serverInvalidDestination);
+    return useFileSaveStore().show({
+      title: t.saveToServer,
+      defaultPath,
+      server: true,
+      extensions: [extension],
+    });
   },
   async openBook(path: string, options: string, sessionId?: string): Promise<BookLoadingMode> {
     if (!path.startsWith("server://")) {

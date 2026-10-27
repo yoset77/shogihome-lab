@@ -1,10 +1,12 @@
-import { enableAutoUnmount, shallowMount } from "@vue/test-utils";
+import { enableAutoUnmount, flushPromises, shallowMount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick, reactive } from "vue";
 import { AppState, ResearchState } from "@/common/control/state";
 import { t } from "@/common/i18n";
 import FileMenu from "@/renderer/view/menu/FileMenu.vue";
 import MobileGameMenu from "@/renderer/view/menu/MobileGameMenu.vue";
+import { useFileSaveStore } from "@/renderer/store/fileSave";
+import { Record } from "tsshogi";
 
 const { useStore, isMobileWebApp } = vi.hoisted(() => ({
   useStore: vi.fn(),
@@ -39,6 +41,11 @@ const store = reactive({
   showAnalysisDialog: vi.fn(),
   stopAnalysis: vi.fn(),
   showGameDialog: vi.fn(),
+  saveRecord: vi.fn(),
+  record: new Record(),
+  isServerSideKifuEnabled: true,
+  serverKifuPath: "games/current.jkf",
+  recordFilePath: undefined,
 });
 const mountMenu = () => shallowMount(FileMenu);
 const findStopButton = (wrapper: ReturnType<typeof mountMenu>) =>
@@ -54,6 +61,8 @@ describe("FileMenu mate search", () => {
     store.stopAnalysis.mockReset();
     store.showAnalysisDialog.mockReset();
     store.showGameDialog.mockReset();
+    store.saveRecord.mockReset();
+    useFileSaveStore().finish();
     store.isAnalysisCancelling = false;
     store.hasRetainedGame = false;
     store.hasGameRecoveryCandidate = false;
@@ -157,5 +166,48 @@ describe("FileMenu mate search", () => {
     expect(store.showGameDialog).not.toHaveBeenCalled();
     expect(wrapper.findComponent(MobileGameMenu).exists()).toBe(true);
     expect(wrapper.emitted("close")).toBeUndefined();
+  });
+
+  it("closes the menu before waiting for a server destination and saves only on confirmation", async () => {
+    const wrapper = mountMenu();
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === t.saveToServer)!
+      .trigger("click");
+    expect(wrapper.emitted("close")).toHaveLength(1);
+    expect(useFileSaveStore().options).toMatchObject({
+      defaultPath: "games/current.jkf",
+      server: true,
+    });
+    expect(store.saveRecord).not.toHaveBeenCalled();
+    useFileSaveStore().finish("server://finals/other.kif");
+    await flushPromises();
+    expect(store.saveRecord).toHaveBeenCalledWith({ path: "server://finals/other.kif" });
+  });
+
+  it("does not save when the server destination dialog is cancelled", async () => {
+    const wrapper = mountMenu();
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === t.saveToServer)!
+      .trigger("click");
+    useFileSaveStore().finish();
+    await flushPromises();
+    expect(store.saveRecord).not.toHaveBeenCalled();
+  });
+
+  it("requests only a file name for a local download", async () => {
+    isMobileWebApp.mockReturnValue(false);
+    const wrapper = mountMenu();
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === t.saveAs)!
+      .trigger("click");
+    expect(wrapper.emitted("close")).toHaveLength(1);
+    expect(useFileSaveStore().options?.server).toBe(false);
+    expect(store.saveRecord).not.toHaveBeenCalled();
+    useFileSaveStore().finish("download.jkf");
+    await flushPromises();
+    expect(store.saveRecord).toHaveBeenCalledWith({ path: "download.jkf" });
   });
 });
