@@ -532,13 +532,20 @@ export class GameSession {
       request = { ...request, epoch: this.controllerEpoch };
     }
     // The creator's private owner ID authorizes the first claim, including a lost create response.
+    // Before the first socket connects, explicit recovery can repeat a lost token-free claim.
     if (
       this.controllerEpoch === 0 &&
-      this.screenId === undefined &&
+      (this.screenId === undefined || (request.takeover && request.recoveryId === undefined)) &&
       request.epoch === 0 &&
       request.screenId &&
       (request.recoveryId === undefined || request.recoveryId === this.controllerRecoveryId)
     ) {
+      if (
+        this.screenId !== undefined &&
+        this.attachment().attached &&
+        request.screenId !== this.screenId
+      )
+        throw new HttpError(423, t.jobsOccupied);
       this.screenId = request.screenId;
       this.acquisitionEpoch = 0;
       this.claimedAt = Date.now();
