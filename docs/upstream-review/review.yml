@@ -14,18 +14,22 @@ candidates:
   - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1768
     summary: 起動時の評価値復元
-    status: candidate
+    status: closed
     priority: high
     effort: small
-    assessed_lab_sha: 1bff3ea87ca744b83cd4c94cab6907f1b560c3e6
+    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
     targets:
       - shogihome/src/renderer/store/record.ts
       - shogihome/src/tests/renderer/store/record.spec.ts
+      - shogihome/src/tests/renderer/store/webapp.spec.ts
     evidence: >-
       RecordManagerのconstructorにコメントからの評価値復元がない。
-      KIF→JKF→読込→実際のmanagerで、コメントの評価値は残るがcustomDataに復元されないことを再現。
+      KIF由来のRecord渡し込みとPC/mobileのlocalStorage保存・再読込で、
+      コメントの評価値は残るがcustomDataに復元されないことを回帰テストで再現。
       上流PRの主題はビルドプロファイル追加だが、この小修正はLabにも関係する。
-    next: 起動時の復元を適応し、回帰テストを追加する。
+    resolution: >-
+      constructorで既存のコメント復元処理を呼び出すよう移植し、回帰テストを追加。
+      既存customData、選択局面、未保存フラグの維持も確認。実アプリE2Eは未実施。
 
   - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1752

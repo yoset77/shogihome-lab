@@ -15,6 +15,7 @@ import {
   formatPV,
   specialMove,
   exportKI2,
+  importKIF,
 } from "tsshogi";
 import { SCORE_MATE_INFINITE } from "@/common/game/usi";
 import { RecordManager, SearchInfoSenderType } from "@/renderer/store/record";
@@ -52,6 +53,24 @@ describe("store/record", () => {
     expect(recordManager.record.moves).toHaveLength(1);
     expect(recordManager.positionCounts.size).toBe(1);
     expect(recordManager.positionCounts.get(InitialPositionSFEN.STANDARD)).toBe(1);
+  });
+
+  it("new/withRecord", () => {
+    const record = importKIF(sampleKIF);
+    if (record instanceof Error) {
+      throw record;
+    }
+    record.goto(2);
+    record.current.customData = { opponentSearchInfo: { score: -50 } };
+
+    const recordManager = new RecordManager(record);
+
+    expect(recordManager.record.current.customData).toStrictEqual({
+      opponentSearchInfo: { score: -50 },
+      researchInfo: { score: 108 },
+    });
+    expect(recordManager.record.current.ply).toBe(2);
+    expect(recordManager.unsaved).toBeFalsy();
   });
 
   it("reset", () => {

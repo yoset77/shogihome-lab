@@ -180,6 +180,8 @@ export class RecordManager {
   constructor(private _record: Record = new Record()) {
     this.resetPositionCounts();
     this.bindRecordHandlers();
+    // Restore comment-backed search data for records loaded at startup.
+    restoreCustomData(this._record);
   }
 
   get record(): ImmutableRecord {
