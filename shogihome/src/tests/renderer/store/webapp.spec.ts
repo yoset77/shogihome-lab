@@ -56,6 +56,47 @@ describe("store/webapp", () => {
     expect(store2.record.getUSI({ allMoves: true })).toBe("position startpos moves 5g5f");
   });
 
+  it.each(["http://localhost/", "http://localhost/?mobile"])(
+    "restoresEvaluationFromLocalStorage/%s",
+    (url) => {
+      vi.stubGlobal("window", {
+        location: {
+          toString: () => url,
+        },
+        history: {
+          replaceState: vi.fn(),
+        },
+        setTimeout: setTimeout,
+        clearTimeout: clearTimeout,
+      });
+      const store = createStore();
+      store.updateRecordComment("#評価値=0");
+      store.doMove(store.record.position.createMoveByUSI("7g7f") as Move);
+      const comment = "*評価値=80\n*深さ=12\n#評価値=-120\n#深さ=20";
+      store.updateRecordComment(comment);
+      store.doMove(store.record.position.createMoveByUSI("3c3d") as Move);
+      store.updateRecordComment("#詰み=先手勝ち:3手");
+      store.goBack();
+      vi.runAllTimers();
+
+      const restored = createStore();
+
+      expect(restored.record.current.ply).toBe(1);
+      expect(restored.record.current.comment).toBe(comment);
+      expect(restored.record.current.customData).toStrictEqual({
+        playerSearchInfo: { score: 80, depth: 12 },
+        researchInfo: { score: -120, depth: 20 },
+      });
+      expect(restored.record.first.customData).toStrictEqual({
+        researchInfo: { score: 0 },
+      });
+      expect(restored.record.current.next?.customData).toStrictEqual({
+        researchInfo: { mate: 3 },
+      });
+      expect(restored.isRecordFileUnsaved).toBeFalsy();
+    },
+  );
+
   it("pcWeb/metadataRestoration", () => {
     vi.stubGlobal("window", {
       location: {
