@@ -418,6 +418,106 @@ describe("server game sessions", () => {
     expect(recovered.controllerRecoveryId).toBe(before.controllerRecoveryId);
     await session.close();
   });
+
+  describe("initial HTTP claim recovery", () => {
+    const sessions: GameSession[] = [];
+    afterEach(() => {
+      for (const session of sessions.splice(0)) session.dispose();
+    });
+    function initialClaim() {
+      const session = new GameSession("initial-claim", gameRequest());
+      sessions.push(session);
+      const request = { ownerId: "controller", epoch: 0, screenId: "first", takeover: false };
+      return { session, request, first: session.recover(request) };
+    }
+
+    it("waits for the initial lease before repeating a token-free claim explicitly", async () => {
+      const { session, request, first } = initialClaim();
+      const next = { ...request, screenId: "second", takeover: true };
+      expect(() => session.recover(next)).toThrow(expect.objectContaining({ status: 423 }));
+      await vi.advanceTimersByTimeAsync(GAME_CONTROLLER_TIMEOUT_MS + 1);
+      const recovered = session.recover(next);
+      expect(recovered.controllerEpoch).toBe(0);
+      expect(recovered.controllerGeneration).toBe(first.controllerGeneration);
+      expect(recovered.controllerRecoveryId).toBe(first.controllerRecoveryId);
+      expect(session.attachment().attached).toBe(true);
+      expect(() => session.recover({ ...request, takeover: true })).toThrow(
+        expect.objectContaining({ status: 423 }),
+      );
+    });
+
+    it("keeps credentialed recovery on the existing epoch-advancing path", async () => {
+      const { session, request, first } = initialClaim();
+      await vi.advanceTimersByTimeAsync(GAME_CONTROLLER_TIMEOUT_MS + 1);
+      const recovered = session.recover({
+        ...request,
+        screenId: "second",
+        takeover: true,
+        recoveryId: first.controllerRecoveryId,
+      });
+      expect(recovered.controllerEpoch).toBeGreaterThan(first.controllerEpoch);
+    });
+
+    it("does not promote automatic recovery to a token-free initial claim", async () => {
+      const { session, request } = initialClaim();
+      const next = { ...request, screenId: "second" };
+      expect(() => session.recover(next)).toThrow(expect.objectContaining({ status: 409 }));
+      await vi.advanceTimersByTimeAsync(GAME_CONTROLLER_TIMEOUT_MS + 1);
+      expect(() => session.recover(next)).toThrow(expect.objectContaining({ status: 409 }));
+    });
+
+    it.each([{ ownerId: "other" }, { recoveryId: "wrong" }, { epoch: 1 }])(
+      "rejects invalid initial claim credentials: %j",
+      async (fields) => {
+        const { session, request } = initialClaim();
+        await vi.advanceTimersByTimeAsync(GAME_CONTROLLER_TIMEOUT_MS + 1);
+        expect(() =>
+          session.recover({ ...request, screenId: "second", takeover: true, ...fields }),
+        ).toThrow(expect.objectContaining({ status: 409 }));
+      },
+    );
+
+    it("does not reuse bootstrap authority after a socket has connected", async () => {
+      const { session, request, first } = initialClaim();
+      const connection = session.connect(
+        "controller",
+        () => {},
+        () => {},
+        gameConnection(first, { screenId: request.screenId }),
+      );
+      expect(session.snapshot().controllerEpoch).toBeGreaterThan(0);
+      connection.disconnect();
+      await vi.advanceTimersByTimeAsync(GAME_CONTROLLER_TIMEOUT_MS + 1);
+      expect(() => session.recover({ ...request, screenId: "second", takeover: true })).toThrow(
+        expect.objectContaining({ status: 409 }),
+      );
+    });
+
+    it("does not let a repeated initial claim reset an expired human turn", async () => {
+      const request = gameRequest();
+      const session = new GameSession("expired-initial-claim", request, {
+        now: () => Date.now(),
+      });
+      sessions.push(session);
+      session.start();
+      await vi.advanceTimersByTimeAsync(0);
+      const recovery = {
+        ownerId: request.controllerId,
+        epoch: 0,
+        screenId: "first",
+        takeover: false,
+      };
+      session.recover(recovery);
+      vi.setSystemTime(Date.now() + 60_000);
+      const recovered = session.recover({ ...recovery, screenId: "second", takeover: true });
+      expect(recovered.state).toBe("finishing");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.snapshot().lastResult).toBe(SpecialMoveType.INTERRUPT);
+      expect(session.snapshot().state).toBe("completed");
+      await session.close();
+    });
+  });
+
   it("releases an attachment lease on socket disconnect so a reload need not wait for expiry", () => {
     const request = gameRequest();
     request.settings.black = request.settings.white = { uri: "lan-engine:test", name: "AI" };

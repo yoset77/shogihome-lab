@@ -1588,6 +1588,45 @@ describe("game session client", () => {
     expect(value.client.create).toHaveBeenCalledOnce();
   });
 
+  it("recovers after losing both the creation response and the initial HTTP claim response", async () => {
+    const value = fixture();
+    value.settings.white = { uri: "lan-engine:test", name: "AI" };
+    const create = value.client.create.getMockImplementation()!;
+    value.client.create.mockImplementationOnce(async (request) => {
+      await create(request);
+      throw new TypeError("Creation response lost");
+    });
+    await value.game.start(value.settings);
+    const first = reopen(value);
+    const original = value.client.snapshot.getMockImplementation()!;
+    let lost = false;
+    value.client.snapshot.mockImplementation(async (id, recovery) => {
+      const snapshot = await original(id, recovery);
+      if (recovery && !lost) {
+        lost = true;
+        throw new TypeError("Initial claim response lost");
+      }
+      return snapshot;
+    });
+    expect(await first.recover(async () => true)).toBe(true);
+    expect(new GameRecoveryStorage().list()[0].recoveryId).toBeUndefined();
+    first.dispose();
+    releaseJobTab("game");
+    sessionStorage.clear();
+    const second = value.reload("second-reopened-screen");
+    extraClients.push(second);
+    const error = vi.fn();
+    second.on("error", error);
+    expect(await second.recover(async () => true)).toBe(true);
+    expect(second.canMove).toBe(false);
+    await vi.advanceTimersByTimeAsync(31_001);
+    expect(second.canMove).toBe(true);
+    expect(second.status?.sessionId).toBe(value.session().id);
+    expect(value.client.create).toHaveBeenCalledOnce();
+    expect(value.client.attach).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+
   it("keeps a lost HTTP claim candidate after reload conflicts and requires explicit recovery", async () => {
     const value = fixture();
     await start(value, true);
