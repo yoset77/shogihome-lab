@@ -774,6 +774,7 @@ export type Texts = {
   gameSaveFailed: string;
   gameRecover: string;
   gameReconnect: string;
+  gameRecoveryUnavailable: string;
   jobsTitle: string;
   jobsBackground: string;
   jobsDetach: string;

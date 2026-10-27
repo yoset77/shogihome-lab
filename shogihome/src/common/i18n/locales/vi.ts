@@ -831,6 +831,8 @@ export const vi: Texts = {
   gameSaveFailed: "Không thể lưu bản ghi ván đấu.",
   gameRecover: "Mở bản ghi ván đấu trên máy chủ? Bản ghi hiện tại sẽ bị thay thế.",
   gameReconnect: "Ván đấu trước vẫn đang diễn ra. Quay lại ván đấu?",
+  gameRecoveryUnavailable:
+    "Không thể xác nhận ván đấu có thể khôi phục. Hãy kiểm tra xem màn hình khác có đang sử dụng ván đấu hay không, hoặc đợi một chút rồi thử lại.",
   jobsTitle: "Tác vụ",
   jobsBackground: "Bắt đầu ở chế độ nền",
   jobsDetach: "Ngắt kết nối",

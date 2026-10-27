@@ -11,7 +11,10 @@
     <PuzzleResultDialog v-if="store.puzzleResult" />
     <ErrorMessage v-if="errorStore.hasError" />
     <ConfirmDialog v-if="confirmation.message" />
-    <GameDialog v-if="store.appState === AppState.GAME_DIALOG" />
+    <template v-if="store.appState === AppState.GAME_DIALOG">
+      <MobileGameMenu v-if="isMobileWebApp()" @close="store.destroyModalDialog()" />
+      <GameDialog v-else />
+    </template>
     <AnalysisDialog v-if="store.appState === AppState.ANALYSIS_DIALOG" />
     <JobsDialog v-if="store.isJobsDialogVisible" />
     <MateSearchDialog v-if="store.appState === AppState.MATE_SEARCH_DIALOG" />
@@ -102,6 +105,7 @@
 import { onMounted, ref, watch } from "vue";
 import StandardLayout from "@/renderer/view/main/StandardLayout.vue";
 import GameDialog from "@/renderer/view/dialog/GameDialog.vue";
+import MobileGameMenu from "@/renderer/view/menu/MobileGameMenu.vue";
 import ResearchDialog from "@/renderer/view/dialog/ResearchDialog.vue";
 import PositionImageExportDialog from "@/renderer/view/dialog/PositionImageExportDialog.vue";
 import AppSettingsDialog from "@/renderer/view/dialog/AppSettingsDialog.vue";

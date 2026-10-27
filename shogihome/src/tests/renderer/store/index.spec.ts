@@ -237,11 +237,165 @@ describe("store/index", () => {
       expect(mockGameManager.prototype.recover).toHaveBeenCalledOnce();
       expect(mockGameManager.prototype.start).not.toHaveBeenCalled();
       expect(mockGameManager.prototype.resume).not.toHaveBeenCalled();
+      expect(useToastStore().toasts).toEqual([]);
     } finally {
       retained.mockRestore();
       candidate.mockRestore();
       mockGameManager.prototype.recover.mockReset();
     }
+  });
+
+  describe("durable game recovery feedback", () => {
+    beforeEach(() => {
+      vi.spyOn(GameManager.prototype, "hasRetainedSession", "get").mockReturnValue(false);
+      vi.spyOn(GameManager.prototype, "hasRecoveryCandidate", "get").mockReturnValue(true);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      mockGameManager.prototype.recover.mockReset();
+    });
+
+    it("notifies when manual recovery is unavailable and the candidate remains", async () => {
+      mockGameManager.prototype.recover.mockResolvedValue(false);
+      const store = createStore();
+      store.showGameDialog();
+      await vi.waitFor(() => expect(useBusyState().isBusy).toBe(false));
+      expect(store.appState).toBe(AppState.NORMAL);
+      expect(useConfirmationStore().message).toBeUndefined();
+      expect(useToastStore().toasts).toEqual([
+        expect.objectContaining({
+          type: "warning",
+          message: t.gameRecoveryUnavailable,
+          key: "game-recovery-unavailable",
+          count: 1,
+        }),
+      ]);
+      expect(mockGameManager.prototype.start).not.toHaveBeenCalled();
+
+      store.showGameDialog();
+      await vi.waitFor(() => expect(useBusyState().isBusy).toBe(false));
+      expect(store.appState).toBe(AppState.NORMAL);
+      expect(mockGameManager.prototype.recover).toHaveBeenCalledTimes(2);
+      expect(useToastStore().toasts).toHaveLength(1);
+      expect(useToastStore().toasts[0].count).toBe(2);
+    });
+
+    it("opens game settings on the first click after candidate cleanup without a toast", async () => {
+      const candidate = vi.spyOn(GameManager.prototype, "hasRecoveryCandidate", "get");
+      mockGameManager.prototype.recover.mockImplementation(async () => {
+        candidate.mockReturnValue(false);
+        return false;
+      });
+      const store = createStore();
+      store.showGameDialog();
+      await vi.waitFor(() => expect(useBusyState().isBusy).toBe(false));
+      expect(store.appState).toBe(AppState.GAME_DIALOG);
+      expect(useToastStore().toasts).toEqual([]);
+      expect(mockGameManager.prototype.recover).toHaveBeenCalledOnce();
+      expect(mockGameManager.prototype.start).not.toHaveBeenCalled();
+    });
+
+    it("does not notify when recovery starts, including while reconnection is pending", async () => {
+      mockGameManager.prototype.recover.mockResolvedValue(true);
+      const store = createStore();
+      store.showGameDialog();
+      await vi.waitFor(() => expect(useBusyState().isBusy).toBe(false));
+      expect(mockGameManager.prototype.recover).toHaveBeenCalledOnce();
+      expect(useToastStore().toasts).toEqual([]);
+      expect(store.appState).not.toBe(AppState.GAME_DIALOG);
+    });
+
+    it.each([true, false])(
+      "handles an unavailable recovery after confirmation (candidate retained: %s)",
+      async (retained) => {
+        const candidate = vi.spyOn(GameManager.prototype, "hasRecoveryCandidate", "get");
+        mockGameManager.prototype.recover.mockImplementation(async (confirm) => {
+          await confirm();
+          candidate.mockReturnValue(retained);
+          return false;
+        });
+        const store = createStore();
+        store.showGameDialog();
+        expect(useConfirmationStore().message).toBe(t.gameReconnect);
+        useConfirmationStore().ok();
+        await vi.waitFor(() => expect(useBusyState().isBusy).toBe(false));
+        expect(store.appState).toBe(retained ? AppState.NORMAL : AppState.GAME_DIALOG);
+        expect(useToastStore().toasts).toEqual(
+          retained ? [expect.objectContaining({ message: t.gameRecoveryUnavailable })] : [],
+        );
+        expect(mockGameManager.prototype.start).not.toHaveBeenCalled();
+      },
+    );
+
+    it("does not open settings if a cancelled candidate is removed", async () => {
+      const candidate = vi.spyOn(GameManager.prototype, "hasRecoveryCandidate", "get");
+      mockGameManager.prototype.recover.mockImplementation(async (confirm) => {
+        const confirmed = await confirm();
+        candidate.mockReturnValue(false);
+        return confirmed;
+      });
+      const store = createStore();
+      store.showGameDialog();
+      expect(useConfirmationStore().message).toBe(t.gameReconnect);
+      useConfirmationStore().cancel();
+      await vi.waitFor(() => expect(useBusyState().isBusy).toBe(false));
+      expect(store.appState).toBe(AppState.NORMAL);
+      expect(useToastStore().toasts).toEqual([]);
+      expect(mockGameManager.prototype.start).not.toHaveBeenCalled();
+    });
+
+    it.each(["existing", "reported", "thrown"] as const)(
+      "keeps an error as the only feedback after candidate cleanup (%s)",
+      async (source) => {
+        const candidate = vi.spyOn(GameManager.prototype, "hasRecoveryCandidate", "get");
+        const error = new TypeError("Offline");
+        if (source === "existing") useErrorStore().add(error);
+        mockGameManager.prototype.recover.mockImplementation(async () => {
+          candidate.mockReturnValue(false);
+          if (source === "thrown") throw error;
+          if (source === "reported") useErrorStore().add(error);
+          return false;
+        });
+        const store = createStore();
+        store.showGameDialog();
+        await vi.waitFor(() => expect(useBusyState().isBusy).toBe(false));
+        expect(useErrorStore().errors).toEqual([{ message: error.message, count: 1 }]);
+        expect(useToastStore().toasts).toEqual([]);
+        expect(store.appState).toBe(AppState.NORMAL);
+      },
+    );
+
+    it.each([false, true])(
+      "does not notify or open settings after startup cleanup (reload: %s)",
+      async (reload) => {
+        vi.spyOn(jobStorage, "isReloadNavigation").mockReturnValue(reload);
+        const candidate = vi.spyOn(GameManager.prototype, "hasRecoveryCandidate", "get");
+        mockGameManager.prototype.recover.mockImplementation(async () => {
+          candidate.mockReturnValue(false);
+          return false;
+        });
+        const store = createStore();
+        await store.initializeJobs();
+        expect(mockGameManager.prototype.recover).toHaveBeenCalledOnce();
+        expect(useToastStore().toasts).toEqual([]);
+        expect(store.appState).toBe(AppState.NORMAL);
+        expect(mockGameManager.prototype.start).not.toHaveBeenCalled();
+      },
+    );
+
+    it("does not notify after the app leaves the normal state", async () => {
+      const recovered = Promise.withResolvers<boolean>();
+      mockGameManager.prototype.recover.mockReturnValue(recovered.promise);
+      const store = createStore();
+      store.showGameDialog();
+      store.showMateSearchDialog();
+      vi.spyOn(GameManager.prototype, "hasRecoveryCandidate", "get").mockReturnValue(false);
+      recovered.resolve(false);
+      await vi.waitFor(() => expect(useBusyState().isBusy).toBe(false));
+      expect(store.appState).toBe(AppState.MATE_SEARCH_DIALOG);
+      expect(useToastStore().toasts).toEqual([]);
+    });
   });
 
   it("offers recovery on ordinary startup and only prompts once during initialization", async () => {
