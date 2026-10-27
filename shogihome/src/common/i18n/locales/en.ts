@@ -646,7 +646,6 @@ export const en: Texts = {
   selectedBookFileIsAlreadyOpen: "The selected book file is already open.",
   saveOrClearCurrentBookBeforeOpeningAnother:
     "Save or clear the current book before opening another one.",
-  enterBookSavePath: "Enter the destination path of the book.",
   sourceRecordFileNotSet: "Source record file is not set.",
   sourceDirectoryNotSet: "Source directory is not set.",
   autoSaveDirectoryNotSet: "Select an auto-save directory.",
@@ -713,7 +712,6 @@ export const en: Texts = {
   noKifuFound: "No kifu found.",
   noKifuFoundCheckKifuDir: "No kifu found. Please check if KIFU_DIR is configured correctly.",
 
-  enterFileName: "Please enter file name",
   saveToServer: "Save to Server",
   upload: "Upload",
   uploadDestination: "Upload destination",

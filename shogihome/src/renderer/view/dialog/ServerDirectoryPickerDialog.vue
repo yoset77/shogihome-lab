@@ -1,7 +1,7 @@
 <template>
-  <DialogFrame limited :aria-label="t.autoSavingDirectory" @cancel="emit('cancel')">
+  <DialogFrame limited :aria-label="title || t.saveDestination" @cancel="emit('cancel')">
     <div class="directory-picker">
-      <div class="title">{{ t.autoSavingDirectory }}</div>
+      <div class="title">{{ title || t.saveDestination }}</div>
       <div class="directory-path">server://{{ path }}</div>
       <div class="directory-list" :aria-busy="loading">
         <ServerDirectoryBrowser
@@ -39,7 +39,7 @@ import { useServerDirectoryPicker } from "@/renderer/store/serverDirectoryPicker
 import DialogFrame from "./DialogFrame.vue";
 import ServerDirectoryBrowser from "./ServerDirectoryBrowser.vue";
 
-const props = defineProps<{ initialPath: string }>();
+const props = defineProps<{ initialPath: string; title?: string }>();
 const emit = defineEmits<{ select: [path: string]; cancel: [] }>();
 const { path, entries, loading, canSelect, load, close } = useServerDirectoryPicker(
   props.initialPath,

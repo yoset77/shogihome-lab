@@ -124,6 +124,7 @@ import { useErrorStore } from "@/renderer/store/error";
 import { useLanStore } from "@/renderer/store/lan";
 import { createHonoApiClient, parseJsonResponse, assertOkResponse } from "@/renderer/api/client";
 import { saveWithOverwriteConfirmation } from "@/renderer/helpers/server_save";
+import { useFileSaveStore } from "@/renderer/store/fileSave";
 
 const apiClient = createHonoApiClient();
 
@@ -162,10 +163,14 @@ const onClose = () => {
 };
 
 const exportEngine = async (stat: DBEngineStats) => {
-  const defaultName = `${stat.name}.db`;
-  const rawName = window.prompt(t.enterFileName, defaultName);
-  if (!rawName) return;
-  const name = rawName.endsWith(".db") ? rawName : rawName + ".db";
+  const path = await useFileSaveStore().show({
+    title: t.analysisDBExport,
+    defaultPath: `${stat.name}.db`,
+    server: true,
+    extensions: [".db"],
+  });
+  if (!path) return;
+  const name = path.slice("server://".length);
 
   useBusyState().retain();
   try {

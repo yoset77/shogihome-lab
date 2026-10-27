@@ -640,7 +640,6 @@ export const ja: Texts = {
   selectedBookFileIsAlreadyOpen: "選択した定跡ファイルは既に開かれています。",
   saveOrClearCurrentBookBeforeOpeningAnother:
     "別の定跡を開く前に、現在の定跡を保存または初期化してください。",
-  enterBookSavePath: "定跡の保存先パスを入力してください。",
   sourceRecordFileNotSet: "棋譜ファイルが指定されていません。",
   sourceDirectoryNotSet: "フォルダを選択してください。",
   autoSaveDirectoryNotSet: "棋譜の自動保存先を指定してください。",
@@ -704,7 +703,6 @@ export const ja: Texts = {
   noKifuFound: "棋譜が見つかりませんでした。",
   noKifuFoundCheckKifuDir:
     "棋譜が見つかりませんでした。KIFU_DIR が設定されているか確認してください。",
-  enterFileName: "ファイル名を入力してください",
   saveToServer: "サーバーに保存",
   upload: "アップロード",
   uploadDestination: "アップロード先",

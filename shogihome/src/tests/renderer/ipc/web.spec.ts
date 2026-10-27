@@ -16,6 +16,8 @@ import {
   type GameSettings,
 } from "@/common/settings/game";
 import { t } from "@/common/i18n";
+import { useConfirmationStore } from "@/renderer/store/confirm";
+import { useFileSaveStore } from "@/renderer/store/fileSave";
 
 vi.mock("html-to-image", () => ({
   toPng: vi.fn(),
@@ -79,17 +81,18 @@ describe("renderer/ipc/web", () => {
     async (kind) => {
       const request = vi.fn().mockResolvedValue(new Response("exists", { status: 409 }));
       vi.stubGlobal("fetch", request);
-      const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+      const confirmation = useConfirmationStore();
       try {
         const result =
           kind === "book"
             ? webAPI.saveBook("server://other.db", "session-1")
             : webAPI.saveServerKifu("other.kif", new Uint8Array([1]));
+        await vi.waitFor(() => expect(confirmation.message).toContain("other."));
+        confirmation.cancel();
         await expect(result).resolves.toBe(false);
-        expect(confirm).toHaveBeenCalledOnce();
         expect(request).toHaveBeenCalledOnce();
       } finally {
-        confirm.mockRestore();
+        confirmation.cancel();
         vi.unstubAllGlobals();
       }
     },
@@ -107,10 +110,15 @@ describe("renderer/ipc/web", () => {
       .mockResolvedValueOnce(new Response("exists", { status: 409 }))
       .mockResolvedValueOnce(new Response("ok", { status: 200 }));
     vi.stubGlobal("fetch", request);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirmation = useConfirmationStore();
     try {
-      await webAPI.saveServerKifu("existing.kif", new Uint8Array([1, 2]));
-      expect(confirm).toHaveBeenCalledOnce();
+      const saving = webAPI.saveServerKifu("existing.kif", new Uint8Array([1, 2]));
+      await vi.waitFor(() =>
+        expect(confirmation.message).toBe(t.overwriteUploadConflicts("existing.kif")),
+      );
+      expect(request).toHaveBeenCalledOnce();
+      confirmation.ok();
+      await expect(saving).resolves.toBe(true);
       expect(request).toHaveBeenCalledTimes(2);
       expect(new URL(request.mock.calls[0][0] as string).searchParams.get("overwrite")).toBe(
         "false",
@@ -119,7 +127,7 @@ describe("renderer/ipc/web", () => {
         "true",
       );
     } finally {
-      confirm.mockRestore();
+      confirmation.cancel();
       vi.unstubAllGlobals();
     }
   });
@@ -127,7 +135,7 @@ describe("renderer/ipc/web", () => {
   it("overwrites the currently open record without asking again", async () => {
     const request = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
     vi.stubGlobal("fetch", request);
-    const confirm = vi.spyOn(window, "confirm");
+    const confirm = vi.spyOn(useConfirmationStore(), "ask");
     try {
       await webAPI.saveServerKifu("current.kif", new Uint8Array([1]), true);
       expect(confirm).not.toHaveBeenCalled();
@@ -144,7 +152,7 @@ describe("renderer/ipc/web", () => {
   it("overwrites the currently open book without asking again", async () => {
     const request = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
     vi.stubGlobal("fetch", request);
-    const confirm = vi.spyOn(window, "confirm");
+    const confirm = vi.spyOn(useConfirmationStore(), "ask");
     try {
       await webAPI.saveBook("server://current.db", "session-1", true);
       expect(confirm).not.toHaveBeenCalled();
@@ -164,16 +172,55 @@ describe("renderer/ipc/web", () => {
       .mockResolvedValueOnce(new Response("exists", { status: 409 }))
       .mockResolvedValueOnce(new Response("ok", { status: 200 }));
     vi.stubGlobal("fetch", request);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirmation = useConfirmationStore();
     try {
-      await webAPI.saveBook("server://other.db", "session-1");
-      expect(confirm).toHaveBeenCalledOnce();
+      const saving = webAPI.saveBook("server://other.db", "session-1");
+      await vi.waitFor(() =>
+        expect(confirmation.message).toBe(t.overwriteUploadConflicts("other.db")),
+      );
+      expect(request).toHaveBeenCalledOnce();
+      confirmation.ok();
+      await expect(saving).resolves.toBe(true);
       expect(request).toHaveBeenCalledTimes(2);
       expect(
         request.mock.calls.map(([url]) => new URL(url as string).searchParams.get("overwrite")),
       ).toEqual(["false", "true"]);
     } finally {
-      confirm.mockRestore();
+      confirmation.cancel();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([false, true])("requests a record save destination with server=%s", async (server) => {
+    const defaultPath = server ? "server://games/current.kif" : "current.kif";
+    const selection = webAPI.showSaveRecordDialog(defaultPath);
+    try {
+      expect(useFileSaveStore().options).toMatchObject({
+        defaultPath,
+        server,
+        extensions: expect.arrayContaining([".kif", ".jkf"]),
+      });
+      useFileSaveStore().finish();
+      await expect(selection).resolves.toBe("");
+    } finally {
+      useFileSaveStore().finish();
+    }
+  });
+
+  it("requests a server book save with only the current format", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response('{"enabled":true}')));
+    const selection = webAPI.showSaveBookDialog("books/current.sbk");
+    try {
+      await vi.waitFor(() => expect(useFileSaveStore().options).toBeDefined());
+      expect(useFileSaveStore().options).toMatchObject({
+        defaultPath: "books/current.sbk",
+        server: true,
+        extensions: [".sbk"],
+      });
+      useFileSaveStore().finish("server://books/other.sbk");
+      await expect(selection).resolves.toBe("server://books/other.sbk");
+    } finally {
+      useFileSaveStore().finish();
       vi.unstubAllGlobals();
     }
   });
