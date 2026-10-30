@@ -96,6 +96,22 @@ candidates:
       releaseのLFS取得設定と専用actionによる公開を維持。GitHub上の取得・公開試験は未実施。
 
   - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1814
+      - https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases
+    summary: 公開済みリリースのアセット・タグの不変化
+    status: closed
+    assessed_lab_sha: fbc90c08bd85b2a8ddcddcaaa5d7c5b7e8c24d64
+    targets:
+      - .github/workflows/release.yml
+    evidence: >-
+      Labはdraftへ両ZIPを添付する方式だが、GitHubのimmutable-releases設定は無効だった。
+      公開後の差し替えを防ぐ保証は既存のbuild provenance証明とは別。
+    resolution: >-
+      2026-10-30にリポジトリのImmutable Releasesを有効化し、APIでenabledを確認。
+      draftで両ZIPを検証して公開し、修正は新バージョンで配布する運用をworkflowコメントに明記。
+      既存リリースへは遡及しない。新規リリースの作成・公開試験は未実施。
+
+  - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1768
     summary: 起動時の評価値復元
     status: closed
