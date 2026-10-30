@@ -334,6 +334,10 @@ export class BookStore {
     return this.activeBookId !== undefined || this.isNewBookOpen;
   }
 
+  get hasUnsavedBooks(): boolean {
+    return this.defaultSession.isUnsaved || this.books.some((book) => book.isUnsaved);
+  }
+
   // The default session representing a new (not yet saved) book.
   get newBook(): BookSession {
     return this.defaultSession;

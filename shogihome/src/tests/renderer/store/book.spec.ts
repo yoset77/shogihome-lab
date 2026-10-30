@@ -38,6 +38,22 @@ describe("store/book", () => {
     expect(mockAPI.searchBookMoves).toHaveBeenNthCalledWith(2, sfen, "second");
   });
 
+  it("reports unsaved books outside the active session, including the default session", () => {
+    const store = new BookStore(new Record());
+    expect(store.hasUnsavedBooks).toBe(false);
+    const first = new BookSessionStore("first", "server://first.db");
+    const second = new BookSessionStore("second", "server://second.db");
+    store.books = [first, second];
+    store.activeBookId = "second";
+    first.markUnsaved();
+    expect(store.hasUnsavedBooks).toBe(true);
+    store.books = [];
+    expect(store.hasUnsavedBooks).toBe(false);
+    const unsaved = vi.spyOn(store.newBook, "isUnsaved", "get").mockReturnValue(true);
+    expect(store.hasUnsavedBooks).toBe(true);
+    unsaved.mockRestore();
+  });
+
   it("searches the default session without a session ID", async () => {
     mockAPI.clearBook.mockResolvedValue(undefined);
     mockAPI.searchBookMoves.mockResolvedValue([]);

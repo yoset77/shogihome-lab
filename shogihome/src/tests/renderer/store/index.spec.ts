@@ -1328,7 +1328,30 @@ describe("store/index", () => {
       state === AppState.NORMAL || state === AppState.ELAPSED_TIME_CHART_DIALOG,
     );
     expect(store.canDeleteRecordMove).toBe(state === AppState.NORMAL);
+    expect(store.canReloadForUpdate).toBe(state === AppState.NORMAL);
     appState.mockRestore();
+  });
+
+  it("blocks web updates while features or editing dialogs are open", () => {
+    const store = createStore();
+    expect(store.canReloadForUpdate).toBe(true);
+    for (const getter of ["hasRetainedGame", "hasRetainedAnalysis", "isStartingJob"] as const) {
+      const state = vi.spyOn(store, getter, "get").mockReturnValue(true);
+      expect(store.canReloadForUpdate).toBe(false);
+      state.mockRestore();
+    }
+    for (const state of Object.values(ResearchState)) {
+      const research = vi.spyOn(store, "researchState", "get").mockReturnValue(state);
+      expect(store.canReloadForUpdate).toBe(state === ResearchState.IDLE);
+      research.mockRestore();
+    }
+    store.showAppSettingsDialog();
+    expect(store.canReloadForUpdate).toBe(false);
+    store.closeAppSettingsDialog();
+    store.showAnalysisDBManagerDialog();
+    expect(store.canReloadForUpdate).toBe(false);
+    store.closeAnalysisDBManagerDialog();
+    expect(store.canReloadForUpdate).toBe(true);
   });
 
   it("removeCurrentMove", () => {

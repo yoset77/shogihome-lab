@@ -129,8 +129,8 @@ export function saveRecordForWebApp(record: ImmutableRecord): void {
   }, 300);
 }
 
-export function flushRecordForWebApp(record: ImmutableRecord): void {
-  if (hasUSENParam()) return;
+export function flushRecordForWebApp(record: ImmutableRecord, options?: { force?: boolean }): void {
+  if (!options?.force && hasUSENParam()) return;
   clearTimeout(saveTimeout);
   saveTimeout = undefined;
   const jkf = exportJKFString(record);

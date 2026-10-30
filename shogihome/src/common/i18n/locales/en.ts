@@ -543,6 +543,12 @@ export const en: Texts = {
   noMoves: "No Moves",
   register: "Register",
   update: "Update",
+  webUpdateReady: "A new version is available. Updating reloads this page.",
+  webUpdateBlocked:
+    "Close active features and editing dialogs, and save unsaved books before updating.",
+  webUpdateFailed: "The update failed. Your work is still here. Please try again.",
+  webUpdateLater: "Later",
+  webUpdateMenu: "Update app…",
   importAll: "Register All",
   importScoreDepth: "Import score and depth",
   doYouWantToImportAllMoves: "Do you want to import all available moves?",

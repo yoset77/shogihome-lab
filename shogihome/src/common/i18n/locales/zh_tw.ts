@@ -537,6 +537,11 @@ export const zh_tw: Texts = {
   noMoves: "指し手がありません。", // TODO: Translate
   register: "登録", // TODO: Translate
   update: "更新", // TODO: Translate
+  webUpdateReady: "有新版本可用。更新將重新載入此頁面。",
+  webUpdateBlocked: "請先關閉執行中的功能與編輯視窗，並儲存尚未儲存的定跡，再進行更新。",
+  webUpdateFailed: "更新失敗，您的操作內容仍保留在此。請再試一次。",
+  webUpdateLater: "稍後",
+  webUpdateMenu: "更新應用程式…",
   importAll: "全て反映", // TODO: Translate
   importScoreDepth: "評価値・深さを取り込む", // TODO: Translate
   doYouWantToImportAllMoves: "全ての手を反映しますか？", // TODO: Translate

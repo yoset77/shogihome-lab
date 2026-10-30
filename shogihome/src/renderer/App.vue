@@ -5,6 +5,7 @@
     <StandardLayout v-else class="full" />
 
     <ToastMessage />
+    <PwaUpdateNotice />
     <!-- Dialogs -->
     <BusyMessage v-if="busyState.isBusy" />
     <InfoMessage v-if="messageStore.hasMessage" />
@@ -155,6 +156,7 @@ import api, { isMobileWebApp } from "./ipc/api";
 import { openCopyright } from "./helpers/copyright";
 import { installHotKeyForMainWindow } from "./devices/hotkey";
 import ToastMessage from "./view/toast/ToastMessage.vue";
+import PwaUpdateNotice from "./view/overlay/PwaUpdateNotice.vue";
 import FileSaveDialog from "./view/dialog/FileSaveDialog.vue";
 import { useFileSaveStore } from "./store/fileSave";
 

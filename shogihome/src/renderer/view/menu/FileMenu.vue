@@ -7,6 +7,12 @@
           <div class="label">{{ t.back }}</div>
         </button>
       </div>
+      <div v-if="pwaUpdate.available" class="group">
+        <button @click="onUpdate">
+          <Icon :icon="IconType.REFRESH" />
+          <div class="label">{{ t.webUpdateMenu }}</div>
+        </button>
+      </div>
       <div v-if="isMobileWebApp()" class="group">
         <button @click="onFlip">
           <Icon :icon="IconType.FLIP" />
@@ -253,6 +259,7 @@ import { getStandardRecordFileFormats } from "@/common/file/record";
 import { useFileSaveStore } from "@/renderer/store/fileSave";
 import { FileQuickAction } from "@/common/settings/app";
 import { isFileQuickActionEnabled, runFileQuickAction } from "@/renderer/helpers/fileQuickAction";
+import { usePwaUpdateStore } from "@/renderer/store/pwa";
 
 const emit = defineEmits<{
   close: [];
@@ -261,11 +268,17 @@ const emit = defineEmits<{
 const store = useStore();
 const appSettings = useAppSettings();
 const lanStore = useLanStore();
+const pwaUpdate = usePwaUpdateStore();
 const dialog = ref();
 const isGameMenuVisible = ref(false);
 const isSpecialMoveMenuVisible = ref(false);
 const onClose = () => {
   emit("close");
+};
+const onUpdate = () => {
+  // Reopen the notice after this modal dialog closes so the safety checks apply.
+  emit("close");
+  pwaUpdate.show();
 };
 onMounted(() => {
   showModalDialog(dialog.value, onClose);
