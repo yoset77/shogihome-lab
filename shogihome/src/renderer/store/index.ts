@@ -1841,20 +1841,30 @@ class Store {
     });
   }
 
+  get canNavigateRecord(): boolean {
+    return (
+      this.appState === AppState.NORMAL || this.appState === AppState.ELAPSED_TIME_CHART_DIALOG
+    );
+  }
+
+  get canDeleteRecordMove(): boolean {
+    return this.appState === AppState.NORMAL;
+  }
+
   goForward(): void {
-    if (this.appState === AppState.NORMAL || this.appState === AppState.ELAPSED_TIME_CHART_DIALOG) {
+    if (this.canNavigateRecord) {
       this.recordManager.goForward();
     }
   }
 
   goBack(): void {
-    if (this.appState === AppState.NORMAL || this.appState === AppState.ELAPSED_TIME_CHART_DIALOG) {
+    if (this.canNavigateRecord) {
       this.recordManager.goBack();
     }
   }
 
   changePly(ply: number): void {
-    if (this.appState === AppState.NORMAL || this.appState === AppState.ELAPSED_TIME_CHART_DIALOG) {
+    if (this.canNavigateRecord) {
       this.recordManager.changePly(ply);
     }
   }
@@ -1880,7 +1890,7 @@ class Store {
   }
 
   removeCurrentMove(): void {
-    if (this.appState !== AppState.NORMAL) {
+    if (!this.canDeleteRecordMove) {
       return;
     }
     if (this.recordManager.record.current.isLastMove) {

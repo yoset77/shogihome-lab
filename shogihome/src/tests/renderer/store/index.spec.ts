@@ -1321,6 +1321,16 @@ describe("store/index", () => {
     expect(store.isRecordFileUnsaved).toBeTruthy();
   });
 
+  it.each(Object.values(AppState))("record operation permissions in %s", (state) => {
+    const store = createStore();
+    const appState = vi.spyOn(store, "appState", "get").mockReturnValue(state);
+    expect(store.canNavigateRecord).toBe(
+      state === AppState.NORMAL || state === AppState.ELAPSED_TIME_CHART_DIALOG,
+    );
+    expect(store.canDeleteRecordMove).toBe(state === AppState.NORMAL);
+    appState.mockRestore();
+  });
+
   it("removeCurrentMove", () => {
     const store = createStore();
     store.pasteRecord(sampleBranchKIF);
