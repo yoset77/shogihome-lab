@@ -103,13 +103,17 @@ python -m pytest tests/test_server_runtime.py
 Linux の native GUI 回帰テスト（`engine-wrapper/` から）:
 
 ```sh
-sudo apt-get install -y webkit2gtk-driver xvfb xauth dbus-x11 openbox xdotool wmctrl scrot
+sudo apt-get install -y webkit2gtk-driver xvfb xauth dbus-x11 openbox xdotool xclip wmctrl scrot at-spi2-core gir1.2-atspi-2.0 python3-gi
 cargo install tauri-driver --version 2.0.5 --locked
-SHOGIHOME_GUI_EXE=launcher-app/src-tauri/target/release/ShogiHomeLab \
-  dbus-run-session -- xvfb-run -a python -m pytest tests/test_launcher_linux_gui.py tests/test_launcher_cli.py -q
+GDK_BACKEND=x11 SHOGIHOME_GUI_EXE=launcher-app/src-tauri/target/release/ShogiHomeLab \
+  xvfb-run -a dbus-run-session -- python -m pytest tests/test_launcher_linux_gui.py tests/test_launcher_cli.py -q
 ```
 
 GUI suite は別ディレクトリへ実行ファイルをコピーし、異なる CWD から起動します。editor の保存・実ファイル選択・probe・ロック・終了時回収、launcher の起動・再起動・editor 再表示・トレイなし終了・明示的なトレイ常駐と終了を検証します。Windows は `tests/test_launcher_gui.py` の WebView2 回帰テストを使います。
+
+GTK の「開く」は [accessibility helper](../tests/launcher_linux_picker.py) から操作します。`python3-gi` を使うため、この helper だけは Ubuntu の system Python (`/usr/bin/python3`) で実行します。
+
+Linux は tauri-driver 経由で WebKitWebDriver に接続します。`--basetemp` で指定したテストディレクトリ内の `webdriver.log` にリクエストと所要時間、`gui.log` に native process の出力、`processes-*.json` に終了処理前後の process snapshot を保存します。通信エラーの再試行は読み取りだけに限定し、保存・再起動・probe は再送しません。Windows の失敗時には CDP target 一覧と取得可能な WebView の screenshot も保存します。
 
 CI は Windows／Linux／macOS で native backend、Tauri build、CLI、runtime assembly を検証します。GUI 自動操作は Windows／Linux が対象です。macOS の実 GUI は実機で次を確認します:
 

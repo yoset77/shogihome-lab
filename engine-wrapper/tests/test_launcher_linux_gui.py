@@ -1,6 +1,7 @@
 """Opt-in native WebKitGTK regressions. Run under Xvfb + a private D-Bus session.
 
-Requires tauri-driver 2.0.5, WebKitWebDriver, openbox, xdotool, xclip, wmctrl and a built shell.
+Requires tauri-driver 2.0.5, WebKitWebDriver, openbox, xdotool, xclip, wmctrl,
+system Python with AT-SPI bindings, and a built shell.
 Only the Python standard library and pytest are used by the WebDriver client.
 
 The standalone-editor matrix intentionally mirrors
@@ -8,6 +9,7 @@ test_launcher_gui.py: only the driver layer (tauri-driver + xdotool here,
 CDP + Win32 there) is OS-specific.
 """
 
+import http.client
 import json
 import os
 import shutil
@@ -16,10 +18,9 @@ import socket
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -52,8 +53,87 @@ def free_ports(count):
 
 def process_alive(pid):
     # A dead child can briefly remain a zombie before its owner reaps it.
-    stat = Path(f"/proc/{pid}/stat")
-    return stat.exists() and stat.read_text().split(") ", 1)[1][0] != "Z"
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1][0] != "Z"
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+
+
+def owned_processes(root):
+    """Find even orphaned services/probes by their private test working directory."""
+    root = root.resolve()
+    processes = []
+    for directory in Path("/proc").iterdir():
+        if not directory.name.isdigit():
+            continue
+        try:
+            if not (directory / "cwd").resolve(strict=True).is_relative_to(root):
+                continue
+            fields = (directory / "stat").read_text().rsplit(") ", 1)[1].split()
+            if fields[0] == "Z":
+                continue
+            processes.append({
+                "pid": int(directory.name),
+                "ppid": int(fields[1]),
+                "start_time": fields[19],
+                "command": (directory / "cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace"),
+            })
+        except (OSError, ValueError):
+            continue
+    return processes
+
+
+def signal_owned_process(process, signum):
+    # Do not signal a reused PID, including after a service has exited normally.
+    try:
+        fields = Path(f"/proc/{process['pid']}/stat").read_text().rsplit(") ", 1)[1].split()
+        if fields[19] == process["start_time"]:
+            if int(fields[2]) == process["pid"]:
+                # App/driver/service session leaders also own helpers that may
+                # have changed working directory outside the portable tree.
+                os.killpg(process["pid"], signum)
+            else:
+                os.kill(process["pid"], signum)
+    except ProcessLookupError:
+        pass
+    except FileNotFoundError:
+        pass
+
+
+def cleanup_processes(root, timeout=3):
+    """Fallback only: lifecycle assertions run before this cleanup, not after it."""
+    deadline = time.monotonic() + timeout
+    signalled = set()
+    while True:
+        processes = owned_processes(root)
+        if not processes:
+            return
+        for process in processes:
+            identity = (process["pid"], process["start_time"])
+            if identity not in signalled:
+                signal_owned_process(process, signal.SIGTERM)
+                signalled.add(identity)
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.05)
+    for process in owned_processes(root):
+        signal_owned_process(process, signal.SIGKILL)
+
+
+def stop_process(process):
+    if process is None:
+        return
+    if process.poll() is None:
+        process.terminate()
+    try:
+        process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=3)
+
+
+class GuiTransportError(RuntimeError):
+    pass
 
 
 class Gui:
@@ -61,22 +141,53 @@ class Gui:
         self.endpoint = endpoint
         self.root = root
         self.session = ""
+        self.connection = None
 
-    def request(self, method, path, body=None):
+    def log(self, message):
+        with (self.root / "webdriver.log").open("a", encoding="utf-8") as output:
+            output.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {message}\n")
+
+    def close(self):
+        if self.connection:
+            self.connection.close()
+            self.connection = None
+
+    def request(self, method, path, body=None, *, read_only=False, timeout=5):
         data = json.dumps(body).encode() if body is not None else None
-        request = urllib.request.Request(self.endpoint + path, data=data, method=method, headers={"Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                result = json.load(response)["value"]
-        except urllib.error.HTTPError as error:
-            raise AssertionError(error.read().decode()) from error
-        assert not isinstance(result, dict) or "error" not in result, result
-        return result
+        # urllib forces Connection: close. Keep a drained HTTP connection instead
+        # of racing native-driver connection teardown on every WebDriver command.
+        attempts = 2 if method == "GET" or read_only else 1
+        for attempt in range(attempts):
+            started = time.monotonic()
+            self.log(f"-> {method} {path} attempt={attempt + 1}")
+            try:
+                if self.connection is None:
+                    endpoint = urlsplit(self.endpoint)
+                    assert endpoint.scheme == "http" and endpoint.hostname == "127.0.0.1", self.endpoint
+                    self.connection = http.client.HTTPConnection(endpoint.hostname, endpoint.port, timeout=timeout)
+                self.connection.timeout = timeout
+                if self.connection.sock:
+                    self.connection.sock.settimeout(timeout)
+                self.connection.request(method, path, data, {"Content-Type": "application/json"})
+                response = self.connection.getresponse()
+                body_bytes = response.read()
+                self.log(f"<- {method} {path} status={response.status} elapsed={time.monotonic() - started:.3f}s")
+                assert 200 <= response.status < 300, body_bytes.decode(errors="replace")
+                result = json.loads(body_bytes)["value"]
+                assert not isinstance(result, dict) or "error" not in result, result
+                return result
+            except (OSError, http.client.HTTPException) as error:
+                self.log(f"!! {method} {path} elapsed={time.monotonic() - started:.3f}s {type(error).__name__}: {error}")
+                self.close()
+                retryable = isinstance(error, (ConnectionError, http.client.RemoteDisconnected, http.client.IncompleteRead))
+                if attempt + 1 == attempts or not retryable:
+                    raise GuiTransportError(f"{method} {path} failed after {attempt + 1} attempt(s): {error}") from error
 
-    def execute(self, script, *args):
-        return self.request("POST", f"/session/{self.session}/execute/sync", {"script": script, "args": args})
+    def execute(self, script, *args, read_only=False):
+        return self.request("POST", f"/session/{self.session}/execute/sync", {"script": script, "args": args}, read_only=read_only)
 
     def invoke(self, command, payload=None):
+        self.log(f"IPC {command}")
         result = self.request(
             "POST",
             f"/session/{self.session}/execute/async",
@@ -86,6 +197,8 @@ class Gui:
                 ".then(value=>done({value}),error=>done({failure:String(error)}));",
                 "args": [command, payload or {}],
             },
+            read_only=command in ("get_status", "editor_load"),
+            timeout=30,
         )
         assert "failure" not in result, result
         return result.get("value")
@@ -128,10 +241,12 @@ def gui(root, args):
     bootstrap = root / "bootstrap"
     bootstrap.write_text(
         f"#!{sys.executable}\nimport pathlib,subprocess,sys\n"
-        f"p=subprocess.Popen({[str(executable), *args]!r})\n"
+        f"p=subprocess.Popen({[str(executable), *args]!r},start_new_session=True)\n"
         f"pathlib.Path({str(root / 'app.pid')!r}).write_text(str(p.pid))\n"
+        "print(f'GUI app started: pid={p.pid}',flush=True)\n"
         "code=p.wait()\n"
         f"pathlib.Path({str(root / 'app.exit')!r}).write_text(str(code))\n"
+        "print(f'GUI app exited: pid={p.pid} code={code}',flush=True)\n"
         "sys.exit(code)\n",
         encoding="utf-8",
     )
@@ -139,25 +254,24 @@ def gui(root, args):
     cwd = root / "unrelated-cwd"
     cwd.mkdir()
     port, native_port = free_ports(2)
+    command = ["tauri-driver", "--port", str(port), "--native-port", str(native_port)]
     env = {
         **os.environ,
         "LC_ALL": "C.UTF-8",
+        "GDK_BACKEND": "x11",
         "XDG_CONFIG_HOME": str(root / "xdg-config"),
         "XDG_CACHE_HOME": str(root / "xdg-cache"),
         "XDG_DATA_HOME": str(root / "xdg-data"),
     }
     with (root / "gui.log").open("w") as log:
-        wm = subprocess.Popen(["openbox"], env=env, stdout=log, stderr=log)
-        driver = subprocess.Popen(
-            ["tauri-driver", "--port", str(port), "--native-port", str(native_port)],
-            cwd=cwd,
-            env=env,
-            stdout=log,
-            stderr=log,
-            start_new_session=True,
-        )
+        wm = None
+        driver = None
         client = Gui(f"http://127.0.0.1:{port}", root)
+        client.log(f"command={command}")
         try:
+            wm = subprocess.Popen(["openbox"], cwd=cwd, env=env, stdout=log, stderr=log)
+            driver = subprocess.Popen(command, cwd=cwd, env=env, stdout=log, stderr=log, start_new_session=True)
+
             def window_manager_ready():
                 if wm.poll() is not None:
                     raise AssertionError(f"openbox exited with {wm.returncode}")
@@ -167,9 +281,11 @@ def gui(root, args):
             wait_until(window_manager_ready, "Openbox startup")
 
             def ready():
+                if driver.poll() is not None:
+                    raise AssertionError(f"WebDriver exited with {driver.returncode}")
                 try:
                     return client.request("GET", "/status").get("ready") is True
-                except (OSError, AssertionError):
+                except GuiTransportError:
                     return False
 
             wait_until(ready, "WebDriver startup")
@@ -184,13 +300,14 @@ def gui(root, args):
                         }
                     }
                 },
+                timeout=30,
             )
             client.session = session["sessionId"]
 
             def ipc_ready():
                 try:
-                    return client.execute("return !!window.__TAURI_INTERNALS__")
-                except (OSError, AssertionError):
+                    return client.execute("return !!window.__TAURI_INTERNALS__", read_only=True)
+                except (GuiTransportError, AssertionError):
                     return False
 
             wait_until(ipc_ready, "IPC ready")
@@ -204,34 +321,24 @@ def gui(root, args):
             pid_file = root / "app.pid"
             exit_file = root / "app.exit"
             print(
-                f"GUI processes: driver={driver.poll()}, openbox={wm.poll()}, "
+                f"GUI processes: driver={driver.poll() if driver else 'missing'}, "
+                f"openbox={wm.poll() if wm else 'missing'}, "
                 f"app_pid={pid_file.read_text() if pid_file.exists() else 'missing'}, "
                 f"app_exit={exit_file.read_text() if exit_file.exists() else 'pending'}",
                 flush=True,
             )
-            try:
-                processes = subprocess.run(["ps", "-eo", "pid,ppid,stat,args"], capture_output=True, text=True, timeout=5)
-                print(
-                    "\n".join(line for line in processes.stdout.splitlines() if any(name in line for name in ("WebKitWebDriver", "tauri-driver", "ShogiHomeLab"))),
-                    flush=True,
-                )
-            except (OSError, subprocess.TimeoutExpired) as error:
-                print(f"GUI process listing unavailable: {error}", flush=True)
-            print((root / "gui.log").read_text(), flush=True)
+            print(json.dumps(owned_processes(root), indent=2), flush=True)
+            print("\n".join((root / "gui.log").read_text().splitlines()[-80:]), flush=True)
+            print("\n".join((root / "webdriver.log").read_text().splitlines()[-40:]), flush=True)
             raise
         finally:
-            if (root / "app.pid").exists():
-                pid = int((root / "app.pid").read_text())
-                if process_alive(pid):
-                    os.kill(pid, signal.SIGKILL)
-            if driver.poll() is None:
-                try:
-                    os.killpg(driver.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-            driver.wait(timeout=10)
-            wm.terminate()
-            wm.wait(timeout=10)
+            client.close()
+            (root / "processes-before-cleanup.json").write_text(json.dumps(owned_processes(root), indent=2))
+            cleanup_processes(root)
+            # Openbox may chdir to HOME; retain and reap its explicit handle too.
+            for process in (driver, wm):
+                stop_process(process)
+            (root / "processes-after-cleanup.json").write_text(json.dumps(owned_processes(root), indent=2))
 
 
 def slow_engine(config):
@@ -280,30 +387,34 @@ def select_engine_file(client, engine):
         return int(result.stdout.strip()) == int(picker)
 
     wait_until(focused, "file picker focus", timeout=5)
-    subprocess.run(["xclip", "-selection", "clipboard", "-i"], input=str(engine), text=True, check=True, timeout=5)
-    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+l"], check=True, timeout=5)
-    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+a"], check=True, timeout=5)
-    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+v"], check=True, timeout=5)
-    subprocess.run(["xdotool", "key", "Return"], check=True, timeout=5)
+    subprocess.run(["xclip", "-selection", "clipboard", "-i"], input=str(engine), text=True, check=True, timeout=5, cwd=client.root)
+
+    def location_entered():
+        # PRIMARY reflects selected entry text, unlike CLIPBOARD, which already
+        # contains our input. This verifies that GTK actually received the paste.
+        for key in ("ctrl+l", "ctrl+a", "ctrl+v", "ctrl+a"):
+            subprocess.run(["xdotool", "key", "--clearmodifiers", key], check=True, timeout=5)
+        selected = subprocess.run(["xclip", "-selection", "primary", "-o"], capture_output=True, text=True, timeout=2)
+        return selected.returncode == 0 and selected.stdout == str(engine)
+
+    wait_until(location_entered, "file picker location entry", timeout=10)
+    # RFD's Open button has no mnemonic. Use its native accessibility action,
+    # not a guessed key sequence or Return's ambiguous path completion.
+    subprocess.run(
+        ["/usr/bin/python3", str(Path(__file__).with_name("launcher_linux_picker.py")),
+         (client.root / "app.pid").read_text(), "Choose engine executable"],
+        check=True, timeout=5,
+    )
 
     def completed():
-        result = client.execute("return window.browseResult")
+        result = client.execute("return window.browseResult", read_only=True)
         if result["state"] == "rejected":
             raise AssertionError(f"file picker failed: {result['error']}")
         return result if result["state"] == "resolved" else None
 
-    deadline = time.monotonic() + 2
-    result = None
-    while time.monotonic() < deadline:
-        result = completed()
-        if result:
-            break
-        time.sleep(0.05)
-    if not result and client.native_window_id("Choose engine executable"):
-        # GTK can use the first Return for path completion rather than selection.
-        subprocess.run(["xdotool", "key", "Return"], check=True, timeout=5)
-    result = result or wait_until(completed, "file selection", timeout=20)
+    result = wait_until(completed, "file selection", timeout=20)
     assert result["value"], f"file picker returned no file: {result}"
+    wait_until(lambda: not client.native_window_id("Choose engine executable"), "file picker closed")
     return Path(result["value"])
 
 
