@@ -128,6 +128,15 @@ jobs:
         with:
           node-version: 26
       - uses: dtolnay/rust-toolchain@stable
+      - name: Cache native Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: launcher-${{ runner.os }}-${{ runner.arch }}-release
+          workspaces: |
+            engine-wrapper -> target
+            engine-wrapper/launcher-app/src-tauri -> target
+          # Preserve successful compilation even when a later GUI test fails.
+          cache-on-failure: true
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -166,7 +175,7 @@ jobs:
             Get-ChildItem "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients" | ForEach-Object { $_.PSChildName }
           }
       - name: Windows launcher GUI regression
-        run: python -m pytest tests/test_launcher_gui.py tests/test_launcher_cli.py tests/test_server_runtime.py tests/test_launcher_gui_helpers.py -q --basetemp="${{ runner.temp }}/launcher-gui-win"
+        run: python -m pytest tests/test_launcher_gui.py tests/test_launcher_cli.py tests/test_server_runtime.py tests/test_launcher_gui_helpers.py -q --durations=10 --basetemp="${{ runner.temp }}/launcher-gui-win"
         env:
           SHOGIHOME_GUI_EXE: launcher-app/src-tauri/target/release/ShogiHomeLab.exe
       - name: Upload Windows GUI failure diagnostics
@@ -178,6 +187,8 @@ jobs:
             ${{ runner.temp }}/launcher-gui-win/**/launcher.log
             ${{ runner.temp }}/launcher-gui-win/**/gui-driver.log
             ${{ runner.temp }}/launcher-gui-win/**/editor-standalone*.log
+            ${{ runner.temp }}/launcher-gui-win/**/cdp-targets-*.json
+            ${{ runner.temp }}/launcher-gui-win/**/failure-*.png
             ${{ runner.temp }}/launcher-gui-win/**/logs/server.log
             ${{ runner.temp }}/launcher-gui-win/**/logs/wrapper.log
 
@@ -199,6 +210,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - name: Cache native Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: launcher-${{ runner.os }}-${{ runner.arch }}-release
+          workspaces: |
+            engine-wrapper -> target
+            engine-wrapper/launcher-app/src-tauri -> target
+          cache-on-failure: true
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -206,7 +225,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev pkg-config webkit2gtk-driver xvfb xauth dbus-x11 openbox xdotool xclip wmctrl scrot
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev pkg-config webkit2gtk-driver xvfb xauth dbus-x11 openbox xdotool xclip wmctrl scrot at-spi2-core gir1.2-atspi-2.0 python3-gi
       - name: Install test dependencies
         run: python -m pip install "pytest==9.1.1" playwright
       - name: Native backend tests
@@ -234,9 +253,10 @@ jobs:
         run: cargo install tauri-driver --version 2.0.5 --locked
       - name: Linux native GUI regressions
         if: runner.os == 'Linux'
-        run: xvfb-run -a dbus-run-session -- python -m pytest tests/test_launcher_linux_gui.py -q --basetemp="${{ runner.temp }}/launcher-gui"
+        run: xvfb-run -a dbus-run-session -- python -m pytest tests/test_launcher_linux_gui.py -q --durations=10 --basetemp="${{ runner.temp }}/launcher-gui"
         env:
           SHOGIHOME_GUI_EXE: launcher-app/src-tauri/target/release/ShogiHomeLab
+          GDK_BACKEND: x11
       - name: Upload GUI failure diagnostics
         if: failure() && runner.os == 'Linux'
         uses: actions/upload-artifact@v4
@@ -244,5 +264,9 @@ jobs:
           name: launcher-linux-gui-diagnostics
           path: |
             ${{ runner.temp }}/launcher-gui/**/gui.log
+            ${{ runner.temp }}/launcher-gui/**/webdriver.log
+            ${{ runner.temp }}/launcher-gui/**/processes-*.json
+            ${{ runner.temp }}/launcher-gui/**/app.pid
+            ${{ runner.temp }}/launcher-gui/**/app.exit
             ${{ runner.temp }}/launcher-gui/**/failure.png
             ${{ runner.temp }}/launcher-gui/**/engine-wrapper/logs/*.log

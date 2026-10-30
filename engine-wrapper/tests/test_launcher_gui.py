@@ -5,14 +5,16 @@ test_launcher_linux_gui.py: only the driver layer (CDP + Win32 here,
 tauri-driver + xdotool there) is OS-specific.
 """
 
+import json
 import os
 import shutil
 import socket
 import subprocess
 import sys
 import time
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -107,6 +109,51 @@ def _wait_cdp_ready(port, timeout=30):
     return endpoint
 
 
+def _wait_for_page(context, document, selector, timeout=15000):
+    """Keep Playwright's dispatcher running while a WebView is being created."""
+    deadline = time.monotonic() + timeout / 1000
+
+    def remaining():
+        return max(1, (deadline - time.monotonic()) * 1000)
+
+    def matches(url):
+        path = urlsplit(url).path
+        return path == f"/{document}" or (document == "index.html" and path == "/")
+
+    pages = [page for page in context.pages if matches(page.url)]
+    pending = [page for page in context.pages if page.url in ("", "about:blank")]
+    page = next(iter(pages or pending), None)
+    if page is None:
+        page = context.wait_for_event("page", timeout=remaining())
+    page.wait_for_url(matches, timeout=remaining())
+    page.locator(selector).wait_for(state="visible", timeout=remaining())
+    page.set_default_timeout(15000)
+    return page
+
+
+@contextmanager
+def _cdp_diagnostics(context, port):
+    try:
+        yield
+    except Exception:
+        import urllib.request
+
+        root = Path(os.environ["SHOGIHOME_GUI_DIAGNOSTICS"])
+        print(f"CDP pages: {[page.url for page in context.pages]}", flush=True)
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=2) as response:
+                targets = json.load(response)
+            (root / f"cdp-targets-{port}.json").write_text(json.dumps(targets, indent=2), encoding="utf-8")
+        except Exception as error:
+            print(f"CDP target diagnostics unavailable: {error}", flush=True)
+        for index, page in enumerate(context.pages):
+            try:
+                page.screenshot(path=str(root / f"failure-{port}-{index}.png"), timeout=3000)
+            except Exception as error:
+                print(f"CDP screenshot unavailable: {error}", flush=True)
+        raise
+
+
 def _drive_gui(port, pid):
     # Run out of process: even a stuck CDP evaluate must have a hard deadline.
     from playwright.sync_api import expect, sync_playwright
@@ -145,11 +192,11 @@ def _drive_gui(port, pid):
         ])""")
         return status["state"]
 
-    with sync_playwright() as playwright:
+    with sync_playwright() as playwright, ExitStack() as diagnostics:
         browser = playwright.chromium.connect_over_cdp(endpoint, timeout=15000)
         context = browser.contexts[0]
-        main = _wait_until(lambda: context.pages and context.pages[0], "dashboard page")
-        main.set_default_timeout(15000)
+        diagnostics.enter_context(_cdp_diagnostics(context, port))
+        main = _wait_for_page(context, "index.html", "#restartBtn")
         expect(main.locator("#restartBtn")).to_be_enabled(timeout=30000)
         _wait_until(lambda: launcher_state(main) == "running", "service readiness", timeout=30)
         print("Dashboard ready", flush=True)
@@ -158,6 +205,7 @@ def _drive_gui(port, pid):
             with context.expect_page(timeout=15000) as opened:
                 main.locator("#editorBtn").click()
             editor = opened.value
+            editor.wait_for_url("**/editor.html", timeout=15000)
             expect(editor.locator("#addEngineBtn")).to_be_visible(timeout=15000)
             print(f"Editor rendered (open {attempt + 1})", flush=True)
             if attempt == 0:
@@ -221,6 +269,7 @@ def test_editor_open_browse_close_reopen_and_exit(tmp_path):
         **os.environ,
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": browser_args,
         "WEBVIEW2_USER_DATA_FOLDER": str(tmp_path / "webview2"),
+        "SHOGIHOME_GUI_DIAGNOSTICS": str(tmp_path),
         "PYTHONIOENCODING": "utf-8",
     }
     _write_cdp_policy(browser_args)
@@ -292,11 +341,11 @@ def _drive_editor_standalone(port, pid, expected_id, probe_path, probe_started):
 
     endpoint = _wait_cdp_ready(port)
 
-    with sync_playwright() as playwright:
+    with sync_playwright() as playwright, ExitStack() as diagnostics:
         browser = playwright.chromium.connect_over_cdp(endpoint, timeout=15000)
         context = browser.contexts[0]
-        editor = _wait_until(lambda: context.pages and context.pages[0], "editor page")
-        editor.set_default_timeout(15000)
+        diagnostics.enter_context(_cdp_diagnostics(context, port))
+        editor = _wait_for_page(context, "editor.html", "#addEngineBtn")
         # Exactly one page: the editor. A hidden dashboard WebView would show
         # up here even though its controls are absent from the editor DOM.
         assert len(context.pages) == 1, f"expected editor only, got {[p.url for p in context.pages]}"
@@ -396,6 +445,7 @@ def _launch_and_drive_standalone(env, tmp_path, tag, argv, cwd, expected_id, pro
         **env,
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": browser_args,
         "WEBVIEW2_USER_DATA_FOLDER": str(tmp_path / f"webview2-standalone-{tag}"),
+        "SHOGIHOME_GUI_DIAGNOSTICS": str(tmp_path),
     }
     _write_cdp_policy(browser_args)
     try:
