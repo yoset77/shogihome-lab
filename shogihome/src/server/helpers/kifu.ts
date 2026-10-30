@@ -247,8 +247,8 @@ export const setupKifuWatcher = (
       followSymlinks: false,
       persistent: true,
       ignoreInitial: true,
-      usePolling,
-      interval: 1000,
+      backend: usePolling ? "polling" : "auto",
+      pollingInterval: 1000,
       awaitWriteFinish: {
         stabilityThreshold: 1000,
         pollInterval: 100,
