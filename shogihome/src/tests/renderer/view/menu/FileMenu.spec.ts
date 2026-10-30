@@ -8,12 +8,14 @@ import MobileGameMenu from "@/renderer/view/menu/MobileGameMenu.vue";
 import { useFileSaveStore } from "@/renderer/store/fileSave";
 import { Record } from "tsshogi";
 
-const { useStore, isMobileWebApp } = vi.hoisted(() => ({
+const { useStore, isMobileWebApp, pwaUpdate } = vi.hoisted(() => ({
   useStore: vi.fn(),
   isMobileWebApp: vi.fn(() => true),
+  pwaUpdate: { available: false, show: vi.fn() },
 }));
 
 vi.mock("@/renderer/store", () => ({ useStore }));
+vi.mock("@/renderer/store/pwa", () => ({ usePwaUpdateStore: () => pwaUpdate }));
 vi.mock("@/renderer/store/settings", () => ({ useAppSettings: () => ({}) }));
 vi.mock("@/renderer/store/lan", () => ({ useLanStore: () => ({}) }));
 vi.mock("@/renderer/ipc/api", () => ({
@@ -66,6 +68,8 @@ describe("FileMenu mate search", () => {
     store.isAnalysisCancelling = false;
     store.hasRetainedGame = false;
     store.hasGameRecoveryCandidate = false;
+    pwaUpdate.available = false;
+    pwaUpdate.show.mockReset();
     isMobileWebApp.mockReturnValue(true);
     useStore.mockReturnValue(store);
   });
@@ -194,6 +198,25 @@ describe("FileMenu mate search", () => {
     useFileSaveStore().finish();
     await flushPromises();
     expect(store.saveRecord).not.toHaveBeenCalled();
+  });
+
+  it("reopens the update notice from the menu without applying it", async () => {
+    pwaUpdate.available = true;
+    const wrapper = mountMenu();
+    const button = wrapper.findAll("button").find((button) => button.text() === t.webUpdateMenu)!;
+    expect(button).toBeDefined();
+    await button.trigger("click");
+    expect(wrapper.emitted("close")).toHaveLength(1);
+    expect(pwaUpdate.show).toHaveBeenCalledOnce();
+    expect(pwaUpdate.available).toBe(true);
+  });
+
+  it("hides the update action when no update is available", () => {
+    expect(
+      mountMenu()
+        .findAll("button")
+        .some((button) => button.text() === t.webUpdateMenu),
+    ).toBe(false);
   });
 
   it("requests only a file name for a local download", async () => {

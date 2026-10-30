@@ -25,21 +25,28 @@ candidates:
   - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1714
     summary: PWA更新の自動再読込を利用者操作に変更
-    status: candidate
-    priority: high
+    status: closed
+    priority: medium
     effort: medium
-    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    assessed_lab_sha: fbc90c08bd85b2a8ddcddcaaa5d7c5b7e8c24d64
     targets:
       - shogihome/vite.config-pwa.mts
       - shogihome/src/renderer/index.ts
+      - shogihome/src/renderer/store/pwa.ts
+      - shogihome/src/renderer/webapp/update.ts
     evidence: >-
       autoUpdate・skipWaiting・clientsClaimとregisterSWを併用している。
-      固定依存vite-plugin-pwa 1.3.0のactivatedハンドラーは更新時に無条件reloadするため、
+      固定依存vite-plugin-pwa 2.0.0のactivatedハンドラーは既定でreloadするため、
       現行コードに利用者が適用を延期する経路がない。実更新時のデータ消失は再現していない。
-    next: >-
-      prompt方式と更新通知をLabに適応する。上流の「棋譜は自動保存されるので確認不要」を
-      流用せず、未保存定跡・人間参加対局・Serverジョブの復帰を含めて適用条件を決める。
-      複数タブ、待機中SW、拒否・延期、更新失敗を回帰確認する。画像キャッシュ拡張は別判断とする。
+    resolution: >-
+      prompt方式と常設の更新導線を追加。v2のonNeedReloadで別タブ由来の強制reloadも抑止。
+      対局・解析・検討・編集画面・全定跡の未保存状態を照合し、適用前とreload直前に棋譜を確定。
+      保存失敗・有効化失敗・timeoutは強制reloadせず再試行可能。失敗表示は新しい更新・有効化完了で解消。
+      未制御の画面では通知せず制御下の読み込みに委ね、共有リンクのURLはreload時にのみ解除。
+      Serverジョブは既存の終了・デタッチ経路を使い、暗黙停止や再作成はしない。
+      単体テストと2世代の本番buildを用いた
+      Chromiumで、更新検知・延期・別タブ維持・明示適用・棋譜情報復元・390px幅を確認。
+      WebKit・実インストールPWAは未試験。画像キャッシュ拡張は取り込まない。
 
   - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1671

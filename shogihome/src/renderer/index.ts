@@ -34,18 +34,13 @@ import { useErrorStore } from "@/renderer/store/error";
 import { UIMode } from "@/common/settings/app";
 // eslint-disable-next-line import-x/no-unresolved
 import { registerSW } from "virtual:pwa-register";
+import { setupPwaUpdates } from "@/renderer/webapp/update";
 
 api.log(LogLevel.INFO, `start renderer process: APP_VERSION=${appInfo.appVersion}`);
 useStore().prepareJobNavigation();
 window.addEventListener("pagehide", () => useStore().suspendJobs());
 window.addEventListener("pageshow", (event) => {
   if (event.persisted) window.location.reload();
-});
-
-registerSW({
-  onNeedRefresh() {
-    location.reload();
-  },
 });
 
 // setup libraries
@@ -151,5 +146,7 @@ Promise.allSettled([
 
   api.log(LogLevel.INFO, "mount app");
   createApp(App).mount("#app");
+  const disposePwaUpdates = setupPwaUpdates(registerSW);
+  window.addEventListener("pagehide", disposePwaUpdates, { once: true });
   void store.initializeJobs();
 });

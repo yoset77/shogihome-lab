@@ -8,9 +8,9 @@ export default defineConfig({
   plugins: [
     ...(base.plugins || []),
     VitePWA({
-      registerType: "autoUpdate",
+      registerType: "prompt",
       devOptions: {
-        enabled: true,
+        enabled: process.env.PWA_DEV === "1",
       },
       manifest: {
         name: "ShogiHome Lab",
@@ -23,8 +23,8 @@ export default defineConfig({
         icons: [{ sizes: "512x512", src: "favicon.png", type: "image/png" }],
       },
       workbox: {
-        skipWaiting: true,
-        clientsClaim: true,
+        skipWaiting: false,
+        clientsClaim: false,
         navigateFallbackDenylist: [/^\/third-party-licenses/],
       },
     }),

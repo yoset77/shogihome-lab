@@ -7,7 +7,7 @@ import { FileQuickAction } from "@/common/settings/app";
 import ControlPane, { ControlGroup } from "@/renderer/view/main/ControlPane.vue";
 import FileMenu from "@/renderer/view/menu/FileMenu.vue";
 
-const { storeMock, settingsMock, isMobileWebAppMock } = vi.hoisted(() => ({
+const { storeMock, settingsMock, isMobileWebAppMock, pwaUpdateMock } = vi.hoisted(() => ({
   storeMock: {
     appState: "normal",
     isServerSideKifuEnabled: true,
@@ -19,11 +19,13 @@ const { storeMock, settingsMock, isMobileWebAppMock } = vi.hoisted(() => ({
   },
   settingsMock: { fileQuickAction: "puzzle" },
   isMobileWebAppMock: vi.fn(() => false),
+  pwaUpdateMock: { available: false, show: vi.fn() },
 }));
 
 const store = reactive(storeMock);
 const settings = reactive(settingsMock);
 vi.mock("@/renderer/store", () => ({ useStore: () => store }));
+vi.mock("@/renderer/store/pwa", () => ({ usePwaUpdateStore: () => pwaUpdateMock }));
 vi.mock("@/renderer/store/settings", () => ({ useAppSettings: () => settings }));
 vi.mock("@/renderer/store/lan", () => ({ useLanStore: () => ({}) }));
 vi.mock("@/renderer/ipc/api", () => ({

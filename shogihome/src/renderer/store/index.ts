@@ -400,6 +400,23 @@ class Store {
     return this.recordManager.unsaved;
   }
 
+  get canReloadForUpdate(): boolean {
+    return (
+      this.appState === AppState.NORMAL &&
+      this.researchState === ResearchState.IDLE &&
+      !this.isStartingJob &&
+      !this.hasRetainedGame &&
+      !this.hasRetainedAnalysis &&
+      !this.isAppSettingsDialogVisible &&
+      !this.isAnalysisDBManagerDialogVisible &&
+      !this.isJobsDialogVisible &&
+      !this.pvPreview &&
+      !this.kifuPreview &&
+      !this.puzzleResult &&
+      !this._pendingPasteData
+    );
+  }
+
   get serverKifuPath(): string | undefined {
     return this.recordManager.serverKifuPath;
   }

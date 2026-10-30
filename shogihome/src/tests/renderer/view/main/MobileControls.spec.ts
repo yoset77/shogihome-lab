@@ -13,6 +13,9 @@ const store = reactive({
 });
 
 vi.mock("@/renderer/store", () => ({ useStore: () => store }));
+vi.mock("@/renderer/store/pwa", () => ({
+  usePwaUpdateStore: () => ({ available: false, show: vi.fn() }),
+}));
 
 enableAutoUnmount(afterEach);
 beforeEach(() => {

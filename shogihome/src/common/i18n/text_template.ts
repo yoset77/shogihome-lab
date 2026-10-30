@@ -527,6 +527,11 @@ export type Texts = {
   noMoves: string;
   register: string;
   update: string;
+  webUpdateReady: string;
+  webUpdateBlocked: string;
+  webUpdateFailed: string;
+  webUpdateLater: string;
+  webUpdateMenu: string;
   importAll: string;
   importScoreDepth: string;
   doYouWantToImportAllMoves: string;

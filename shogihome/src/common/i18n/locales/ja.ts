@@ -538,6 +538,12 @@ export const ja: Texts = {
   noMoves: "指し手がありません。",
   register: "登録",
   update: "更新",
+  webUpdateReady: "新しいバージョンがあります。更新すると再読み込みします。",
+  webUpdateBlocked:
+    "実行中の機能と編集中の画面を閉じ、未保存の定跡を保存してから更新してください。",
+  webUpdateFailed: "更新できませんでした。内容は保持されています。もう一度お試しください。",
+  webUpdateLater: "後で",
+  webUpdateMenu: "アプリを更新…",
   importAll: "全て反映",
   importScoreDepth: "評価値・深さを取り込む",
   doYouWantToImportAllMoves: "全ての手を反映しますか？",

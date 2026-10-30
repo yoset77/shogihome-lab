@@ -1,4 +1,5 @@
 import { createStore } from "@/renderer/store/index";
+import { flushRecordForWebApp, saveRecordForWebApp } from "@/renderer/store/webapp";
 import {
   exportJKFString,
   importJKFString,
@@ -18,6 +19,29 @@ describe("store/webapp", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it("only persists shared records when explicitly forced", () => {
+    const previous = new Record();
+    previous.first.comment = "previous record";
+    flushRecordForWebApp(previous);
+    const url = "http://localhost/?usen=~0.7ku&ply=0&mobile";
+    vi.stubGlobal("window", {
+      location: { toString: () => url },
+      setTimeout,
+      clearTimeout,
+    });
+    const shared = new Record();
+    shared.first.comment = "shared record";
+
+    saveRecordForWebApp(shared);
+    flushRecordForWebApp(shared);
+    vi.runAllTimers();
+    expect(localStorage.getItem("webapp:jkf")).toBe(exportJKFString(previous));
+
+    flushRecordForWebApp(shared, { force: true });
+    expect(localStorage.getItem("webapp:jkf")).toBe(exportJKFString(shared));
+    expect(window.location.toString()).toBe(url);
   });
 
   it("withUSENParam", () => {

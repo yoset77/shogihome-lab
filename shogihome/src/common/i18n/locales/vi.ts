@@ -541,6 +541,12 @@ export const vi: Texts = {
   noMoves: "指し手がありません。", // TODO: Translate
   register: "登録", // TODO: Translate
   update: "更新", // TODO: Translate
+  webUpdateReady: "Đã có phiên bản mới. Cập nhật sẽ tải lại trang này.",
+  webUpdateBlocked:
+    "Hãy đóng các tính năng đang chạy và hộp thoại chỉnh sửa, rồi lưu sách khai cuộc trước khi cập nhật.",
+  webUpdateFailed: "Cập nhật thất bại. Nội dung của bạn vẫn được giữ lại. Vui lòng thử lại.",
+  webUpdateLater: "Để sau",
+  webUpdateMenu: "Cập nhật ứng dụng…",
   importAll: "全て反映", // TODO: Translate
   importScoreDepth: "評価値・深さを取り込む", // TODO: Translate
   doYouWantToImportAllMoves: "全ての手を反映しますか？", // TODO: Translate
