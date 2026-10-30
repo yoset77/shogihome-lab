@@ -63,35 +63,37 @@ candidates:
   - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1697
     summary: GitHub Actionsの参照をcommit SHAへ固定
-    status: candidate
+    status: closed
     priority: medium
     effort: small
-    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    assessed_lab_sha: fbc90c08bd85b2a8ddcddcaaa5d7c5b7e8c24d64
     targets:
       - .github/workflows/test.yml
       - .github/workflows/release.yml
     evidence: >-
       checkout・setup-node等が可変のversion tag参照で、同等のSHA固定がない。
       侵害を確認したものではなく、ビルド依存の予防的な固定化。
-    next: >-
-      Labが現在使用する各actionの公式commitを確認して固定する。上流の版へ一括更新せず、
-      Rust・Tauri・配布用actionも含めた更新運用を決める。
+    resolution: >-
+      Labが使用中の全8種類のactionを正規リポジトリの完全SHAへ固定し、版コメントと
+      既存Dependabotによる更新運用を維持。rust-toolchainはmaster履歴のSHAとstable入力を使用。
+      workflowの構造・固定値をローカル検査。GitHub上のCI・release実行は未実施。
 
   - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1698
     summary: CI checkout後のGit認証情報の非永続化
-    status: candidate
+    status: closed
     priority: medium
     effort: small
-    assessed_lab_sha: 9db54899d2d318d1135776d958205f098305216b
+    assessed_lab_sha: fbc90c08bd85b2a8ddcddcaaa5d7c5b7e8c24d64
     targets:
       - .github/workflows/test.yml
       - .github/workflows/release.yml
     evidence: >-
       checkoutにpersist-credentials: falseがない。現在のreleaseはLFSを取得し、
       配布物の公開は専用actionで行う。認証情報流出を再現したものではなく予防的な対策。
-    next: >-
-      checkout後の認証付きGit操作が不要なjobで無効化し、LFS取得・release公開をCIで確認する。
+    resolution: >-
+      全checkoutでpersist-credentialsを無効化。後続に認証付きGit操作がないことを点検し、
+      releaseのLFS取得設定と専用actionによる公開を維持。GitHub上の取得・公開試験は未実施。
 
   - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1768
