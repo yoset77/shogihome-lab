@@ -60,7 +60,6 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/async-lock": "^1.4.2",
-    "@types/encoding-japanese": "^2.4.0",
     "@types/escape-html": "^1.0.4",
     "@types/license-checker": "^25.0.6",
     "@types/proper-lockfile": "^4.1.4",
