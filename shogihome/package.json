@@ -39,7 +39,7 @@
     "@hono/node-server": "^2.1.5",
     "async-lock": "^1.4.1",
     "chart.js": "^4.5.1",
-    "chokidar": "^5.0.0",
+    "chokidar": "^6.0.0",
     "dayjs": "^1.11.23",
     "encoding-japanese": "^2.4.0",
     "escape-html": "^1.0.3",
