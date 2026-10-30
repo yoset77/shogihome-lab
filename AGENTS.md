@@ -38,6 +38,8 @@ Run commands from the indicated directory.
 
 ## Documentation Rules
 
+- Do not modify `README.md` or `README.txt` files anywhere in the repository by default, including formatting-only changes.
+- If implementation changes require a README update, explain the reason and proposed scope, and obtain explicit user approval before editing.
 - Keep `ARCHITECTURE.md` limited to system structure, ownership, dependency/trust boundaries, and cross-module invariants.
 - Use `docs/architecture/` for subsystem design, lifecycle, and key contracts; omit exhaustive specifications evident from code and tests.
 - Use `docs/features/` only for non-obvious rationale, trade-offs, non-goals, and decision criteria. Do not create a document when no such explanation is needed.
