@@ -5,8 +5,8 @@ FROM node:26-slim AS builder
 # 作業ディレクトリを設定
 WORKDIR /app
 
-# package.jsonとpackage-lock.jsonをコピー
-COPY package*.json ./
+# Copy dependency manifests and install policy before installing dependencies.
+COPY package.json package-lock.json .npmrc ./
 
 # 依存関係をインストール (npm run buildに必要なdevDependenciesを含む)
 RUN npm ci

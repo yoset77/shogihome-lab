@@ -109,6 +109,11 @@ jobs:
           node-version: 26
       - name: Install dependencies
         run: npm ci
+      - name: Security Audit (production dependencies)
+        run: npm audit --omit=dev --audit-level=high
+      # Keep high tooling findings visible for CI/build exposure review.
+      - name: Security Audit (including dev dependencies)
+        run: npm audit --include=dev --audit-level=critical
       - name: Typecheck
         run: npx tsc --noEmit
       - name: Run tests
