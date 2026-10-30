@@ -347,6 +347,21 @@ candidates:
     next: 実行時間が問題になったら計測し、設定変更や削除ファイルで検査漏れが起きないか確認して採否を判断する。
 
   - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1739
+    summary: モバイルの棋譜操作ボタンを操作不可状態に合わせて無効表示
+    status: closed
+    assessed_lab_sha: fbc90c08bd85b2a8ddcddcaaa5d7c5b7e8c24d64
+    targets:
+      - shogihome/src/renderer/view/main/MobileControls.vue
+      - shogihome/src/renderer/store/index.ts
+    evidence: >-
+      storeは対局中の棋譜移動・削除を拒否するが、モバイルのボタンは押せる見た目だった。
+    resolution: >-
+      storeの既存許可条件をgetterへ集約し、移動4個と削除のdisabledへ反映。
+      Menuや待った・投了は変更せず、上流の投了ボタン置換と対局設定変更は対象外。
+      状態別の許可条件と、無効中の非発火・復帰・Menu維持を単体テストで確認。
+
+  - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1672
     summary: 駒台の持ち駒の左右順を選択する設定
     status: optional

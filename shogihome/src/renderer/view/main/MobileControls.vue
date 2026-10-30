@@ -1,19 +1,24 @@
 <template>
   <div>
     <div class="full row controls">
-      <button @click="store.changePly(0)">
+      <button :disabled="!store.canNavigateRecord" @click="store.changePly(0)">
         <Icon :icon="IconType.FIRST" />
       </button>
-      <button @click="store.goBack()">
+      <button :disabled="!store.canNavigateRecord" @click="store.goBack()">
         <Icon :icon="IconType.BACK" />
       </button>
-      <button @click="store.goForward()">
+      <button :disabled="!store.canNavigateRecord" @click="store.goForward()">
         <Icon :icon="IconType.NEXT" />
       </button>
-      <button @click="store.changePly(Number.MAX_SAFE_INTEGER)">
+      <button
+        :disabled="!store.canNavigateRecord"
+        @click="store.changePly(Number.MAX_SAFE_INTEGER)"
+      >
         <Icon :icon="IconType.LAST" />
       </button>
-      <button @click="store.removeCurrentMove()"><Icon :icon="IconType.DELETE" /></button>
+      <button :disabled="!store.canDeleteRecordMove" @click="store.removeCurrentMove()">
+        <Icon :icon="IconType.DELETE" />
+      </button>
       <button @click="isMobileMenuVisible = true">Menu</button>
     </div>
     <FileMenu v-if="isMobileMenuVisible" @close="isMobileMenuVisible = false" />
