@@ -20,11 +20,12 @@
             <BoardPane
               :style="boardPaneStyle"
               :max-size="boardPaneMaxSize"
+              :hide-candidates="!!store.gameViewSettings"
               @resize="onBoardPaneResize"
             />
             <RecordPane
               :style="recordPaneStyle"
-              :show-comment="appSettings.showCommentInRecordView"
+              :show-comment="viewSettings.showCommentInRecordView"
               :show-elapsed-time="appSettings.showElapsedTimeInRecordView"
             />
           </div>
@@ -41,6 +42,7 @@
       <Pane :size="bottomPaneHeightPercentage">
         <TabPane
           v-if="appSettings.tabPaneType === TabPaneType.SINGLE"
+          v-show="isBottomPaneVisible"
           class="full"
           :size="tabPaneSize"
           :visible-tabs="[
@@ -52,7 +54,7 @@
             Tab.CHART,
             Tab.PERCENTAGE_CHART,
           ]"
-          :active-tab="appSettings.tab"
+          :active-tab="viewSettings.tab"
           :display-minimize-toggle="true"
           :allow-puzzle="true"
           @on-change-tab="onChangeTab"
@@ -60,6 +62,7 @@
         />
         <Splitpanes
           v-else
+          v-show="isBottomPaneVisible"
           class="bottom-frame"
           vertical
           :maximize-panes="false"
@@ -72,18 +75,18 @@
               class="full"
               :size="tabPaneSize"
               :visible-tabs="[Tab.RECORD_INFO, Tab.SEARCH, Tab.PV, Tab.ANALYSIS_DB]"
-              :active-tab="appSettings.tab"
+              :active-tab="viewSettings.tab"
               :allow-puzzle="true"
               @on-change-tab="onChangeTab"
             />
           </Pane>
-          <Pane>
+          <Pane :size="100 - bottomLeftPaneWidthPercentage">
             <TabPane
               v-if="appSettings.tabPaneType === TabPaneType.DOUBLE"
               class="full"
               :size="tabPaneSize2"
               :visible-tabs="[Tab.COMMENT, Tab.CHART, Tab.PERCENTAGE_CHART]"
-              :active-tab="appSettings.tab2"
+              :active-tab="viewSettings.tab2"
               :display-minimize-toggle="true"
               @on-change-tab="onChangeTab2"
               @on-minimize="onMinimizeTab"
@@ -93,7 +96,7 @@
                 class="shadow-bottom margin-bottom"
                 :size="tabPaneSize2a"
                 :visible-tabs="[Tab.CHART, Tab.PERCENTAGE_CHART]"
-                :active-tab="appSettings.tab2"
+                :active-tab="viewSettings.tab2"
                 :display-minimize-toggle="true"
                 @on-change-tab="onChangeTab2"
                 @on-minimize="onMinimizeTab"
@@ -109,14 +112,14 @@
 
 <script setup lang="ts">
 import { t } from "@/common/i18n";
-import { reactive, onMounted, onUnmounted, computed, ref } from "vue";
+import { reactive, onMounted, onUnmounted, computed, ref, watch } from "vue";
 import BoardPane from "./BoardPane.vue";
 import RecordPane, { minWidth as minRecordWidth } from "./RecordPane.vue";
 import TabPane, { headerHeight as tabHeaderHeight } from "./TabPane.vue";
 import RecordComment from "@/renderer/view/tab/RecordComment.vue";
 import ControlPane, { ControlGroup } from "./ControlPane.vue";
 import { RectSize } from "@/common/assets/geometry";
-import { AppSettingsUpdate, Tab, TabPaneType } from "@/common/settings/app";
+import { Tab, TabPaneType } from "@/common/settings/app";
 import { BoardLayoutType } from "@/common/settings/layout";
 import api from "@/renderer/ipc/api";
 import { LogLevel } from "@/common/log";
@@ -127,12 +130,16 @@ import "splitpanes/dist/splitpanes.css";
 import { IconType } from "@/renderer/assets/icons";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { useAppSettings } from "@/renderer/store/settings";
+import { useStore } from "@/renderer/store";
+import type { GameViewSettings } from "@/renderer/store/game_view";
 
 const splitterWidth = 8;
 const margin = 10;
 const lazyUpdateDelay = 100;
 
 const appSettings = useAppSettings();
+const store = useStore();
+const viewSettings = computed(() => store.gameViewSettings ?? appSettings);
 const windowSize = reactive(new RectSize(window.innerWidth, window.innerHeight));
 const topPaneHeightPercentage = ref(appSettings.topPaneHeightPercentage);
 const bottomLeftPaneWidthPercentage = ref(appSettings.bottomLeftPaneWidthPercentage);
@@ -152,6 +159,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener("resize", updateSize);
+  windowLazyUpdate.clear();
+  mainLazyUpdate.clear();
+  bottomLazyUpdate.clear();
 });
 
 const onBoardPaneResize = (size: RectSize) => {
@@ -159,31 +169,32 @@ const onBoardPaneResize = (size: RectSize) => {
   boardPaneSize.height = size.height;
 };
 
-const updateAppSettings = (update: AppSettingsUpdate) => {
+const updateViewSettings = (update: Partial<GameViewSettings>) => {
+  if (store.updateGameViewSettings(update)) return;
   appSettings.updateAppSettings(update).catch((e) => {
     api.log(LogLevel.WARN, "StandardLayout: failed to update app settings: " + toString(e));
   });
 };
 
 const onChangeTab = (tab: Tab) => {
-  updateAppSettings({ tab });
+  updateViewSettings({ tab });
 };
 const onChangeTab2 = (tab2: Tab) => {
-  updateAppSettings({ tab2 });
+  updateViewSettings({ tab2 });
 };
 
 const onMinimizeTab = () => {
   topPaneHeightPercentage.value = 100;
-  updateAppSettings({ topPaneHeightPercentage: 100 });
+  updateViewSettings({ topPaneHeightPercentage: 100 });
 };
 
 const onUnhideTabView = () => {
   const newValue = Math.min(
-    appSettings.topPanePreviousHeightPercentage,
+    viewSettings.value.topPanePreviousHeightPercentage,
     ((windowSize.height - tabHeaderHeight * 2 - splitterWidth) / windowSize.height) * 100,
   );
   topPaneHeightPercentage.value = newValue;
-  updateAppSettings({ topPaneHeightPercentage: newValue });
+  updateViewSettings({ topPaneHeightPercentage: newValue });
 };
 
 const mainLazyUpdate = new Lazy();
@@ -193,11 +204,13 @@ const onResizeMain = (args: { panes: { size: number }[] }) => {
     topPaneHeightPercentage.value = newValue;
   }, lazyUpdateDelay);
 };
-const onResizedMain = (args: { panes: { size: number }[] }) => {
+const onResizedMain = (args: { panes: { size: number }[]; event?: Event }) => {
+  // Splitpanes also emits this event for programmatic layout changes.
+  if (!args.event) return;
   mainLazyUpdate.clear();
   const newValue = args.panes[0].size;
   topPaneHeightPercentage.value = newValue;
-  updateAppSettings({ topPaneHeightPercentage: newValue });
+  updateViewSettings({ topPaneHeightPercentage: newValue });
 };
 
 const bottomLazyUpdate = new Lazy();
@@ -207,12 +220,24 @@ const onResizeBottom = (args: { panes: { size: number }[] }) => {
     bottomLeftPaneWidthPercentage.value = newValue;
   }, lazyUpdateDelay);
 };
-const onResizedBottom = (args: { panes: { size: number }[] }) => {
+const onResizedBottom = (args: { panes: { size: number }[]; event?: Event }) => {
+  if (!args.event) return;
   bottomLazyUpdate.clear();
   const newValue = args.panes[0].size;
   bottomLeftPaneWidthPercentage.value = newValue;
-  updateAppSettings({ bottomLeftPaneWidthPercentage: newValue });
+  updateViewSettings({ bottomLeftPaneWidthPercentage: newValue });
 };
+
+watch(
+  () => store.gameViewSettings,
+  () => {
+    mainLazyUpdate.clear();
+    bottomLazyUpdate.clear();
+    topPaneHeightPercentage.value = viewSettings.value.topPaneHeightPercentage;
+    bottomLeftPaneWidthPercentage.value = viewSettings.value.bottomLeftPaneWidthPercentage;
+  },
+  { immediate: true, flush: "sync" },
+);
 
 const isBottomPaneVisible = computed(() => {
   return (windowSize.height * bottomPaneHeightPercentage.value) / 100 >= tabHeaderHeight;

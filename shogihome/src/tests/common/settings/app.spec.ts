@@ -56,6 +56,18 @@ describe("settings/app", () => {
     expect(result.enableVisionCameraAutoOpen).toBe(false);
   });
 
+  it.each([undefined, false, true, "true", null])(
+    "normalizes the opt-in thinking visibility setting %s",
+    (value) => {
+      expect(defaultAppSettings().hideEngineThinkingInHumanGames).toBe(false);
+      const settings = {
+        ...defaultAppSettings(),
+        hideEngineThinkingInHumanGames: value as boolean,
+      };
+      expect(normalizeAppSettings(settings).hideEngineThinkingInHumanGames).toBe(value === true);
+    },
+  );
+
   it("normalize/defaultBookFormat", () => {
     expect(defaultAppSettings().defaultBookFormat).toBe("yane2016");
     const result = normalizeAppSettings({

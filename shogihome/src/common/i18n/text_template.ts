@@ -279,6 +279,7 @@ export type Texts = {
   score: string;
   estimatedWinRate: string;
   evaluationAndEstimatedWinRateAndPV: string;
+  hideEngineThinkingInHumanGames: string;
   swapEachTurnChange: string;
   alwaysSenteIsPositive: string;
   signOfEvaluation: string;

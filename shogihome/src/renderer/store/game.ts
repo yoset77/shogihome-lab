@@ -44,7 +44,7 @@ import {
 import { useAppSettings } from "./settings";
 import { clearURLParams, flushRecordForWebApp } from "./webapp";
 import { ConnectionNotification } from "@/renderer/helpers/connection_notification";
-import { ES_HUMAN } from "@/common/uri";
+import { ES_HUMAN, isLanEngineURI } from "@/common/uri";
 
 export { calculateGameStatistics } from "@/common/game/results";
 export type { GameResults, GameStatistics } from "@/common/game/results";
@@ -52,6 +52,13 @@ const STORAGE_KEY = "shogihome-game-session";
 const MONITOR_IDS = { [Color.BLACK]: 200200, [Color.WHITE]: 200201 };
 const SCREEN_ID = generateSessionId();
 const recoveryStorage = new GameRecoveryStorage();
+
+function isHumanVsEngine(settings: GameSettings): boolean {
+  return (
+    (settings.black.uri === ES_HUMAN && isLanEngineURI(settings.white.uri)) ||
+    (settings.white.uri === ES_HUMAN && isLanEngineURI(settings.black.uri))
+  );
+}
 
 function gameErrorMessage(error: GameError): string {
   switch (error) {
@@ -195,6 +202,7 @@ export class GameManager {
   private reference?: Reference;
   private background = false;
   private humanGame = false;
+  private humanVsEngine = false;
   private recovering = false;
   private pendingRequest?: GameSessionRequest;
   private _status?: GameSnapshot;
@@ -268,6 +276,9 @@ export class GameManager {
   }
   get isActive(): boolean {
     return this.active;
+  }
+  get isHumanVsEngine(): boolean {
+    return this.active && !this.background && this.humanVsEngine;
   }
   get isStarting(): boolean {
     return this.starting;
@@ -388,15 +399,16 @@ export class GameManager {
       Math.max(1000, this.retryNotBefore - Date.now()),
     );
   }
-  private bind(token: string): RecordSnapshot {
+  private bind(token: string, settings?: GameSettings): RecordSnapshot {
     const source = this.recordManager.beginGame(token);
     this.bindingToken = token;
+    this._status = undefined;
+    this.humanVsEngine = !!settings && isHumanVsEngine(settings);
     this.active = true;
     this.starting = false;
     ++this.lifecycle;
     this.finished = false;
     this.connection.reset();
-    this._status = undefined;
     this.movePreview = undefined;
     this.connectionId = generateSessionId();
     this.controllerEpoch = undefined;
@@ -424,7 +436,7 @@ export class GameManager {
     this.background = background;
     this.humanGame = [settings.black.uri, settings.white.uri].includes(ES_HUMAN);
     const requestId = generateSessionId();
-    const source = this.bind(requestId);
+    const source = this.bind(requestId, settings);
     this.starting = !background;
     const lifecycle = this.lifecycle;
     let posted = false;
@@ -562,7 +574,7 @@ export class GameManager {
           content: local,
           pending: [],
         });
-        this.bind(ref.requestId);
+        this.bind(ref.requestId, snapshot.settings);
         bound = true;
         this.controllerEpoch = ref.controllerEpoch;
         this.persist();
@@ -758,7 +770,7 @@ export class GameManager {
     };
     let snapshot: GameSnapshot | undefined;
     try {
-      this.bind(job.requestId);
+      this.bind(job.requestId, preview.settings);
       lifecycle = this.lifecycle;
       this.persist();
       snapshot = await this.client.attach(job.id, this.reference.pendingAttach!);
@@ -986,6 +998,7 @@ export class GameManager {
         !isGameTerminal(snapshot.state) && snapshot.settings[color].uri !== ES_HUMAN,
       );
     if (this._status?.interactionId !== snapshot.interactionId) this.annotationTimes.clear();
+    this.humanVsEngine = isHumanVsEngine(snapshot.settings);
     if (this.active && (!this._status || snapshot.recordRevision !== this._status.recordRevision)) {
       if (!this.recordManager.applyGameSnapshot(ref.requestId, snapshot.record))
         throw new Error(t.gameConflict);

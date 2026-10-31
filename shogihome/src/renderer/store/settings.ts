@@ -178,6 +178,9 @@ class AppSettingsStore {
   get evaluationViewFrom(): EvaluationViewFrom {
     return this.merged.evaluationViewFrom;
   }
+  get hideEngineThinkingInHumanGames(): boolean {
+    return this.merged.hideEngineThinkingInHumanGames;
+  }
   get maxArrowsPerEngine(): number {
     return this.merged.maxArrowsPerEngine;
   }

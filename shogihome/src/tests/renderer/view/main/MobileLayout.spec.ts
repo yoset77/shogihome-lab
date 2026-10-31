@@ -33,6 +33,7 @@ const store = reactive({
   appState: AppState.NORMAL,
   researchState: ResearchState.IDLE,
   puzzle: undefined as { type: string } | undefined,
+  isHidingEngineThinking: false,
 });
 const originalViewport = { width: window.innerWidth, height: window.innerHeight };
 const setViewport = (width: number, height: number) => {
@@ -75,6 +76,7 @@ describe("MobileLayout", () => {
     store.appState = AppState.NORMAL;
     store.researchState = ResearchState.IDLE;
     store.puzzle = undefined;
+    store.isHidingEngineThinking = false;
     useStore.mockReturnValue(store);
     useAppSettings.mockReturnValue(settings);
   });
@@ -84,6 +86,138 @@ describe("MobileLayout", () => {
     vi.useRealTimers();
     setViewport(originalViewport.width, originalViewport.height);
   });
+
+  it("starts a recovered game hidden and restores the record tab rather than a stale selection", async () => {
+    store.appState = AppState.GAME;
+    store.isHidingEngineThinking = true;
+    const wrapper = mountLayout();
+    expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe("record");
+    expect(wrapper.getComponent(RecordPane).props("showComment")).toBe(false);
+    expect(wrapper.getComponent(BoardPane).props("hideCandidates")).toBe(true);
+
+    await selectTab(wrapper, "chart");
+    store.isHidingEngineThinking = false;
+    await nextTick();
+    expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe("record");
+  });
+
+  it("switches to the record tab when the preset starts and restores the previous tab", async () => {
+    const originalSettings = { ...settings };
+    const wrapper = mountLayout();
+    await selectTab(wrapper, "comment");
+
+    store.isHidingEngineThinking = true;
+    await nextTick();
+    expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe("record");
+    expect(wrapper.getComponent(RecordPane).props("showComment")).toBe(false);
+    expect(wrapper.getComponent(BoardPane).props("hideCandidates")).toBe(true);
+
+    for (const tab of ["pv", "chart", "comment"]) {
+      await selectTab(wrapper, tab);
+      expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe(tab);
+      expect(wrapper.getComponent(RecordPane).props("showComment")).toBe(false);
+      expect(wrapper.getComponent(BoardPane).props("hideCandidates")).toBe(true);
+    }
+
+    await selectTab(wrapper, "info");
+
+    store.isHidingEngineThinking = false;
+    await nextTick();
+    expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe("comment");
+    expect(wrapper.getComponent(RecordPane).props("showComment")).toBe(true);
+    expect(wrapper.getComponent(BoardPane).props("hideCandidates")).toBe(false);
+    expect(settings).toEqual(originalSettings);
+  });
+
+  it("preserves the ordinary view when opening and cancelling the game dialog", async () => {
+    settings.hideEngineThinkingInHumanGames = true;
+    const wrapper = mountLayout();
+    await selectTab(wrapper, "comment");
+
+    for (const state of [AppState.GAME_DIALOG, AppState.NORMAL]) {
+      store.appState = state;
+      await nextTick();
+      expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe("comment");
+      expect(wrapper.getComponent(RecordPane).props("showComment")).toBe(true);
+      expect(wrapper.getComponent(BoardPane).props("hideCandidates")).toBe(false);
+    }
+  });
+
+  it("captures a fresh restore target each time the preset is activated", async () => {
+    const wrapper = mountLayout();
+    for (const tab of ["comment", "chart"]) {
+      await selectTab(wrapper, tab);
+      store.isHidingEngineThinking = true;
+      await nextTick();
+      expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe("record");
+      await selectTab(wrapper, "pv");
+
+      store.isHidingEngineThinking = false;
+      await nextTick();
+      expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe(tab);
+    }
+  });
+
+  it("reveals automatically selected tabs without scrolling on manual selection", async () => {
+    const wrapper = mountLayout();
+    const selector = wrapper.getComponent(HorizontalSelector);
+    const root = selector.element as HTMLElement;
+    const record = selector.get('input[value="record"]').element.parentElement!;
+    const comment = selector.get('input[value="comment"]').element.parentElement!;
+    vi.spyOn(root, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 390, 30));
+    vi.spyOn(record, "getBoundingClientRect").mockReturnValue(new DOMRect(500, 0, 80, 30));
+    vi.spyOn(comment, "getBoundingClientRect").mockReturnValue(new DOMRect(-120, 0, 80, 30));
+    await selectTab(wrapper, "comment");
+    expect(root.scrollLeft).toBe(0);
+
+    store.isHidingEngineThinking = true;
+    await nextTick();
+    await nextTick();
+    expect(selector.props("value")).toBe("record");
+    expect(root.scrollLeft).toBe(190);
+
+    await selectTab(wrapper, "pv");
+    expect(root.scrollLeft).toBe(190);
+    store.isHidingEngineThinking = false;
+    await nextTick();
+    await nextTick();
+    expect(selector.props("value")).toBe("comment");
+    expect(root.scrollLeft).toBe(70);
+  });
+
+  it("keeps the hidden game's manual tab through rotation", async () => {
+    const wrapper = mountLayout();
+    store.isHidingEngineThinking = true;
+    await nextTick();
+    await selectTab(wrapper, "comment");
+
+    await resizeViewport(844, 390);
+    expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe("comment");
+    await resizeViewport(390, 844);
+    expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe("comment");
+    expect(wrapper.getComponent(BoardPane).props("hideCandidates")).toBe(true);
+  });
+
+  it.each([
+    ["search", "showSearchLogOnMobile"],
+    ["book", "showBookTableOnMobile"],
+  ] as const)(
+    "falls back to the record tab when the previous %s tab is no longer offered",
+    async (tab, setting) => {
+      settings[setting] = true;
+      const wrapper = mountLayout();
+      await selectTab(wrapper, tab);
+      store.isHidingEngineThinking = true;
+      await nextTick();
+
+      settings[setting] = false;
+      await nextTick();
+      store.isHidingEngineThinking = false;
+      await nextTick();
+
+      expect(wrapper.getComponent(HorizontalSelector).props("value")).toBe("record");
+    },
+  );
 
   it.each([
     [390, 844],
