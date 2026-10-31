@@ -3,54 +3,54 @@
     <div v-if="hasViolation" class="warning-message">
       {{ t.pieceCountExceeded }}
     </div>
-    <div ref="boardAreaRef" class="board-area">
-      <BoardView
-        :layout-type="layoutType"
-        :board-image-type="appSettings.boardImage"
-        :board-image-opacity="appSettings.enableTransparent ? appSettings.boardOpacity : 1"
-        :board-grid-color="appSettings.boardGridColor || undefined"
-        :piece-stand-image-type="appSettings.pieceStandImage"
-        :piece-stand-image-opacity="
-          appSettings.enableTransparent ? appSettings.pieceStandOpacity : 1
-        "
-        :promotion-selector-style="appSettings.promotionSelectorStyle"
-        :board-label-type="appSettings.boardLabelType"
-        :piece-image-url-template="getPieceImageURLTemplate(appSettings)"
-        :king-piece-type="appSettings.kingPieceType"
-        :max-size="boardMaxSize"
-        :position="position"
-        :flip="flip"
-        :hide-clock="true"
-        :mobile="mobile"
-        :allow-move="false"
-        :allow-edit="true"
-        :enable-drag-and-drop="appSettings.enableDragAndDrop"
-        :external-drag="externalDrag"
-        :piece-box-selection="pieceBoxSelection"
-        :black-player-name="t.sente"
-        :white-player-name="t.gote"
-        :next-move-label="t.nextTurn"
-        :drop-shadows="!mobile"
-        :ghost-teleport-target="ghostTeleportTarget"
-        @edit="onEdit"
-        @piece-box-drop="onPieceBoxDrop"
-        @drop-outside="onDropOutside"
-        @external-drag-end="externalDrag = null"
-        @piece-box-selection-end="pieceBoxSelection = null"
-        @edit-selection-change="editSelection = $event"
-      />
-    </div>
-    <div class="piece-box-column">
-      <PieceBox
-        ref="pieceBoxRef"
-        :position="position"
-        :scale="pieceBoxScale"
-        :mobile="mobile"
-        :accept-tap-drop="editSelection !== null"
-        :selection="pieceBoxSelection"
-        @dragstart="onPieceBoxDragStart"
-        @tap-drop="onPieceBoxTapDrop"
-      />
+    <div ref="editorAreaRef" class="editor-area" :style="editorLayout.areaStyle">
+      <div class="editor-layout" :class="{ pending: !availableSize }" :style="editorLayout.style">
+        <BoardView
+          :layout-type="layoutType"
+          :board-image-type="appSettings.boardImage"
+          :board-image-opacity="appSettings.enableTransparent ? appSettings.boardOpacity : 1"
+          :board-grid-color="appSettings.boardGridColor || undefined"
+          :piece-stand-image-type="appSettings.pieceStandImage"
+          :piece-stand-image-opacity="
+            appSettings.enableTransparent ? appSettings.pieceStandOpacity : 1
+          "
+          :promotion-selector-style="appSettings.promotionSelectorStyle"
+          :board-label-type="appSettings.boardLabelType"
+          :piece-image-url-template="getPieceImageURLTemplate(appSettings)"
+          :king-piece-type="appSettings.kingPieceType"
+          :max-size="editorLayout.boardSize"
+          :position="position"
+          :flip="flip"
+          :hide-clock="true"
+          :mobile="mobile"
+          :allow-move="false"
+          :allow-edit="true"
+          :enable-drag-and-drop="appSettings.enableDragAndDrop"
+          :external-drag="externalDrag"
+          :piece-box-selection="pieceBoxSelection"
+          :black-player-name="t.sente"
+          :white-player-name="t.gote"
+          :next-move-label="t.nextTurn"
+          :drop-shadows="!mobile"
+          :ghost-teleport-target="ghostTeleportTarget"
+          @edit="onEdit"
+          @piece-box-drop="onPieceBoxDrop"
+          @drop-outside="onDropOutside"
+          @external-drag-end="externalDrag = null"
+          @piece-box-selection-end="pieceBoxSelection = null"
+          @edit-selection-change="editSelection = $event"
+        />
+        <PieceBox
+          ref="pieceBoxRef"
+          :position="position"
+          :scale="editorLayout.scale"
+          :mobile="mobile"
+          :accept-tap-drop="editSelection !== null"
+          :selection="pieceBoxSelection"
+          @dragstart="onPieceBoxDragStart"
+          @tap-drop="onPieceBoxTapDrop"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -70,11 +70,10 @@ import {
 import { useAppSettings } from "@/renderer/store/settings";
 import BoardView from "@/renderer/view/primitive/BoardView.vue";
 import PieceBox from "@/renderer/view/primitive/PieceBox.vue";
+import { pieceBoxSize } from "@/renderer/view/primitive/pieceBoxLayout";
 import { portraitViewParams, standardViewParams } from "@/renderer/view/primitive/board/params";
 
-const PIECE_BOX_SCALE_STEP = 0.05;
-// Ignore layout jitter smaller than one quantization step.
-const PIECE_BOX_SCALE_HYSTERESIS = PIECE_BOX_SCALE_STEP;
+const EDITOR_GAP = 8;
 
 type PieceBoxExpose = {
   containsPoint(clientX: number, clientY: number): boolean;
@@ -109,32 +108,39 @@ const emit = defineEmits<{
 }>();
 
 const appSettings = useAppSettings();
-const boardAreaRef = ref<HTMLElement | null>(null);
+const editorAreaRef = ref<HTMLElement | null>(null);
 const pieceBoxRef = ref<PieceBoxExpose | null>(null);
-const boardMaxSize = shallowRef(new RectSize(800, 600));
+const availableSize = shallowRef<RectSize | null>(null);
 const externalDrag = ref<ExternalDrag | null>(null);
 const pieceBoxSelection = ref<PieceType | null>(null);
 const editSelection = shallowRef<Square | Piece | null>(null);
 const hasViolation = computed(() => detectPieceCountViolations(props.position).length > 0);
-const calculatePieceBoxScale = (boardSize: RectSize, layoutType: BoardLayoutType): number => {
+const editorLayout = computed(() => {
   const frame =
-    layoutType === BoardLayoutType.PORTRAIT ? portraitViewParams.frame : standardViewParams.frame;
-  const boardScale = Math.min(boardSize.width / frame.width, boardSize.height / frame.height);
-  const defaultScale = Math.min(800 / frame.width, 600 / frame.height);
-  return Math.min(1.5, Math.max(0.75, boardScale / defaultScale));
-};
-const pieceBoxScale = ref(1);
-
-watch(
-  [boardMaxSize, () => props.layoutType],
-  ([boardSize, layoutType]) => {
-    const scale = calculatePieceBoxScale(boardSize, layoutType);
-    const quantizedScale = Math.round(scale / PIECE_BOX_SCALE_STEP) * PIECE_BOX_SCALE_STEP;
-    if (Math.abs(scale - pieceBoxScale.value) < PIECE_BOX_SCALE_HYSTERESIS) return;
-    pieceBoxScale.value = quantizedScale;
-  },
-  { immediate: true },
-);
+    props.layoutType === BoardLayoutType.PORTRAIT
+      ? portraitViewParams.frame
+      : standardViewParams.frame;
+  const boardRatio = Math.min(800 / frame.width, 600 / frame.height);
+  const boardWidth = frame.width * boardRatio;
+  const boardHeight = frame.height * boardRatio;
+  const width = Math.max(boardWidth, pieceBoxSize.width);
+  const height = boardHeight + EDITOR_GAP + pieceBoxSize.height;
+  const scale = availableSize.value
+    ? Math.min(availableSize.value.width / width, availableSize.value.height / height)
+    : 1;
+  return {
+    scale,
+    boardSize: new RectSize(boardWidth * scale, boardHeight * scale),
+    areaStyle: {
+      aspectRatio: `${width} / ${height}`,
+    },
+    style: {
+      width: `${width * scale}px`,
+      height: `${height * scale}px`,
+      gap: `${EDITOR_GAP * scale}px`,
+    },
+  };
+});
 let resizeObserver: ResizeObserver | null = null;
 
 const clearInteraction = () => {
@@ -247,18 +253,16 @@ watch(() => props.position.sfen, clearInteraction);
 watch(() => props.flip, clearInteraction);
 
 onMounted(() => {
-  const boardArea = boardAreaRef.value;
-  if (!boardArea) return;
+  const editorArea = editorAreaRef.value;
+  if (!editorArea) return;
   resizeObserver = new ResizeObserver((entries) => {
     for (const entry of entries) {
       if (entry.contentRect.width <= 0 || entry.contentRect.height <= 0) continue;
-      boardMaxSize.value = new RectSize(
-        Math.floor(entry.contentRect.width),
-        Math.floor(entry.contentRect.height),
-      );
+      const size = new RectSize(entry.contentRect.width, entry.contentRect.height);
+      if (!availableSize.value?.equals(size)) availableSize.value = size;
     }
   });
-  resizeObserver.observe(boardArea);
+  resizeObserver.observe(editorArea);
 });
 
 onBeforeUnmount(() => {
@@ -281,22 +285,31 @@ defineExpose({ clearInteraction });
   min-height: 0;
 }
 
-.board-area {
-  display: flex;
+.editor-area {
+  position: relative;
   flex: 1;
-  align-items: flex-end;
-  justify-content: center;
+  width: 100%;
   min-width: 0;
   min-height: 0;
 }
 
-.piece-box-column {
+.editor-layout {
+  /* Keep the measured area's size independent of its contents. */
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
-  flex: 0 0 auto;
   flex-direction: column;
-  gap: 4px;
   align-items: center;
-  min-width: 0;
+}
+
+.editor-layout > * {
+  flex: 0 0 auto;
+}
+
+.editor-layout.pending {
+  display: none;
 }
 
 .warning-message {

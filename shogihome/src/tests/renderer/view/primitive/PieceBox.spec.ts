@@ -10,6 +10,24 @@ vi.mock("@/renderer/store/settings", () => ({
 const createPosition = () => Position.newBySFEN(InitialPositionSFEN.EMPTY) as Position;
 
 describe("PieceBox", () => {
+  it.each([false, true])("scales the complete single-row box (mobile=%s)", async (mobile) => {
+    const wrapper = mount(PieceBox, {
+      props: { position: createPosition(), mobile },
+    });
+    const element = wrapper.element as HTMLElement;
+    expect(element.style.width).toBe("454px");
+    expect(element.style.height).toBe("96px");
+
+    await wrapper.setProps({ scale: 0.5 });
+
+    expect(element.style.width).toBe("227px");
+    expect(element.style.height).toBe("48px");
+    expect(element.style.getPropertyValue("--piece-box-header-line-height")).toBe("10px");
+    expect(element.style.getPropertyValue("--piece-box-count-line-height")).toBe("8px");
+    expect(wrapper.findAll(".piece-box-item")).toHaveLength(8);
+    wrapper.unmount();
+  });
+
   it("does not enable mobile styling by default", () => {
     const wrapper = mount(PieceBox, { props: { position: createPosition() } });
 

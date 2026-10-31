@@ -1,10 +1,11 @@
 import { mount } from "@vue/test-utils";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Color, InitialPositionSFEN, Piece, PieceType, Position, Square } from "tsshogi";
 import { RectSize } from "@/common/assets/geometry";
 import PositionEditorCore from "@/renderer/view/dialog/PositionEditorCore.vue";
 import BoardView from "@/renderer/view/primitive/BoardView.vue";
 import PieceBox from "@/renderer/view/primitive/PieceBox.vue";
+import { pieceBoxSize } from "@/renderer/view/primitive/pieceBoxLayout";
 import { BoardLayoutType } from "@/common/settings/layout";
 
 vi.mock("@/renderer/store/settings", () => ({
@@ -24,6 +25,8 @@ vi.mock("@/renderer/store/settings", () => ({
 }));
 
 let resizeObserverCallback: ResizeObserverCallback;
+const observe = vi.fn();
+const disconnect = vi.fn();
 
 const createWrapper = (
   position: Position,
@@ -55,15 +58,19 @@ const createWrapper = (
   });
 
 describe("PositionEditorCore", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   beforeEach(() => {
+    observe.mockClear();
+    disconnect.mockClear();
     vi.stubGlobal(
       "ResizeObserver",
       class {
         constructor(callback: ResizeObserverCallback) {
           resizeObserverCallback = callback;
         }
-        observe() {}
-        disconnect() {}
+        observe = observe;
+        disconnect = disconnect;
       },
     );
   });
@@ -104,9 +111,23 @@ describe("PositionEditorCore", () => {
     expect(wrapper.findComponent(PieceBox).props("mobile")).toBe(mobile);
   });
 
-  it("uses the measured board area and scales PieceBox with the board", async () => {
+  it("hides the initial layout until a nonzero editor area is measured", async () => {
     const position = Position.newBySFEN(InitialPositionSFEN.EMPTY) as Position;
     const wrapper = createWrapper(position);
+    expect(wrapper.find(".editor-layout").classes()).toContain("pending");
+    expect(observe).toHaveBeenCalledWith(wrapper.find(".editor-area").element);
+
+    for (const [width, height] of [
+      [0, 480],
+      [320, 0],
+    ]) {
+      resizeObserverCallback(
+        [{ contentRect: { width, height } } as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+      await wrapper.vm.$nextTick();
+      expect(wrapper.find(".editor-layout").classes()).toContain("pending");
+    }
 
     resizeObserverCallback(
       [{ contentRect: { width: 320, height: 480 } } as ResizeObserverEntry],
@@ -114,13 +135,51 @@ describe("PositionEditorCore", () => {
     );
     await wrapper.vm.$nextTick();
 
-    const maxSize = wrapper.findComponent(BoardView).props("maxSize") as RectSize;
-    expect(maxSize.width).toBe(320);
-    expect(maxSize.height).toBe(480);
-    expect(wrapper.findComponent(PieceBox).props("scale")).toBe(0.75);
+    expect(wrapper.find(".editor-layout").classes()).not.toContain("pending");
+    wrapper.unmount();
+    expect(disconnect).toHaveBeenCalledOnce();
   });
 
-  it("keeps PieceBox scale stable across one-pixel board-area jitter", async () => {
+  it.each([BoardLayoutType.STANDARD, BoardLayoutType.PORTRAIT])(
+    "fits the entire %s layout using one board and PieceBox scale",
+    async (layoutType) => {
+      const position = Position.newBySFEN(InitialPositionSFEN.EMPTY) as Position;
+      const wrapper = createWrapper(position, false, layoutType);
+      const baseBoardSize = wrapper.findComponent(BoardView).props("maxSize") as RectSize;
+      const baseWidth = Math.max(baseBoardSize.width, pieceBoxSize.width);
+      const baseHeight = baseBoardSize.height + 8 + pieceBoxSize.height;
+      const area = wrapper.find(".editor-area").element as HTMLElement;
+      expect(area.style.aspectRatio).toBe(`${baseWidth} / ${baseHeight}`);
+
+      // Cover width/height limits, rotation, and scales outside the former clamps.
+      for (const [width, height] of [
+        [320, 480],
+        [844, 220],
+        [1400, 700],
+        [2400, 1800],
+      ]) {
+        resizeObserverCallback(
+          [{ contentRect: { width, height } } as ResizeObserverEntry],
+          {} as ResizeObserver,
+        );
+        await wrapper.vm.$nextTick();
+
+        const scale = Math.min(width / baseWidth, height / baseHeight);
+        const boardSize = wrapper.findComponent(BoardView).props("maxSize") as RectSize;
+        expect(wrapper.findComponent(PieceBox).props("scale")).toBeCloseTo(scale);
+        expect(boardSize.width).toBeCloseTo(baseBoardSize.width * scale);
+        expect(boardSize.height).toBeCloseTo(baseBoardSize.height * scale);
+        expect(area.style.aspectRatio).toBe(`${baseWidth} / ${baseHeight}`);
+        const layout = wrapper.find(".editor-layout").element as HTMLElement;
+        expect(parseFloat(layout.style.width)).toBeCloseTo(baseWidth * scale);
+        expect(parseFloat(layout.style.height)).toBeCloseTo(baseHeight * scale);
+        expect(parseFloat(layout.style.gap)).toBeCloseTo(8 * scale);
+      }
+      wrapper.unmount();
+    },
+  );
+
+  it("keeps the board and PieceBox ratio fixed across one-pixel resizes", async () => {
     const position = Position.newBySFEN(InitialPositionSFEN.EMPTY) as Position;
     const wrapper = createWrapper(position, false, BoardLayoutType.STANDARD);
 
@@ -129,7 +188,8 @@ describe("PositionEditorCore", () => {
       {} as ResizeObserver,
     );
     await wrapper.vm.$nextTick();
-    const scale = wrapper.findComponent(PieceBox).props("scale");
+    const scale = wrapper.findComponent(PieceBox).props("scale") as number;
+    const boardSize = wrapper.findComponent(BoardView).props("maxSize") as RectSize;
 
     resizeObserverCallback(
       [{ contentRect: { width: 1400, height: 699 } } as ResizeObserverEntry],
@@ -137,7 +197,59 @@ describe("PositionEditorCore", () => {
     );
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.findComponent(PieceBox).props("scale")).toBe(scale);
+    const resizedScale = wrapper.findComponent(PieceBox).props("scale") as number;
+    const resizedBoardSize = wrapper.findComponent(BoardView).props("maxSize") as RectSize;
+    expect(resizedScale).toBeLessThan(scale);
+    expect(resizedBoardSize.width / resizedScale).toBeCloseTo(boardSize.width / scale);
+    expect(resizedBoardSize.height / resizedScale).toBeCloseTo(boardSize.height / scale);
+    wrapper.unmount();
+  });
+
+  it("preserves the last valid measurement while its tab is hidden", async () => {
+    const wrapper = createWrapper(new Position());
+    resizeObserverCallback(
+      [{ contentRect: { width: 320, height: 480 } } as ResizeObserverEntry],
+      {} as ResizeObserver,
+    );
+    await wrapper.vm.$nextTick();
+    const boardSize = wrapper.findComponent(BoardView).props("maxSize");
+
+    resizeObserverCallback(
+      [{ contentRect: { width: 0, height: 0 } } as ResizeObserverEntry],
+      {} as ResizeObserver,
+    );
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findComponent(BoardView).props("maxSize")).toBe(boardSize);
+    wrapper.unmount();
+  });
+
+  it("does not update the layout for an unchanged editor area", async () => {
+    const wrapper = createWrapper(new Position());
+    const entries = [{ contentRect: { width: 800, height: 700 } } as ResizeObserverEntry];
+    resizeObserverCallback(entries, {} as ResizeObserver);
+    await wrapper.vm.$nextTick();
+    const boardSize = wrapper.findComponent(BoardView).props("maxSize");
+
+    resizeObserverCallback(entries, {} as ResizeObserver);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.findComponent(BoardView).props("maxSize")).toBe(boardSize);
+    wrapper.unmount();
+  });
+
+  it("refits the same editor area when the board layout changes", async () => {
+    const wrapper = createWrapper(new Position());
+    resizeObserverCallback(
+      [{ contentRect: { width: 800, height: 700 } } as ResizeObserverEntry],
+      {} as ResizeObserver,
+    );
+    await wrapper.vm.$nextTick();
+    await wrapper.setProps({ layoutType: BoardLayoutType.STANDARD });
+
+    const boardSize = wrapper.findComponent(BoardView).props("maxSize") as RectSize;
+    expect(boardSize.width).toBeCloseTo(800);
+    expect(wrapper.findComponent(PieceBox).props("scale")).toBeCloseTo(1);
+    wrapper.unmount();
   });
 
   it("adds the missing king color from PieceBox", async () => {

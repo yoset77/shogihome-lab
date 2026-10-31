@@ -38,6 +38,7 @@ import {
 import { useAppSettings } from "@/renderer/store/settings";
 import { getPieceImageURLTemplate } from "@/common/settings/app";
 import { getPieceImageAssetName } from "@/common/assets/pieces";
+import { pieceBoxSize } from "./pieceBoxLayout";
 
 const props = withDefaults(
   defineProps<{
@@ -79,14 +80,19 @@ const pieceBoxCounts = computed<PieceBoxCounts>(() => {
   return computePieceBoxCounts(props.position);
 });
 const style = computed(() => ({
+  width: `${pieceBoxSize.width * props.scale}px`,
+  height: `${pieceBoxSize.height * props.scale}px`,
+  "--piece-box-border-width": `${props.scale}px`,
   "--piece-box-gap": `${4 * props.scale}px`,
   "--piece-box-padding": `${4 * props.scale}px`,
   "--piece-box-header-font-size": `${14 * props.scale}px`,
+  "--piece-box-header-line-height": `${20 * props.scale}px`,
   "--piece-box-item-gap": `${2 * props.scale}px`,
   "--piece-box-item-padding": `${2 * props.scale}px`,
   "--piece-box-item-min-width": `${48 * props.scale}px`,
   "--piece-box-image-size": `${40 * props.scale}px`,
   "--piece-box-count-font-size": `${12 * props.scale}px`,
+  "--piece-box-count-line-height": `${16 * props.scale}px`,
   "--piece-box-selected-radius": `${4 * props.scale}px`,
 }));
 
@@ -145,18 +151,19 @@ defineExpose({ containsPoint });
   padding: var(--piece-box-padding);
   max-width: 100%;
   background: var(--main-bg-color);
-  border: 1px solid var(--main-color);
+  border: var(--piece-box-border-width) solid var(--main-color);
 }
 
 .piece-box-header {
   font-size: var(--piece-box-header-font-size);
+  line-height: var(--piece-box-header-line-height);
   font-weight: bold;
   text-align: center;
 }
 
 .piece-box-grid {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--piece-box-gap);
   justify-content: center;
 }
@@ -193,10 +200,6 @@ defineExpose({ containsPoint });
   height: var(--piece-box-image-size);
 }
 
-.piece-box.mobile {
-  width: 100%;
-}
-
 .piece-box.mobile .piece-box-grid {
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));
@@ -214,6 +217,7 @@ defineExpose({ containsPoint });
 
 .piece-count {
   font-size: var(--piece-box-count-font-size);
+  line-height: var(--piece-box-count-line-height);
   font-weight: bold;
 }
 </style>
