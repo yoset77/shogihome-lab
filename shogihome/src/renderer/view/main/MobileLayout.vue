@@ -3,6 +3,7 @@
     <BoardPane
       :max-size="boardPaneMaxSize"
       :layout-type="boardLayoutType"
+      :hide-candidates="isHidingEngineThinking"
       style="flex-shrink: 0"
       @resize="onBoardPaneResize"
     />
@@ -27,7 +28,7 @@
       :show-top-control="false"
       :show-bottom-control="false"
       :show-elapsed-time="true"
-      :show-comment="true"
+      :show-comment="!isHidingEngineThinking"
     />
     <RecordComment
       v-show="bottomUIType === BottomUIType.COMMENT && !isEvaluationPuzzle"
@@ -222,6 +223,8 @@ const puzzlePaneHeight = computed(() =>
   ),
 );
 
+const isHidingEngineThinking = computed(() => store.isHidingEngineThinking);
+
 const bottomUIItems = computed(() => {
   const items: { label: string; value: BottomUIType }[] = [];
   if (appSettings.showSearchLogOnMobile) {
@@ -242,6 +245,29 @@ const bottomUIItems = computed(() => {
   );
   return items;
 });
+
+// Start hidden games on the record tab, then leave the selection to the user.
+// Default pre-flush timing lets nextTick wait for the updated tab DOM.
+const previousBottomUIType = ref<BottomUIType>();
+watch(
+  () => isHidingEngineThinking.value,
+  async (hiding) => {
+    if (hiding) {
+      previousBottomUIType.value ??= bottomUIType.value;
+      bottomUIType.value = BottomUIType.RECORD;
+    } else {
+      const previous = previousBottomUIType.value;
+      if (previous === undefined) return;
+      previousBottomUIType.value = undefined;
+      bottomUIType.value = bottomUIItems.value.some((item) => item.value === previous)
+        ? previous
+        : BottomUIType.RECORD;
+    }
+    await nextTick();
+    bottomUISelector.value?.scrollToSelected();
+  },
+  { immediate: true },
+);
 
 onMounted(() => {
   window.addEventListener("resize", updateSize);

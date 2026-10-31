@@ -527,17 +527,6 @@
       <!-- 評価値・期待勝率・読み筋 -->
       <div class="section">
         <div class="section-title">{{ t.evaluationAndEstimatedWinRateAndPV }}</div>
-        <!-- デフォルトの検討エンジン -->
-        <div class="form-item row responsive">
-          <div class="form-item-label-wide">{{ t.defaultResearchEngine }}</div>
-          <div class="selector grow">
-            <PlayerSelector
-              v-model:player-uri="update.defaultResearchEngineURI"
-              engine-type="research"
-              :show-none="true"
-            />
-          </div>
-        </div>
         <!-- 評価値の符号 -->
         <div class="form-item">
           <div class="form-item-label-wide">
@@ -570,6 +559,17 @@
           <input v-model.number="update.arrowScoreDiffRange" type="number" max="1000" min="0" />
           <div class="form-item-small-label">({{ t.between(0, 1000) }})</div>
         </div>
+        <!-- デフォルトの検討エンジン -->
+        <div class="form-item row responsive">
+          <div class="form-item-label-wide">{{ t.defaultResearchEngine }}</div>
+          <div class="selector grow">
+            <PlayerSelector
+              v-model:player-uri="update.defaultResearchEngineURI"
+              engine-type="research"
+              :show-none="true"
+            />
+          </div>
+        </div>
         <div class="form-item">
           <div class="form-item-label-wide">{{ t.researchEngineMultiPV }}</div>
           <input v-model.number="update.researchMultiPV" type="number" max="10" min="1" />
@@ -579,6 +579,11 @@
         <div class="form-item">
           <div class="form-item-label-wide">{{ t.changeMultiPVFromPVTab }}</div>
           <ToggleButton v-model:value="update.researchChangeMultiPVFromPV" />
+        </div>
+        <!-- 人との対局開始時にエンジンの思考を非表示 -->
+        <div class="form-item">
+          <div class="form-item-label-wide">{{ t.hideEngineThinkingInHumanGames }}</div>
+          <ToggleButton v-model:value="update.hideEngineThinkingInHumanGames" />
         </div>
         <!-- 勝率換算係数 -->
         <div class="form-item">
@@ -747,6 +752,7 @@ const update = ref({
   enableVisionCameraAutoOpen: org.enableVisionCameraAutoOpen,
   boardLabelType: org.boardLabelType,
   tabPaneType: org.tabPaneType,
+  hideEngineThinkingInHumanGames: org.hideEngineThinkingInHumanGames,
   pieceVolume: org.pieceVolume,
   clockVolume: org.clockVolume,
   clockPitch: org.clockPitch,

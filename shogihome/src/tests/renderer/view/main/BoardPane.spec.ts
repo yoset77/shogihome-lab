@@ -105,4 +105,19 @@ describe("BoardPane", () => {
     expect(board.props("position").sfen).toBe(store.record.position.sfen);
     wrapper.unmount();
   });
+
+  it("suppresses candidate arrows only when the layout requests it", async () => {
+    const move = store.record.position.createMoveByUSI("7g7f")!;
+    store.candidates = [move];
+    const wrapper = shallowMount(BoardPane, { props: { maxSize: new RectSize(600, 600) } });
+    const board = wrapper.getComponent(BoardView);
+    expect(board.props("candidates")).toEqual([move]);
+    await wrapper.setProps({ hideCandidates: true });
+    expect(board.props("candidates")).toEqual([]);
+    expect(store.candidates).toEqual([move]);
+    await wrapper.setProps({ hideCandidates: false });
+    expect(board.props("candidates")).toEqual([move]);
+    wrapper.unmount();
+    store.candidates = [];
+  });
 });

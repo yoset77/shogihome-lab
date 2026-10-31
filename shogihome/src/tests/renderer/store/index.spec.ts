@@ -1,4 +1,4 @@
-import api, { API } from "@/renderer/ipc/api";
+import api, { API, isMobileWebApp } from "@/renderer/ipc/api";
 import {
   exportKI2,
   exportKIF,
@@ -10,7 +10,7 @@ import {
   RecordMetadataKey,
 } from "tsshogi";
 import fs from "node:fs";
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { createStore } from "@/renderer/store/index";
 import { RecordCustomData, RecordManager } from "@/renderer/store/record";
 import { normalizeSfen } from "@/common/usi/sfen";
@@ -24,7 +24,12 @@ import { researchSettings } from "@/tests/mock/research";
 import { convert } from "encoding-japanese";
 import { Mocked, MockedClass } from "vitest";
 import { useAppSettings } from "@/renderer/store/settings";
-import { defaultAppSettings } from "@/common/settings/app";
+import {
+  buildUpdatedAppSettings,
+  defaultAppSettings,
+  Tab,
+  TabPaneType,
+} from "@/common/settings/app";
 import { useMessageStore } from "@/renderer/store/message";
 import { useBusyState } from "@/renderer/store/busy";
 import { useErrorStore } from "@/renderer/store/error";
@@ -42,6 +47,7 @@ import type { JobSummary } from "@/common/jobs/types";
 import { ApiResponseError } from "@/renderer/api/client";
 import { snapshotRecord } from "@/common/record/snapshot";
 import * as jobStorage from "@/renderer/store/job_storage";
+import { flushRecordForWebApp } from "@/renderer/store/webapp";
 
 vi.mock("@/renderer/devices/audio.js");
 vi.mock("@/renderer/ipc/api.js");
@@ -190,6 +196,7 @@ describe("store/index", () => {
   });
 
   afterEach(async () => {
+    flushRecordForWebApp(new Record(), { force: true });
     vi.useRealTimers();
     vi.clearAllMocks();
     while (useMessageStore().hasMessage) {
@@ -954,6 +961,188 @@ describe("store/index", () => {
     store.startGame(gameSettings10m30s);
     expect(useBusyState().isBusy).toBeFalsy();
     expect(store.appState).toBe(AppState.ANALYSIS_DIALOG);
+  });
+
+  describe("game view", () => {
+    let playing = ref(false);
+    let status = ref<GameSnapshot>();
+    const settings = useAppSettings();
+
+    beforeEach(() => {
+      const currentGame = (playing = ref(false));
+      const currentStatus = (status = ref({ state: "running", gameNumber: 1 } as GameSnapshot));
+      vi.spyOn(GameManager.prototype, "isHumanVsEngine", "get").mockImplementation(
+        () => currentGame.value,
+      );
+      vi.spyOn(GameManager.prototype, "status", "get").mockImplementation(
+        () => currentStatus.value,
+      );
+      vi.mocked(isMobileWebApp).mockReturnValue(false);
+      settings.setTemporaryUpdate({ hideEngineThinkingInHumanGames: true });
+    });
+
+    afterEach(() => {
+      playing.value = false;
+      vi.restoreAllMocks();
+      settings.clearTemporaryUpdate();
+      vi.mocked(isMobileWebApp).mockReset();
+    });
+
+    it.each([false, true])("hides thinking in both UIs (mobile=%s)", (mobile) => {
+      vi.mocked(isMobileWebApp).mockReturnValue(mobile);
+      const original = settings.clone;
+      const store = createStore();
+      expect(store.isHidingEngineThinking).toBe(false);
+      expect(store.gameViewSettings).toBeUndefined();
+      playing.value = true;
+      expect(store.isHidingEngineThinking).toBe(true);
+      // The preserved PC layout stays undefined on mobile, which keeps its own tab state.
+      expect(store.gameViewSettings?.topPaneHeightPercentage).toBe(mobile ? undefined : 100);
+      expect(store.updateGameViewSettings({ showCommentInRecordView: true })).toBe(!mobile);
+      expect(settings.clone).toEqual(original);
+      playing.value = false;
+      expect(store.isHidingEngineThinking).toBe(false);
+      expect(store.gameViewSettings).toBeUndefined();
+      playing.value = true;
+      expect(store.gameViewSettings?.topPaneHeightPercentage).toBe(mobile ? undefined : 100);
+      settings.clearTemporaryUpdate();
+      expect(store.isHidingEngineThinking).toBe(false);
+      expect(store.gameViewSettings).toBeUndefined();
+      settings.setTemporaryUpdate({ hideEngineThinkingInHumanGames: true });
+      expect(store.isHidingEngineThinking).toBe(true);
+      expect(store.gameViewSettings?.topPaneHeightPercentage).toBe(mobile ? undefined : 100);
+      expect(mockAPI.saveAppSettings).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])("waits for the server to prepare a game (mobile=%s)", (mobile) => {
+      vi.mocked(isMobileWebApp).mockReturnValue(mobile);
+      status.value = undefined;
+      const original = settings.clone;
+      const store = createStore();
+      playing.value = true;
+      expect(store.isHidingEngineThinking).toBe(false);
+      expect(store.gameViewSettings).toBeUndefined();
+
+      status.value = { state: "preparing", gameNumber: 0 } as GameSnapshot;
+      expect(store.isHidingEngineThinking).toBe(false);
+      expect(store.gameViewSettings).toBeUndefined();
+
+      status.value = { state: "preparing", gameNumber: 1 } as GameSnapshot;
+      expect(store.isHidingEngineThinking).toBe(true);
+      expect(store.gameViewSettings?.topPaneHeightPercentage).toBe(mobile ? undefined : 100);
+      store.updateGameViewSettings({ tab: Tab.PV, topPaneHeightPercentage: 55 });
+      const preset = store.gameViewSettings;
+      for (const state of ["running", "paused", "takingBack", "finishing", "preparing"] as const) {
+        status.value = { state, gameNumber: 1 } as GameSnapshot;
+        expect(store.isHidingEngineThinking).toBe(true);
+        expect(store.gameViewSettings).toBe(preset);
+      }
+
+      playing.value = false;
+      expect(store.isHidingEngineThinking).toBe(false);
+      expect(store.gameViewSettings).toBeUndefined();
+      expect(settings.clone).toEqual(original);
+      expect(mockAPI.saveAppSettings).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])("never applies the preset on startup failure (mobile=%s)", (mobile) => {
+      vi.mocked(isMobileWebApp).mockReturnValue(mobile);
+      status.value = undefined;
+      const original = settings.clone;
+      const store = createStore();
+      const hidingChanged = vi.fn();
+      const stop = watch(() => store.isHidingEngineThinking, hidingChanged, { flush: "sync" });
+      try {
+        // A rejected creation has no snapshot; a budget failure follows initial acceptance.
+        playing.value = true;
+        playing.value = false;
+        expect(hidingChanged).not.toHaveBeenCalled();
+        playing.value = true;
+        status.value = { state: "preparing", gameNumber: 0 } as GameSnapshot;
+        status.value = { state: "failed", gameNumber: 0, error: "capacity" } as GameSnapshot;
+        playing.value = false;
+        expect(hidingChanged).not.toHaveBeenCalled();
+        expect(store.gameViewSettings).toBeUndefined();
+        expect(settings.clone).toEqual(original);
+        expect(mockAPI.saveAppSettings).not.toHaveBeenCalled();
+      } finally {
+        stop();
+      }
+    });
+
+    it.each([
+      [TabPaneType.SINGLE, TabPaneType.DOUBLE, { tab: Tab.COMMENT }, { tab: Tab.RECORD_INFO }],
+      [TabPaneType.DOUBLE, TabPaneType.DOUBLE_V2, { tab2: Tab.COMMENT }, { tab2: Tab.CHART }],
+    ])("revalidates game-only tabs when switching from %s to %s", (from, to, tabs, expected) => {
+      settings.setTemporaryUpdate({ tabPaneType: from });
+      const original = settings.clone;
+      const store = createStore();
+      playing.value = true;
+      const manual = {
+        ...tabs,
+        topPaneHeightPercentage: 55,
+        bottomLeftPaneWidthPercentage: 40,
+        showCommentInRecordView: true,
+      };
+      store.updateGameViewSettings(manual);
+      settings.setTemporaryUpdate({ tabPaneType: to });
+      expect(store.gameViewSettings).toMatchObject({ ...manual, ...expected });
+      playing.value = false;
+      expect(store.gameViewSettings).toBeUndefined();
+      expect(settings.clone).toEqual(buildUpdatedAppSettings(original, { tabPaneType: to }));
+      expect(mockAPI.saveAppSettings).not.toHaveBeenCalled();
+    });
+
+    describe.each([false, true])("recovery (mobile=%s)", (mobile) => {
+      beforeEach(() => {
+        vi.mocked(isMobileWebApp).mockReturnValue(mobile);
+      });
+
+      it.each([false, true])(
+        "hides a retained game's initial view until its players are known (human vs engine=%s)",
+        (humanVsEngine) => {
+          vi.spyOn(GameManager.prototype, "hasRetainedSession", "get").mockReturnValue(true);
+          vi.spyOn(GameManager.prototype, "isActive", "get").mockReturnValue(true);
+          status.value = undefined;
+          const store = createStore();
+          const preset = store.gameViewSettings;
+          expect(store.isHidingEngineThinking).toBe(true);
+          expect(preset?.topPaneHeightPercentage).toBe(mobile ? undefined : 100);
+          expect(preset?.showCommentInRecordView).toBe(mobile ? undefined : false);
+          const hidingChanged = vi.fn();
+          const stop = watch(() => store.isHidingEngineThinking, hidingChanged, { flush: "sync" });
+          try {
+            playing.value = humanVsEngine;
+            status.value = { state: "running", gameNumber: 1 } as GameSnapshot;
+            const onStatus = mockGameManager.prototype.on.mock.calls.find(
+              ([event]) => event === "status",
+            )![1] as () => void;
+            onStatus();
+            expect(store.isHidingEngineThinking).toBe(humanVsEngine);
+            expect(store.gameViewSettings).toBe(humanVsEngine ? preset : undefined);
+            // Learning the players must not restart the preset and reset manual tabs.
+            expect(hidingChanged).toHaveBeenCalledTimes(humanVsEngine ? 0 : 1);
+          } finally {
+            stop();
+          }
+        },
+      );
+
+      it.each(["cancelled or unavailable", "failed"])(
+        "restores the ordinary view when reload recovery is %s",
+        async (outcome) => {
+          vi.spyOn(GameManager.prototype, "hasRetainedSession", "get").mockReturnValue(true);
+          if (outcome === "failed")
+            mockGameManager.prototype.resume.mockRejectedValueOnce(new Error("Recovery failed"));
+          else mockGameManager.prototype.resume.mockResolvedValueOnce(false);
+          const store = createStore();
+          expect(store.isHidingEngineThinking).toBe(true);
+          await store.restoreGame();
+          expect(store.isHidingEngineThinking).toBe(false);
+          expect(store.gameViewSettings).toBeUndefined();
+        },
+      );
+    });
   });
 
   it.each(["game", "analysis"])(

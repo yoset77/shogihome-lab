@@ -285,6 +285,7 @@ export const en: Texts = {
   score: "Score",
   estimatedWinRate: "Estimated Win Rate",
   evaluationAndEstimatedWinRateAndPV: "Evaluation & Estimated Win Rate & PV",
+  hideEngineThinkingInHumanGames: "Hide engine thinking during games against a human",
   swapEachTurnChange: "Swap Each Turn Change",
   alwaysSenteIsPositive: "Always Sente is Positive",
   signOfEvaluation: "Sign of Evaluation",

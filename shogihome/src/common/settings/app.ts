@@ -237,6 +237,7 @@ export type AppSettings = {
   defaultResearchEngineURI: string; // Added
 
   // Evaluation
+  hideEngineThinkingInHumanGames: boolean;
   evaluationViewFrom: EvaluationViewFrom;
   maxArrowsPerEngine: number;
   arrowScoreDiffRange: number;
@@ -368,6 +369,7 @@ export function defaultAppSettings(opt?: { returnCode?: string }): AppSettings {
     researchMultiPV: 1,
     researchChangeMultiPVFromPV: true,
     defaultResearchEngineURI: "", // Added
+    hideEngineThinkingInHumanGames: false,
     evaluationViewFrom: EvaluationViewFrom.BLACK,
     maxArrowsPerEngine: 3,
     arrowScoreDiffRange: 100,
@@ -413,6 +415,7 @@ export function normalizeAppSettings(
   // Game settings migration reads this legacy key directly from browser storage.
   delete result.autoSaveDirectory;
   result.fileQuickAction = normalizeFileQuickAction(result.fileQuickAction);
+  result.hideEngineThinkingInHumanGames = settings.hideEngineThinkingInHumanGames === true;
   // 旧バージョンでは盤画像に合わせて自動で駒台の色が選ばれていた。
   if (!settings.pieceStandImage) {
     switch (settings.boardImage) {

@@ -1,4 +1,4 @@
-import api from "@/renderer/ipc/api";
+import api, { isMobileWebApp } from "@/renderer/ipc/api";
 import {
   Color,
   exportCSA,
@@ -37,6 +37,7 @@ import {
   UpdateTreeHandler,
 } from "./record.js";
 import { calculateGameStatistics, GameManager, GameResults } from "./game.js";
+import { GameViewState, type GameViewSettings } from "./game_view";
 import { generateRecordFileName } from "@/renderer/helpers/path";
 import { ResearchSettings } from "@/common/settings/research";
 import { USIPlayerMonitor, USIMonitor } from "./usi.js";
@@ -237,6 +238,9 @@ class Store {
   private blackClock = new GameClockDisplay();
   private whiteClock = new GameClockDisplay();
   private gameManager = new GameManager(this.recordManager, this.blackClock, this.whiteClock);
+  private gameView = new GameViewState();
+  // Restored comments must not flash before the retained game's players are known.
+  private gameViewRecoveryPending = !!this.gameManager.hasRetainedSession;
   private analysisManager = new AnalysisManager(this.recordManager);
   private mateSearchManager = new MateSearchManager();
   private _researchState = ResearchState.IDLE;
@@ -265,6 +269,15 @@ class Store {
         if (starting) useBusyState().retain();
         else useBusyState().release();
       },
+      { flush: "sync" },
+    );
+    watch(() => refs.isHidingEngineThinking, this.onGameViewChange.bind(refs), {
+      immediate: true,
+      flush: "sync",
+    });
+    watch(
+      () => useAppSettings().tabPaneType,
+      () => refs.updateGameViewSettings({}),
       { flush: "sync" },
     );
     this.recordManager
@@ -961,6 +974,28 @@ class Store {
     return this.gameManager.settings;
   }
 
+  get gameViewSettings(): GameViewSettings | undefined {
+    return this.gameView.settings;
+  }
+
+  get isHidingEngineThinking(): boolean {
+    return (
+      useAppSettings().hideEngineThinkingInHumanGames &&
+      // Initial creation snapshots precede resource checks and player initialization.
+      ((this.gameManager.isHumanVsEngine && (this.gameManager.status?.gameNumber ?? 0) > 0) ||
+        this.gameViewRecoveryPending)
+    );
+  }
+
+  private onGameViewChange(active: boolean): void {
+    // The preserved layout is specific to the PC UI. Mobile keeps its own tab state.
+    this.gameView.setActive(active && !isMobileWebApp(), useAppSettings().clone);
+  }
+
+  updateGameViewSettings(update: Partial<GameViewSettings>): boolean {
+    return this.gameView.update(useAppSettings().clone, update);
+  }
+
   get gameResults(): GameResults {
     return this.gameManager.results;
   }
@@ -1086,9 +1121,13 @@ class Store {
       ]);
     } catch (error) {
       useErrorStore().add(error);
+    } finally {
+      if (!this.gameManager.isActive || this.gameManager.status)
+        this.gameViewRecoveryPending = false;
     }
   }
   private onGameStatus(): void {
+    if (!this.gameManager.isActive || this.gameManager.status) this.gameViewRecoveryPending = false;
     if (this.gameManager.isActive) this._appState = AppState.GAME;
     else if (this.appState === AppState.GAME) this._appState = AppState.NORMAL;
   }
@@ -1118,6 +1157,7 @@ class Store {
         }
         return;
       }
+      this.gameViewRecoveryPending = true;
       if (!(await guardJobRecovery("game"))) {
         sessionStorage.removeItem("shogihome-job-attachment:game");
         return;
@@ -1135,6 +1175,8 @@ class Store {
     } catch (error) {
       useErrorStore().add(error);
     } finally {
+      if (!this.gameManager.isActive || this.gameManager.status)
+        this.gameViewRecoveryPending = false;
       useBusyState().release();
     }
   }

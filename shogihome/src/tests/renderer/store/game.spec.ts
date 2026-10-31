@@ -1,5 +1,5 @@
 import { Record, Move, Position, SpecialMoveType, importKIF, Color } from "tsshogi";
-import { reactive, markRaw } from "vue";
+import { reactive, markRaw, watch } from "vue";
 import { GameManager } from "@/renderer/store/game";
 import { RecordManager } from "@/renderer/store/record";
 import { GameClockDisplay } from "@/renderer/store/game_clock";
@@ -267,6 +267,84 @@ describe("game session client", () => {
     return () => deliver();
   }
 
+  it.each([
+    ["es://human", "lan-engine:test", true],
+    ["lan-engine:test", "es://human", true],
+    ["es://human", "es://human", false],
+    ["lan-engine:black", "lan-engine:white", false],
+  ])("classifies %s vs %s before receiving a snapshot", async (black, white, expected) => {
+    const value = fixture();
+    value.settings.black = { uri: black, name: "Black" };
+    value.settings.white = { uri: white, name: "White" };
+    const startup = value.game.start(value.settings);
+    expect(value.game.status).toBeUndefined();
+    expect(value.game.isHumanVsEngine).toBe(expected);
+    await startup;
+    await vi.advanceTimersByTimeAsync(1);
+    expect(value.game.isHumanVsEngine).toBe(expected);
+    value.game.dispose();
+    expect(value.game.isHumanVsEngine).toBe(false);
+  });
+
+  it("retains the human opponent classification on reconnect and restores it after reload", async () => {
+    const value = fixture();
+    await start(value, true);
+    expect(value.game.isHumanVsEngine).toBe(true);
+    const opponentChanged = vi.fn();
+    const stop = watch(() => value.game.isHumanVsEngine, opponentChanged, { flush: "sync" });
+    try {
+      value.sockets[0].close();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(value.game.isHumanVsEngine).toBe(true);
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(value.game.isHumanVsEngine).toBe(true);
+      // A reconnect must not toggle the preset and reset manual tabs.
+      expect(opponentChanged).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
+    value.game.dispose();
+    const restored = value.reload();
+    extraClients.push(restored);
+    expect(await restored.resume(async () => true)).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(restored.isHumanVsEngine).toBe(true);
+    await restored.resign();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(restored.isHumanVsEngine).toBe(false);
+  });
+
+  it("clears the human opponent classification after a rejected start", async () => {
+    const value = fixture();
+    value.settings.white = { uri: "lan-engine:test", name: "AI" };
+    value.client.create.mockRejectedValueOnce(new ApiResponseError(503, "Capacity"));
+    const startup = value.game.start(value.settings);
+    expect(value.game.isHumanVsEngine).toBe(true);
+    await expect(startup).rejects.toMatchObject({ status: 503 });
+    expect(value.game.isHumanVsEngine).toBe(false);
+  });
+
+  it("does not expose the previous snapshot while starting another game", async () => {
+    const value = fixture();
+    await start(value, true);
+    await value.game.resign();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(value.game.isActive).toBe(false);
+    expect(value.game.status?.gameNumber).toBe(1);
+    const statusChanged = vi.fn();
+    const stop = watch(() => (value.game.isActive ? value.game.status : undefined), statusChanged, {
+      flush: "sync",
+    });
+    try {
+      value.client.create.mockRejectedValueOnce(new ApiResponseError(503, "Capacity"));
+      await expect(value.game.start(value.settings)).rejects.toMatchObject({ status: 503 });
+      expect(statusChanged).not.toHaveBeenCalled();
+      expect(value.game.status).toBeUndefined();
+    } finally {
+      stop();
+    }
+  });
+
   it("saves to the game destination frozen at startup, ignoring later edits", async () => {
     const value = fixture();
     value.settings.enableAutoSave = true;
@@ -296,9 +374,11 @@ describe("game session client", () => {
         throw new HttpError(503, message);
       },
     });
+    value.settings.white = { uri: "lan-engine:test", name: "AI" };
     await value.game.start(value.settings);
     await vi.advanceTimersByTimeAsync(1);
     expect(value.error).toHaveBeenCalledWith(expect.objectContaining({ message }));
+    expect(value.game.status).toMatchObject({ state: "failed", gameNumber: 0 });
   });
 
   it("displays a manual resource configuration request rather than a generic engine error", async () => {

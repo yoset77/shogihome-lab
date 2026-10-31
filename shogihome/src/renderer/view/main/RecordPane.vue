@@ -155,6 +155,7 @@ const onToggleElapsedTime = (enabled: boolean) => {
 };
 
 const onToggleComment = (enabled: boolean) => {
+  if (store.updateGameViewSettings({ showCommentInRecordView: enabled })) return;
   appSettings.updateAppSettings({
     showCommentInRecordView: enabled,
   });

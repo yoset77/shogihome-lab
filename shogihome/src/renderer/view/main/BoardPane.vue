@@ -14,7 +14,7 @@
       :max-size="maxSize"
       :position="store.boardPosition"
       :last-move="store.boardLastMove"
-      :candidates="store.candidates"
+      :candidates="hideCandidates ? [] : store.candidates"
       :flip="appSettings.boardFlipping"
       :hide-clock="store.appState !== AppState.GAME"
       :mobile="isMobileWebApp()"
@@ -64,6 +64,10 @@ defineProps({
     type: String as PropType<BoardLayoutType>,
     required: false,
     default: undefined,
+  },
+  hideCandidates: {
+    type: Boolean,
+    default: false,
   },
 });
 
