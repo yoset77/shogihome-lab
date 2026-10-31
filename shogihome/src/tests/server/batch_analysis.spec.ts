@@ -246,13 +246,10 @@ describe("server batch analysis", () => {
     );
     await expect(files.prepare({ kind: "search", search: {} })).rejects.toThrow();
   });
-  it("reuses one engine, saves each record, and shares the single-analysis execution slot", async () => {
+  it("reuses one engine and saves each record within one parent job", async () => {
     await write("a.kifu");
     await write("b.kifu");
     const job = await start();
-    await expect(
-      manager.create({ ...requestFor(), serverInstanceId: manager.serverInstanceId }),
-    ).rejects.toThrow();
     await job.completion;
     expect(job.status().batch).toMatchObject({ successTotal: 2, failedTotal: 0, skippedTotal: 0 });
     expect(engine.launch).toHaveBeenCalledTimes(1);

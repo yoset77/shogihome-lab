@@ -100,7 +100,7 @@ describe("analysis job HTTP boundary", () => {
     const first = await post();
     expect(first.status).toBe(202);
     const status = await first.json();
-    expect(status.state).toBe("preparing");
+    expect(["preparing", "running"]).toContain(status.state);
     expect((await (await post()).json()).jobId).toBe(status.jobId);
     await vi.advanceTimersByTimeAsync(6000);
     const recovered = await app.request(`/api/analysis-jobs/by-request/${payload.requestId}`);
@@ -119,14 +119,19 @@ describe("analysis job HTTP boundary", () => {
     );
   });
 
-  it("rejects conflicting retries, concurrent starts, stale server identities and unknown jobs", async () => {
+  it("accepts three jobs and rejects excess starts, conflicts, stale identities and unknown jobs", async () => {
     const { app, payload, post, manager } = setup();
     const accepted = await post();
     const status = await accepted.json();
     expect(
       (await post({ ...payload, options: { ...payload.options, descending: true } })).status,
     ).toBe(409);
-    expect((await post({ ...payload, requestId: "new" })).status).toBe(503);
+    const responses = await Promise.all(
+      ["second", "third"].map((requestId) => post({ ...payload, requestId })),
+    );
+    expect(responses.map((response) => response.status)).toEqual([202, 202]);
+    expect((await post({ ...payload, requestId: "fourth" })).status).toBe(503);
+    expect((await (await post()).json()).jobId).toBe(status.jobId);
     expect((await post({ ...payload, serverInstanceId: "old" })).status).toBe(410);
     expect((await app.request("/api/analysis-jobs/unknown")).status).toBe(410);
     const cancel = () =>

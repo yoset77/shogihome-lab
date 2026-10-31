@@ -11,6 +11,7 @@ import { decodeJobList } from "@/common/jobs/types";
 import { restoreRecord } from "@/common/record/snapshot";
 import { MAX_GAME_PARALLELISM } from "@/common/settings/game";
 import { t } from "@/common/i18n";
+import { ES_HUMAN } from "@/common/uri";
 import type { GameEngine } from "@/server/engine/internal";
 import { FakeResearchEngine } from "./helpers/analysis";
 import { gameRequest, fakeGamePlayer, gameCommand, gameConnection } from "./helpers/game";
@@ -31,10 +32,10 @@ describe("parallel server games", () => {
   });
   function setup(deps: GameDependencies = {}, repeat = 5, parallelism = 2, source = new Record()) {
     const players: ReturnType<typeof fakeGamePlayer>[] = [];
-    const build = vi.fn(async () => {
+    const build = vi.fn(async (settings: { uri: string }) => {
       const fake = fakeGamePlayer();
-      players.push(fake);
-      return fake.player;
+      if (settings.uri !== ES_HUMAN) players.push(fake);
+      return fake.builder.build(settings);
     });
     const saved: { id: string; record: Record }[] = [];
     const saveRecord = vi.fn(async (source, _options, id) => {
@@ -70,6 +71,14 @@ describe("parallel server games", () => {
       await tick();
     }
     return { request, players, build, saved, saveRecord, saveBackup, addHistory, resignOne };
+  }
+
+  async function fillOtherSlots() {
+    const request = gameRequest();
+    request.serverInstanceId = manager.serverInstanceId;
+    return Promise.all(
+      ["other-1", "other-2"].map((requestId) => manager.create({ ...request, requestId })),
+    );
   }
 
   it.each([1, 2])(
@@ -111,9 +120,10 @@ describe("parallel server games", () => {
       expect(f.saved.map((entry) => entry.id.split("_").at(-1))).toEqual(["2", "3", "4", "5"]);
       expect(session.summary()).toMatchObject({ completed: 4, parallelGame: { activeGames: 1 } });
       expect(session.endedAt).toBeUndefined();
-      await expect(manager.create({ ...f.request, requestId: "second" })).rejects.toMatchObject({
-        status: 503,
-      });
+      await fillOtherSlots();
+      await expect(
+        manager.create({ ...f.request, requestId: "replacement" }),
+      ).rejects.toMatchObject({ status: 503, message: t.gameCapacity });
     } finally {
       gate.resolve();
       await tick();
@@ -144,6 +154,7 @@ describe("parallel server games", () => {
     expect(session.publicSnapshot().record).toEqual(f.request.source);
     await session.close();
     expect(session.summary().state).toBe("completed");
+    await manager.create({ ...f.request, requestId: "replacement" });
   });
 
   it("shares one position list and preserves swapped pairs even across different workers", async () => {
@@ -192,12 +203,14 @@ describe("parallel server games", () => {
     }
   });
 
-  it("cancels every active game, waits for a started save and cleanup, and retains capacity", async () => {
+  it("cancels every active game and retains its parent slot through saving and cleanup", async () => {
     const saving = Promise.withResolvers<void>();
     const cleanup = Promise.withResolvers<void>();
     const released = vi.fn();
-    const lease = new ResourceLease([], released);
-    const f = setup({ acquireResourceLease: async () => lease });
+    const f = setup({
+      acquireResourceLease: async (_configs, parallelism) =>
+        parallelism === 1 ? undefined : new ResourceLease([], released),
+    });
     f.saveRecord.mockImplementationOnce(async (_source, _options, id) => {
       await saving.promise;
       return `${id}.kifu`;
@@ -215,13 +228,17 @@ describe("parallel server games", () => {
       expect(session.endedAt).toBeUndefined();
       expect(f.build).toHaveBeenCalledTimes(4);
       expect(released).not.toHaveBeenCalled();
+      await fillOtherSlots();
+      await expect(
+        manager.create({ ...f.request, requestId: "replacement" }),
+      ).rejects.toMatchObject({ status: 503, message: t.gameCapacity });
       saving.resolve();
       await tick();
       expect(f.saveRecord).toHaveBeenCalledTimes(2);
       expect(released).not.toHaveBeenCalled();
-      await expect(manager.create({ ...f.request, requestId: "second" })).rejects.toMatchObject({
-        status: 503,
-      });
+      await expect(
+        manager.create({ ...f.request, requestId: "replacement" }),
+      ).rejects.toMatchObject({ status: 503, message: t.gameCapacity });
     } finally {
       saving.resolve();
       cleanup.resolve();
@@ -235,6 +252,7 @@ describe("parallel server games", () => {
     });
     expect(released).toHaveBeenCalledOnce();
     for (const p of f.players) expect(p.player.close).toHaveBeenCalledOnce();
+    await manager.create({ ...f.request, requestId: "replacement" });
   });
 
   it("cancels safely before startup completes without assigning a game", async () => {
@@ -276,7 +294,7 @@ describe("parallel server games", () => {
     for (const p of f.players) expect(p.player.close).toHaveBeenCalledOnce();
   });
 
-  it("waits for all worker cleanup even when one close fails", async () => {
+  it("retains its parent slot until all worker cleanup finishes even when one close fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const f = setup({}, 2);
     const gate = Promise.withResolvers<void>();
@@ -288,12 +306,17 @@ describe("parallel server games", () => {
       session.cancelParallel();
       await tick();
       expect(session.endedAt).toBeUndefined();
+      await fillOtherSlots();
+      await expect(
+        manager.create({ ...f.request, requestId: "replacement" }),
+      ).rejects.toMatchObject({ status: 503, message: t.gameCapacity });
     } finally {
       gate.resolve();
       await tick();
       await session.completion;
     }
     expect(session.summary()).toMatchObject({ state: "failed", parallelGame: { error: "engine" } });
+    await manager.create({ ...f.request, requestId: "replacement" });
   });
 
   it("continues after save/history failures and uses history backups without auto-save", async () => {
@@ -391,10 +414,15 @@ describe("parallel server games", () => {
     expect(released).toHaveBeenCalledOnce();
   });
 
-  it("deduplicates in-flight creation and rejects conflicting or competing starts", async () => {
-    const gate = Promise.withResolvers<ResourceLease | undefined>();
+  it("deduplicates in-flight creation and counts pending and serial starts in the same limit", async () => {
+    const gate = Promise.withResolvers<void>();
     const released = vi.fn();
-    const acquireResourceLease = vi.fn(() => gate.promise);
+    const acquireResourceLease = vi.fn<NonNullable<GameDependencies["acquireResourceLease"]>>(
+      async () => {
+        await gate.promise;
+        return new ResourceLease([], released);
+      },
+    );
     const f = setup({ acquireResourceLease });
     const original = structuredClone(f.request);
     const creating = manager.create(f.request);
@@ -402,48 +430,87 @@ describe("parallel server games", () => {
     await expect(
       manager.create({ ...f.request, settings: { ...f.request.settings, parallelism: 3 } }),
     ).rejects.toMatchObject({ status: 409 });
-    await expect(manager.create({ ...f.request, requestId: "other" })).rejects.toMatchObject({
+    const other = manager.create({ ...f.request, requestId: "other" });
+    const serial = await manager.create({
+      ...f.request,
+      requestId: "serial",
+      settings: { ...f.request.settings, parallelism: 1 },
+    });
+    await expect(manager.create({ ...f.request, requestId: "fourth" })).rejects.toMatchObject({
       status: 503,
     });
-    await expect(
-      manager.create({
-        ...f.request,
-        requestId: "serial",
-        settings: { ...f.request.settings, parallelism: 1 },
-      }),
-    ).rejects.toMatchObject({ status: 503 });
     f.request.settings.parallelism = 3;
-    expect(manager.list()).toEqual([]);
-    expect(f.build).not.toHaveBeenCalled();
-    gate.resolve(new ResourceLease([], released));
+    expect(manager.list()).toHaveLength(1);
+    gate.resolve();
     const session = await creating;
     expect(await retry).toBe(session);
     expect(await manager.create(original)).toBe(session);
     expect(session.request.settings.parallelism).toBe(2);
-    expect(acquireResourceLease).toHaveBeenCalledExactlyOnceWith([], 2);
-    expect(manager.list()).toHaveLength(1);
+    const otherSession = await other;
+    await tick();
+    expect(acquireResourceLease.mock.calls.map((call) => call[1]).sort()).toEqual([1, 2, 2]);
+    expect(manager.list()).toHaveLength(3);
+    expect(await manager.create(original)).toBe(session);
+    expect(await manager.create({ ...original, requestId: "other" })).toBe(otherSession);
     session.cancelParallel();
     await tick();
     await session.completion;
     expect(released).toHaveBeenCalledOnce();
+    expect(otherSession.summary().state).toBe("running");
+    expect(serial.snapshot().state).toBe("running");
   });
 
-  it("releases an acquired lease if the manager closes before admission completes", async () => {
-    const gate = Promise.withResolvers<ResourceLease | undefined>();
+  it("releases every acquired lease if the manager closes before pending admissions complete", async () => {
+    const gate = Promise.withResolvers<void>();
     const released = vi.fn();
-    const acquireResourceLease = vi.fn(() => gate.promise);
+    const acquireResourceLease = vi.fn(async () => {
+      await gate.promise;
+      return new ResourceLease([], released);
+    });
     const f = setup({ acquireResourceLease });
-    const creating = manager.create(f.request);
-    const rejected = expect(creating).rejects.toMatchObject({ status: 503 });
+    const creating = ["first", "second", "third"].map((requestId) =>
+      manager.create({ ...f.request, requestId }),
+    );
+    const rejected = Promise.all(
+      creating.map((result) => expect(result).rejects.toMatchObject({ status: 503 })),
+    );
     await tick();
-    expect(acquireResourceLease).toHaveBeenCalledOnce();
-    const closing = manager.close();
-    gate.resolve(new ResourceLease([], released));
+    expect(acquireResourceLease).toHaveBeenCalledTimes(3);
+    const closed = vi.fn();
+    const closing = manager.close().then(closed);
+    await expect(manager.create({ ...f.request, requestId: "fourth" })).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(closed).not.toHaveBeenCalled();
+    gate.resolve();
     await rejected;
     await closing;
     expect(manager.list()).toEqual([]);
     expect(f.build).not.toHaveBeenCalled();
-    expect(released).toHaveBeenCalledOnce();
+    expect(released).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not delete a newer pending reservation when an older admission rejects", async () => {
+    const gate = Promise.withResolvers<ResourceLease | undefined>();
+    const f = setup({ acquireResourceLease: () => gate.promise });
+    const creating = manager.create(f.request);
+    const rejected = expect(creating).rejects.toThrow("Reservation failed");
+    const { pending } = manager as unknown as {
+      pending: Map<string, { result: Promise<unknown> }>;
+    };
+    try {
+      await tick();
+      const original = pending.get(f.request.requestId)!;
+      const replacement = { ...original, result: Promise.resolve() };
+      pending.set(f.request.requestId, replacement);
+      gate.reject(new Error("Reservation failed"));
+      await rejected;
+      expect(pending.get(f.request.requestId)).toBe(replacement);
+    } finally {
+      gate.resolve(undefined);
+      await Promise.allSettled([creating]);
+      pending.delete(f.request.requestId);
+    }
   });
 
   it("does not reserve resources if the manager closes during engine resolution", async () => {

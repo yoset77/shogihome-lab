@@ -467,7 +467,14 @@ describe("server analysis jobs", () => {
     await expect(
       manager.create({ ...request, options: { ...request.options, descending: true } }),
     ).rejects.toThrow();
-    await expect(manager.create({ ...request, requestId: "another" })).rejects.toThrow();
+    const others = await Promise.all(
+      ["second", "third"].map((requestId) => manager.create({ ...request, requestId })),
+    );
+    expect(new Set([job, ...others]).size).toBe(3);
+    expect(await manager.create(request)).toBe(job);
+    await expect(manager.create({ ...request, requestId: "fourth" })).rejects.toMatchObject({
+      status: 503,
+    });
     await vi.advanceTimersByTimeAsync(6000);
     await job.completion;
     await vi.advanceTimersByTimeAsync(ANALYSIS_MAX_RUNTIME_MS);
@@ -519,12 +526,14 @@ describe("server analysis jobs", () => {
     }
 
     it.each(["single", "batch"] as const)(
-      "rejects %s requests without discovery when another job is active",
+      "rejects %s requests without discovery when all three slots are active",
       async (kind) => {
         const resolver = vi.fn(config);
         const manager = new AnalysisJobManager(() => new FakeResearchEngine(), resolver);
         try {
           const job = await submit(manager, "single", "running");
+          await submit(manager, "single", "second");
+          await submit(manager, "single", "third");
           expect(await submit(manager, "single", "running")).toBe(job);
           resolver.mockClear();
 
@@ -553,19 +562,22 @@ describe("server analysis jobs", () => {
     );
 
     it.each(["single", "batch"] as const)(
-      "rechecks capacity after pending %s discovery",
+      "counts pending %s discovery and releases its slot when admission fails",
       async (kind) => {
         const discovery = Promise.withResolvers<Awaited<ReturnType<typeof config>>>();
         const resolver = vi.fn(config).mockReturnValueOnce(discovery.promise);
         const manager = new AnalysisJobManager(() => new FakeResearchEngine(), resolver);
         const pending = submit(manager, kind, "pending");
-        const rejected = expect(pending).rejects.toMatchObject({ status: 503 });
+        const outcome = kind === "single" ? pending : expect(pending).rejects.toThrow();
         try {
-          await submit(manager, "single", "winner");
+          await submit(manager, "single", "second");
+          await submit(manager, "single", "third");
+          await expect(submit(manager, "single", "fourth")).rejects.toMatchObject({ status: 503 });
+          expect(resolver).toHaveBeenCalledTimes(3);
           discovery.resolve(await config());
-          await rejected;
-          expect(resolver).toHaveBeenCalledTimes(2);
-          expect(manager.list()).toHaveLength(1);
+          await outcome;
+          if (kind === "batch") await submit(manager, "single", "fourth");
+          expect(manager.list()).toHaveLength(3);
         } finally {
           discovery.resolve(await config());
           await manager.close();

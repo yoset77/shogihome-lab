@@ -72,7 +72,7 @@ const getRemoteAddress = (c: Parameters<typeof getConnInfo>[0]) => {
 export const createRateLimiter = () =>
   rateLimiter({
     windowMs: 15 * 60 * 1000,
-    limit: 3000,
+    limit: 6000,
     store: rateLimitStore,
     keyGenerator: (c) => {
       const remoteAddress = getRemoteAddress(c);
