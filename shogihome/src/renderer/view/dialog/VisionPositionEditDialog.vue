@@ -195,9 +195,8 @@ const onCancel = () => {
 }
 
 .vision-position-edit-dialog.mobile {
-  width: 100%;
+  width: calc(95vw - 32px);
   min-width: 0;
-  height: 100%;
   max-width: 100%;
   max-height: calc(100dvh - 2em - 33px);
   aspect-ratio: auto;
