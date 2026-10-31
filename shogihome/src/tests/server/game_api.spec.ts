@@ -228,14 +228,19 @@ describe("game API boundary", () => {
     await vi.advanceTimersByTimeAsync(10);
     await closing;
   });
-  it("creates idempotently and rejects concurrent, conflicting and expired requests", async () => {
+  it("creates three sessions idempotently and rejects excess, conflicting and expired requests", async () => {
     const { manager, request, post, app } = setup();
     const response = await post(request);
     const snapshot = await response.json();
     expect(response.status).toBe(202);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect((await (await post(request)).json()).sessionId).toBe(snapshot.sessionId);
-    expect((await post({ ...request, requestId: "other" })).status).toBe(503);
+    const responses = await Promise.all(
+      ["second", "third"].map((requestId) => post({ ...request, requestId })),
+    );
+    expect(responses.map((response) => response.status)).toEqual([202, 202]);
+    expect((await post({ ...request, requestId: "fourth" })).status).toBe(503);
+    expect((await (await post(request)).json()).sessionId).toBe(snapshot.sessionId);
     expect(
       (await post({ ...request, settings: { ...request.settings, maxMoves: 1 } })).status,
     ).toBe(409);

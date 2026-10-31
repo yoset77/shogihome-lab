@@ -179,7 +179,6 @@ describe("server game sessions", () => {
     connection.disconnect();
     await vi.advanceTimersByTimeAsync(59_999);
     expect(session.snapshot().state).toBe("paused");
-    await expect(manager.create({ ...request, requestId: "other" })).rejects.toThrow();
     await vi.advanceTimersByTimeAsync(1);
     await session.completion;
     expect(session.snapshot().lastResult).toBe(SpecialMoveType.INTERRUPT);

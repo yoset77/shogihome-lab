@@ -8,6 +8,7 @@ import { exportRecordAsBuffer, RecordFileFormat } from "@/common/file/record";
 import { decodeAnalysisStatus } from "@/common/analysis/types";
 import { decodeJobList } from "@/common/jobs/types";
 import { MAX_BATCH_PARALLELISM, type BatchAnalysisJobRequest } from "@/common/analysis/batch";
+import { t } from "@/common/i18n";
 import { AnalysisJobManager } from "@/server/analysis/jobManager";
 import { BatchAnalysisFiles } from "@/server/analysis/files";
 import { ANALYSIS_MAX_RUNTIME_MS } from "@/server/analysis/job";
@@ -78,6 +79,18 @@ describe("parallel batch analysis", () => {
     };
   }
 
+  function singleRequest(requestId: string) {
+    const input = requestFor();
+    input.requestId = requestId;
+    input.serverInstanceId = manager.serverInstanceId;
+    input.options.perMoveCriteria.maxSeconds = 60;
+    return input;
+  }
+
+  async function fillOtherSlots() {
+    return Promise.all(["other-1", "other-2"].map((id) => manager.create(singleRequest(id))));
+  }
+
   it("bounds workers, dynamically distributes files, and reuses each engine", async () => {
     for (const name of ["a.kifu", "b.kifu", "c.kifu", "d.kifu", "e.kifu"]) await write(name);
     const entered = Promise.withResolvers<void>();
@@ -93,6 +106,8 @@ describe("parallel batch analysis", () => {
     });
     const input = await request();
     const job = await manager.createBatch(input);
+    const workers = [...engines];
+    const replacement = singleRequest("replacement");
     try {
       await entered.promise;
       await vi.waitFor(() => expect(job.status().batch?.processedFiles).toBe(4));
@@ -110,9 +125,11 @@ describe("parallel batch analysis", () => {
       expect(decodeJobList(manager.list()).ok).toBe(true);
       expect(await manager.createBatch(input)).toBe(job);
       await expect(manager.createBatch({ ...input, parallelism: 3 })).rejects.toThrow();
-      await expect(
-        manager.create({ ...requestFor(), serverInstanceId: manager.serverInstanceId }),
-      ).rejects.toThrow();
+      await fillOtherSlots();
+      await expect(manager.create(replacement)).rejects.toMatchObject({
+        status: 503,
+        message: t.analysisJobCapacity,
+      });
     } finally {
       gate.resolve();
       await job.completion;
@@ -124,8 +141,8 @@ describe("parallel batch analysis", () => {
     expect(load.mock.calls.map(([name]) => name).sort()).toEqual(
       job.fileResults().map((f) => f.path),
     );
-    expect(resolveEngine).toHaveBeenCalledOnce();
-    for (const engine of engines) {
+    expect(resolveEngine).toHaveBeenCalledTimes(3);
+    for (const engine of workers) {
       expect(engine.launch).toHaveBeenCalledOnce();
       expect(engine.launch.mock.calls[0][0]).toMatchObject({ threads: 4 });
       expect(engine.setMultiPV).toHaveBeenCalledExactlyOnceWith(3);
@@ -137,7 +154,8 @@ describe("parallel batch analysis", () => {
       expect(text).toContain(`Original: ${file.path}`);
       expect(text).toContain("#評価値=");
     }
-    expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(8);
+    await manager.create(replacement);
   });
 
   it("atomically rejects insufficient capacity before creating any worker", async () => {
@@ -155,6 +173,154 @@ describe("parallel batch analysis", () => {
     await job.completion;
     expect(job.status().state).toBe("completed");
     expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+  });
+
+  it("shares three parent slots between parallel batches, serial batches and single analyses", async () => {
+    await write("a.kifu");
+    await write("b.kifu");
+    const parallelInput = await request(2);
+    parallelInput.options.perMoveCriteria.maxSeconds = 60;
+    const parallel = await manager.createBatch(parallelInput);
+    const serialInput = { ...(await request(1)), requestId: "serial" };
+    serialInput.options.perMoveCriteria.maxSeconds = 60;
+    const serial = await manager.createBatch(serialInput);
+    const singleInput = {
+      ...requestFor(),
+      requestId: "single",
+      serverInstanceId: manager.serverInstanceId,
+    };
+    singleInput.options.perMoveCriteria.maxSeconds = 60;
+    const single = await manager.create(singleInput);
+    await vi.waitFor(() =>
+      expect(engines.map((engine) => engine.positions.length)).toEqual([1, 1, 1, 1]),
+    );
+    expect(manager.list()).toHaveLength(3);
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(16);
+    expect(await manager.createBatch(parallelInput)).toBe(parallel);
+    expect(await manager.createBatch(serialInput)).toBe(serial);
+    expect(await manager.create(singleInput)).toBe(single);
+    await expect(manager.create({ ...singleInput, requestId: "fourth" })).rejects.toMatchObject({
+      status: 503,
+    });
+    const nextBatch = { ...(await request()), requestId: "fourth-batch" };
+    await expect(manager.createBatch(nextBatch)).rejects.toMatchObject({ status: 503 });
+    parallel.cancel();
+    await parallel.completion;
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(8);
+    expect(serial.status().state).toBe("running");
+    expect(single.status().state).toBe("running");
+    for (const engine of engines.slice(2)) expect(engine.close).not.toHaveBeenCalled();
+    await manager.create({ ...singleInput, requestId: "fourth" });
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(12);
+  });
+
+  it("reserves three pending batches and shares retries through out-of-order discovery", async () => {
+    await write("a.kifu");
+    await write("b.kifu");
+    const inputs = await Promise.all(
+      ["first", "second", "third"].map(async (requestId) => {
+        const input = await request();
+        input.requestId = requestId;
+        input.options.perMoveCriteria.maxSeconds = 60;
+        return input;
+      }),
+    );
+    expect(new Set(inputs.map((input) => input.planId)).size).toBe(3);
+    const gates = inputs.map(() => Promise.withResolvers<typeof config>());
+    gates.forEach((gate) => resolveEngine.mockReturnValueOnce(gate.promise));
+    const pending = inputs.map((input) => manager.createBatch(input));
+    const retries = inputs.map((input) => manager.createBatch(input));
+    const fourth = { ...inputs[0], requestId: "fourth" };
+    try {
+      await expect(manager.createBatch(fourth)).rejects.toMatchObject({
+        status: 503,
+        message: t.analysisJobCapacity,
+      });
+      await expect(manager.createBatch({ ...inputs[0], parallelism: 3 })).rejects.toMatchObject({
+        status: 409,
+      });
+      expect(resolveEngine).toHaveBeenCalledTimes(3);
+      expect(createEngine).not.toHaveBeenCalled();
+      expect(manager.list()).toEqual([]);
+      for (const index of [1, 2, 0]) {
+        gates[index].resolve(config);
+        const job = await pending[index];
+        expect(await retries[index]).toBe(job);
+        expect(job.request.requestId).toBe(inputs[index].requestId);
+        await expect(manager.createBatch(fourth)).rejects.toMatchObject({
+          status: 503,
+          message: t.analysisJobCapacity,
+        });
+        expect(resolveEngine).toHaveBeenCalledTimes(3);
+      }
+      const jobs = await Promise.all(pending);
+      expect(new Set(jobs.map((job) => job.id)).size).toBe(3);
+      expect(manager.list()).toHaveLength(3);
+      expect(createEngine).toHaveBeenCalledTimes(6);
+      expect(resourceRegistry.groupSnapshot()[0].used).toBe(24);
+    } finally {
+      gates.forEach((gate) => gate.resolve(config));
+      await Promise.allSettled([...pending, ...retries]);
+    }
+  });
+
+  it.each(["single", "batch"] as const)(
+    "rejects the other analysis kind for the same request ID while %s discovery is pending",
+    async (kind) => {
+      await write("a.kifu");
+      const input = await request();
+      input.options.perMoveCriteria.maxSeconds = 60;
+      const single = singleRequest(input.requestId);
+      const gate = Promise.withResolvers<typeof config>();
+      resolveEngine.mockReturnValueOnce(gate.promise);
+      const creating = kind === "single" ? manager.create(single) : manager.createBatch(input);
+      const retry = kind === "single" ? manager.create(single) : manager.createBatch(input);
+      try {
+        const conflicting = kind === "single" ? manager.createBatch(input) : manager.create(single);
+        await expect(conflicting).rejects.toMatchObject({
+          status: 409,
+          message: t.analysisJobInvalid,
+        });
+        expect(resolveEngine).toHaveBeenCalledOnce();
+        expect(createEngine).not.toHaveBeenCalled();
+        gate.resolve(config);
+        const job = await creating;
+        expect(await retry).toBe(job);
+        expect(manager.list()).toHaveLength(1);
+        expect(createEngine).toHaveBeenCalledOnce();
+        expect(resourceRegistry.groupSnapshot()[0].used).toBe(4);
+      } finally {
+        gate.resolve(config);
+        await Promise.allSettled([creating, retry]);
+      }
+    },
+  );
+
+  it("does not delete a newer pending reservation when an older batch admission rejects", async () => {
+    await write("a.kifu");
+    const input = await request();
+    const gate = Promise.withResolvers<typeof config>();
+    resolveEngine.mockReturnValueOnce(gate.promise);
+    const creating = manager.createBatch(input);
+    const rejected = expect(creating).rejects.toMatchObject({ status: 410 });
+    const { pending } = manager as unknown as {
+      pending: Map<string, { result: Promise<unknown> }>;
+    };
+    try {
+      await vi.waitFor(() => expect(resolveEngine).toHaveBeenCalledOnce());
+      const original = pending.get(input.requestId)!;
+      const replacement = { ...original, result: Promise.resolve() };
+      pending.set(input.requestId, replacement);
+      files.release(input.planId);
+      gate.resolve(config);
+      await rejected;
+      expect(pending.get(input.requestId)).toBe(replacement);
+      expect(createEngine).not.toHaveBeenCalled();
+    } finally {
+      gate.resolve(config);
+      await Promise.allSettled([creating]);
+      pending.delete(input.requestId);
+    }
   });
 
   it("does not allocate workers beyond the target count", async () => {
@@ -252,6 +418,8 @@ describe("parallel batch analysis", () => {
     });
     const job = await manager.createBatch(await request());
     engines[1].prepareDelay = 60_000;
+    const workers = [...engines];
+    const replacement = singleRequest("replacement");
     try {
       await entered.promise;
       await vi.waitFor(() => expect(engines[1].positions).toHaveLength(1));
@@ -259,8 +427,13 @@ describe("parallel batch analysis", () => {
       await vi.waitFor(() => expect(job.fileResults()[1].state).toBe("cancelled"));
       expect(job.status().state).toBe("cancelling");
       expect(job.endedAt).toBeUndefined();
-      expect(resourceRegistry.groupSnapshot()[0].used).toBe(8);
-      for (const engine of engines) expect(engine.close).not.toHaveBeenCalled();
+      await fillOtherSlots();
+      expect(resourceRegistry.groupSnapshot()[0].used).toBe(16);
+      for (const engine of workers) expect(engine.close).not.toHaveBeenCalled();
+      await expect(manager.create(replacement)).rejects.toMatchObject({
+        status: 503,
+        message: t.analysisJobCapacity,
+      });
     } finally {
       gate.resolve();
       await job.completion;
@@ -269,6 +442,8 @@ describe("parallel batch analysis", () => {
     expect(job.status()).toMatchObject({ state: "cancelled", batch: { successTotal: 1 } });
     expect(await fs.readFile(path.join(directory, "a.kifu"), "utf8")).toContain("#評価値=");
     expect(await fs.readFile(path.join(directory, "b.kifu"), "utf8")).not.toContain("#評価値=");
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(8);
+    await manager.create(replacement);
   });
 
   it("stops the other workers on engine failure and preserves the failure cause", async () => {
@@ -297,7 +472,7 @@ describe("parallel batch analysis", () => {
     expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
   });
 
-  it("retains capacity until every engine has closed even when one cleanup fails", async () => {
+  it("retains its parent slot until every engine has closed even when one cleanup fails", async () => {
     await write("a.kifu");
     await write("b.kifu");
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -309,22 +484,27 @@ describe("parallel batch analysis", () => {
       entered.resolve();
       await gate.promise;
     });
+    const workers = [...engines];
+    const replacement = singleRequest("replacement");
     try {
       await entered.promise;
       expect(job.status().state).toBe("finishing");
       job.cancel();
       expect(job.endedAt).toBeUndefined();
-      expect(resourceRegistry.groupSnapshot()[0].used).toBe(8);
-      await expect(
-        manager.create({ ...requestFor(), serverInstanceId: manager.serverInstanceId }),
-      ).rejects.toThrow();
+      await fillOtherSlots();
+      expect(resourceRegistry.groupSnapshot()[0].used).toBe(16);
+      await expect(manager.create(replacement)).rejects.toMatchObject({
+        status: 503,
+        message: t.analysisJobCapacity,
+      });
     } finally {
       gate.resolve();
       await job.completion;
     }
     expect(job.status()).toMatchObject({ state: "failed", error: "engine" });
-    expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
-    for (const engine of engines) expect(engine.close).toHaveBeenCalledOnce();
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(8);
+    for (const engine of workers) expect(engine.close).toHaveBeenCalledOnce();
+    await manager.create(replacement);
   });
 
   it("cancels all workers when an individual record reaches its deadline", async () => {

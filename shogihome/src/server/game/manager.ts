@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { decodeGameRequest, isGameTerminal, type GameSessionRequest } from "@/common/game/protocol";
+import { decodeGameRequest, type GameSessionRequest } from "@/common/game/protocol";
 import { LARGE_BODY_LIMIT } from "@/server/hono";
 import { t } from "@/common/i18n";
 import { HttpError } from "@/server/errors";
@@ -20,6 +20,9 @@ import { validateGameSaveDirectory } from "./files";
 import type { JobSummary } from "@/common/jobs/types";
 import { ES_HUMAN } from "@/common/uri";
 import type { EngineConfig } from "@/server/engine/types";
+
+const MAX_ACTIVE_SESSIONS = 3;
+const MAX_REQUEST_LEDGER = 10_000;
 
 /**
  * Reserve the shared budget for a game before either engine starts. AI
@@ -44,7 +47,7 @@ export class GameSessionManager {
   readonly serverInstanceId = randomUUID();
   private sessions = new Map<string, GameSession>();
   private requests = new Map<string, { hash: string; sessionId: string }>();
-  private pending?: { requestId: string; hash: string; result: Promise<GameSession> };
+  private pending = new Map<string, { hash: string; result: Promise<GameSession> }>();
   private closed = false;
   constructor(private readonly dependencies: GameDependencies = {}) {}
   capabilities() {
@@ -66,10 +69,10 @@ export class GameSessionManager {
       if (hash !== existing.hash) throw new HttpError(409, t.gameConflict);
       return this.get(existing.sessionId);
     }
-    if (this.pending) {
-      if (request.requestId !== this.pending.requestId) throw new HttpError(503, t.gameCapacity);
-      if (hash !== this.pending.hash) throw new HttpError(409, t.gameConflict);
-      return this.pending.result;
+    const pending = this.pending.get(request.requestId);
+    if (pending) {
+      if (hash !== pending.hash) throw new HttpError(409, t.gameConflict);
+      return pending.result;
     }
     this.cleanup();
     this.ensureCapacity();
@@ -77,31 +80,37 @@ export class GameSessionManager {
       validateGameSaveDirectory(request.settings.autoSaveDirectory);
     if ((request.settings.parallelism ?? 1) <= 1) return this.register(request, hash);
     // In-flight creation owns the session slot, including retries of the same request.
-    const result = this.createParallel(request, hash);
-    this.pending = { requestId: request.requestId, hash, result };
-    try {
-      return await result;
-    } finally {
-      this.pending = undefined;
-    }
+    const result = Promise.resolve()
+      .then(() => this.createParallel(request, hash))
+      .finally(() => {
+        if (this.pending.get(request.requestId)?.result === result)
+          this.pending.delete(request.requestId);
+      });
+    this.pending.set(request.requestId, { hash, result });
+    return result;
   }
-  private ensureCapacity(): void {
+  private ensureCapacity(requestId?: string): void {
+    const pending =
+      this.pending.size - Number(requestId !== undefined && this.pending.has(requestId));
+    const active = [...this.sessions.values()].filter(
+      (session) => session.endedAt === undefined,
+    ).length;
     if (
       this.closed ||
-      this.requests.size >= 10_000 ||
-      [...this.sessions.values()].some((session) => !isGameTerminal(session.snapshot().state))
+      this.requests.size + pending >= MAX_REQUEST_LEDGER ||
+      active + pending >= MAX_ACTIVE_SESSIONS
     )
       throw new HttpError(503, t.gameCapacity);
   }
   private async createParallel(request: GameSessionRequest, hash: string): Promise<GameSession> {
     const configs = await resolveGameEngineConfigs(request, this.dependencies);
-    this.ensureCapacity();
+    this.ensureCapacity(request.requestId);
     const resourceLease = await this.dependencies.acquireResourceLease?.(
       [...configs.values()],
       Math.min(request.settings.parallelism!, request.settings.repeat),
     );
     try {
-      this.ensureCapacity();
+      this.ensureCapacity(request.requestId);
       return this.register(request, hash, { configs, resourceLease });
     } catch (error) {
       resourceLease?.release();
@@ -118,6 +127,7 @@ export class GameSessionManager {
     }
     this.sessions.set(session.id, session);
     this.requests.set(request.requestId, { hash, sessionId: session.id });
+    this.pending.delete(request.requestId);
     return session;
   }
   get(id: string): GameSession {
@@ -155,8 +165,10 @@ export class GameSessionManager {
   }
   async close(): Promise<void> {
     this.closed = true;
-    await this.pending?.result.catch(() => {});
-    await Promise.all([...this.sessions.values()].map((session) => session.close()));
+    await Promise.all([
+      Promise.allSettled([...this.pending.values()].map((pending) => pending.result)),
+      Promise.all([...this.sessions.values()].map((session) => session.close())),
+    ]);
   }
 }
 export const gameSessionManager = new GameSessionManager({
