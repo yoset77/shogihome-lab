@@ -75,7 +75,7 @@ describe("SfenExportDialog", () => {
       expect((setting.find("input").element as HTMLInputElement).checked).toBe(initial);
       await setting.find("input").setValue(!initial);
       await wrapper.find(".settings input").setValue("selected");
-      await wrapper.findAll(".main-buttons button")[1].trigger("click");
+      await wrapper.findAll(".main-buttons button")[0].trigger("click");
       await flushPromises();
 
       expect(startExport).toHaveBeenCalledWith({

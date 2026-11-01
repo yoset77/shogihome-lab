@@ -35,10 +35,10 @@
           </div>
         </div>
         <div class="main-buttons">
-          <button @click="close">{{ t.cancel }}</button>
           <button :disabled="!destination || starting || isRunning" @click="startExport">
             {{ t.exportSearchResultsAsSfen }}
           </button>
+          <button @click="close">{{ t.cancel }}</button>
         </div>
       </template>
     </div>
