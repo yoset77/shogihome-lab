@@ -3,7 +3,6 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import globals from "globals";
-import prettierConfig from "eslint-config-prettier";
 import pluginVue from "eslint-plugin-vue";
 import { defineConfigWithVueTs, vueTsConfigs } from "@vue/eslint-config-typescript";
 import vuePrettierConfig from "@vue/eslint-config-prettier";
@@ -91,6 +90,5 @@ export default defineConfigWithVueTs([
       ],
     },
   },
-  prettierConfig,
   vuePrettierConfig,
 ]);
