@@ -56,6 +56,14 @@ const actions: Record<FileQuickAction, Action> = {
       store.showElapsedTimeChartDialog();
     },
   },
+  [FileQuickAction.JOBS]: {
+    label: () => t.jobsTitle,
+    icon: IconType.MONITOR,
+    enabled: () => true,
+    execute: (store) => {
+      store.showJobsDialog();
+    },
+  },
 };
 
 export function getFileQuickAction(action: FileQuickAction): Action {

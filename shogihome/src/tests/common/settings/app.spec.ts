@@ -98,6 +98,12 @@ describe("settings/app", () => {
       buildUpdatedAppSettings(settings, { fileQuickAction: FileQuickAction.LOAD_FROM_SERVER })
         .fileQuickAction,
     ).toBe(FileQuickAction.LOAD_FROM_SERVER);
+    expect(
+      buildUpdatedAppSettings(settings, { fileQuickAction: FileQuickAction.JOBS }).fileQuickAction,
+    ).toBe(FileQuickAction.JOBS);
+    expect(
+      normalizeAppSettings({ ...settings, fileQuickAction: FileQuickAction.JOBS }).fileQuickAction,
+    ).toBe(FileQuickAction.JOBS);
   });
 
   it("pieceImageBaseURL", () => {
