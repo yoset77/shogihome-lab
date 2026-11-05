@@ -126,6 +126,7 @@ export enum FileQuickAction {
   LOAD_FROM_SERVER = "loadFromServer",
   HISTORY = "history",
   ELAPSED_TIME_CHART = "elapsedTimeChart",
+  JOBS = "jobs",
 }
 
 export function isFileQuickAction(value: unknown): value is FileQuickAction {

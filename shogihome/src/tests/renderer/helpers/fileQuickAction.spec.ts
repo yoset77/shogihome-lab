@@ -15,6 +15,7 @@ const storeMock = {
   showServerKifuDialog: vi.fn(),
   showRecordFileHistoryDialog: vi.fn(),
   showElapsedTimeChartDialog: vi.fn(),
+  showJobsDialog: vi.fn(),
 };
 const store = storeMock as unknown as Parameters<typeof runFileQuickAction>[1];
 
@@ -31,6 +32,7 @@ describe("file quick actions", () => {
     [FileQuickAction.LOAD_FROM_SERVER, "showServerKifuDialog"],
     [FileQuickAction.HISTORY, "showRecordFileHistoryDialog"],
     [FileQuickAction.ELAPSED_TIME_CHART, "showElapsedTimeChartDialog"],
+    [FileQuickAction.JOBS, "showJobsDialog"],
   ] as const)("dispatches %s to the same operation as FileMenu", (action, method) => {
     expect(getFileQuickAction(action).label()).toBeTruthy();
     expect(isFileQuickActionEnabled(action, store)).toBe(true);
@@ -40,10 +42,11 @@ describe("file quick actions", () => {
     expect(store[method]).toHaveBeenCalledOnce();
   });
 
-  it("disables actions in non-normal states and guards execution", () => {
+  it("disables normal-state actions in non-normal states and guards execution", () => {
     storeMock.appState = AppState.GAME;
 
     for (const action of Object.values(FileQuickAction)) {
+      if (action === FileQuickAction.JOBS) continue;
       expect(isFileQuickActionEnabled(action, store)).toBe(false);
       runFileQuickAction(action, store);
     }
@@ -53,6 +56,13 @@ describe("file quick actions", () => {
     expect(store.showServerKifuDialog).not.toHaveBeenCalled();
     expect(store.showRecordFileHistoryDialog).not.toHaveBeenCalled();
     expect(store.showElapsedTimeChartDialog).not.toHaveBeenCalled();
+  });
+
+  it.each([AppState.GAME, AppState.ANALYSIS])("opens jobs in state %s", (state) => {
+    storeMock.appState = state;
+    expect(isFileQuickActionEnabled(FileQuickAction.JOBS, store)).toBe(true);
+    runFileQuickAction(FileQuickAction.JOBS, store);
+    expect(store.showJobsDialog).toHaveBeenCalledOnce();
   });
 
   it("disables the server action without server kifu support", () => {

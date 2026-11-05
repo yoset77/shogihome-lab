@@ -16,6 +16,7 @@ const { storeMock, settingsMock, isMobileWebAppMock, pwaUpdateMock } = vi.hoiste
     showServerKifuDialog: vi.fn(),
     showRecordFileHistoryDialog: vi.fn(),
     showElapsedTimeChartDialog: vi.fn(),
+    showJobsDialog: vi.fn(),
   },
   settingsMock: { fileQuickAction: "puzzle" },
   isMobileWebAppMock: vi.fn(() => false),
@@ -68,6 +69,19 @@ describe("PC file quick action", () => {
     await nextTick();
     expect(quickButton.text()).toBe(t.history);
     expect(quickButton.attributes("disabled")).toBeDefined();
+    wrapper.unmount();
+  });
+
+  it("opens jobs from the quick button during analysis", async () => {
+    settings.fileQuickAction = FileQuickAction.JOBS;
+    store.appState = AppState.ANALYSIS;
+    const wrapper = shallowMount(ControlPane, { props: { group: ControlGroup.Group2 } });
+    const quickButton = wrapper.findAll("button")[3];
+
+    expect(quickButton.text()).toBe(t.jobsTitle);
+    expect(quickButton.attributes("disabled")).toBeUndefined();
+    await quickButton.trigger("click");
+    expect(store.showJobsDialog).toHaveBeenCalledOnce();
     wrapper.unmount();
   });
 
