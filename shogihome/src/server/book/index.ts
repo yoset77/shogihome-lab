@@ -2,7 +2,7 @@ import fs, { ReadStream } from "node:fs";
 import path from "node:path";
 import { BookImportSummary, BookLoadingOptions, BookMove as CommonBookMove } from "@/common/book";
 import { getAppLogger } from "@/node/log";
-import { Book, BookEntry, BookFormat, BookMove, mergeBookEntries } from "./types.js";
+import { Book, BookEntry, BookFormat, BookMove, mergeBookEntries, type SbkBook } from "./types.js";
 import {
   loadYaneuraOuBook,
   mergeYaneuraOuBook,
@@ -44,8 +44,10 @@ import {
   loadSbkBook,
   loadSbkBookOnTheFly,
   MAX_SBK_BOOK_SIZE_BYTES,
+  SbkMemoryLimitError,
   searchSbkBookEntryOnTheFly,
   storeSbkBook,
+  validateSbkIndexConstructionMemory,
 } from "./sbk.js";
 import {
   loadYbbBook,
@@ -310,7 +312,13 @@ async function buildOnTheFlyBook(
   reservedMemoryBytes = 0,
 ): Promise<OnTheFlyBook> {
   if (format === "sbk") {
-    const book = await loadSbkBookOnTheFly(readPath, MAX_SBK_BOOK_SIZE_BYTES, reservedMemoryBytes);
+    let book: SbkBook;
+    try {
+      book = await loadSbkBookOnTheFly(readPath, MAX_SBK_BOOK_SIZE_BYTES, reservedMemoryBytes);
+    } catch (error) {
+      if (error instanceof SbkMemoryLimitError) throw new HttpError(413, t.serverSbkExpansionLimit);
+      throw error;
+    }
     return {
       type: "on-the-fly",
       path: sessionPath,
@@ -398,6 +406,7 @@ async function openBookInMemory(path: string, size: number): Promise<BookHandle>
         if (size > MAX_SBK_BOOK_SIZE_BYTES) {
           throw new HttpError(413, t.serverBookTooLarge);
         }
+        validateSbkIndexConstructionMemory(size, 0, 0, 0);
         const data = await fs.promises.readFile(path);
         book = loadSbkBook(data);
         break;
@@ -417,6 +426,7 @@ async function openBookInMemory(path: string, size: number): Promise<BookHandle>
       ...book,
     };
   } catch (error) {
+    if (error instanceof SbkMemoryLimitError) throw new HttpError(413, t.serverSbkExpansionLimit);
     if (error instanceof YbbExpansionLimitError) {
       throw new HttpError(413, t.serverYbbExpansionLimit);
     }

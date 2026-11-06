@@ -156,6 +156,63 @@ describe("server/book/sbk", () => {
     );
   });
 
+  it.each([0x4a, 0x52])("preflights repeated messages before in-memory decoding: %s", (tag) => {
+    const data = Uint8Array.from([0x1a, 8, tag, 0, tag, 0, tag, 0, tag, 0]);
+    const expectedBytes = estimateSbkIndexConstructionBytes(
+      data.byteLength,
+      1,
+      tag === 0x4a ? 4 : 0,
+      tag === 0x52 ? 4 : 0,
+    );
+    const decode = vi.spyOn(SBook, "decode");
+    try {
+      expect(() => loadSbkBook(data, 0, expectedBytes - 1)).toThrow("memory budget");
+      expect(() => loadSbkBook(data, 1, expectedBytes)).toThrow("memory budget");
+      expect(decode).not.toHaveBeenCalled();
+      expect(() => loadSbkBook(data, 0, expectedBytes)).not.toThrow();
+      expect(decode).toHaveBeenCalledOnce();
+    } finally {
+      decode.mockRestore();
+    }
+  });
+
+  it("counts even empty and unreachable states before decoding", () => {
+    const data = Uint8Array.from([0x1a, 0, 0x1a, 0, 0x1a, 0]);
+    const decode = vi.spyOn(SBook, "decode");
+    try {
+      expect(() =>
+        loadSbkBook(data, 0, estimateSbkIndexConstructionBytes(data.byteLength, 3) - 1),
+      ).toThrow("memory budget");
+      expect(decode).not.toHaveBeenCalled();
+    } finally {
+      decode.mockRestore();
+    }
+  });
+
+  it.each(
+    [
+      [0x1a, 1, 0x52, 0], // Evaluation length is outside its state.
+      [0x1a, 3, 0x52, 1, 0x08, 1], // Scalar value is outside its leaf.
+      [0x1a, 4, 0x52, 2, 0x2a, 4, 0, 0, 0, 0], // String crosses the leaf boundary.
+      [0x1a, 1, 0x80, 1], // Tag varint crosses the state boundary.
+      [0x9a, 0x80, 0x80, 0x80, 0x10, 0], // Tag exceeds uint32.
+      [0x1a, 0x80, 0x80, 0x80, 0x80, 0x10], // Length exceeds uint32.
+    ].map((bytes) => ({ bytes })),
+  )(
+    "rejects malformed message boundaries before either loader decodes: $bytes",
+    async ({ bytes }) => {
+      const data = Uint8Array.from(bytes);
+      const decode = vi.spyOn(SBook, "decode");
+      try {
+        expect(() => loadSbkBook(data)).toThrow("Invalid protobuf");
+        expect(decode).not.toHaveBeenCalled();
+        await expect(loadOnTheFlyFromData(data)).rejects.toThrow("Invalid protobuf");
+      } finally {
+        decode.mockRestore();
+      }
+    },
+  );
+
   it("rejects an index estimate above the fixed construction budget", () => {
     expect(() => validateSbkIndexConstructionMemory(MAX_SBK_BOOK_SIZE_BYTES / 3, 1, 0, 0)).toThrow(
       "SBK index construction exceeds memory budget",

@@ -730,6 +730,7 @@ export const ja: Texts = {
   invalidJKFStructure: "JKFのデータ構造が不正です。",
   jkfImportLimit: "JKFのサイズ、指し手数、分岐数、または深さが読み込み上限を超えています。",
   remoteEngineInvalidOutput: "エンジンの応答が不正なため、セッションを終了しました。",
+  serverSbkExpansionLimit: "SBKの展開に必要なメモリが上限を超えています。",
   serverFileNotFound: "ファイルが見つかりません。",
   serverInvalidDestination: "保存先が無効です。",
   serverFileExists: "ファイルが既に存在します。",

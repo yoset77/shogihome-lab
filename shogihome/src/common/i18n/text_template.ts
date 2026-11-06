@@ -690,6 +690,7 @@ export type Texts = {
   invalidJKFStructure: string;
   jkfImportLimit: string;
   remoteEngineInvalidOutput: string;
+  serverSbkExpansionLimit: string;
   serverFileNotFound: string;
   serverInvalidDestination: string;
   serverFileExists: string;

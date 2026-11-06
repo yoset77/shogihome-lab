@@ -731,6 +731,7 @@ export const vi: Texts = {
   invalidJKFStructure: "Cấu trúc dữ liệu JKF không hợp lệ.",
   jkfImportLimit: "Kích thước, số nước đi, số nhánh hoặc độ sâu JKF vượt giới hạn nhập.",
   remoteEngineInvalidOutput: "Phản hồi của phần mềm không hợp lệ; phiên đã kết thúc.",
+  serverSbkExpansionLimit: "Bộ nhớ cần để mở rộng SBK vượt giới hạn.",
   serverFileNotFound: "Không tìm thấy tệp.",
   serverInvalidDestination: "Vị trí lưu không hợp lệ.",
   serverFileExists: "Tệp đã tồn tại.",

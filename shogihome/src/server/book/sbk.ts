@@ -28,6 +28,8 @@ const SBK_INDEX_CONSTRUCTION_BUDGET_BYTES = 512 * 1024 * 1024;
 const MAX_SBK_STATE_ID = 2147483647;
 export const MAX_SBK_BOOK_SIZE_BYTES = 512 * 1024 * 1024;
 
+export class SbkMemoryLimitError extends Error {}
+
 export function estimateSbkIndexConstructionBytes(
   rawBytes: number,
   stateCount: number,
@@ -53,16 +55,22 @@ export function validateSbkIndexConstructionMemory(
   );
   const totalBytes = estimatedBytes + reservedBytes;
   if (totalBytes > budgetBytes) {
-    throw new Error(`SBK index construction exceeds memory budget: ${totalBytes} bytes`);
+    throw new SbkMemoryLimitError(
+      `SBK index construction exceeds memory budget: ${totalBytes} bytes`,
+    );
   }
   return estimatedBytes;
 }
 
-function readVarint(data: Uint8Array, offset: number): [value: number, nextOffset: number] {
+function readVarint(
+  data: Uint8Array,
+  offset: number,
+  end = data.length,
+): [value: number, nextOffset: number] {
   let value = 0;
   let shift = 0;
   for (let i = 0; i < 10; i++) {
-    if (offset >= data.length) {
+    if (offset >= end) {
       throw new Error("Invalid protobuf: unexpected EOF while reading varint");
     }
     const byte = data[offset++];
@@ -75,27 +83,42 @@ function readVarint(data: Uint8Array, offset: number): [value: number, nextOffse
   throw new Error("Invalid protobuf: varint is too long");
 }
 
-function skipField(data: Uint8Array, offset: number, wireType: number): number {
+function readUint32(data: Uint8Array, offset: number, end: number): [number, number] {
+  const [value, next] = readVarint(data, offset, end);
+  if (!Number.isSafeInteger(value) || value > 0xffffffff)
+    throw new Error("Invalid protobuf: uint32 overflow");
+  return [value, next];
+}
+
+function readMessageBounds(data: Uint8Array, offset: number, end: number): [number, number] {
+  const [length, start] = readUint32(data, offset, end);
+  if (start + length > end) throw new Error("Invalid protobuf: truncated field payload");
+  return [start, start + length];
+}
+
+function readTag(data: Uint8Array, offset: number, end: number): [number, number] {
+  const [tag, next] = readUint32(data, offset, end);
+  if (tag >>> 3 === 0 || ![0, 1, 2, 5].includes(tag & 7))
+    throw new Error("Invalid protobuf: unsupported tag");
+  return [tag, next];
+}
+
+function skipField(data: Uint8Array, offset: number, wireType: number, end = data.length): number {
   switch (wireType) {
     case 0: {
-      const [, next] = readVarint(data, offset);
+      const [, next] = readVarint(data, offset, end);
       return next;
     }
     case 1:
-      if (offset + 8 > data.length) {
+      if (offset + 8 > end) {
         throw new Error("Invalid protobuf: truncated 64-bit field");
       }
       return offset + 8;
     case 2: {
-      const [length, next] = readVarint(data, offset);
-      const end = next + length;
-      if (end > data.length) {
-        throw new Error("Invalid protobuf: truncated field payload");
-      }
-      return end;
+      return readMessageBounds(data, offset, end)[1];
     }
     case 5:
-      if (offset + 4 > data.length) {
+      if (offset + 4 > end) {
         throw new Error("Invalid protobuf: truncated 32-bit field");
       }
       return offset + 4;
@@ -120,20 +143,13 @@ function scanSBookTopLevel(data: Uint8Array): SBookScanResult {
   let sbkDescription: string | undefined;
   let offset = 0;
   while (offset < data.length) {
-    const [tag, next] = readVarint(data, offset);
+    const [tag, next] = readTag(data, offset, data.length);
     offset = next;
-    if (tag === 0) {
-      break;
-    }
     const field = tag >>> 3;
     const wireType = tag & 0x7;
 
     if ((field === 1 || field === 2) && wireType === 2) {
-      const [length, textOffset] = readVarint(data, offset);
-      const end = textOffset + length;
-      if (end > data.length) {
-        throw new Error("Invalid protobuf: truncated field payload");
-      }
+      const [textOffset, end] = readMessageBounds(data, offset, data.length);
       const text = Buffer.from(data.subarray(textOffset, end)).toString("utf-8");
       if (field === 1) {
         sbkAuthor = text;
@@ -144,11 +160,7 @@ function scanSBookTopLevel(data: Uint8Array): SBookScanResult {
       continue;
     }
     if (field === 3 && wireType === 2) {
-      const [stateLength, stateOffset] = readVarint(data, offset);
-      const stateEnd = stateOffset + stateLength;
-      if (stateEnd > data.length) {
-        throw new Error("Invalid protobuf: truncated SBookState payload");
-      }
+      const [stateOffset, stateEnd] = readMessageBounds(data, offset, data.length);
       const nestedCounts = countSBookStateEntries(data, stateOffset, stateEnd);
       moveCount += nestedCounts.moveCount;
       evalCount += nestedCounts.evalCount;
@@ -170,17 +182,16 @@ function countSBookStateEntries(
   let evalCount = 0;
   let offset = startOffset;
   while (offset < endOffset) {
-    const [tag, next] = readVarint(data, offset);
+    const [tag, next] = readTag(data, offset, endOffset);
     offset = next;
-    if (tag === 0) break;
     const field = tag >>> 3;
     const wireType = tag & 0x7;
     if ((field === 9 || field === 10) && wireType === 2) {
-      const [length, payloadOffset] = readVarint(data, offset);
-      offset = payloadOffset + length;
-      if (offset > endOffset) {
-        throw new Error("Invalid protobuf: truncated SBookState field");
-      }
+      const [payloadOffset, payloadEnd] = readMessageBounds(data, offset, endOffset);
+      // A generated decoder shares its reader with the parent. Reject leaf
+      // fields that could advance it beyond the length scanned by preflight.
+      validateSBookLeaf(data, payloadOffset, payloadEnd);
+      offset = payloadEnd;
       if (field === 9) {
         moveCount++;
       } else {
@@ -188,12 +199,16 @@ function countSBookStateEntries(
       }
       continue;
     }
-    offset = skipField(data, offset, wireType);
-    if (offset > endOffset) {
-      throw new Error("Invalid protobuf: truncated SBookState field");
-    }
+    offset = skipField(data, offset, wireType, endOffset);
   }
   return { moveCount, evalCount };
+}
+
+function validateSBookLeaf(data: Uint8Array, offset: number, end: number): void {
+  while (offset < end) {
+    const [tag, next] = readTag(data, offset, end);
+    offset = skipField(data, next, tag & 7, end);
+  }
 }
 
 function readRowOffset(table: Uint32Array, row: number): number {
@@ -977,7 +992,21 @@ async function storeSbkBookOnTheFly(
   await finished(output);
 }
 
-export function loadSbkBook(data: Buffer | Uint8Array): SbkBook {
+export function loadSbkBook(
+  data: Buffer | Uint8Array,
+  reservedBytes = 0,
+  budgetBytes = SBK_INDEX_CONSTRUCTION_BUDGET_BYTES,
+): SbkBook {
+  validateSbkIndexConstructionMemory(data.byteLength, 0, 0, 0, reservedBytes, budgetBytes);
+  const { stateCount, moveCount, evalCount } = scanSBookTopLevel(data);
+  validateSbkIndexConstructionMemory(
+    data.byteLength,
+    stateCount,
+    moveCount,
+    evalCount,
+    reservedBytes,
+    budgetBytes,
+  );
   const book = SBook.decode(data);
   if (book.BookStates.length > 0 && !book.BookStates[0].Position) {
     book.BookStates[0].Position = INITIAL_POSITION_SFEN;
