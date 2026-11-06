@@ -81,6 +81,30 @@ describe("server/database/kifu_index", () => {
     expect(results[0].matched_ply).toBe(5);
   });
 
+  it("rejects invalid filters and pagination even for internal callers", () => {
+    for (const query of [
+      { keyword: "x".repeat(129) },
+      { keyword: Array(17).fill("x").join(" ") },
+      { player1: "x".repeat(129) },
+    ]) {
+      for (const search of [
+        searchKifu,
+        getKifuSearchCount,
+        getKifuSearchStatistics,
+        getKifuSearchFilePaths,
+      ])
+        expect(() => search(query)).toThrow();
+    }
+    for (const pagination of [
+      { limit: -1 },
+      { limit: 0 },
+      { limit: 1001 },
+      { offset: -1 },
+      { offset: Number.MAX_SAFE_INTEGER + 1 },
+    ])
+      expect(() => searchKifu(pagination)).toThrow();
+  });
+
   it("stores internal inference metadata but exposes only the search-safe strategy fields", () => {
     const metadata = makeMetadata("strategy.kif");
     metadata.strategy = "角換わり";

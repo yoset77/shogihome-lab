@@ -2,6 +2,7 @@ import { DatabaseSync, type StatementSync } from "node:sqlite";
 import path from "node:path";
 import fs from "node:fs";
 import type { KifuSearchResult } from "@/common/file/record";
+import { readKifuSearchQuery, validateKifuSearchPagination } from "@/common/file/kifu_search";
 import {
   KIFU_STATISTICS_PLAYER_LIMIT,
   type KifuSearchStatistics,
@@ -448,6 +449,7 @@ export function getAllKifuFilePaths(): string[] {
 }
 
 function buildKifuSearchSql(params: KifuSearchParams): KifuSearchSql {
+  readKifuSearchQuery(params);
   const isPositionSearch = params.sfenHash !== undefined && params.sfen !== undefined;
   let from = " FROM kifu_files f";
   const conditions: string[] = [];
@@ -524,6 +526,7 @@ function buildKifuSearchSql(params: KifuSearchParams): KifuSearchSql {
 }
 
 export function searchKifu(params: KifuSearchParams) {
+  validateKifuSearchPagination(params.limit, params.offset);
   if (!db) return [];
   const limit = params.limit ?? 100;
   const offset = params.offset ?? 0;

@@ -690,6 +690,9 @@ export type Texts = {
   invalidJKFStructure: string;
   jkfImportLimit: string;
   remoteEngineInvalidOutput: string;
+  serverInvalidKifuSearch: string;
+  serverInvalidKifuPagination: string;
+  serverKifuSearchRateLimit: string;
   serverSbkExpansionLimit: string;
   serverFileNotFound: string;
   serverInvalidDestination: string;

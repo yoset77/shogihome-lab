@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type MiddlewareHandler } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { validator } from "hono/validator";
 import fs from "fs";
@@ -19,7 +19,6 @@ import {
   resolveKifuPath,
   resolveWritableKifuPath,
 } from "@/server/helpers/kifu";
-import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
 import * as kifuIndexDB from "@/server/database/kifu_index";
 import * as kifuIndexSync from "@/server/kifu_index/sync";
 import {
@@ -36,22 +35,17 @@ import {
   LARGE_BODY_LIMIT,
   type AppEnv,
 } from "@/server/hono";
-import { getOptionalInt, getString } from "@/server/routes/query";
+import { getString } from "@/server/routes/query";
 import { parseJsonObject, readJsonBody } from "@/server/routes/body";
-import type { KifuSearchQuery } from "@/common/file/sfen_export";
+import { readKifuSearchQuery, validateKifuSearchPagination } from "@/common/file/kifu_search";
 import { t } from "@/common/i18n";
-import {
-  searchableStrategies,
-  UNCLASSIFIED_STRATEGY,
-  type StrategySearchFilter,
-} from "@/common/kifu/strategy_taxonomy";
+import { normalizeKifuSearchQuery } from "@/server/kifu_index/query";
+import { kifuSearchRateLimiter } from "@/server/security";
 import {
   cancelSfenExportJob,
   getSfenExportJob,
   startSfenExportJob,
 } from "@/server/kifu_export/job";
-
-type RawKifuSearchQuery = Omit<KifuSearchQuery, "strategy"> & { strategy?: string };
 
 const getUploadLimit = (kind: "kifu" | "book" | "sfen") =>
   (kind === "book" ? BOOK_UPLOAD_MAX_MB : KIFU_UPLOAD_MAX_MB) * 1024 * 1024;
@@ -73,69 +67,53 @@ async function drainRequestBody(body: ReadableStream<Uint8Array> | null): Promis
   }
 }
 
-function normalizeSearchQuery(query: RawKifuSearchQuery) {
-  if (hasInvalidStrategy(query)) {
-    return null;
-  }
-  let sfen = query.sfen;
-  let sfenHash: bigint | undefined;
-  if (sfen) {
-    const normalized = getNormalizedSfenAndHash(sfen);
-    if (!normalized) {
-      return null;
-    }
-    sfen = normalized.sfen;
-    sfenHash = normalized.hash;
-  }
-  return {
-    sfen,
-    sfenHash,
-    keyword: query.keyword,
-    player1: query.player1,
-    player2: query.player2,
-    isStrictTurn: query.isStrictTurn,
-    startDate: query.startDate,
-    strategy: query.strategy as StrategySearchFilter | undefined,
-  };
-}
-
-function hasInvalidStrategy(query: RawKifuSearchQuery): boolean {
-  return (
-    !!query.strategy &&
-    query.strategy !== UNCLASSIFIED_STRATEGY &&
-    !searchableStrategies.some((strategy) => strategy === query.strategy)
-  );
-}
-
 function readSearchQuery(value: Record<string, unknown>) {
-  return {
-    sfen: getString(value.sfen),
-    keyword: getString(value.keyword),
-    player1: getString(value.player1),
-    player2: getString(value.player2),
-    isStrictTurn: value.isStrictTurn === "true",
-    startDate: getString(value.startDate),
-    strategy: getString(value.strategy),
-  };
+  try {
+    const strict = value.isStrictTurn;
+    const query = readKifuSearchQuery({
+      ...value,
+      isStrictTurn:
+        strict === undefined || strict === "" || strict === "false"
+          ? false
+          : strict === "true"
+            ? true
+            : strict,
+    });
+    return { ...query, isStrictTurn: query.isStrictTurn ?? false };
+  } catch {
+    throw new HttpError(400, t.serverInvalidKifuSearch);
+  }
 }
 
-function parseSearchQuery(value: unknown): KifuSearchQuery | null {
-  if (!value || typeof value !== "object") return null;
-  const query = value as Record<string, unknown>;
-  const stringKeys = ["sfen", "keyword", "player1", "player2", "startDate", "strategy"] as const;
-  for (const key of stringKeys) {
-    if (query[key] !== undefined && typeof query[key] !== "string") return null;
+function readSearchPagination(value: Record<string, unknown>) {
+  try {
+    const readInt = (input: unknown) => {
+      if (input === undefined) return undefined;
+      if (typeof input !== "string" || !/^\d+$/.test(input))
+        throw new Error("Invalid search integer");
+      return Number(input);
+    };
+    const limit = readInt(value.limit);
+    const offset = readInt(value.offset);
+    validateKifuSearchPagination(limit, offset);
+    return { limit, offset };
+  } catch {
+    throw new HttpError(400, t.serverInvalidKifuPagination);
   }
-  if (query.isStrictTurn !== undefined && typeof query.isStrictTurn !== "boolean") return null;
-  return {
-    sfen: query.sfen as string | undefined,
-    keyword: query.keyword as string | undefined,
-    player1: query.player1 as string | undefined,
-    player2: query.player2 as string | undefined,
-    startDate: query.startDate as string | undefined,
-    strategy: query.strategy as StrategySearchFilter | undefined,
-    isStrictTurn: query.isStrictTurn as boolean | undefined,
-  };
+}
+
+// The HTTP turn filter is optional even though validation always returns a boolean.
+function searchQueryValidator<Query extends ReturnType<typeof readSearchQuery>>(
+  readQuery: (value: Record<string, unknown>) => Query,
+) {
+  return validator("query", readQuery) as MiddlewareHandler<
+    AppEnv,
+    string,
+    {
+      in: { query: Omit<Query, "isStrictTurn"> & { isStrictTurn?: string } };
+      out: { query: Query };
+    }
+  >;
 }
 
 export const kifuRoutes = new Hono<AppEnv>()
@@ -359,23 +337,18 @@ export const kifuRoutes = new Hono<AppEnv>()
 
   .get(
     "/search",
-    validator("query", (value) => ({
+    kifuSearchRateLimiter,
+    searchQueryValidator((value) => ({
       ...readSearchQuery(value),
-      limit: getOptionalInt(value.limit),
-      offset: getOptionalInt(value.offset),
+      ...readSearchPagination(value),
     })),
     async (c) => {
       const query = c.req.valid("query");
       if (!KIFU_DIR) {
         return sendError(c, 404, "KIFU_DIR is not configured");
       }
-      const search = normalizeSearchQuery(query);
-      if (!search) {
-        return sendError(c, 400, hasInvalidStrategy(query) ? "Invalid strategy" : "Invalid sfen");
-      }
-
       const results = kifuIndexDB.searchKifu({
-        ...search,
+        ...normalizeKifuSearchQuery(query),
         limit: query.limit,
         offset: query.offset,
       });
@@ -383,75 +356,63 @@ export const kifuRoutes = new Hono<AppEnv>()
     },
   )
 
-  .get("/search/count", validator("query", readSearchQuery), (c) => {
+  .get("/search/count", kifuSearchRateLimiter, searchQueryValidator(readSearchQuery), (c) => {
     if (!KIFU_DIR) {
       return sendError(c, 404, "KIFU_DIR is not configured");
     }
     const query = c.req.valid("query");
-    const search = normalizeSearchQuery(query);
-    if (!search) {
-      return sendError(c, 400, hasInvalidStrategy(query) ? "Invalid strategy" : "Invalid sfen");
-    }
-    return c.json({ count: kifuIndexDB.getKifuSearchCount(search) });
+    return c.json({ count: kifuIndexDB.getKifuSearchCount(normalizeKifuSearchQuery(query)) });
   })
 
-  .get("/search/statistics", validator("query", readSearchQuery), (c) => {
+  .get("/search/statistics", kifuSearchRateLimiter, searchQueryValidator(readSearchQuery), (c) => {
     if (!KIFU_DIR) return sendError(c, 404, "KIFU_DIR is not configured");
     const query = c.req.valid("query");
-    const search = normalizeSearchQuery(query);
-    if (!search) {
-      return sendError(c, 400, hasInvalidStrategy(query) ? "Invalid strategy" : "Invalid sfen");
-    }
-    return c.json(kifuIndexDB.getKifuSearchStatistics(search));
+    return c.json(kifuIndexDB.getKifuSearchStatistics(normalizeKifuSearchQuery(query)));
   })
 
-  .post("/export/sfen", createBodyLimit(DEFAULT_JSON_BODY_LIMIT), async (c) => {
-    if (!KIFU_DIR) {
-      return sendError(c, 404, "KIFU_DIR is not configured");
-    }
-    const body = await readJsonBody(c);
-    if (typeof body.filename !== "string" || !body.filename.toLowerCase().endsWith(".sfen")) {
-      return sendError(c, 400, "filename must have a .sfen extension");
-    }
-    const searchQuery = parseSearchQuery(body.search);
-    if (!searchQuery) {
-      return sendError(c, 400, "search is required");
-    }
-    if (
-      body.maxMoves !== undefined &&
-      (typeof body.maxMoves !== "number" || !Number.isInteger(body.maxMoves) || body.maxMoves <= 0)
-    ) {
-      return sendError(c, 400, "maxMoves must be a positive integer");
-    }
-    const destination = resolveWritableKifuPath(KIFU_DIR, "sfen", body.filename);
-    if (!destination) {
-      return sendError(c, 400, t.serverInvalidDestination);
-    }
-    if (fs.existsSync(destination) && body.overwrite !== true) {
-      return sendError(c, 409, "file already exists");
-    }
-    const search = normalizeSearchQuery(searchQuery);
-    if (!search) {
-      return sendError(
-        c,
-        400,
-        hasInvalidStrategy(searchQuery) ? "Invalid strategy" : "Invalid sfen",
-      );
-    }
-    const job = startSfenExportJob({
-      kifuDir: KIFU_DIR,
-      outputPath: body.filename,
-      search,
-      targetSfen: search.sfen,
-      maxMoves: body.maxMoves,
-      standardInitialOnly: body.standardInitialOnly === true,
-      overwrite: body.overwrite === true,
-    });
-    if (!job) {
-      return sendError(c, 409, "another SFEN export is running");
-    }
-    return c.json(job, 202);
-  })
+  .post(
+    "/export/sfen",
+    kifuSearchRateLimiter,
+    createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
+    async (c) => {
+      if (!KIFU_DIR) {
+        return sendError(c, 404, "KIFU_DIR is not configured");
+      }
+      const body = await readJsonBody(c);
+      if (typeof body.filename !== "string" || !body.filename.toLowerCase().endsWith(".sfen")) {
+        return sendError(c, 400, "filename must have a .sfen extension");
+      }
+      const search = normalizeKifuSearchQuery(body.search);
+      if (
+        body.maxMoves !== undefined &&
+        (typeof body.maxMoves !== "number" ||
+          !Number.isInteger(body.maxMoves) ||
+          body.maxMoves <= 0)
+      ) {
+        return sendError(c, 400, "maxMoves must be a positive integer");
+      }
+      const destination = resolveWritableKifuPath(KIFU_DIR, "sfen", body.filename);
+      if (!destination) {
+        return sendError(c, 400, t.serverInvalidDestination);
+      }
+      if (fs.existsSync(destination) && body.overwrite !== true) {
+        return sendError(c, 409, "file already exists");
+      }
+      const job = startSfenExportJob({
+        kifuDir: KIFU_DIR,
+        outputPath: body.filename,
+        search,
+        targetSfen: search.sfen,
+        maxMoves: body.maxMoves,
+        standardInitialOnly: body.standardInitialOnly === true,
+        overwrite: body.overwrite === true,
+      });
+      if (!job) {
+        return sendError(c, 409, "another SFEN export is running");
+      }
+      return c.json(job, 202);
+    },
+  )
 
   .get("/export/sfen/:jobId", (c) => {
     const job = getSfenExportJob(c.req.param("jobId"));

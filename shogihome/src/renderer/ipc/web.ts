@@ -50,7 +50,7 @@ const toKifuSearchQuery = (params: KifuSearchQuery) => ({
   keyword: params.keyword,
   player1: params.player1,
   player2: params.player2,
-  isStrictTurn: params.isStrictTurn ? "true" : "",
+  isStrictTurn: params.isStrictTurn ? "true" : undefined,
   startDate: params.startDate,
   strategy: params.strategy,
 });
@@ -641,13 +641,7 @@ export const webAPI: Bridge = {
   ): Promise<KifuSearchResult[]> {
     const response = await apiClient.api.kifu.search.$get({
       query: {
-        sfen: params.sfen,
-        keyword: params.keyword,
-        player1: params.player1,
-        player2: params.player2,
-        isStrictTurn: params.isStrictTurn ? "true" : "",
-        startDate: params.startDate,
-        strategy: params.strategy,
+        ...toKifuSearchQuery(params),
         limit: params.limit,
         offset: params.offset,
       },

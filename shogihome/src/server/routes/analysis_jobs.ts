@@ -15,6 +15,7 @@ import {
 } from "@/server/hono";
 import { parseJsonObject } from "./body";
 import { readJobAttachRequest, readJobBinding } from "@/common/jobs/types";
+import { kifuSearchRateLimiter } from "@/server/security";
 
 const attachInput = validator("json", (value) => {
   try {
@@ -63,6 +64,7 @@ export const createAnalysisJobRoutes = (manager: AnalysisJobManager = analysisJo
     .get("/", (c) => c.json(manager.list()))
     .post(
       "/batch/prepare",
+      kifuSearchRateLimiter,
       createBodyLimit(DEFAULT_JSON_BODY_LIMIT),
       validator("json", (value) => {
         try {

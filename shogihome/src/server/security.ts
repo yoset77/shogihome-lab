@@ -5,6 +5,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { MemoryStore, rateLimiter } from "hono-rate-limiter";
 import { ALLOWED_HOSTS, ALLOWED_ORIGINS } from "@/server/config";
 import { sendError } from "@/server/errors";
+import { t } from "@/common/i18n";
 
 export const isValidHost = (req: http.IncomingMessage) => {
   const host = req.headers.host;
@@ -69,16 +70,34 @@ const getRemoteAddress = (c: Parameters<typeof getConnInfo>[0]) => {
   }
 };
 
+const getClientKey = (c: Parameters<typeof getConnInfo>[0]) => {
+  const remoteAddress = getRemoteAddress(c);
+  if (process.env.TRUST_PROXY === "true") {
+    return getForwardedForClient(c.req.header("x-forwarded-for")) ?? remoteAddress ?? "unknown";
+  }
+  return remoteAddress ?? "unknown";
+};
+
 export const createRateLimiter = () =>
   rateLimiter({
     windowMs: 15 * 60 * 1000,
     limit: 6000,
     store: rateLimitStore,
-    keyGenerator: (c) => {
-      const remoteAddress = getRemoteAddress(c);
-      if (process.env.TRUST_PROXY === "true") {
-        return getForwardedForClient(c.req.header("x-forwarded-for")) ?? remoteAddress ?? "unknown";
-      }
-      return remoteAddress ?? "unknown";
-    },
+    keyGenerator: getClientKey,
   });
+
+export const KIFU_SEARCH_RATE_WINDOW_MS = 10_000;
+export const KIFU_SEARCH_RATE_LIMIT = 12;
+
+export const createKifuSearchRateLimiter = () =>
+  rateLimiter({
+    windowMs: KIFU_SEARCH_RATE_WINDOW_MS,
+    // One search action sends a list/count pair; allow several such bursts.
+    limit: KIFU_SEARCH_RATE_LIMIT,
+    store: new MemoryStore(),
+    keyGenerator: getClientKey,
+    handler: (c) => sendError(c, 429, t.serverKifuSearchRateLimit),
+  });
+
+// All query entry points consume the same per-client budget, not one per route.
+export const kifuSearchRateLimiter = createKifuSearchRateLimiter();

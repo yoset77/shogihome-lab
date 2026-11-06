@@ -31,7 +31,7 @@ import {
   clearKifuListCache,
 } from "@/server/helpers/kifu";
 import { getKifuSearchFilePaths } from "@/server/database/kifu_index";
-import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
+import { normalizeKifuSearchQuery } from "@/server/kifu_index/query";
 import { writeStreamAtomic } from "@/server/file/atomic_stream";
 import { LARGE_BODY_LIMIT } from "@/server/hono";
 import { HttpError } from "@/server/errors";
@@ -122,12 +122,10 @@ export class BatchAnalysisFiles {
       await walk(folder, 0);
       files.sort();
     } else {
-      const position = source.search.sfen && getNormalizedSfenAndHash(source.search.sfen);
-      if (source.search.sfen && !position) throw new HttpError(400, t.batchAnalysisInvalid);
-      files = getKifuSearchFilePaths(
-        { ...source.search, ...(position ? { sfen: position.sfen, sfenHash: position.hash } : {}) },
-        { strict: true, limit: MAX_BATCH_FILES },
-      );
+      files = getKifuSearchFilePaths(normalizeKifuSearchQuery(source.search), {
+        strict: true,
+        limit: MAX_BATCH_FILES,
+      });
       if (files.length > MAX_BATCH_FILES) throw new HttpError(413, t.analysisJobCapacity);
     }
     if (!files.length) throw new HttpError(400, t.batchAnalysisNoFiles);

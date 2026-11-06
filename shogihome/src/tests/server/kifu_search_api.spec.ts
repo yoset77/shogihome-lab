@@ -1,9 +1,17 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { requestApp } from "./honoRequest";
+import { t } from "@/common/i18n";
+import { webAPI } from "@/renderer/ipc/web";
+import { KIFU_SEARCH_RATE_LIMIT } from "@/server/security";
 
 const SERVER_PORT = vi.hoisted(() => {
   return 8300 + Math.floor(Math.random() * 100);
 });
+
+const client = vi.hoisted(() => ({ address: "search-client", sequence: 0 }));
+vi.mock("@hono/node-server/conninfo", () => ({
+  getConnInfo: () => ({ remote: { address: client.address } }),
+}));
 
 vi.hoisted(() => {
   process.env.PORT = SERVER_PORT.toString();
@@ -66,8 +74,11 @@ const host = `localhost:${SERVER_PORT}`;
 describe("Kifu search API", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    client.address = `search-client-${++client.sequence}`;
     kifuIndexMock.searchKifu.mockReturnValue([]);
   });
+
+  afterEach(() => vi.restoreAllMocks());
 
   it("should return 400 for invalid sfen queries", async () => {
     sfenMock.getNormalizedSfenAndHash.mockReturnValue(null);
@@ -80,7 +91,7 @@ describe("Kifu search API", () => {
     );
 
     expect(response.status).toBe(400);
-    expect(response.textBody).toContain("Invalid sfen");
+    expect(response.textBody).toContain(t.serverInvalidKifuSearch);
     expect(kifuIndexMock.searchKifu).not.toHaveBeenCalled();
   });
 
@@ -135,24 +146,200 @@ describe("Kifu search API", () => {
     });
   });
 
-  it("should ignore invalid pagination query values", async () => {
+  it.each([
+    { query: "", isStrictTurn: false },
+    { query: "isStrictTurn=", isStrictTurn: false },
+    { query: "isStrictTurn=false", isStrictTurn: false },
+    { query: "isStrictTurn=true", isStrictTurn: true },
+  ])(
+    "normalizes turn filters at every search endpoint: $query",
+    async ({ query, isStrictTurn }) => {
+      for (const [route, search] of [
+        ["/search", kifuIndexMock.searchKifu],
+        ["/search/count", kifuIndexMock.getKifuSearchCount],
+        ["/search/statistics", kifuIndexMock.getKifuSearchStatistics],
+      ] as const) {
+        const response = await requestApp(
+          app,
+          "GET",
+          `/api/kifu${route}${query ? `?${query}` : ""}`,
+          { host },
+        );
+        expect(response.status).toBe(200);
+        expect(search).toHaveBeenCalledWith(expect.objectContaining({ isStrictTurn }));
+      }
+    },
+  );
+
+  it.each([undefined, false, true])(
+    "round-trips renderer turn filters through every search API: %s",
+    async (isStrictTurn) => {
+      sfenMock.getNormalizedSfenAndHash.mockReturnValue({ sfen: "normalized sfen", hash: 123n });
+      kifuIndexMock.getKifuSearchCount.mockReturnValue(1);
+      const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+        const headers = new Headers(init?.headers);
+        headers.set("Host", host);
+        return app.request(input, { ...init, headers });
+      });
+      const params = {
+        sfen: "position startpos",
+        keyword: "Final",
+        player1: "A",
+        player2: "B",
+        isStrictTurn,
+        startDate: "2024",
+        strategy: "unclassified" as const,
+      };
+
+      await expect(webAPI.searchServerKifu({ ...params, limit: 10, offset: 0 })).resolves.toEqual(
+        [],
+      );
+      await expect(webAPI.countServerKifu(params)).resolves.toBe(1);
+      await expect(webAPI.getServerKifuStatistics(params)).resolves.toMatchObject({ total: 1 });
+
+      const normalized = {
+        ...params,
+        sfen: "normalized sfen",
+        sfenHash: 123n,
+        isStrictTurn: isStrictTurn ?? false,
+      };
+      expect(kifuIndexMock.searchKifu).toHaveBeenCalledWith({
+        ...normalized,
+        limit: 10,
+        offset: 0,
+      });
+      expect(kifuIndexMock.getKifuSearchCount).toHaveBeenCalledWith(normalized);
+      expect(kifuIndexMock.getKifuSearchStatistics).toHaveBeenCalledWith(normalized);
+      expect(fetch).toHaveBeenCalledTimes(3);
+      for (const [input] of fetch.mock.calls) {
+        expect(new URL(String(input)).searchParams.get("isStrictTurn")).toBe(
+          isStrictTurn ? "true" : null,
+        );
+      }
+    },
+  );
+
+  it("rejects invalid pagination instead of ignoring it", async () => {
     const response = await requestApp(app, "GET", "/api/kifu/search?limit=abc&offset=invalid", {
       host,
     });
 
-    expect(response.status).toBe(200);
-    expect(kifuIndexMock.searchKifu).toHaveBeenCalledWith({
-      sfen: undefined,
-      sfenHash: undefined,
-      keyword: undefined,
-      player1: undefined,
-      player2: undefined,
-      isStrictTurn: false,
-      startDate: undefined,
-      strategy: undefined,
-      limit: undefined,
-      offset: undefined,
-    });
+    expect(response.status).toBe(400);
+    expect(response.textBody).toContain(t.serverInvalidKifuPagination);
+    expect(kifuIndexMock.searchKifu).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "limit=-1",
+    "limit=0",
+    "limit=1001",
+    "limit=1.5",
+    "limit=10junk",
+    "limit=1e2",
+    "limit=",
+    "limit=1&limit=2",
+    "offset=-1",
+    "offset=0.5",
+    "offset=9007199254740992",
+  ])("rejects unsafe pagination: %s", async (query) => {
+    const response = await requestApp(app, "GET", `/api/kifu/search?${query}`, { host });
+    expect(response.status).toBe(400);
+    expect(kifuIndexMock.searchKifu).not.toHaveBeenCalled();
+  });
+
+  it("accepts pagination bounds without changing list/count behavior", async () => {
+    const responses = await Promise.all([
+      requestApp(app, "GET", "/api/kifu/search?limit=1000&offset=0", { host }),
+      requestApp(app, "GET", "/api/kifu/search/count", { host }),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    expect(kifuIndexMock.searchKifu).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 1000, offset: 0 }),
+    );
+  });
+
+  const oversizedQueries: Record<string, string>[] = [
+    { keyword: "x".repeat(1025) },
+    { keyword: Array(17).fill("x").join(" ") },
+    { keyword: "x".repeat(129) },
+    { player1: "x".repeat(129) },
+    { player2: "x".repeat(129) },
+    { startDate: "x".repeat(33) },
+    { sfen: "x".repeat(1025) },
+  ];
+  it.each(oversizedQueries)(
+    "rejects over-budget inputs at every search entry point: %j",
+    async (search) => {
+      const query = new URLSearchParams(search).toString();
+      for (const route of ["/search", "/search/count", "/search/statistics"]) {
+        expect((await requestApp(app, "GET", `/api/kifu${route}?${query}`, { host })).status).toBe(
+          400,
+        );
+      }
+      expect(
+        (
+          await requestApp(app, "POST", "/api/kifu/export/sfen", {
+            host,
+            json: { filename: "result.sfen", search },
+          })
+        ).status,
+      ).toBe(400);
+      expect(
+        (
+          await requestApp(app, "POST", "/api/analysis-jobs/batch/prepare", {
+            host,
+            json: { kind: "search", search },
+          })
+        ).status,
+      ).toBe(400);
+      expect(kifuIndexMock.searchKifu).not.toHaveBeenCalled();
+      expect(kifuIndexMock.getKifuSearchCount).not.toHaveBeenCalled();
+      expect(kifuIndexMock.getKifuSearchStatistics).not.toHaveBeenCalled();
+      expect(exportJobMock.startSfenExportJob).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    "keyword=a&keyword=b",
+    "player1=a&player1=b",
+    "isStrictTurn=invalid",
+    "isStrictTurn=true&isStrictTurn=false",
+    "isStrictTurn=&isStrictTurn=false",
+  ])(
+    "rejects repeated filters and malformed booleans at every search endpoint: %s",
+    async (query) => {
+      for (const route of ["/search", "/search/count", "/search/statistics"]) {
+        expect((await requestApp(app, "GET", `/api/kifu${route}?${query}`, { host })).status).toBe(
+          400,
+        );
+      }
+      expect(kifuIndexMock.searchKifu).not.toHaveBeenCalled();
+      expect(kifuIndexMock.getKifuSearchCount).not.toHaveBeenCalled();
+      expect(kifuIndexMock.getKifuSearchStatistics).not.toHaveBeenCalled();
+    },
+  );
+
+  it("shares one rate budget across list, count, statistics, export, and batch preparation", async () => {
+    const routes = ["/search", "/search/count", "/search/statistics"];
+    for (let index = 0; index < KIFU_SEARCH_RATE_LIMIT; index++) {
+      expect(
+        (await requestApp(app, "GET", `/api/kifu${routes[index % routes.length]}`, { host }))
+          .status,
+      ).toBe(200);
+    }
+    const calls = kifuIndexMock.searchKifu.mock.calls.length;
+    const response = await requestApp(app, "GET", "/api/kifu/search", { host });
+    expect(response.status).toBe(429);
+    expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect(kifuIndexMock.searchKifu).toHaveBeenCalledTimes(calls);
+    expect(
+      (await requestApp(app, "POST", "/api/kifu/export/sfen", { host, json: {} })).status,
+    ).toBe(429);
+    expect(
+      (await requestApp(app, "POST", "/api/analysis-jobs/batch/prepare", { host, json: {} }))
+        .status,
+    ).toBe(429);
+    expect((await requestApp(app, "GET", "/api/kifu/index/status", { host })).status).toBe(200);
   });
 
   it("returns the uncapped search result count", async () => {
