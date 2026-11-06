@@ -1,3 +1,5 @@
+import { isUSITerminalOutput } from "@/common/game/usi";
+
 export const RELAY_STATES = ["uninitialized", "starting", "ready", "thinking", "stopped"] as const;
 
 export type RelayState = (typeof RELAY_STATES)[number];
@@ -198,8 +200,7 @@ const isSearchSnapshot = (value: Record<string, unknown>): value is SearchSnapsh
         isValidUsiCommand(terminal.position) &&
         terminal.position.startsWith("position ") &&
         typeof terminal.output === "string" &&
-        /^(bestmove|checkmate) /.test(terminal.output) &&
-        !/[\r\n]/.test(terminal.output)))
+        isUSITerminalOutput(terminal.output)))
   );
 };
 

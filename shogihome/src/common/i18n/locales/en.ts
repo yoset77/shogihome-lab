@@ -738,6 +738,7 @@ export const en: Texts = {
   serverInvalidJsonBody: "The request body must be a valid JSON object",
   invalidJKFStructure: "Invalid JKF data structure.",
   jkfImportLimit: "JKF size, move count, fork count, or depth exceeds the import limit.",
+  remoteEngineInvalidOutput: "Invalid engine output; the session was terminated.",
   serverFileNotFound: "File not found",
   serverInvalidDestination: "Invalid destination",
   serverFileExists: "File already exists",

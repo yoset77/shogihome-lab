@@ -25,6 +25,23 @@ export function hasUSIPVMoves(pv: string[] | undefined): pv is [string, ...strin
   return !!pv?.length && !!parseUSIMove(pv[0]);
 }
 
+export function isUSITerminalOutput(output: string): boolean {
+  if (/[\p{Cc}]/u.test(output)) return false;
+  const isMove = (move: string) =>
+    /^(?:[1-9][a-i][1-9][a-i]\+?|[PLNSGBR]\*[1-9][a-i])$/.test(move) && !!parseUSIMove(move);
+  const tokens = output.split(" ");
+  if (tokens[0] === "bestmove") {
+    if (tokens.length !== 2 && tokens.length !== 4) return false;
+    if (tokens[1] === "resign" || tokens[1] === "win") return tokens.length === 2;
+    return (
+      isMove(tokens[1]) && (tokens.length === 2 || (tokens[2] === "ponder" && isMove(tokens[3])))
+    );
+  }
+  if (tokens[0] !== "checkmate" || tokens.length < 2) return false;
+  if (["nomate", "timeout", "notimplemented"].includes(tokens[1])) return tokens.length === 2;
+  return tokens.slice(1).every(isMove);
+}
+
 export type USIInfoCommand = {
   depth?: number;
   seldepth?: number;

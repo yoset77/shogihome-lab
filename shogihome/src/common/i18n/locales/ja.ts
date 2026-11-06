@@ -729,6 +729,7 @@ export const ja: Texts = {
   serverInvalidJsonBody: "リクエストには有効なJSONオブジェクトを指定してください。",
   invalidJKFStructure: "JKFのデータ構造が不正です。",
   jkfImportLimit: "JKFのサイズ、指し手数、分岐数、または深さが読み込み上限を超えています。",
+  remoteEngineInvalidOutput: "エンジンの応答が不正なため、セッションを終了しました。",
   serverFileNotFound: "ファイルが見つかりません。",
   serverInvalidDestination: "保存先が無効です。",
   serverFileExists: "ファイルが既に存在します。",
