@@ -718,6 +718,7 @@ export const zh_tw: Texts = {
   invalidJKFStructure: "JKF 資料結構無效。",
   jkfImportLimit: "JKF 大小、步數、分支數或深度超過匯入上限。",
   remoteEngineInvalidOutput: "引擎回應無效，已終止工作階段。",
+  serverSbkExpansionLimit: "SBK 展開所需記憶體超過上限。",
   serverFileNotFound: "找不到檔案。",
   serverInvalidDestination: "儲存位置無效。",
   serverFileExists: "檔案已存在。",

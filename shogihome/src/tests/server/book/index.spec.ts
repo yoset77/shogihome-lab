@@ -135,7 +135,6 @@ describe("server/book", () => {
       { file: "yaneuraou.db", sizeMB: 600 },
       { file: "yaneuraou.ybb", sizeMB: 600 },
       { file: "apery.bin", sizeMB: 600 },
-      { file: "shogihome01.sbk", sizeMB: 300 },
     ])("opens $file without an aggregate memory estimate", async ({ file, sizeMB }) => {
       const source = path.join("src/tests/testdata/book", file);
       const originalLstat = fs.promises.lstat.bind(fs.promises);
@@ -151,6 +150,31 @@ describe("server/book", () => {
         lstat.mockRestore();
       }
     });
+
+    it.each([undefined, 0])(
+      "rejects SBK expansion before publication with threshold %s",
+      async (sbkOnTheFlyThresholdMB) => {
+        const source = path.join(tmpdir, "amplified.sbk");
+        // Empty evaluations encode in two bytes but each expands to an object.
+        const data = Buffer.alloc(5 + 2 * 1_048_576);
+        data.set([0x1a, 0x80, 0x80, 0x80, 0x01]);
+        data.fill(Buffer.from([0x52, 0]), 5);
+        fs.writeFileSync(source, data);
+        const sfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+        await updateBookMove(defaultBookSession, sfen, { usi: "7g7f", comment: "unsaved" });
+        const original = await searchBookMoves(defaultBookSession, sfen);
+        try {
+          await expect(
+            openBook(defaultBookSession, source, { sbkOnTheFlyThresholdMB }),
+          ).rejects.toMatchObject({ status: 413, message: t.serverSbkExpansionLimit });
+          expect(getBookFormat(defaultBookSession)).toBe("yane2016");
+          expect(isBookUnsaved(defaultBookSession)).toBe(true);
+          expect(await searchBookMoves(defaultBookSession, sfen)).toEqual(original);
+        } finally {
+          fs.rmSync(source, { force: true });
+        }
+      },
+    );
 
     it.each(["in-memory", "on-the-fly"])(
       "keeps the existing %s book and unsaved edits when parsing a replacement fails",
@@ -1478,7 +1502,7 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
         }) as typeof fs.promises.open);
         try {
           await expect(saveBook(defaultBookSession, filePath)).rejects.toThrow(
-            "SBK index construction exceeds memory budget",
+            t.serverSbkExpansionLimit,
           );
         } finally {
           openSpy.mockRestore();

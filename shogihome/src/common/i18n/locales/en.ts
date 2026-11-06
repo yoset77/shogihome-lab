@@ -739,6 +739,7 @@ export const en: Texts = {
   invalidJKFStructure: "Invalid JKF data structure.",
   jkfImportLimit: "JKF size, move count, fork count, or depth exceeds the import limit.",
   remoteEngineInvalidOutput: "Invalid engine output; the session was terminated.",
+  serverSbkExpansionLimit: "SBK expansion exceeds the memory budget.",
   serverFileNotFound: "File not found",
   serverInvalidDestination: "Invalid destination",
   serverFileExists: "File already exists",
