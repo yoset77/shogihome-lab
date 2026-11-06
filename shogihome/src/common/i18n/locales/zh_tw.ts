@@ -715,6 +715,8 @@ export const zh_tw: Texts = {
   overwriteUploadConflicts: (names: string) => `已有同名檔案。是否覆寫？\n${names}`,
   serverInternalError: "伺服器內部錯誤。",
   serverInvalidJsonBody: "請求內容必須是有效的 JSON 物件。",
+  invalidJKFStructure: "JKF 資料結構無效。",
+  jkfImportLimit: "JKF 大小、步數、分支數或深度超過匯入上限。",
   serverFileNotFound: "找不到檔案。",
   serverInvalidDestination: "儲存位置無效。",
   serverFileExists: "檔案已存在。",

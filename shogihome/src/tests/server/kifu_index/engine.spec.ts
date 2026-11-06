@@ -81,6 +81,21 @@ describe("server/kifu_index/engine", () => {
     expect(ply3Positions).toHaveLength(2);
   });
 
+  it("skips an array-like JKF fork bomb during automatic indexing and continues with valid files", async () => {
+    fs.writeFileSync(
+      path.join(tempDir, "bad.jkf"),
+      '{"header":{},"moves":[{"forks":{"length":1000000000}}]}',
+    );
+    fs.writeFileSync(
+      path.join(tempDir, "good.kifu"),
+      "戦型：角換わり\n手合割：平手\n手数----指手----\n1 ７六歩(77)\n",
+    );
+    await expect(parseAndIndexFile(tempDir, "bad.jkf")).resolves.toBeNull();
+    await syncKifuDirectory(tempDir);
+    expect(getKifuFileByPath("bad.jkf")).toBeUndefined();
+    expect(getKifuFileByPath("good.kifu")).toBeDefined();
+  });
+
   it("should parse KIF file with handicap names", async () => {
     const kifContent = [
       "#KIF1.0",

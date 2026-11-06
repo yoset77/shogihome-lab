@@ -736,6 +736,8 @@ export const en: Texts = {
     `Files with the same names already exist. Overwrite them?\n${names}`,
   serverInternalError: "Internal Server Error",
   serverInvalidJsonBody: "The request body must be a valid JSON object",
+  invalidJKFStructure: "Invalid JKF data structure.",
+  jkfImportLimit: "JKF size, move count, fork count, or depth exceeds the import limit.",
   serverFileNotFound: "File not found",
   serverInvalidDestination: "Invalid destination",
   serverFileExists: "File already exists",

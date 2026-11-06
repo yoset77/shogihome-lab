@@ -727,6 +727,8 @@ export const ja: Texts = {
     `同名のファイルが存在します。上書きしますか？\n${names}`,
   serverInternalError: "サーバー内部でエラーが発生しました。",
   serverInvalidJsonBody: "リクエストには有効なJSONオブジェクトを指定してください。",
+  invalidJKFStructure: "JKFのデータ構造が不正です。",
+  jkfImportLimit: "JKFのサイズ、指し手数、分岐数、または深さが読み込み上限を超えています。",
   serverFileNotFound: "ファイルが見つかりません。",
   serverInvalidDestination: "保存先が無効です。",
   serverFileExists: "ファイルが既に存在します。",

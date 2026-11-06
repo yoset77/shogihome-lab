@@ -35,6 +35,7 @@ Server data rootは [`src/node/proc/path.ts`](../../shogihome/src/node/proc/path
 [`database/kifu_index.ts`](../../shogihome/src/server/database/kifu_index.ts) が `kifu_index.db`、[`kifu_index/sync.ts`](../../shogihome/src/server/kifu_index/sync.ts) が `KIFU_DIR` との同期を所有します。
 
 - Indexは検索を高速化する派生データであり、元ファイルの正本ではありません。
+- JKFはBrowserとServerで共有する [`common/file/jkf.ts`](../../shogihome/src/common/file/jkf.ts) を通し、分岐containerの形状と走査量を棋譜parserの実行前に検証します。
 - File更新時はmetadata、局面関連、不要になった関連データをtransactionalに更新します。
 - Full syncとfilesystem event処理を調停し、同じsingleton DBへの競合更新を避けます。
 - 外部変更の検出とparseの間は一時的に以前のindexが見える可能性があります。

@@ -9,9 +9,10 @@ import {
   importKI2,
   importKIF,
   exportJKFString,
-  importJKFString,
 } from "tsshogi";
 import type { SearchableStrategy, StrategySource } from "@/common/kifu/strategy_taxonomy";
+import { importJKFSafely, MAX_JKF_BYTES } from "./jkf";
+import { t } from "@/common/i18n";
 
 export enum RecordFileFormat {
   KIF = ".kif",
@@ -58,6 +59,8 @@ export function importRecordFromBuffer(
   format: RecordFileFormat,
   option?: { autoDetect?: boolean },
 ): Record | Error {
+  if (format === RecordFileFormat.JKF && data.byteLength > MAX_JKF_BYTES)
+    return new Error(t.jkfImportLimit);
   const text = decodeText(data, {
     encoding: getRecommendedEncodingByFileFormat(format),
     autoDetect: option?.autoDetect,
@@ -74,7 +77,7 @@ export function importRecordFromBuffer(
     case RecordFileFormat.SFEN:
       return new Error(".sfen file import is not supported");
     case RecordFileFormat.JKF:
-      return importJKFString(text);
+      return importJKFSafely(text);
   }
 }
 

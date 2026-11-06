@@ -728,6 +728,8 @@ export const vi: Texts = {
     `Đã có tệp trùng tên. Bạn có muốn ghi đè không?\n${names}`,
   serverInternalError: "Lỗi máy chủ nội bộ.",
   serverInvalidJsonBody: "Nội dung yêu cầu phải là một đối tượng JSON hợp lệ.",
+  invalidJKFStructure: "Cấu trúc dữ liệu JKF không hợp lệ.",
+  jkfImportLimit: "Kích thước, số nước đi, số nhánh hoặc độ sâu JKF vượt giới hạn nhập.",
   serverFileNotFound: "Không tìm thấy tệp.",
   serverInvalidDestination: "Vị trí lưu không hợp lệ.",
   serverFileExists: "Tệp đã tồn tại.",

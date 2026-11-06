@@ -687,6 +687,8 @@ export type Texts = {
   overwriteUploadConflicts: (names: string) => string;
   serverInternalError: string;
   serverInvalidJsonBody: string;
+  invalidJKFStructure: string;
+  jkfImportLimit: string;
   serverFileNotFound: string;
   serverInvalidDestination: string;
   serverFileExists: string;
