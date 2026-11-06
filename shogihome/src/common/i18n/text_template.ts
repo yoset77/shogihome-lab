@@ -689,6 +689,7 @@ export type Texts = {
   serverInvalidJsonBody: string;
   invalidJKFStructure: string;
   jkfImportLimit: string;
+  remoteEngineInvalidOutput: string;
   serverFileNotFound: string;
   serverInvalidDestination: string;
   serverFileExists: string;

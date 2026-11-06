@@ -4,7 +4,7 @@ import readline from "readline";
 import { WebSocket } from "ws";
 import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
 import { saveAnalysisResults } from "@/server/database/sqlite";
-import { parseInfoCommand, type USIInfoCommand } from "@/common/game/usi";
+import { isUSITerminalOutput, parseInfoCommand, type USIInfoCommand } from "@/common/game/usi";
 import { parseAnalysisInfo } from "@/common/analysis/types";
 import {
   decodeClientRelayMessage,
@@ -633,7 +633,9 @@ export class EngineSession {
     const interface_ = rl || readline.createInterface({ input: stream });
     // Socket handlers own transport errors; consume readline's forwarded errors.
     interface_.on("error", () => {});
-    interface_.on("line", (line) => {
+    const onLine = (line: string) => {
+      const terminal = /^(bestmove|checkmate)/.test(line.trimStart());
+      if (terminal) line = line.trim().replace(/[ \t]+/g, " ");
       if (!line.startsWith("info")) {
         console.log(`Engine output (${this.sessionId}): ${line}`);
       }
@@ -644,6 +646,8 @@ export class EngineSession {
       ) {
         return;
       }
+
+      if (terminal && !isUSITerminalOutput(line)) throw new Error("Invalid USI terminal output");
 
       if (line.startsWith("info ")) {
         const parsed =
@@ -688,7 +692,7 @@ export class EngineSession {
         });
       }
 
-      if (line.startsWith("bestmove") || line.startsWith("checkmate")) {
+      if (terminal) {
         if (line.startsWith("bestmove")) {
           try {
             this.saveCurrentAnalysis();
@@ -746,6 +750,15 @@ export class EngineSession {
           const command = this.commandQueue.shift();
           if (command) this.sendToEngine(command);
         }
+      }
+    };
+    interface_.on("line", (line) => {
+      try {
+        onLine(line);
+      } catch (error) {
+        console.error(`Engine output handler failed (${this.sessionId})`, error);
+        this.sendError(t.remoteEngineInvalidOutput);
+        this.terminate(false);
       }
     });
   }

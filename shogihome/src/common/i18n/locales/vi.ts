@@ -730,6 +730,7 @@ export const vi: Texts = {
   serverInvalidJsonBody: "Nội dung yêu cầu phải là một đối tượng JSON hợp lệ.",
   invalidJKFStructure: "Cấu trúc dữ liệu JKF không hợp lệ.",
   jkfImportLimit: "Kích thước, số nước đi, số nhánh hoặc độ sâu JKF vượt giới hạn nhập.",
+  remoteEngineInvalidOutput: "Phản hồi của phần mềm không hợp lệ; phiên đã kết thúc.",
   serverFileNotFound: "Không tìm thấy tệp.",
   serverInvalidDestination: "Vị trí lưu không hợp lệ.",
   serverFileExists: "Tệp đã tồn tại.",

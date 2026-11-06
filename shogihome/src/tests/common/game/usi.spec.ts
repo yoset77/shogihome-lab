@@ -2,6 +2,7 @@ import { Color, Position } from "tsshogi";
 import {
   hasUSIPVMoves,
   isUSIPVEnd,
+  isUSITerminalOutput,
   parseInfoCommand,
   parseUSIPV,
   SCORE_MATE_INFINITE,
@@ -10,6 +11,40 @@ import {
 } from "@/common/game/usi";
 
 describe("common/game/usi", () => {
+  it.each([
+    "bestmove 7g7f",
+    "bestmove P*5e",
+    "bestmove 8h2b+ ponder 3a2b",
+    "bestmove resign",
+    "bestmove win",
+    "checkmate nomate",
+    "checkmate timeout",
+    "checkmate notimplemented",
+    "checkmate 7g7f 3c3d P*5e",
+  ])("accepts complete terminal output: %s", (output) => {
+    expect(isUSITerminalOutput(output)).toBe(true);
+  });
+
+  it.each([
+    "bestmove",
+    "bestmove ",
+    "bestmove\t7g7f",
+    "bestmove  7g7f",
+    "bestmoveXYZ 7g7f",
+    "bestmove 0z0z",
+    "bestmove 7g7fgarbage",
+    "bestmove 7g7f ponder",
+    "bestmove 7g7f ponder bogus",
+    "bestmove resign ponder 3c3d",
+    "bestmove 7g7f\n",
+    "checkmate",
+    "checkmate ",
+    "checkmate invalid",
+    "checkmate nomate 7g7f",
+    "checkmate 7g7f garbage",
+  ])("rejects malformed terminal output: %s", (output) => {
+    expect(isUSITerminalOutput(output)).toBe(false);
+  });
   it("parses depth, time, nodes, centipawn score, and PV", () => {
     const result = parseInfoCommand(
       "depth 10 time 1234 nodes 56789 score cp 300 pv 7g7f 3c3d 2g2f",
