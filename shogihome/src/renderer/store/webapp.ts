@@ -4,12 +4,12 @@ import {
   Record,
   RecordMetadataKey,
   exportJKFString,
-  importJKFString,
   areSameMoves,
   Move,
 } from "tsshogi";
 import { useErrorStore } from "./error.js";
 import { isMobileWebApp } from "@/renderer/ipc/api";
+import { importJKFSafely } from "@/common/file/jkf";
 
 const mobileRecordStorageKey = "mobile:record";
 const mobilePlyStorageKey = "mobile:ply";
@@ -43,7 +43,7 @@ export function loadRecordForWebApp(): Record | undefined {
 
   if (storedJKF && storedUsen) {
     const record = Record.newByUSEN(storedUsen, branch, ply);
-    const dataRecord = importJKFString(storedJKF);
+    const dataRecord = importJKFSafely(storedJKF);
     if (!(record instanceof Error) && !(dataRecord instanceof Error)) {
       // USENレコードからルートからの指し手パスを取得して、JKFレコード上でそのパスを再現する。
       // これにより、merge() のバグ（USEN内の不備が他のブランチに波及する問題）を回避しつつ、
@@ -85,7 +85,7 @@ export function loadRecordForWebApp(): Record | undefined {
   }
 
   if (storedJKF) {
-    const record = importJKFString(storedJKF);
+    const record = importJKFSafely(storedJKF);
     if (!(record instanceof Error)) {
       record.switchBranchByIndex(branch);
       record.goto(ply);

@@ -27,7 +27,6 @@ import {
   RecordMetadataKey,
   SpecialMove,
   SpecialMoveType,
-  importJKFString,
   Color,
   ImmutableNode,
 } from "tsshogi";
@@ -55,6 +54,7 @@ import {
 } from "@/common/record/snapshot";
 import type { AnalysisNodeResult } from "@/common/analysis/types";
 import { getRecordDocumentContent } from "@/renderer/helpers/record";
+import { importJKFSafely } from "@/common/file/jkf";
 
 type replaceRecordOption = {
   path?: string;
@@ -452,7 +452,7 @@ export class RecordManager {
         recordOrError = importCSA(data);
         break;
       case RecordFormatType.JKF:
-        recordOrError = importJKFString(data);
+        recordOrError = importJKFSafely(data);
         break;
       case RecordFormatType.USEN:
         recordOrError = Record.newByUSEN(data);
