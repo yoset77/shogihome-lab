@@ -246,6 +246,13 @@ describe("server batch analysis", () => {
     );
     await expect(files.prepare({ kind: "search", search: {} })).rejects.toThrow();
   });
+  it("validates search budgets before direct batch preparation reaches the database", async () => {
+    const query = vi.spyOn(kifuIndex, "getKifuSearchFilePaths");
+    await expect(
+      files.prepare({ kind: "search", search: { keyword: Array(17).fill("x").join(" ") } }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(query).not.toHaveBeenCalled();
+  });
   it("reuses one engine and saves each record within one parent job", async () => {
     await write("a.kifu");
     await write("b.kifu");

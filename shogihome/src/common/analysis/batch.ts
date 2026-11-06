@@ -1,7 +1,7 @@
 import type { AnalysisJobOptions } from "./types";
 import type { DecodeResult } from "@/common/engine/relay_protocol";
 import type { KifuSearchQuery } from "@/common/file/sfen_export";
-import { searchableStrategies, UNCLASSIFIED_STRATEGY } from "@/common/kifu/strategy_taxonomy";
+import { readKifuSearchQuery } from "@/common/file/kifu_search";
 import { normalizeSfen } from "@/common/usi/sfen";
 import { Position } from "tsshogi";
 import * as v from "./validation";
@@ -79,17 +79,11 @@ export function readBatchSource(value: unknown): BatchAnalysisSource {
       subdirectories: v.boolean(input.subdirectories),
     };
   if (input.kind !== "search") throw new Error("Invalid batch source");
-  const raw = v.object(input.search);
-  const search: KifuSearchQuery = {};
-  for (const key of ["keyword", "player1", "player2", "startDate"] as const)
-    if (raw[key] !== undefined) search[key] = v.text(raw[key], 1024);
-  if (raw.isStrictTurn !== undefined) search.isStrictTurn = v.boolean(raw.isStrictTurn);
-  if (raw.sfen !== undefined) {
-    search.sfen = normalizeSfen(v.text(raw.sfen, 1024));
+  const search = readKifuSearchQuery(input.search);
+  if (search.sfen) {
+    search.sfen = normalizeSfen(search.sfen);
     if (!Position.newBySFEN(`${search.sfen} 1`)) throw new Error("Invalid search position");
   }
-  if (raw.strategy !== undefined)
-    search.strategy = v.enumeration(raw.strategy, [...searchableStrategies, UNCLASSIFIED_STRATEGY]);
   return { kind: "search", search };
 }
 export function readBatchProgress(value: unknown): BatchAnalysisProgress {
