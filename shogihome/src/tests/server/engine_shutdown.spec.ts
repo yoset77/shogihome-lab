@@ -324,6 +324,33 @@ describe("engine shutdown persistence", () => {
     expect(infos.get(1)).toMatchObject({ depth: 101, upperbound: true });
   });
 
+  it("publishes bestmove before persistence and the ready state", () => {
+    const { ws, output, search } = setup(true);
+    search();
+    output.write("info depth 100 score cp 20 pv 7g7f\n");
+    ws.send.mockClear();
+
+    output.write("bestmove 7g7f\n");
+
+    const messages = ws.send.mock.calls.map(([frame]) => {
+      const decoded = decodeServerRelayMessage(frame);
+      if (!decoded.ok) throw new Error(decoded.error);
+      return decoded.value;
+    });
+    expect(messages).toEqual([
+      expect.objectContaining({ type: "engineOutput", output: "bestmove 7g7f", searchId: 1 }),
+      expect.objectContaining({ type: "state", state: "ready" }),
+      expect.objectContaining({
+        type: "searchSnapshot",
+        active: null,
+        terminal: expect.objectContaining({ searchId: 1, output: "bestmove 7g7f" }),
+      }),
+    ]);
+    const saveOrder = vi.mocked(saveAnalysisResults).mock.invocationCallOrder[0];
+    expect(saveOrder).toBeGreaterThan(ws.send.mock.invocationCallOrder[0]);
+    expect(saveOrder).toBeLessThan(ws.send.mock.invocationCallOrder[1]);
+  });
+
   it("consumes checkmate without saving normal analysis results", () => {
     const { session, ws, engine, output } = setup();
     ws.emit("message", "position startpos");

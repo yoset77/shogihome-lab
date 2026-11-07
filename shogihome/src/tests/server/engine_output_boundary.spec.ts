@@ -132,6 +132,53 @@ describe("engine output boundary", () => {
     },
   );
 
+  it.each(["relay", "internal"] as const)(
+    "preserves info string whitespace for %s output",
+    async (owner) => {
+      const engine = start(owner);
+      const line = "info string  learning\t progress  ";
+      engine.output.write(`${line}\n`);
+      await Promise.resolve();
+
+      const messages =
+        owner === "internal"
+          ? engine.events
+          : engine.ws.send.mock.calls.flatMap(([frame]) => {
+              const decoded = decodeServerRelayMessage(frame);
+              return decoded.ok ? [decoded.value] : [];
+            });
+      expect(messages).toContainEqual(
+        expect.objectContaining({ type: "engineOutput", output: line }),
+      );
+      engine.internal.onEngineClose();
+      engine.output.end();
+    },
+  );
+
+  it.each(["relay", "internal"] as const)(
+    "retains the existing info validation policy for %s output",
+    async (owner) => {
+      const engine = start(owner);
+      const line = "info depth 10 lowerbound pv 7g7f";
+      engine.output.write(`${line}\n`);
+      await Promise.resolve();
+
+      const messages =
+        owner === "internal"
+          ? engine.events
+          : engine.ws.send.mock.calls.flatMap(([frame]) => {
+              const decoded = decodeServerRelayMessage(frame);
+              return decoded.ok ? [decoded.value] : [];
+            });
+      expect(
+        messages.some((message) => message.type === "engineOutput" && message.output === line),
+      ).toBe(owner === "relay");
+      expect(engine.close).not.toHaveBeenCalled();
+      engine.internal.onEngineClose();
+      engine.output.end();
+    },
+  );
+
   it("resets a disconnected session without retaining an invalid replay snapshot", () => {
     const engine = start();
     Object.assign(engine.ws, { readyState: WebSocket.CLOSED });

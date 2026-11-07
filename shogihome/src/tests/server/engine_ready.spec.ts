@@ -145,7 +145,7 @@ describe("relay readiness deadlines", () => {
   );
 
   it("clears the deadline before starting queued commands and searches on readyok", () => {
-    const { session, engine, output, send, startNextGame, messages } = setup();
+    const { session, ws, engine, output, send, startNextGame, messages } = setup();
     startNextGame();
     send({
       type: "search",
@@ -155,6 +155,7 @@ describe("relay readiness deadlines", () => {
       go: "go infinite",
     });
     vi.advanceTimersByTime(RELAY_READY_TIMEOUT_MS - 1);
+    ws.send.mockClear();
     output.write("readyok\n");
     expect(engine.write.mock.calls.map(([command]) => command)).toEqual([
       "isready\n",
@@ -163,6 +164,29 @@ describe("relay readiness deadlines", () => {
       "go infinite\n",
     ]);
     expect(session.internalSnapshot.active).toBe(1);
+    expect(
+      messages().map((message) => {
+        switch (message.type) {
+          case "engineOutput":
+            return `output:${message.output}`;
+          case "state":
+            return `state:${message.state}`;
+          case "notice":
+            return `notice:${message.notice}`;
+          case "searchSnapshot":
+            return `snapshot:${message.active}`;
+          default:
+            return message.type;
+        }
+      }),
+    ).toEqual([
+      "output:readyok",
+      "state:ready",
+      "notice:engineReady",
+      "state:thinking",
+      "snapshot:1",
+      "snapshot:1",
+    ]);
     expect(vi.getTimerCount()).toBe(0);
     vi.advanceTimersByTime(RELAY_READY_TIMEOUT_MS + ENGINE_STOP_TIMEOUT_MS);
     expect(engine.close).not.toHaveBeenCalled();
