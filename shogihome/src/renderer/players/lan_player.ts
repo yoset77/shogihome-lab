@@ -1,6 +1,7 @@
 import { Player, SearchHandler, SearchInfo, MateHandler } from "./player";
-import { ImmutablePosition, Color, Move } from "tsshogi";
+import { ImmutablePosition, Move } from "tsshogi";
 import { TimeStates } from "@/common/game/time";
+import { gameGoCommand } from "@/common/game/usi_time";
 import { LanEngine } from "@/renderer/network/lan_engine";
 import type { ServerRelayMessage, SearchSnapshot } from "@/common/engine/relay_protocol";
 import { GameResult } from "@/common/game/result";
@@ -16,10 +17,10 @@ import { useToastStore } from "@/renderer/store/toast";
 
 import { generateSessionId } from "@/renderer/helpers/unique";
 
-// Must be longer than the server-side ENGINE_STOP_TIMEOUT_MS (fixed 10000ms
-// in config.ts). The server times out first and returns an error, which
-// resolves this wait.
-const STOP_WAIT_TIMEOUT_MS = 15000;
+// Must be longer than the server-side RELAY_READY_TIMEOUT_MS (15000ms) +
+// ENGINE_STOP_TIMEOUT_MS (10000ms) in config.ts. The server times out first
+// and returns an error, which resolves this wait.
+const STOP_WAIT_TIMEOUT_MS = 30000;
 const READY_REPLAY_TIMEOUT_MS = 5000;
 
 function normalizeEngineId(engineId: string): string {
@@ -307,25 +308,7 @@ export class LanPlayer implements Player {
         if (generation !== this.searchGeneration) return;
       }
 
-      // ShogiHome keeps the time after adding the increment.
-      // However, USI requires the time before adding the increment (btime + binc).
-      // So we subtract the increment from the current time.
-      const black = timeStates.black;
-      const white = timeStates.white;
-      const byoyomi = timeStates[position.color === Color.BLACK ? "black" : "white"].byoyomi || 0;
-
-      const btime = black.timeMs - (black.increment || 0) * 1e3;
-      const wtime = white.timeMs - (white.increment || 0) * 1e3;
-      const binc = byoyomi === 0 ? (black.increment || 0) * 1e3 : 0;
-      const winc = byoyomi === 0 ? (white.increment || 0) * 1e3 : 0;
-
-      let goCommand = `go btime ${btime} wtime ${wtime}`;
-      if (byoyomi > 0) {
-        goCommand += ` byoyomi ${byoyomi * 1e3}`;
-      } else if (binc > 0 || winc > 0) {
-        goCommand += ` binc ${binc} winc ${winc}`;
-      }
-      this.sendSearch(usi, goCommand);
+      this.sendSearch(usi, gameGoCommand(position.color, timeStates));
       this.isThinking = true;
       triggerOnStartSearch(this._sessionID, this.position);
     });

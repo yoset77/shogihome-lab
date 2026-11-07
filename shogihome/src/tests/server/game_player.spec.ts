@@ -60,6 +60,41 @@ describe("server game player", () => {
     };
   };
 
+  it("passes the game session's signal to readiness independently of search cancellation", async () => {
+    const { player, engine, start } = fixture();
+    const controller = new AbortController();
+    await player.launch({ id: "test", name: "Test" }, 60, controller.signal);
+    await player.readyNewGame();
+    expect(engine.readyNewGame).toHaveBeenCalledExactlyOnceWith(controller.signal);
+    await start();
+    const searchSignal = vi.mocked(engine.startSearch).mock.calls[0][3];
+    await player.cancelSearch();
+    expect(searchSignal.aborted).toBe(true);
+    expect(controller.signal.aborted).toBe(false);
+    await player.readyNewGame();
+    expect(engine.readyNewGame).toHaveBeenCalledTimes(2);
+    expect(engine.readyNewGame).toHaveBeenLastCalledWith(controller.signal);
+    await player.close();
+  });
+
+  it("propagates game session cancellation while waiting for readiness", async () => {
+    const { player, engine } = fixture();
+    const controller = new AbortController();
+    vi.mocked(engine.readyNewGame).mockImplementation(
+      (signal) =>
+        new Promise((_, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("Engine operation cancelled")), {
+            once: true,
+          });
+        }),
+    );
+    await player.launch({ id: "test", name: "Test" }, 60, controller.signal);
+    const ready = expect(player.readyNewGame()).rejects.toThrow("cancelled");
+    controller.abort();
+    await ready;
+    await player.close();
+  });
+
   it("strips the played move from the PV before recording the search info", async () => {
     const { onMove, start, emit, settle } = fixture();
     await start();

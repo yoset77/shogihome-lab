@@ -9,5 +9,6 @@ export function gameGoCommand(color: Color, times: TimeStates): string {
   if (byoyomi > 0) command += ` byoyomi ${byoyomi * 1000}`;
   else if (times.black.increment || times.white.increment)
     command += ` binc ${times.black.increment * 1000} winc ${times.white.increment * 1000}`;
+  else command += " byoyomi 0";
   return command;
 }

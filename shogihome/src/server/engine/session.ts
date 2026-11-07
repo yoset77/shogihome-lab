@@ -21,6 +21,7 @@ import {
   ANALYSIS_DB_MIN_DEPTH,
   CONNECTION_PROTECTION_TIMEOUT,
   ENGINE_STOP_TIMEOUT_MS,
+  RELAY_READY_TIMEOUT_MS,
   REMOTE_ENGINE_HOST,
   REMOTE_ENGINE_PORT,
 } from "@/server/config";
@@ -55,9 +56,12 @@ export class EngineSession {
   private engineHandle: EngineHandle | null = null;
   private connectingSocket: net.Socket | null = null;
   private engineState = EngineState.UNINITIALIZED;
+  // The startup readyok can be used by the first game only.
+  private readyForNewGame = false;
   private commandQueue: string[] = [];
   private postStopCommandQueue: string[] = [];
   private stopTimeout: NodeJS.Timeout | null = null;
+  private readyTimeout: NodeJS.Timeout | null = null;
   private terminationTimeout: NodeJS.Timeout | null = null;
   private currentEngineSfen: string | null = null;
   private pendingGoSfen: string | null = null;
@@ -383,6 +387,26 @@ export class EngineSession {
     }, ENGINE_STOP_TIMEOUT_MS);
   }
 
+  private clearReadyTimeout() {
+    if (this.readyTimeout) {
+      clearTimeout(this.readyTimeout);
+      this.readyTimeout = null;
+    }
+  }
+
+  private startReadyTimeout() {
+    if (this.owner !== "relay" || this.readyTimeout) return;
+    this.readyTimeout = setTimeout(() => {
+      this.readyTimeout = null;
+      if (this.engineState !== EngineState.WAITING_READYOK) return;
+      console.error(
+        `Engine for session ${this.sessionId} did not respond to isready within ${RELAY_READY_TIMEOUT_MS}ms. Resetting engine session.`,
+      );
+      this.sendError(t.remoteEngineReadyTimedOut);
+      this.closeEngineTransport();
+    }, RELAY_READY_TIMEOUT_MS);
+  }
+
   private terminate(graceful = true) {
     const alreadyTerminated = this.terminationRequested;
     this.terminationRequested = true;
@@ -415,6 +439,7 @@ export class EngineSession {
   private closeEngineTransport() {
     if (this.engineState === EngineState.TERMINATING) return;
     this.clearStopTimeout();
+    this.clearReadyTimeout();
     this.lastInfos.clear();
     this.currentEngineSfen = null;
     this.pendingGoSfen = null;
@@ -502,6 +527,21 @@ export class EngineSession {
         return;
       }
 
+      if (this.engineState === EngineState.WAITING_READYOK && command !== "isready") {
+        this.pushToQueue(this.commandQueue, command);
+        return;
+      }
+      if (command === "usinewgame" && !this.readyForNewGame) {
+        this.pushToQueue(this.commandQueue, command);
+        this.engineState = EngineState.WAITING_READYOK;
+        this.sendState();
+        this.startReadyTimeout();
+        this.sendToEngine("isready");
+        return;
+      }
+      if (command === "usinewgame" || command.startsWith("gameover") || command.startsWith("go")) {
+        this.readyForNewGame = false;
+      }
       if (command.startsWith("position ")) {
         this.currentEngineSfen = command;
       }
@@ -526,6 +566,10 @@ export class EngineSession {
     const latestGo = findLast(commands, (cmd) => cmd.startsWith("go"));
 
     if (startIndex >= 0) {
+      const previousGameover = findLast(this.postStopCommandQueue.slice(0, startIndex), (cmd) =>
+        cmd.startsWith("gameover"),
+      );
+      if (previousGameover) result.push(previousGameover.command);
       result.push("usinewgame");
     }
     if (latestMultiPV) {
@@ -561,6 +605,8 @@ export class EngineSession {
   }
 
   private onEngineClose() {
+    this.readyForNewGame = false;
+    this.clearReadyTimeout();
     if (this.terminationTimeout) {
       clearTimeout(this.terminationTimeout);
       this.terminationTimeout = null;
@@ -648,6 +694,14 @@ export class EngineSession {
       }
 
       if (terminal && !isUSITerminalOutput(line)) throw new Error("Invalid USI terminal output");
+      if (
+        terminal &&
+        [EngineState.STARTING, EngineState.WAITING_USIOK, EngineState.WAITING_READYOK].includes(
+          this.engineState,
+        )
+      ) {
+        return;
+      }
 
       if (line.startsWith("info ")) {
         const parsed =
@@ -722,13 +776,13 @@ export class EngineSession {
           const commandsToRun = this.collectPostStopCommands();
           this.postStopCommandQueue.length = 0;
           this.engineState = EngineState.READY;
-          this.sendState();
 
           if (commandsToRun.length > 0) {
             for (const command of commandsToRun) {
               this.sendToEngine(command);
             }
           }
+          this.sendState();
         } else {
           this.engineState = EngineState.READY;
           this.sendState();
@@ -741,15 +795,16 @@ export class EngineSession {
         this.engineState = EngineState.WAITING_READYOK;
         this.sendToEngine("isready");
       } else if (this.engineState === EngineState.WAITING_READYOK && line.trim() === "readyok") {
+        this.clearReadyTimeout();
         this.engineState = EngineState.READY;
+        this.readyForNewGame = true;
+        // Replaying may start another readiness check; do not drain a live queue.
+        for (const command of this.commandQueue.splice(0)) this.sendToEngine(command);
         this.sendState();
-        this.sendToClient({ type: "notice", notice: "engineReady" });
+        if (this.engineState === EngineState.READY || this.engineState === EngineState.THINKING)
+          this.sendToClient({ type: "notice", notice: "engineReady" });
         this.startQueuedSearch();
         this.sendSearchSnapshot();
-        while (this.commandQueue.length > 0) {
-          const command = this.commandQueue.shift();
-          if (command) this.sendToEngine(command);
-        }
       }
     };
     interface_.on("line", (line) => {
@@ -770,6 +825,7 @@ export class EngineSession {
       return;
     }
     this.engineState = EngineState.STARTING;
+    this.readyForNewGame = false;
     this.currentEngineId = engineId;
     const instanceId = this.instanceId;
     try {

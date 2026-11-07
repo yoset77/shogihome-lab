@@ -718,6 +718,7 @@ export const zh_tw: Texts = {
   invalidJKFStructure: "JKF 資料結構無效。",
   jkfImportLimit: "JKF 大小、步數、分支數或深度超過匯入上限。",
   remoteEngineInvalidOutput: "引擎回應無效，已終止工作階段。",
+  remoteEngineReadyTimedOut: "等待引擎準備完成逾時，已重設工作階段。",
   serverInvalidKifuSearch: "棋譜搜尋條件無效或超過輸入上限。",
   serverInvalidKifuPagination: "棋譜搜尋的筆數或起始位置無效。",
   serverKifuSearchRateLimit: "棋譜搜尋次數過多，請稍後再試。",

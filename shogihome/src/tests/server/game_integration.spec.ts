@@ -22,7 +22,7 @@ import { gameRequest, gameCommand } from "./helpers/game";
 import type { AppEnv } from "@/server/hono";
 import { getHistory } from "@/server/file/history";
 import { HistoryClass } from "@/common/file/history";
-import { importKIF, Record } from "tsshogi";
+import { importKIF, Record, SpecialMoveType } from "tsshogi";
 
 const wrapperConfig = vi.hoisted(() => ({ port: 0, directory: "" }));
 vi.mock("@/node/proc/path", () => ({ getUserDataPath: () => wrapperConfig.directory }));
@@ -46,6 +46,10 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
   const connections = new Set<net.Socket>();
   const browsers = new Set<WebSocket>();
   let commands: string[];
+  let engineCommands: string[][];
+  let holdInitialReady: boolean;
+  let holdNextGameReady: boolean;
+  let pendingReady: (() => void)[];
   const saveRecord = vi.fn(async () => "saved.kifu");
   const token = process.env.WRAPPER_ACCESS_TOKEN;
   const config = { id: "test-game", name: "Game Fixture", type: ["game"], skipAnalysisDB: true };
@@ -58,6 +62,10 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
   beforeEach(async () => {
     delete process.env.WRAPPER_ACCESS_TOKEN;
     commands = [];
+    engineCommands = [];
+    holdInitialReady = false;
+    holdNextGameReady = false;
+    pendingReady = [];
     saveRecord.mockReset().mockResolvedValue("saved.kifu");
     directory = await fs.mkdtemp(path.join(os.tmpdir(), "game-wrapper-"));
     wrapperConfig.directory = path.join(directory, "data");
@@ -108,6 +116,8 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
     } else {
       tcp = net.createServer((socket) => {
         connections.add(socket);
+        const received: string[] = [];
+        engineCommands.push(received);
         let position = "position startpos";
         let timer: ReturnType<typeof setTimeout> | undefined;
         socket.on("close", () => {
@@ -116,10 +126,17 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
         });
         readline.createInterface({ input: socket }).on("line", (line) => {
           commands.push(line);
+          received.push(line);
           if (line === "list") socket.end(JSON.stringify([config]) + "\n");
           else if (line === "usi") socket.write("id name Game Fixture\nusiok\n");
-          else if (line === "isready") socket.write("readyok\n");
-          else if (line.startsWith("position ")) position = line;
+          else if (line === "isready") {
+            if (
+              holdInitialReady ||
+              (holdNextGameReady && received.filter((command) => command === "isready").length > 1)
+            )
+              pendingReady.push(() => socket.write("readyok\n"));
+            else socket.write("readyok\n");
+          } else if (line.startsWith("position ")) position = line;
           else if (line.startsWith("go ")) {
             const ply = position.includes(" moves ")
               ? position.split(" moves ")[1].split(" ").length
@@ -315,13 +332,22 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
     ).toBe(false);
   });
 
-  it("finishes repeated AI games with no browser and releases both TCP engines", async () => {
+  it.each([
+    { byoyomi: 10, increment: 0, suffix: "byoyomi 10000" },
+    { byoyomi: 0, increment: 2, suffix: "binc 2000 winc 2000" },
+    { byoyomi: 0, increment: 0, suffix: "byoyomi 0" },
+  ])("finishes repeated AI games with $suffix and releases both TCP engines", async (time) => {
     const request = gameRequest();
     request.serverInstanceId = manager.serverInstanceId;
     request.settings.black = request.settings.white = { uri: "lan-engine:test-game", name: "AI" };
     request.settings.repeat = 2;
     request.settings.swapPlayers = true;
     request.settings.enableAutoSave = true;
+    request.settings.timeLimit = {
+      timeSeconds: 60,
+      byoyomi: time.byoyomi,
+      increment: time.increment,
+    };
     const created = (await call("", request)) as GameSnapshot;
     await manager.get(created.sessionId).completion;
     const result = (await call(`/${created.sessionId}`)) as GameSnapshot;
@@ -333,10 +359,136 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
     if (mode === "rust" && directory)
       commands = (await fs.readFile(path.join(directory, "engine.log"), "utf8")).trim().split("\n");
     expect(commands.filter((line) => line === "usinewgame")).toHaveLength(4);
+    expect(commands.filter((line) => line === "isready")).toHaveLength(4);
     expect(commands.some((line) => line.startsWith("go btime "))).toBe(true);
     expect(commands.some((line) => line.startsWith("go ponder"))).toBe(false);
+    expect(
+      commands.filter((line) => line.startsWith("go ")).every((line) => line.endsWith(time.suffix)),
+    ).toBe(true);
+    expect(
+      commands.filter((line) => line === `go btime 60000 wtime 60000 ${time.suffix}`),
+    ).toHaveLength(2);
+    if (mode === "tcp") {
+      const traces = engineCommands.filter((received) => received.includes("usi"));
+      expect(traces).toHaveLength(2);
+      for (const received of traces) {
+        expect(
+          received.filter((line) => /^(usi|isready|usinewgame|gameover .*)$/.test(line)),
+        ).toEqual([
+          "usi",
+          "isready",
+          "usinewgame",
+          expect.stringMatching(/^gameover (win|lose)$/),
+          "isready",
+          "usinewgame",
+          expect.stringMatching(/^gameover (win|lose)$/),
+        ]);
+        for (let index = 0; index < received.length; index++) {
+          if (received[index].startsWith("go ")) expect(received[index - 1]).toMatch(/^position /);
+        }
+      }
+    }
     await vi.waitFor(() => expect(connections.size).toBe(0));
   });
+
+  if (mode === "tcp") {
+    it("reports interruption during the initial engine launch as cancelled", async () => {
+      holdInitialReady = true;
+      const request = gameRequest();
+      request.serverInstanceId = manager.serverInstanceId;
+      request.settings.black = { uri: "lan-engine:test-game", name: "AI" };
+      const created = (await call("", request)) as GameSnapshot;
+      const controller = await browser(created);
+      const session = manager.get(created.sessionId);
+      await vi.waitFor(() => expect(pendingReady).toHaveLength(1));
+      expect(session.snapshot()).toMatchObject({ state: "preparing", gameNumber: 0 });
+      await call(`/${created.sessionId}/commands`, gameCommand(controller.latest(), "interrupt"));
+      await session.completion;
+      expect(session.snapshot()).toMatchObject({
+        state: "completed",
+        lastResult: SpecialMoveType.INTERRUPT,
+        results: { total: 0 },
+      });
+      expect(session.snapshot().error).toBeUndefined();
+      expect(session.summary().state).toBe("cancelled");
+      expect(commands).not.toContain("usinewgame");
+      expect(commands.some((line) => line.startsWith("go "))).toBe(false);
+      await vi.waitFor(() => expect(connections.size).toBe(0));
+    });
+
+    it.each([1, 2])(
+      "cancels next-game readiness without an engine failure with parallelism=%s",
+      async (parallelism) => {
+        holdNextGameReady = true;
+        const request = gameRequest();
+        request.serverInstanceId = manager.serverInstanceId;
+        Object.assign(request.settings, {
+          black: { uri: "lan-engine:test-game", name: "AI" },
+          white: { uri: "lan-engine:test-game", name: "AI" },
+          repeat: parallelism * 2,
+          parallelism,
+          enableAutoSave: true,
+        });
+        const created = (await call("", request)) as GameSnapshot;
+        const controller = parallelism === 1 ? await browser(created) : undefined;
+        const session = manager.get(created.sessionId);
+        await vi.waitFor(() => expect(pendingReady).toHaveLength(parallelism * 2), {
+          timeout: 4000,
+        });
+        expect(session.snapshot().results.total).toBe(parallelism);
+        const searches = commands.filter((line) => line.startsWith("go ")).length;
+        if (controller)
+          await call(
+            `/${created.sessionId}/commands`,
+            gameCommand(controller.latest(), "interrupt"),
+          );
+        else await call(`/${created.sessionId}/cancel`, {});
+        await session.completion;
+        expect(session.snapshot()).toMatchObject({
+          state: "completed",
+          results: { total: parallelism, invalid: 0 },
+        });
+        expect(session.snapshot().error).toBeUndefined();
+        expect(session.summary().state).toBe("cancelled");
+        expect(saveRecord).toHaveBeenCalledTimes(parallelism);
+        expect(commands.filter((line) => line.startsWith("go "))).toHaveLength(searches);
+        expect(commands.filter((line) => line === "usinewgame")).toHaveLength(parallelism * 2);
+        await vi.waitFor(() => expect(connections.size).toBe(0));
+      },
+    );
+
+    it("waits for both engines' next-game readyok before starting clocks or searches", async () => {
+      holdNextGameReady = true;
+      const request = gameRequest();
+      request.serverInstanceId = manager.serverInstanceId;
+      request.settings.black = request.settings.white = { uri: "lan-engine:test-game", name: "AI" };
+      request.settings.repeat = 2;
+      request.settings.timeLimit = { timeSeconds: 60, byoyomi: 0, increment: 2 };
+      const created = (await call("", request)) as GameSnapshot;
+      const session = manager.get(created.sessionId);
+      await vi.waitFor(() => expect(pendingReady).toHaveLength(2), { timeout: 4000 });
+      expect(session.snapshot()).toMatchObject({
+        state: "preparing",
+        gameNumber: 2,
+        clocks: {
+          black: { timeMs: 62_000, running: false },
+          white: { timeMs: 62_000, running: false },
+        },
+      });
+      const searches = commands.filter((line) => line.startsWith("go ")).length;
+      expect(commands.filter((line) => line === "usinewgame")).toHaveLength(2);
+      pendingReady[0]();
+      await vi.waitFor(() =>
+        expect(commands.filter((line) => line === "usinewgame")).toHaveLength(3),
+      );
+      expect(commands.filter((line) => line.startsWith("go "))).toHaveLength(searches);
+      expect(session.snapshot().clocks.black.running).toBe(false);
+      pendingReady[1]();
+      await session.completion;
+      expect(session.snapshot()).toMatchObject({ state: "completed", results: { total: 2 } });
+      expect(commands.filter((line) => line === "isready")).toHaveLength(4);
+    });
+  }
   it("runs parallel games without a browser, reuses four TCP engines, and holds aggregate resources", async () => {
     resourceRegistry.resetForTest(true, [{ id: "g", name: "G", budget: 8 }]);
     manager = new GameSessionManager({
@@ -372,6 +524,7 @@ describe.each(modes)("game HTTP/WebSocket/USI integration (%s)", (mode) => {
       commands = (await fs.readFile(path.join(directory, "engine.log"), "utf8")).trim().split("\n");
     expect(commands.filter((line) => line === "usi")).toHaveLength(4);
     expect(commands.filter((line) => line === "usinewgame")).toHaveLength(8);
+    expect(commands.filter((line) => line === "isready")).toHaveLength(8);
     expect(commands.filter((line) => line.startsWith("go btime "))).toHaveLength(20);
     expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
     await vi.waitFor(() => expect(connections.size).toBe(0));

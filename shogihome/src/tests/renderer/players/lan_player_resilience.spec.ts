@@ -164,7 +164,7 @@ describe("LanPlayer resilience", () => {
     stopPromise.catch(() => {
       rejected = true;
     });
-    await vi.advanceTimersByTimeAsync(16000);
+    await vi.advanceTimersByTimeAsync(31000);
     expect(resolved).toBe(false);
     expect(rejected).toBe(false);
 
@@ -198,13 +198,13 @@ describe("LanPlayer resilience", () => {
       rejected = true;
     });
 
-    await vi.advanceTimersByTimeAsync(16000);
+    await vi.advanceTimersByTimeAsync(31000);
     expect(rejected).toBe(false);
 
     (LanEngine.prototype.isConnected as Mock).mockReturnValue(true);
     updateStatus("connected");
 
-    await vi.advanceTimersByTimeAsync(14999);
+    await vi.advanceTimersByTimeAsync(29999);
     expect(rejected).toBe(false);
 
     await vi.advanceTimersByTimeAsync(1);
@@ -238,14 +238,14 @@ describe("LanPlayer resilience", () => {
       (player as unknown as { stopPromiseTimeoutId: number | null }).stopPromiseTimeoutId,
     ).toBe(null);
 
-    await vi.advanceTimersByTimeAsync(16000);
+    await vi.advanceTimersByTimeAsync(31000);
     expect(rejected).toBe(false);
     expect(
       (player as unknown as { stopPromiseTimeoutId: number | null }).stopPromiseTimeoutId,
     ).toBe(null);
 
     updateStatus("connected");
-    await vi.advanceTimersByTimeAsync(15000);
+    await vi.advanceTimersByTimeAsync(30000);
     await stopResult;
   });
 

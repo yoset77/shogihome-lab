@@ -64,9 +64,12 @@ export const parseAllowedFetchDomains = (raw: string | undefined): Set<string> =
 
 export const PORT = parseIntegerEnv("PORT", 8140, 1, 65535);
 
-// Keep this below the client-side STOP_WAIT_TIMEOUT_MS (15s) so the server
-// times out first and returns an error that resolves the client wait.
+// Keep RELAY_READY_TIMEOUT_MS + ENGINE_STOP_TIMEOUT_MS below the client-side
+// STOP_WAIT_TIMEOUT_MS (30s) so the server times out first and returns an error.
 export const ENGINE_STOP_TIMEOUT_MS = 10000;
+
+// Relay re-readiness only; startup and internal waits use the caller's timeout.
+export const RELAY_READY_TIMEOUT_MS = 15_000;
 
 export const GAME_DETACHED_TTL_MS =
   parseIntegerEnv("GAME_DETACHED_TTL_MINUTES", 30, 1, 1440) * 60_000;

@@ -238,6 +238,7 @@ describe("HTTP analysis through the real TCP/USI session", () => {
         });
         expect(commands.filter((line) => line === "usi")).toHaveLength(parallelism);
         expect(commands.filter((line) => line === "usinewgame")).toHaveLength(4);
+        expect(commands.filter((line) => line === "isready")).toHaveLength(4);
         expect(commands.filter((line) => line === "setoption name MultiPV value 3")).toHaveLength(
           parallelism,
         );

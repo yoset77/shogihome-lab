@@ -19,7 +19,7 @@ export interface ResearchEngine {
     resourceLease?: ResourceLease,
   ): Promise<void>;
   setMultiPV(value: number): void;
-  readyNewGame(): void;
+  readyNewGame(signal: AbortSignal): Promise<void>;
   startResearch(
     position: string,
     onOutput: (line: string) => void,
@@ -43,6 +43,7 @@ export class InternalEngine implements ResearchEngine {
   private session = new EngineSession(`internal-${randomUUID()}`, undefined, "internal");
   private nextSearchId = 0;
   private closing?: Promise<void>;
+  private readyTimeoutMs = 10_000;
   // Caller-provided leases are owned by the caller (game session, job
   // manager) and must not be released here. Only leases acquired by this
   // engine itself are released on close.
@@ -87,6 +88,7 @@ export class InternalEngine implements ResearchEngine {
     resourceLease?: ResourceLease,
   ): Promise<void> {
     if (signal.aborted) throw new Error("Engine operation cancelled");
+    this.readyTimeoutMs = timeoutSeconds * 1000;
     this.ownLease?.release();
     this.ownLease = undefined;
     const lease = resourceLease ?? this.sharedLease;
@@ -115,8 +117,14 @@ export class InternalEngine implements ResearchEngine {
     });
   }
 
-  readyNewGame(): void {
+  async readyNewGame(signal: AbortSignal): Promise<void> {
+    if (signal.aborted) throw new Error("Engine operation cancelled");
     this.session.dispatchInternal({ type: "usi", command: "usinewgame" });
+    await this.wait(
+      () => this.session.internalSnapshot.state === EngineState.READY,
+      this.readyTimeoutMs,
+      signal,
+    );
   }
 
   async startResearch(

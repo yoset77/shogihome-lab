@@ -64,6 +64,62 @@ describe("server game sessions", () => {
     await session.close();
   });
 
+  it("publishes both next-move budgets from startup and credits duplicate moves only once", async () => {
+    const request = gameRequest();
+    request.settings.white = { uri: "lan-engine:test", name: "AI" };
+    request.settings.timeLimit = { timeSeconds: 60, byoyomi: 0, increment: 2 };
+    request.settings.whiteTimeLimit = { timeSeconds: 60, byoyomi: 0, increment: 3 };
+    const fake = fakeGamePlayer();
+    const session = new GameSession("fischer", request, {
+      playerBuilder: fake.builder,
+      now: () => Date.now(),
+    });
+    session.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const send = vi.fn();
+    connectGame(session, send);
+    try {
+      expect(send).toHaveBeenLastCalledWith({
+        type: "snapshot",
+        value: expect.objectContaining({
+          clocks: {
+            black: { timeMs: 62_000, byoyomiMs: 0, elapsedMs: 0, running: false },
+            white: { timeMs: 63_000, byoyomiMs: 0, elapsedMs: 0, running: false },
+          },
+        }),
+      });
+      await session.command(gameCommand(session.snapshot(), "resume"));
+      await vi.advanceTimersByTimeAsync(1250);
+      const command = gameCommand(session.snapshot(), "move", { move: "7g7f" });
+      await Promise.all([session.command(command), session.command(command)]);
+      expect(send).toHaveBeenLastCalledWith({
+        type: "snapshot",
+        value: expect.objectContaining({
+          clocks: {
+            black: { timeMs: 62_750, byoyomiMs: 0, elapsedMs: 1250, running: false },
+            white: { timeMs: 63_000, byoyomiMs: 0, elapsedMs: 0, running: true },
+          },
+        }),
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      fake.searches[0].handler.onMove(
+        restoreRecord(session.snapshot().record).record.position.createMoveByUSI("3c3d")!,
+      );
+      const snapshot = session.snapshot();
+      expect(snapshot.clocks).toEqual({
+        black: { timeMs: 62_750, byoyomiMs: 0, elapsedMs: 0, running: true },
+        white: { timeMs: 65_000, byoyomiMs: 0, elapsedMs: 1000, running: false },
+      });
+      const record = restoreRecord(snapshot.record).record;
+      expect(record.moves[1].elapsedMs).toBe(1250);
+      expect(record.moves[2].elapsedMs).toBe(1000);
+    } finally {
+      const closing = session.close();
+      await vi.advanceTimersByTimeAsync(0);
+      await closing;
+    }
+  });
+
   it("pauses exact human time on disconnect and resumes only after a synchronized command", async () => {
     const { session, connection } = await humanGame();
     await vi.advanceTimersByTimeAsync(1250);
@@ -1017,28 +1073,85 @@ describe("server game sessions", () => {
     await manager.close();
   });
 
-  it("closes both players when repeated-game preparation fails", async () => {
-    const request = gameRequest();
-    request.settings.black = { uri: "lan-engine:black", name: "Black" };
-    request.settings.white = { uri: "lan-engine:white", name: "White" };
-    request.settings.repeat = 2;
-    const fake = fakeGamePlayer();
-    vi.mocked(fake.player.startSearch).mockImplementation(async (_p, _u, _t, handler) =>
-      handler.onResign(),
-    );
-    vi.mocked(fake.player.readyNewGame)
-      .mockResolvedValueOnce()
-      .mockResolvedValueOnce()
-      .mockRejectedValueOnce(new Error("Connection closed"));
-    const session = new GameSession("failure", request, { playerBuilder: fake.builder });
-    session.start();
-    await vi.advanceTimersByTimeAsync(10);
-    await session.completion;
-    expect(session.snapshot().state).toBe("failed");
-    expect(fake.player.close).toHaveBeenCalledTimes(2);
-    expect(saveBackup).toHaveBeenCalledOnce();
-    await session.close();
-  });
+  it.each([1, 2])(
+    "closes both players and reports readiness failure in game %s",
+    async (gameNumber) => {
+      const request = gameRequest();
+      request.settings.black = { uri: "lan-engine:black", name: "Black" };
+      request.settings.white = { uri: "lan-engine:white", name: "White" };
+      request.settings.repeat = 2;
+      const fake = fakeGamePlayer();
+      vi.mocked(fake.player.startSearch).mockImplementation(async (_p, _u, _t, handler) =>
+        handler.onResign(),
+      );
+      if (gameNumber === 2)
+        vi.mocked(fake.player.readyNewGame).mockResolvedValueOnce().mockResolvedValueOnce();
+      vi.mocked(fake.player.readyNewGame).mockRejectedValueOnce(new Error("Connection closed"));
+      const session = new GameSession("failure", request, { playerBuilder: fake.builder });
+      session.start();
+      await vi.advanceTimersByTimeAsync(10);
+      await session.completion;
+      expect(session.snapshot()).toMatchObject({ state: "failed", error: "engine" });
+      expect(session.summary().state).toBe("failed");
+      expect(fake.player.close).toHaveBeenCalledTimes(2);
+      expect(saveBackup).toHaveBeenCalledTimes(gameNumber - 1);
+      await session.close();
+    },
+  );
+
+  it.each(["resolve", "reject"] as const)(
+    "preserves cleanup failures after interrupting readiness that will %s",
+    async (outcome) => {
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      const ready = Promise.withResolvers<void>();
+      const cleanup = Promise.withResolvers<void>();
+      const closeError = new Error("Close failed");
+      const request = gameRequest();
+      request.settings.black = { uri: "lan-engine:black", name: "Black" };
+      request.settings.white = { uri: "lan-engine:white", name: "White" };
+      request.settings.repeat = 2;
+      const fake = fakeGamePlayer();
+      vi.mocked(fake.player.startSearch).mockImplementation(async (_p, _u, _t, handler) =>
+        handler.onResign(),
+      );
+      vi.mocked(fake.player.readyNewGame)
+        .mockResolvedValueOnce()
+        .mockResolvedValueOnce()
+        .mockImplementation(() => ready.promise);
+      vi.mocked(fake.player.close)
+        .mockRejectedValueOnce(closeError)
+        .mockImplementationOnce(() => cleanup.promise);
+      const session = new GameSession("cleanup", request, { playerBuilder: fake.builder });
+      const completed = vi.fn();
+      void session.completion.then(completed);
+      session.start();
+      try {
+        await vi.advanceTimersByTimeAsync(10);
+        expect(fake.player.readyNewGame).toHaveBeenCalledTimes(4);
+        connectGame(session);
+        await session.command(gameCommand(session.snapshot(), "interrupt"));
+        if (outcome === "reject") ready.reject(new Error("Engine operation cancelled"));
+        else ready.resolve();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(fake.player.close).toHaveBeenCalledTimes(2);
+        expect(completed).not.toHaveBeenCalled();
+        cleanup.resolve();
+        await session.completion;
+        expect(session.snapshot()).toMatchObject({ state: "failed", error: "engine" });
+        expect(session.summary().state).toBe("failed");
+        expect(log).toHaveBeenCalledOnce();
+        expect((log.mock.calls[0][1] as Error).cause).toBe(closeError);
+        expect(saveBackup).toHaveBeenCalledOnce();
+      } finally {
+        ready.resolve();
+        cleanup.resolve();
+        const closing = session.close();
+        await vi.advanceTimersByTimeAsync(0);
+        await closing;
+        log.mockRestore();
+      }
+    },
+  );
 
   it("can interrupt before the initial turn timer starts", async () => {
     const request = gameRequest();

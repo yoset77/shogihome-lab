@@ -739,6 +739,8 @@ export const en: Texts = {
   invalidJKFStructure: "Invalid JKF data structure.",
   jkfImportLimit: "JKF size, move count, fork count, or depth exceeds the import limit.",
   remoteEngineInvalidOutput: "Invalid engine output; the session was terminated.",
+  remoteEngineReadyTimedOut:
+    "Timed out waiting for the engine to become ready. The session was reset.",
   serverInvalidKifuSearch: "Invalid record search filters or input limit exceeded.",
   serverInvalidKifuPagination: "Invalid record search limit or offset.",
   serverKifuSearchRateLimit: "Too many record searches. Wait a moment and try again.",
