@@ -75,6 +75,26 @@ describe("engine cancellation barrier", () => {
     expect(snapshot().value.settled).toBe(3);
   });
 
+  it.each(["raw", "identified"])(
+    "does not resend stop or extend its deadline when %s stop is followed by the other route",
+    (first) => {
+      const { search, internal, instanceId, engine } = setup();
+      search(1);
+      const raw: ClientRelayMessage = { type: "usi", command: "stop" };
+      const identified: ClientRelayMessage = { type: "stopSearch", instanceId, searchId: 1 };
+
+      internal.handleMessage(first === "raw" ? raw : identified);
+      vi.advanceTimersByTime(4000);
+      internal.handleMessage(first === "raw" ? identified : raw);
+
+      expect(engine.write.mock.calls.filter(([line]) => line === "stop\n")).toHaveLength(1);
+      vi.advanceTimersByTime(5999);
+      expect(engine.close).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(engine.close).toHaveBeenCalledOnce();
+    },
+  );
+
   it("replays completion even when the original notification was sent on an open socket", () => {
     const { search, stream, session, ws, snapshot } = setup();
     search(1);

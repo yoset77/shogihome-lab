@@ -35,20 +35,9 @@ import {
   type EngineHandle,
   type ExtendedWebSocket,
 } from "@/server/engine/types";
+import { mergeAnalysisInfo, selectAnalysisInfosForSave } from "./analysis_info";
+import { collectPostStopCommands } from "./command_queue";
 import { engineRequirements, resourceRegistry, type ResourceLease } from "./resources";
-
-const findLast = (
-  commands: string[],
-  predicate: (command: string) => boolean,
-): { command: string; index: number } | undefined => {
-  for (let index = commands.length - 1; index >= 0; index--) {
-    const command = commands[index];
-    if (predicate(command)) {
-      return { command, index };
-    }
-  }
-  return undefined;
-};
 
 export class EngineSession {
   private currentEngineId: string | null = null;
@@ -161,7 +150,7 @@ export class EngineSession {
     this.sendSearchSnapshot();
   }
 
-  private stopIdentifiedSearch() {
+  private requestSearchStop() {
     if (this.engineState !== EngineState.THINKING) return;
     this.engineState = EngineState.STOPPING_SEARCH;
     this.postStopCommandQueue.length = 0;
@@ -195,7 +184,7 @@ export class EngineSession {
     this.acceptedSearch = search;
     this.queuedSearch = search;
     this.terminalSearch = null;
-    this.stopIdentifiedSearch();
+    this.requestSearchStop();
     this.startQueuedSearch();
     this.sendSearchSnapshot();
   }
@@ -209,7 +198,7 @@ export class EngineSession {
     if (this.queuedSearch && this.queuedSearch.searchId <= this.cancelledThrough)
       this.queuedSearch = null;
     if (this.activeSearch && this.activeSearch.searchId <= this.cancelledThrough) {
-      this.stopIdentifiedSearch();
+      this.requestSearchStop();
     } else {
       this.settledThrough = this.cancelledThrough;
     }
@@ -555,55 +544,6 @@ export class EngineSession {
     }
   }
 
-  private collectPostStopCommands(): string[] {
-    const startIndex = this.postStopCommandQueue.lastIndexOf("usinewgame");
-    const commands = this.postStopCommandQueue.slice(startIndex >= 0 ? startIndex : 0);
-    const result: string[] = [];
-
-    const latestMultiPV = findLast(commands, (cmd) => cmd.startsWith("setoption name MultiPV"));
-    const latestGameover = findLast(commands, (cmd) => cmd.startsWith("gameover"));
-    const latestPosition = findLast(commands, (cmd) => cmd.startsWith("position"));
-    const latestGo = findLast(commands, (cmd) => cmd.startsWith("go"));
-
-    if (startIndex >= 0) {
-      const previousGameover = findLast(this.postStopCommandQueue.slice(0, startIndex), (cmd) =>
-        cmd.startsWith("gameover"),
-      );
-      if (previousGameover) result.push(previousGameover.command);
-      result.push("usinewgame");
-    }
-    if (latestMultiPV) {
-      result.push(latestMultiPV.command);
-    }
-    if (latestGameover) {
-      result.push(latestGameover.command);
-    }
-    if (latestPosition) {
-      result.push(latestPosition.command);
-    }
-    if (latestGo && (!latestPosition || latestGo.index > latestPosition.index)) {
-      result.push(latestGo.command);
-    }
-
-    const knownCommands = new Set(result);
-    const knownKinds = new Set([
-      "setoption name MultiPV",
-      "gameover",
-      "position",
-      "go",
-      "usinewgame",
-    ]);
-    for (const command of commands) {
-      const known =
-        knownKinds.has(command) || [...knownKinds].some((kind) => command.startsWith(kind));
-      if (!known && !knownCommands.has(command)) {
-        result.push(command);
-        knownCommands.add(command);
-      }
-    }
-    return result;
-  }
-
   private onEngineClose() {
     this.readyForNewGame = false;
     this.clearReadyTimeout();
@@ -654,18 +594,7 @@ export class EngineSession {
     ) {
       return;
     }
-    const validInfos = new Map<number, USIInfoCommand>();
-    const savedMoves = new Set<string>();
-    const sortedInfos = [...this.lastInfos.entries()].sort(([a], [b]) => a - b);
-    for (const [multipv, info] of sortedInfos) {
-      if (info.depth === undefined || info.depth < ANALYSIS_DB_MIN_DEPTH) continue;
-
-      const firstMove = info.pv?.[0];
-      if (firstMove && savedMoves.has(firstMove)) continue;
-      if (firstMove) savedMoves.add(firstMove);
-      validInfos.set(multipv, info);
-    }
-
+    const validInfos = selectAnalysisInfosForSave(this.lastInfos, ANALYSIS_DB_MIN_DEPTH);
     if (validInfos.size === 0) return;
     const parsedSfen = getNormalizedSfenAndHash(this.pendingGoSfen);
     if (!parsedSfen) return;
@@ -679,143 +608,140 @@ export class EngineSession {
     const interface_ = rl || readline.createInterface({ input: stream });
     // Socket handlers own transport errors; consume readline's forwarded errors.
     interface_.on("error", () => {});
-    const onLine = (line: string) => {
-      const terminal = /^(bestmove|checkmate)/.test(line.trimStart());
-      if (terminal) line = line.trim().replace(/[ \t]+/g, " ");
-      if (!line.startsWith("info")) {
-        console.log(`Engine output (${this.sessionId}): ${line}`);
-      }
-
-      if (
-        this.engineState === EngineState.TERMINATING ||
-        this.engineState === EngineState.STOPPED
-      ) {
-        return;
-      }
-
-      if (terminal && !isUSITerminalOutput(line)) throw new Error("Invalid USI terminal output");
-      if (
-        terminal &&
-        [EngineState.STARTING, EngineState.WAITING_USIOK, EngineState.WAITING_READYOK].includes(
-          this.engineState,
-        )
-      ) {
-        return;
-      }
-
-      if (line.startsWith("info ")) {
-        const parsed =
-          this.owner === "internal" ? parseAnalysisInfo(line) : parseInfoCommand(line.substring(5));
-        if (!parsed) return;
-        const hasScore = parsed.scoreCP !== undefined || parsed.scoreMate !== undefined;
-        const hasInvalidBound =
-          (parsed.lowerbound && parsed.upperbound) ||
-          ((parsed.lowerbound || parsed.upperbound) && !hasScore);
-        if (parsed.depth !== undefined && !hasInvalidBound) {
-          const pvId = parsed.multipv || 1;
-          const currentInfo = this.lastInfos.get(pvId) || {};
-          // Merge with previous to keep nodes/time if omitted in this line
-          const nextInfo = { ...currentInfo, ...parsed };
-          if (hasScore) {
-            // Score kind and bound describe one atomic USI score update.
-            nextInfo.scoreCP = parsed.scoreCP;
-            nextInfo.scoreMate = parsed.scoreMate;
-            nextInfo.lowerbound = parsed.lowerbound;
-            nextInfo.upperbound = parsed.upperbound;
-          }
-          this.lastInfos.set(pvId, nextInfo);
-        }
-      }
-
-      if (line.trim().startsWith("WRAPPER_ERROR:")) {
-        console.error(`Engine wrapper error: ${line}`);
-        this.sendError(line);
-        this.terminate(false);
-        return;
-      }
-
-      const stoppingEngine = this.engineState === EngineState.STOPPING_ENGINE;
-      if (!stoppingEngine) {
-        this.sendToClient({
-          type: "engineOutput",
-          positionCommand: this.pendingGoSfen,
-          output: line,
-          ...(this.activeSearch
-            ? { instanceId: this.instanceId, searchId: this.activeSearch.searchId }
-            : {}),
-        });
-      }
-
-      if (terminal) {
-        if (line.startsWith("bestmove")) {
-          try {
-            this.saveCurrentAnalysis();
-          } catch (error) {
-            console.error(`Failed to persist analysis (${this.sessionId})`, error);
-          }
-        }
-        this.lastInfos.clear();
-        if (stoppingEngine) {
-          this.closeEngineTransport();
-          return;
-        }
-        if (this.activeSearch) {
-          this.terminalCreatedAt = Date.now();
-          this.terminalSearch = {
-            searchId: this.activeSearch.searchId,
-            position: this.activeSearch.position,
-            output: line,
-            delay: 0,
-          };
-          this.activeSearch = null;
-          this.settledThrough = this.cancelledThrough;
-        }
-        if (this.engineState === EngineState.STOPPING_SEARCH) {
-          this.clearStopTimeout();
-
-          const commandsToRun = this.collectPostStopCommands();
-          this.postStopCommandQueue.length = 0;
-          this.engineState = EngineState.READY;
-
-          if (commandsToRun.length > 0) {
-            for (const command of commandsToRun) {
-              this.sendToEngine(command);
-            }
-          }
-          this.sendState();
-        } else {
-          this.engineState = EngineState.READY;
-          this.sendState();
-        }
-        this.startQueuedSearch();
-        this.sendSearchSnapshot();
-      }
-
-      if (this.engineState === EngineState.WAITING_USIOK && line.trim() === "usiok") {
-        this.engineState = EngineState.WAITING_READYOK;
-        this.sendToEngine("isready");
-      } else if (this.engineState === EngineState.WAITING_READYOK && line.trim() === "readyok") {
-        this.clearReadyTimeout();
-        this.engineState = EngineState.READY;
-        this.readyForNewGame = true;
-        // Replaying may start another readiness check; do not drain a live queue.
-        for (const command of this.commandQueue.splice(0)) this.sendToEngine(command);
-        this.sendState();
-        if (this.engineState === EngineState.READY || this.engineState === EngineState.THINKING)
-          this.sendToClient({ type: "notice", notice: "engineReady" });
-        this.startQueuedSearch();
-        this.sendSearchSnapshot();
-      }
-    };
     interface_.on("line", (line) => {
       try {
-        onLine(line);
+        this.handleEngineLine(line);
       } catch (error) {
         console.error(`Engine output handler failed (${this.sessionId})`, error);
         this.sendError(t.remoteEngineInvalidOutput);
         this.terminate(false);
       }
     });
+  }
+
+  private handleEngineLine(line: string) {
+    const terminal = /^(bestmove|checkmate)/.test(line.trimStart());
+    if (terminal) line = line.trim().replace(/[ \t]+/g, " ");
+    if (!line.startsWith("info")) {
+      console.log(`Engine output (${this.sessionId}): ${line}`);
+    }
+
+    if (this.engineState === EngineState.TERMINATING || this.engineState === EngineState.STOPPED) {
+      return;
+    }
+
+    if (terminal && !isUSITerminalOutput(line)) throw new Error("Invalid USI terminal output");
+    if (
+      terminal &&
+      [EngineState.STARTING, EngineState.WAITING_USIOK, EngineState.WAITING_READYOK].includes(
+        this.engineState,
+      )
+    ) {
+      return;
+    }
+
+    if (line.startsWith("info ")) {
+      const parsed =
+        this.owner === "internal" ? parseAnalysisInfo(line) : parseInfoCommand(line.substring(5));
+      if (!parsed) return;
+      this.recordAnalysisInfo(parsed);
+    }
+
+    if (line.trim().startsWith("WRAPPER_ERROR:")) {
+      console.error(`Engine wrapper error: ${line}`);
+      this.sendError(line);
+      this.terminate(false);
+      return;
+    }
+
+    const stoppingEngine = this.engineState === EngineState.STOPPING_ENGINE;
+    if (!stoppingEngine) {
+      this.sendToClient({
+        type: "engineOutput",
+        positionCommand: this.pendingGoSfen,
+        output: line,
+        ...(this.activeSearch
+          ? { instanceId: this.instanceId, searchId: this.activeSearch.searchId }
+          : {}),
+      });
+    }
+
+    if (terminal) {
+      this.handleTerminalOutput(line, stoppingEngine);
+      return;
+    }
+
+    if (this.engineState === EngineState.WAITING_USIOK && line.trim() === "usiok") {
+      this.handleUsiOk();
+    } else if (this.engineState === EngineState.WAITING_READYOK && line.trim() === "readyok") {
+      this.handleReadyOk();
+    }
+  }
+
+  private recordAnalysisInfo(info: USIInfoCommand) {
+    const pvId = info.multipv || 1;
+    const nextInfo = mergeAnalysisInfo(this.lastInfos.get(pvId), info);
+    if (nextInfo) this.lastInfos.set(pvId, nextInfo);
+  }
+
+  private handleTerminalOutput(line: string, stoppingEngine: boolean) {
+    if (line.startsWith("bestmove")) {
+      try {
+        this.saveCurrentAnalysis();
+      } catch (error) {
+        console.error(`Failed to persist analysis (${this.sessionId})`, error);
+      }
+    }
+    this.lastInfos.clear();
+    if (stoppingEngine) {
+      this.closeEngineTransport();
+      return;
+    }
+    if (this.activeSearch) {
+      this.terminalCreatedAt = Date.now();
+      this.terminalSearch = {
+        searchId: this.activeSearch.searchId,
+        position: this.activeSearch.position,
+        output: line,
+        delay: 0,
+      };
+      this.activeSearch = null;
+      this.settledThrough = this.cancelledThrough;
+    }
+    if (this.engineState === EngineState.STOPPING_SEARCH) {
+      this.clearStopTimeout();
+
+      const commandsToRun = collectPostStopCommands(this.postStopCommandQueue);
+      this.postStopCommandQueue.length = 0;
+      this.engineState = EngineState.READY;
+
+      for (const command of commandsToRun) {
+        this.sendToEngine(command);
+      }
+    } else {
+      this.engineState = EngineState.READY;
+    }
+    this.sendState();
+    this.startQueuedSearch();
+    this.sendSearchSnapshot();
+  }
+
+  private handleUsiOk() {
+    this.engineState = EngineState.WAITING_READYOK;
+    this.sendToEngine("isready");
+  }
+
+  private handleReadyOk() {
+    this.clearReadyTimeout();
+    this.engineState = EngineState.READY;
+    this.readyForNewGame = true;
+    // Replaying may start another readiness check; do not drain a live queue.
+    for (const command of this.commandQueue.splice(0)) this.sendToEngine(command);
+    this.sendState();
+    if (this.engineState === EngineState.READY || this.engineState === EngineState.THINKING)
+      this.sendToClient({ type: "notice", notice: "engineReady" });
+    this.startQueuedSearch();
+    this.sendSearchSnapshot();
   }
 
   private async startEngine(engineId: string, config?: EngineConfig): Promise<void> {
@@ -942,7 +868,6 @@ export class EngineSession {
     }
     console.log(`Received command (${this.sessionId}): ${encodeClientRelayMessage(message)}`);
 
-    let command: string;
     switch (message.type) {
       case "search":
         this.handleSearch(message);
@@ -955,7 +880,7 @@ export class EngineSession {
           message.instanceId === this.instanceId &&
           message.searchId === this.activeSearch?.searchId
         )
-          this.stopIdentifiedSearch();
+          this.requestSearchStop();
         this.sendSearchSnapshot();
         return;
       case "getEngineList":
@@ -989,22 +914,14 @@ export class EngineSession {
         this.terminate();
         return;
       case "usi":
-        command = message.command;
-        break;
+        this.handleRawUsiCommand(message.command);
+        return;
     }
+  }
 
-    const handleStop = () => {
-      if (this.engineState === EngineState.STOPPING_SEARCH) return;
-      if (this.engineState === EngineState.THINKING) {
-        this.engineState = EngineState.STOPPING_SEARCH;
-        this.postStopCommandQueue.length = 0;
-        this.sendToEngine("stop");
-        this.startStopTimeout();
-      }
-    };
-
+  private handleRawUsiCommand(command: string) {
     if (command === "stop") {
-      handleStop();
+      this.requestSearchStop();
       return;
     }
 
@@ -1022,32 +939,21 @@ export class EngineSession {
         command === "usinewgame")
     ) {
       console.warn(`Implicitly stopping engine for session ${this.sessionId}`);
-      handleStop();
+      this.requestSearchStop();
     }
 
     if (this.engineState === EngineState.STOPPING_SEARCH) {
-      if (command !== "stop") this.pushToQueue(this.postStopCommandQueue, command);
+      this.pushToQueue(this.postStopCommandQueue, command);
       return;
     }
 
     if (command === "usi" || command === "isready") return;
 
-    if (command.startsWith("setoption ")) {
-      if (this.engineState === EngineState.READY) {
-        this.sendToEngine(command);
-      } else if (
-        this.engineState === EngineState.STARTING ||
-        this.engineState === EngineState.WAITING_USIOK ||
-        this.engineState === EngineState.WAITING_READYOK
-      ) {
-        this.pushToQueue(this.commandQueue, command);
-      } else {
-        this.sendError(`engine not ready. Cannot process command: ${command}`);
-      }
-      return;
-    }
-
-    if (command === "usinewgame" || command.startsWith("gameover")) {
+    if (
+      command.startsWith("setoption ") ||
+      command === "usinewgame" ||
+      command.startsWith("gameover")
+    ) {
       if (this.engineState === EngineState.READY) {
         this.sendToEngine(command);
       } else if (
