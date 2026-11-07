@@ -53,7 +53,7 @@ describe("game takeback", () => {
     vi.useRealTimers();
   });
 
-  it("waits for cancellation, ignores late moves and restores both clocks without increments", async () => {
+  it("waits for cancellation, ignores late moves and restores both clocks without extra increments", async () => {
     const { game, human, ai, requests, records, black, white, move } = await setup();
     expect(game.canTakeback).toBe(false);
     await vi.advanceTimersByTimeAsync(1200);
@@ -80,8 +80,8 @@ describe("game takeback", () => {
     await pending;
     expect(records.record.current.ply).toBe(0);
     expect(records.record.current.next).toBeNull();
-    expect(black.timeMs).toBe(30000);
-    expect(white.timeMs).toBe(60000);
+    expect(black.timeMs).toBe(32000);
+    expect(white.timeMs).toBe(63000);
     expect(game.canTakeback).toBe(false);
     human.doMove(move("7g7f"));
     requests[0].onMove(lateMove);
@@ -98,11 +98,100 @@ describe("game takeback", () => {
     requests[1].onMove(move("8c8d"));
     await game.takeback();
     expect(records.record.current.ply).toBe(2);
-    expect(black.timeMs).toBe(32000);
-    expect(white.timeMs).toBe(63000);
+    expect(black.timeMs).toBe(34000);
+    expect(white.timeMs).toBe(66000);
     await game.takeback();
     expect(records.record.current.ply).toBe(0);
     expect(records.record.current.next).toBeNull();
+    expect(black.timeMs).toBe(32000);
+    expect(white.timeMs).toBe(63000);
+  });
+
+  it.each([0, 60])(
+    "keeps both next-move budgets while passing pre-increment USI times with %ss main time",
+    async (timeSeconds) => {
+      const { human, ai, requests, black, white, move } = await setup({
+        black: { uri: "lan-engine:test", name: "AI" },
+        white: { uri: ES_HUMAN, name: "Human" },
+        timeLimit: { timeSeconds, byoyomi: 0, increment: 2 },
+        whiteTimeLimit: { timeSeconds, byoyomi: 0, increment: 3 },
+      });
+      const mainTimeMs = timeSeconds * 1000;
+      expect(black.timeMs).toBe(mainTimeMs + 2000);
+      expect(white.timeMs).toBe(mainTimeMs + 3000);
+      expect(vi.mocked(ai.startSearch).mock.calls[0][2]).toEqual({
+        black: { timeMs: mainTimeMs, byoyomi: 0, increment: 2 },
+        white: { timeMs: mainTimeMs, byoyomi: 0, increment: 3 },
+      });
+      await vi.advanceTimersByTimeAsync(1250);
+      requests[0].onMove(move("7g7f"));
+      expect(black.timeMs).toBe(mainTimeMs + 2750);
+      expect(white.timeMs).toBe(mainTimeMs + 3000);
+      await vi.advanceTimersByTimeAsync(1000);
+      human.doMove(move("3c3d"));
+      expect(black.timeMs).toBe(mainTimeMs + 2750);
+      expect(white.timeMs).toBe(mainTimeMs + 5000);
+      expect(vi.mocked(ai.startSearch).mock.calls[1][2]).toEqual({
+        black: { timeMs: mainTimeMs + 750, byoyomi: 0, increment: 2 },
+        white: { timeMs: mainTimeMs + 2000, byoyomi: 0, increment: 3 },
+      });
+    },
+  );
+
+  it("keeps restored increments when taking back while disconnected and then resuming", async () => {
+    const { game, human, black, white, move } = await setup();
+    await vi.advanceTimersByTimeAsync(1250);
+    human.doMove(move("7g7f"));
+    game.setConnected(false);
+    await vi.advanceTimersByTimeAsync(1000);
+    await game.takeback();
+    expect(game.isPaused).toBe(true);
+    expect(black.timeMs).toBe(32_000);
+    expect(white.timeMs).toBe(63_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    game.setConnected(true);
+    game.resume();
+    expect(black.timeMs).toBe(32_000);
+    expect(white.timeMs).toBe(63_000);
+  });
+
+  it.each([
+    { action: "resign", result: SpecialMoveType.RESIGN },
+    { action: "interrupt", result: SpecialMoveType.INTERRUPT },
+    { action: "illegal move", result: SpecialMoveType.FOUL_LOSE },
+    { action: "late move", result: SpecialMoveType.TIMEOUT },
+  ])("does not grant a next-move increment on $action", async ({ action, result }) => {
+    const { game, requests, records, black, white, move } = await setup({
+      black: { uri: "lan-engine:test", name: "AI" },
+      white: { uri: ES_HUMAN, name: "Human" },
+      timeLimit: { timeSeconds: 0, byoyomi: 0, increment: 2 },
+      whiteTimeLimit: { timeSeconds: 0, byoyomi: 0, increment: 3 },
+      enableEngineTimeout: true,
+    });
+    vi.setSystemTime(Date.now() + (action === "late move" ? 2001 : 1250));
+    if (action === "resign") requests[0].onResign();
+    else if (action === "interrupt") game.stop();
+    else requests[0].onMove(move(action === "illegal move" ? "7g7e" : "7g7f"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(records.record.current.move).toEqual({ type: result });
+    expect(records.record.current.prev?.ply).toBe(0);
+    expect(black.timeMs).toBe(action === "late move" ? 0 : 750);
+    expect(white.timeMs).toBe(3000);
+  });
+
+  it("does not credit another increment after disconnecting and resuming a human turn", async () => {
+    const { game, black } = await setup();
+    expect(black.timeMs).toBe(32_000);
+    await vi.advanceTimersByTimeAsync(1250);
+    game.setConnected(false);
+    expect(black.timeMs).toBe(30_750);
+    await vi.advanceTimersByTimeAsync(10_000);
+    game.setConnected(true);
+    game.resume();
+    game.resume();
+    expect(black.timeMs).toBe(30_750);
+    await vi.advanceTimersByTimeAsync(750);
+    expect(black.timeMs).toBe(30_000);
   });
 
   it("supports the human playing white and does not undo the AI opening", async () => {

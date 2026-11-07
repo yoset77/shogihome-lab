@@ -430,7 +430,7 @@ export class GameController {
         "game_white",
       );
       if (this.interrupted) {
-        await this.closePlayers();
+        await this.closePlayers().catch((error) => this.onError(error));
         this.state = GameState.IDLE;
         this.onGameEnd(this.results, SpecialMoveType.INTERRUPT);
         return;
@@ -445,6 +445,10 @@ export class GameController {
         this.state = GameState.IDLE;
         this.startPositionList.clear();
       }
+      if (this.interrupted) {
+        this.onGameEnd(this.results, SpecialMoveType.INTERRUPT);
+        return;
+      }
       throw new Error(`GameManager#start: ${t.failedToStartNewGame}: ${e}`, { cause: e });
     }
   }
@@ -458,7 +462,7 @@ export class GameController {
         ? undefined
         : this.environment.coordinator.next(this.recordManager);
       if (!assignment) {
-        await this.closePlayers();
+        await this.closePlayers().catch((error) => this.onError(error));
         this.state = GameState.IDLE;
         this.onGameEnd(
           this.results,
@@ -507,9 +511,14 @@ export class GameController {
     this.moveHistory = [];
     this.turnCheckpoint = undefined;
     // プレイヤーに対局開始を通知する。
-    await Promise.all([this.blackPlayer.readyNewGame(), this.whitePlayer.readyNewGame()]);
+    try {
+      await Promise.all([this.blackPlayer.readyNewGame(), this.whitePlayer.readyNewGame()]);
+    } catch (error) {
+      // Cancelled readiness must still close the players and notify gameEnd.
+      if (!this.interrupted) throw error;
+    }
     if (this.interrupted) {
-      await this.closePlayers();
+      await this.closePlayers().catch((error) => this.onError(error));
       this.state = GameState.IDLE;
       this.onGameEnd(this.results, SpecialMoveType.INTERRUPT);
       return;
@@ -605,9 +614,19 @@ export class GameController {
       this.end(SpecialMoveType.IMPASS);
       return;
     }
-    // 手番側の時計をスタートする。
-    const pauseHuman = this.isHumanTurn && !this.connected;
-    this.getActiveClock().start(!pauseHuman);
+    // Clocks include the next move's increment; USI transmits it separately for both sides.
+    const timeState = (clock: Clock) => {
+      const increment = clock.settings.increment || 0;
+      return {
+        timeMs: Math.max(0, clock.timeMs - increment * 1000),
+        byoyomi: clock.settings.byoyomi || 0,
+        increment,
+      };
+    };
+    const timeStates: TimeStates = {
+      black: timeState(this.blackClock),
+      white: timeState(this.whiteClock),
+    };
     if (this.supportsTakeback) {
       this.turnCheckpoint = {
         record: this.recordManager.createGameCheckpoint(),
@@ -616,6 +635,9 @@ export class GameController {
         human: this.settings[this.recordManager.record.position.color].uri === ES_HUMAN,
       };
     }
+    // 手番側の時計をスタートする。
+    const pauseHuman = this.isHumanTurn && !this.connected;
+    this.getActiveClock().start(!pauseHuman);
     // プレイヤーを取得する。
     const color = this.recordManager.record.position.color;
     const player = this.getPlayer(color);
@@ -631,20 +653,7 @@ export class GameController {
       return;
     }
     this.onUpdate();
-    // 時間の情報をまとめる。
     if (!this.isActive || eventID !== this.lastEventID) return;
-    const timeStates: TimeStates = {
-      black: {
-        timeMs: this.blackClock.timeMs,
-        byoyomi: this.blackClock.settings.byoyomi || 0,
-        increment: this.blackClock.settings.increment || 0,
-      },
-      white: {
-        timeMs: this.whiteClock.timeMs,
-        byoyomi: this.whiteClock.settings.byoyomi || 0,
-        increment: this.whiteClock.settings.increment || 0,
-      },
-    };
     // 手番側のプレイヤーの思考を開始する。
     player
       .startSearch(this.recordManager.record.position, this.recordManager.record.usi, timeStates, {
@@ -676,8 +685,8 @@ export class GameController {
       this.onError("反則手: " + formatMove(this.recordManager.record.position, move));
       return;
     }
-    // 手番側の時計をストップする。
-    this.getActiveClock().stop();
+    // Only a completed legal move earns the next turn's increment.
+    this.getActiveClock().finishTurn();
     // 指し手を追加して局面を進める。
     this.recordManager.appendMove({
       move,

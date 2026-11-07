@@ -23,6 +23,41 @@ last_review:
 
 candidates:
   - sources:
+      - https://github.com/sunfish-shogi/shogihome/blob/59a2b75b1fe50afc8bb0852a9697318ebe6c6e87/src/background/usi/engine.ts#L404-L428
+    summary: 再利用エンジンの各局開始前の準備完了確認
+    status: closed
+    assessed_lab_sha: 738dd14ef81bba3dfaf8b2e5e557f5bb6d5c1366
+    targets:
+      - shogihome/src/server/engine/session.ts
+      - shogihome/src/server/engine/internal.ts
+    evidence: >-
+      Labは起動時だけisreadyを送り、連続対局の次局はusinewgameのみだった。
+      upstreamは毎局readyokを待ってからusinewgameを送る。
+    resolution: >-
+      EngineSessionで初局の起動handshakeを再利用し、後続のusinewgameは再度readyokを待つよう修正。
+      内部adapterと対局・解析のcallerも完了を待つ。停止後のgameoverを保ち、準備中の古い終端応答で
+      探索を再開しない。回帰確認はengine_internal.spec.tsとgame_integration.spec.tsを参照。
+
+  - sources:
+      - https://shogidokoro2.stars.ne.jp/usi.html
+      - https://github.com/sunfish-shogi/shogihome/blob/59a2b75b1fe50afc8bb0852a9697318ebe6c6e87/src/background/usi/index.ts#L399-L415
+    summary: USIの時間指定とフィッシャー時計の整合
+    status: closed
+    assessed_lab_sha: 738dd14ef81bba3dfaf8b2e5e557f5bb6d5c1366
+    targets:
+      - shogihome/src/server/game/clock.ts
+      - shogihome/src/server/game/controller.ts
+      - shogihome/src/common/game/usi_time.ts
+    evidence: >-
+      Labはgoへ残り時間と加算を渡す一方、時計は着手後加算のため、仕様上の使用可能時間と
+      Serverの期限が加算分だけ異なった。秒読み・加算とも0の場合もbyoyomi 0を省略していた。
+    resolution: >-
+      利用者の承認に基づき、upstreamの初手加算なしは踏襲せず手番開始時加算を採用。
+      USI時間とcheckpointは今回の加算前に固定し、再開・待ったの二重加算を防ぐ。
+      LAN playerも共有のコマンド生成を使用し、切れ負けではbyoyomi 0を明示する。
+      回帰確認はgame_clock.spec.ts、game_takeback.spec.ts、usi_time.spec.tsを参照。
+
+  - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1714
     summary: PWA更新の自動再読込を利用者操作に変更
     status: closed

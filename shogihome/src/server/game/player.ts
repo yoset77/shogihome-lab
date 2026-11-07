@@ -29,6 +29,7 @@ export class HumanPlayer implements Player {
 export class GamePlayer implements Player {
   readonly supportsTakeback = true;
   private generation = 0;
+  private sessionSignal!: AbortSignal;
   private controller?: AbortController;
   private search?: ResearchSearch;
   private starting?: Promise<void>;
@@ -50,13 +51,14 @@ export class GamePlayer implements Player {
     signal: AbortSignal,
     resourceLease?: ResourceLease,
   ): Promise<void> {
+    this.sessionSignal = signal;
     await this.engine.launch(config, timeout, signal, resourceLease);
   }
   isEngine(): boolean {
     return true;
   }
   async readyNewGame(): Promise<void> {
-    this.engine.readyNewGame();
+    await this.engine.readyNewGame(this.sessionSignal);
   }
   async startPonder(): Promise<void> {}
   async startMateSearch(): Promise<void> {}

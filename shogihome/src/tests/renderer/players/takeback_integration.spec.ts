@@ -77,13 +77,14 @@ describe("takeback across the real relay", () => {
       onEngineClose(): void;
     };
     internal.currentEngineId = "test";
-    internal.engineState = EngineState.READY;
+    internal.engineState = EngineState.WAITING_USIOK;
     internal.engineHandle = {
       write: (line: string) => writes.push(line),
       close: () => internal.onEngineClose(),
       removeAllListeners: () => {},
     };
     internal.setupEngineHandlers(stream);
+    stream.write("usiok\nreadyok\n");
     vi.stubGlobal("WebSocket", Transport);
   });
 

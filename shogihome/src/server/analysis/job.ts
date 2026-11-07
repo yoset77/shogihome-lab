@@ -271,7 +271,7 @@ export class AnalysisJob {
       if (this.controller.signal.aborted) throw new Error("Analysis cancelled");
       if (this.request.options.overrideMultiPV)
         this.engine.setMultiPV(this.request.options.multiPV);
-      this.engine.readyNewGame();
+      await this.engine.readyNewGame(this.controller.signal);
       for (let index = 0; index < this.targets.length; index++) {
         if (this.controller.signal.aborted) throw new Error("Analysis cancelled");
         const id = this.targets[index];

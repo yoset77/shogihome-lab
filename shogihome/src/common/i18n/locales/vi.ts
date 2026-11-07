@@ -731,6 +731,7 @@ export const vi: Texts = {
   invalidJKFStructure: "Cấu trúc dữ liệu JKF không hợp lệ.",
   jkfImportLimit: "Kích thước, số nước đi, số nhánh hoặc độ sâu JKF vượt giới hạn nhập.",
   remoteEngineInvalidOutput: "Phản hồi của phần mềm không hợp lệ; phiên đã kết thúc.",
+  remoteEngineReadyTimedOut: "Hết thời gian chờ phần mềm sẵn sàng. Phiên đã được đặt lại.",
   serverInvalidKifuSearch: "Điều kiện tìm kỳ phổ không hợp lệ hoặc vượt giới hạn nhập.",
   serverInvalidKifuPagination: "Số lượng hoặc vị trí bắt đầu tìm kỳ phổ không hợp lệ.",
   serverKifuSearchRateLimit: "Quá nhiều lượt tìm kỳ phổ. Vui lòng đợi rồi thử lại.",

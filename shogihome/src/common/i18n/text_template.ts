@@ -690,6 +690,7 @@ export type Texts = {
   invalidJKFStructure: string;
   jkfImportLimit: string;
   remoteEngineInvalidOutput: string;
+  remoteEngineReadyTimedOut: string;
   serverInvalidKifuSearch: string;
   serverInvalidKifuPagination: string;
   serverKifuSearchRateLimit: string;

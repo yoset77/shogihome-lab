@@ -730,6 +730,8 @@ export const ja: Texts = {
   invalidJKFStructure: "JKFのデータ構造が不正です。",
   jkfImportLimit: "JKFのサイズ、指し手数、分岐数、または深さが読み込み上限を超えています。",
   remoteEngineInvalidOutput: "エンジンの応答が不正なため、セッションを終了しました。",
+  remoteEngineReadyTimedOut:
+    "エンジンの準備待ちがタイムアウトしたため、セッションをリセットしました。",
   serverInvalidKifuSearch: "棋譜検索条件が不正、または入力上限を超えています。",
   serverInvalidKifuPagination: "棋譜検索の取得件数または開始位置が不正です。",
   serverKifuSearchRateLimit: "棋譜検索の実行回数が多すぎます。少し待ってから再試行してください。",

@@ -33,25 +33,82 @@ describe("authoritative game clock", () => {
     expect(clock.snapshot()).toEqual({ timeMs: 0, byoyomi: 7, byoyomiMs: 7000, elapsedMs: 4000 });
     clock.resume();
     now += 1000;
-    clock.stop();
+    clock.finishTurn();
     expect(clock.elapsedMs).toBe(5000);
     clock.start();
     expect(clock.byoyomi).toBe(10);
     clock.pause();
   });
-  it("adds increments only on a completed move and restores checkpoints without another increment", () => {
+  it("credits the first increment during setup and the next one after each completed turn", () => {
     let now = 0;
     const clock = new Clock(() => now);
     clock.setup({ timeMs: 30_000, increment: 2 });
     const checkpoint = clock.snapshot();
+    expect(clock.timeMs).toBe(32_000);
     clock.start();
+    expect(clock.timeMs).toBe(32_000);
     now = 1250;
-    clock.stop();
     expect(clock.timeMs).toBe(30_750);
+    clock.finishTurn();
+    expect(clock.timeMs).toBe(32_750);
     expect(clock.elapsedMs).toBe(1250);
+    clock.start();
+    expect(clock.timeMs).toBe(32_750);
+    clock.pause();
     clock.restore(checkpoint);
-    expect(clock.timeMs).toBe(30_000);
+    expect(clock.timeMs).toBe(32_000);
     expect(clock.elapsedMs).toBe(0);
+    clock.start();
+    expect(clock.timeMs).toBe(32_000);
+    clock.pause();
+  });
+  it("does not add another increment when resuming a paused or initially disconnected turn", () => {
+    let now = 0;
+    const clock = new Clock(() => now);
+    clock.setup({ timeMs: 60_000, increment: 2 });
+    clock.start(false);
+    expect(clock.timeMs).toBe(62_000);
+    now = 10_000;
+    clock.resume();
+    now += 1250;
+    clock.pause();
+    expect(clock.timeMs).toBe(60_750);
+    now += 10_000;
+    clock.resume();
+    clock.resume();
+    now += 750;
+    clock.pause();
+    expect(clock.timeMs).toBe(60_000);
+    expect(clock.elapsedMs).toBe(2000);
+  });
+  it.each([0, 60_000])(
+    "allows the first increment with %sms main time before timeout",
+    (timeMs) => {
+      let now = 0;
+      const timeout = vi.fn();
+      const clock = new Clock(() => now);
+      clock.setup({ timeMs, increment: 2, onTimeout: timeout });
+      clock.start();
+      now = timeMs + 1;
+      clock.settle();
+      expect(timeout).not.toHaveBeenCalled();
+      expect(clock.timeMs).toBe(1999);
+      now = timeMs + 2001;
+      clock.settle();
+      expect(timeout).toHaveBeenCalledOnce();
+      expect(clock.running).toBe(false);
+    },
+  );
+  it("resets the first increment for a new game", () => {
+    const clock = new Clock(() => 0);
+    for (let game = 0; game < 2; game++) {
+      clock.setup({ timeMs: 60_000, increment: 2 });
+      expect(clock.timeMs).toBe(62_000);
+      clock.start();
+      expect(clock.timeMs).toBe(62_000);
+      clock.finishTurn();
+      expect(clock.timeMs).toBe(64_000);
+    }
   });
   it("ignores changes to the wall clock", () => {
     vi.useFakeTimers();

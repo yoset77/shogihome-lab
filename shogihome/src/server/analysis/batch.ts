@@ -203,7 +203,7 @@ export class BatchAnalysisJob {
             worker.multiPVApplied = true;
           }
         },
-        readyNewGame: () => engine.readyNewGame(),
+        readyNewGame: (signal) => engine.readyNewGame(signal),
         startResearch: (position, onOutput, signal) =>
           engine.startResearch(position, onOutput, signal),
         close: async () => {},

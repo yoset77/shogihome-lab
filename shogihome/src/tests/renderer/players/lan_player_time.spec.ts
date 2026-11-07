@@ -87,7 +87,7 @@ describe("LanPlayer Time Control", () => {
 
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
-    const expectedGo = "go btime 55000 wtime 55000 binc 5000 winc 5000";
+    const expectedGo = "go btime 60000 wtime 60000 binc 5000 winc 5000";
     expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(expectedGo);
   });
 
@@ -117,7 +117,7 @@ describe("LanPlayer Time Control", () => {
 
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
-    const expectedGo = "go btime 50000 wtime 55000 binc 5000 winc 5000";
+    const expectedGo = "go btime 55000 wtime 60000 binc 5000 winc 5000";
     expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(expectedGo);
   });
 
@@ -132,7 +132,7 @@ describe("LanPlayer Time Control", () => {
 
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
-    const expectedGo = "go btime 55000 wtime 55000 byoyomi 10000";
+    const expectedGo = "go btime 60000 wtime 60000 byoyomi 10000";
     expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(expectedGo);
   });
 
@@ -147,7 +147,7 @@ describe("LanPlayer Time Control", () => {
 
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
-    const expectedGo = "go btime 50000 wtime 55000 binc 5000 winc 5000";
+    const expectedGo = "go btime 55000 wtime 60000 binc 5000 winc 5000";
     expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(expectedGo);
   });
 
@@ -168,6 +168,9 @@ describe("LanPlayer Time Control", () => {
 
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
+    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(
+      "go btime 60000 wtime 60000 byoyomi 0",
+    );
     const response: ServerRelayMessage = {
       type: "engineOutput",
       positionCommand: usi,

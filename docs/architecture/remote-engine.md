@@ -57,6 +57,10 @@ Process treeの所有と回収は共有 [`process/`](../../engine-wrapper/proces
 
 Middle Serverがwrapperへの接続からUSI handshake、探索、停止、終了までを管理します。Browserからの検証済みcommandも現在のstate machineに従って送信・待機させ、handshakeを迂回しません。明示的終了、session失効、回復不能なfailureではtransportを終了してprocess cleanupへ収束させます。
 
+初局は起動時の`isready`／`readyok`を利用し、再利用する次局では`EngineSession`が再び準備完了を確認してから`usinewgame`と後続の探索を送信します。Server所有の対局・解析はこの完了を待ち、待機の取消・失敗・期限超過はownerのcleanupへ収束させます。[内部sessionテスト](../../shogihome/src/tests/server/engine_internal.spec.ts)と[対局統合テスト](../../shogihome/src/tests/server/game_integration.spec.ts)を参照してください。
+
+公開relayの再準備待ちはBrowserの切断・再接続で延長しない独立した期限を持ち、期限超過時はエラーを通知してtransportを終了します。起動時とServer所有sessionの待機期限は呼び出し元の設定を維持します。[準備待ちテスト](../../shogihome/src/tests/server/engine_ready.spec.ts)を参照してください。
+
 Engineの終端応答は空白を正規化して[共有validator](../../shogihome/src/common/game/usi.ts)を通してから通知・snapshotへ反映します。不正応答や出力handlerの例外は当該sessionの終了に閉じ込め、他のsessionやServer processへ波及させません。[境界テスト](../../shogihome/src/tests/server/engine_output_boundary.spec.ts)を参照してください。
 
 明示的終了と接続保護期限切れでは、探索中なら先に `stop` を送り、最終応答に対する既存のAnalysis DB保存処理を終えてからwrapperとのtransportを閉じます。この停止待ちはBrowser切断後も継続し、通常の探索停止とは異なり待機commandや新しい探索を再開しません。停止待ちとtransport終了待ちはそれぞれ有期限であり、最終応答が得られない場合は途中情報を保存せずcleanupへ進みます。終了要求の重複や再接続で期限を延長せず、resource予約はtransportの終了または破棄まで保持します。

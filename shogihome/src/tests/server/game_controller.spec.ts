@@ -460,8 +460,7 @@ describe("store/game", () => {
         // Turn 1 Black: 7g7f
         // Elapsed: 0ms
         // Delay: 1000ms
-        // Correct applies -1000ms delay. _elapsedMs becomes 0, timeMs stays 600000ms.
-        // Stop adds 5000ms increment.
+        // No time is charged by the fixed clock; finishing the turn adds the next increment.
         // Expected elapsedMs for this move in record: 0ms.
         expect(recordManager.record.moves[1].elapsedMs).toBe(0);
 
@@ -524,8 +523,7 @@ describe("store/game", () => {
         // Get the timeStates passed to the second call
         const timeStatesCall2 = mockBlackPlayer.startSearch.mock.calls[1][2];
 
-        // The time should be 600000 (initial) + 5000 (increment) = 605000
-        // because 1000ms delay cancels out 1000ms elapsed time (simulated fake timers: 0 elapsed time, so it's clamped to 0)
+        // USI excludes the next increment: 600000 initial + 5000 for the completed move.
         expect(timeStatesCall2.black.timeMs).toBe(605000);
       },
     );

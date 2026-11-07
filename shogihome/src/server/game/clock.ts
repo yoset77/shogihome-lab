@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 
 export type ClockSettings = {
+  // Initial main time before the first increment, in milliseconds.
   timeMs?: number;
   byoyomi?: number;
   increment?: number;
@@ -10,6 +11,7 @@ export type ClockSettings = {
   onStopBeep?: () => void;
 };
 export type ClockSnapshot = {
+  // Time available for the current or next move, including its increment.
   timeMs: number;
   byoyomi: number;
   byoyomiMs: number;
@@ -58,7 +60,7 @@ export class Clock {
     this.settings = settings;
     const byoyomiMs = (settings.byoyomi ?? 0) * 1000;
     this.value = {
-      timeMs: settings.timeMs ?? 0,
+      timeMs: (settings.timeMs ?? 0) + (settings.increment ?? 0) * 1000,
       byoyomi: settings.byoyomi ?? 0,
       byoyomiMs,
       elapsedMs: 0,
@@ -98,7 +100,7 @@ export class Clock {
     clearInterval(this.timer);
     this.timer = undefined;
   }
-  stop(): void {
+  finishTurn(): void {
     this.pause();
     this.value.timeMs += (this.settings.increment ?? 0) * 1000;
   }
