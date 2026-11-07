@@ -635,9 +635,11 @@ export class GameController {
         human: this.settings[this.recordManager.record.position.color].uri === ES_HUMAN,
       };
     }
-    // 手番側の時計をスタートする。
+    // Engine preparation is uncharged; resume immediately before sending go.
+    const humanTurn = this.isHumanTurn;
     const pauseHuman = this.isHumanTurn && !this.connected;
-    this.getActiveClock().start(!pauseHuman);
+    const clock = this.getActiveClock();
+    clock.start(humanTurn && !pauseHuman);
     // プレイヤーを取得する。
     const color = this.recordManager.record.position.color;
     const player = this.getPlayer(color);
@@ -657,12 +659,19 @@ export class GameController {
     // 手番側のプレイヤーの思考を開始する。
     player
       .startSearch(this.recordManager.record.position, this.recordManager.record.usi, timeStates, {
+        onStart: () => {
+          if (this.isActive && eventID === this.lastEventID) clock.resume();
+        },
         onMove: (move, info) => this.onMove(eventID, move, info),
         onResign: () => this.onResign(eventID),
         onWin: () => this.onWin(eventID),
         onError: (e) => {
           if (eventID === this.lastEventID && this.isActive) this.onError(e);
         },
+      })
+      .then(() => {
+        if (!humanTurn && this.isActive && eventID === this.lastEventID && clock.running)
+          this.onUpdate();
       })
       .catch((e) => {
         if (eventID !== this.lastEventID || !this.isActive) return;

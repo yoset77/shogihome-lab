@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
+import { ENGINE_STOP_TIMEOUT_MS, RELAY_READY_TIMEOUT_MS } from "@/server/config";
 import { EngineSession } from "@/server/engine/session";
 import { EngineState } from "@/server/engine/types";
 import { LanPlayer } from "@/renderer/players/lan_player";
@@ -202,6 +203,40 @@ describe("takeback across the real relay", () => {
     expect(game.isActive).toBe(false);
     expect(records.record.current.prev?.ply).toBe(1);
     expect(error).toHaveBeenCalledOnce();
+    await lan.close();
+  });
+
+  it("settles a browser stop requested before next-game readyok", async () => {
+    const lan = new LanPlayer("research_main", "test", "Test");
+    const records = new RecordManager();
+    await lan.launch();
+    await lan.readyNewGame();
+    await lan.startResearch(records.record.position, records.record.usi);
+    const firstStop = lan.stop();
+    await vi.advanceTimersByTimeAsync(0);
+    stream.write("bestmove 7g7f\n");
+    await vi.advanceTimersByTimeAsync(0);
+    await firstStop;
+    writes.length = 0;
+
+    await lan.readyNewGame();
+    await lan.startResearch(records.record.position, records.record.usi);
+    const stop = lan.stop();
+    await vi.advanceTimersByTimeAsync(RELAY_READY_TIMEOUT_MS - 1);
+    expect(writes).toEqual(["isready\n"]);
+    stream.write("readyok\n");
+    await vi.advanceTimersByTimeAsync(ENGINE_STOP_TIMEOUT_MS - 1);
+    expect(writes).toEqual([
+      "isready\n",
+      "usinewgame\n",
+      "position startpos\n",
+      "go infinite\n",
+      "stop\n",
+    ]);
+    stream.write("bestmove 7g7f\n");
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(stop).resolves.toBeUndefined();
+    await vi.advanceTimersByTimeAsync(30001);
     await lan.close();
   });
 });

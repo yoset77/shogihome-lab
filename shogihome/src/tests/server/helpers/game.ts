@@ -88,6 +88,7 @@ export function fakeGamePlayer() {
     supportsTakeback: true,
     readyNewGame: vi.fn(async () => {}),
     startSearch: vi.fn(async (_position, usi, _times, handler) => {
+      handler.onStart?.();
       searches.push({ usi, handler });
     }),
     startPonder: vi.fn(async () => {}),

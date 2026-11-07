@@ -21,6 +21,7 @@ export function createMockPlayer(moves: { [usi: string]: MoveWithOption }) {
     },
     readyNewGame: vi.fn(() => Promise.resolve()),
     startSearch: vi.fn((p: ImmutablePosition, usi: string, t: TimeStates, h: SearchHandler) => {
+      h.onStart?.();
       const m = moves[usi];
       if (!m) {
         throw new Error("unexpected USI: " + usi);

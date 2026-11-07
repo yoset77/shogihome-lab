@@ -64,6 +64,7 @@ export class EngineSession {
   private acceptedSearch: SearchRequest | null = null;
   private activeSearch: SearchRequest | null = null;
   private queuedSearch: SearchRequest | null = null;
+  private queuedSearchStopId: number | null = null;
   private cancelledThrough = 0;
   private settledThrough = 0;
   private terminalSearch: SearchSnapshot["terminal"] = null;
@@ -141,12 +142,15 @@ export class EngineSession {
   private startQueuedSearch() {
     if (this.engineState !== EngineState.READY || !this.queuedSearch) return;
     const search = this.queuedSearch;
+    const stopRequested = this.queuedSearchStopId === search.searchId;
     this.queuedSearch = null;
+    this.queuedSearchStopId = null;
     if (search.searchId <= this.cancelledThrough) return;
     this.activeSearch = search;
     this.lastInfos.clear();
     this.sendToEngine(search.position);
     this.sendToEngine(search.go);
+    if (stopRequested) this.requestSearchStop();
     this.sendSearchSnapshot();
   }
 
@@ -183,6 +187,7 @@ export class EngineSession {
     }
     this.acceptedSearch = search;
     this.queuedSearch = search;
+    this.queuedSearchStopId = null;
     this.terminalSearch = null;
     this.requestSearchStop();
     this.startQueuedSearch();
@@ -195,8 +200,10 @@ export class EngineSession {
       return;
     }
     this.cancelledThrough = Math.max(this.cancelledThrough, through);
-    if (this.queuedSearch && this.queuedSearch.searchId <= this.cancelledThrough)
+    if (this.queuedSearch && this.queuedSearch.searchId <= this.cancelledThrough) {
       this.queuedSearch = null;
+      this.queuedSearchStopId = null;
+    }
     if (this.activeSearch && this.activeSearch.searchId <= this.cancelledThrough) {
       this.requestSearchStop();
     } else {
@@ -406,6 +413,7 @@ export class EngineSession {
     this.commandQueue.length = 0;
     this.postStopCommandQueue.length = 0;
     this.queuedSearch = null;
+    this.queuedSearchStopId = null;
     // Unregister only once: a new session may already be using the same ID.
     if (!alreadyTerminated) this.removeSession(this.sessionId);
 
@@ -577,6 +585,7 @@ export class EngineSession {
     this.acceptedSearch = null;
     this.activeSearch = null;
     this.queuedSearch = null;
+    this.queuedSearchStopId = null;
     this.terminalSearch = null;
     this.cancelledThrough = 0;
     this.settledThrough = 0;
@@ -736,7 +745,7 @@ export class EngineSession {
     this.engineState = EngineState.READY;
     this.readyForNewGame = true;
     // Replaying may start another readiness check; do not drain a live queue.
-    for (const command of this.commandQueue.splice(0)) this.sendToEngine(command);
+    for (const command of this.commandQueue.splice(0)) this.handleRawUsiCommand(command);
     this.sendState();
     if (this.engineState === EngineState.READY || this.engineState === EngineState.THINKING)
       this.sendToClient({ type: "notice", notice: "engineReady" });
@@ -876,11 +885,11 @@ export class EngineSession {
         this.cancelSearch(message.instanceId, message.through);
         return;
       case "stopSearch":
-        if (
-          message.instanceId === this.instanceId &&
-          message.searchId === this.activeSearch?.searchId
-        )
-          this.requestSearchStop();
+        if (message.instanceId === this.instanceId) {
+          if (message.searchId === this.queuedSearch?.searchId)
+            this.queuedSearchStopId = message.searchId;
+          else if (message.searchId === this.activeSearch?.searchId) this.requestSearchStop();
+        }
         this.sendSearchSnapshot();
         return;
       case "getEngineList":
@@ -921,6 +930,9 @@ export class EngineSession {
 
   private handleRawUsiCommand(command: string) {
     if (command === "stop") {
+      if (this.queuedSearch) this.queuedSearchStopId = this.queuedSearch.searchId;
+      if (this.commandQueue.some((queued) => queued.startsWith("go")))
+        this.pushToQueue(this.commandQueue, command);
       this.requestSearchStop();
       return;
     }

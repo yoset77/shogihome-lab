@@ -15,6 +15,8 @@ export type SearchInfo = {
 };
 
 export interface SearchHandler {
+  // Called immediately before sending an engine search, after local preparation.
+  onStart?: () => void;
   onMove: (move: Move, info?: SearchInfo) => void;
   onResign: () => void;
   onWin: () => void;
