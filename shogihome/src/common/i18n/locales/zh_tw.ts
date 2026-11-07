@@ -203,6 +203,7 @@ export const zh_tw: Texts = {
   tabViewStyle: "分頁顯示形式",
   oneColumn: "1列",
   twoColumns: "2列",
+  twoByTwo: "2列×2行",
   sounds: "音效",
   pieceSoundVolume: "棋駒音效",
   clockSoundVolume: "棋鐘音效大小",

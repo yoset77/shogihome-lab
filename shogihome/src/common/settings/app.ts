@@ -73,6 +73,7 @@ export enum TabPaneType {
   SINGLE = "single",
   DOUBLE = "double",
   DOUBLE_V2 = "doubleV2",
+  GRID_2X2 = "grid2x2",
 }
 
 export enum Tab {
@@ -282,37 +283,53 @@ export type AppSettings = {
 
 export type AppSettingsUpdate = Partial<AppSettings>;
 
+// Keep the selected tabs valid for the current pane layout.
+// The same rules apply to setting updates and persisted settings.
+function normalizeTabPaneTabs(settings: Pick<AppSettings, "tabPaneType" | "tab" | "tab2">): void {
+  switch (settings.tabPaneType) {
+    case TabPaneType.DOUBLE:
+    case TabPaneType.DOUBLE_V2:
+      switch (settings.tab) {
+        case Tab.COMMENT:
+          settings.tab = Tab.RECORD_INFO;
+          break;
+        case Tab.CHART:
+        case Tab.PERCENTAGE_CHART:
+          settings.tab = Tab.PV;
+          break;
+      }
+      break;
+    case TabPaneType.GRID_2X2:
+      switch (settings.tab) {
+        case Tab.COMMENT:
+          settings.tab = Tab.RECORD_INFO;
+          break;
+        case Tab.CHART:
+        case Tab.PERCENTAGE_CHART:
+        case Tab.ANALYSIS_DB:
+          settings.tab = Tab.PV;
+          break;
+      }
+      break;
+  }
+
+  switch (settings.tabPaneType) {
+    case TabPaneType.DOUBLE_V2:
+    case TabPaneType.GRID_2X2:
+      if (settings.tab2 === Tab.COMMENT) {
+        settings.tab2 = Tab.CHART;
+      }
+      break;
+  }
+}
+
 export function buildUpdatedAppSettings(org: AppSettings, update: AppSettingsUpdate): AppSettings {
   const updated = {
     ...org,
     ...update,
   };
   updated.fileQuickAction = normalizeFileQuickAction(updated.fileQuickAction);
-
-  // カラム構成に合わせて選択可能なタブを制限する。
-  switch (updated.tabPaneType) {
-    case TabPaneType.DOUBLE:
-    case TabPaneType.DOUBLE_V2:
-      switch (updated.tab) {
-        case Tab.COMMENT:
-          updated.tab = Tab.RECORD_INFO;
-          break;
-        case Tab.CHART:
-        case Tab.PERCENTAGE_CHART:
-          updated.tab = Tab.PV;
-          break;
-      }
-      break;
-  }
-  switch (updated.tabPaneType) {
-    case TabPaneType.DOUBLE_V2:
-      switch (updated.tab2) {
-        case Tab.COMMENT:
-          updated.tab2 = Tab.CHART;
-          break;
-      }
-      break;
-  }
+  normalizeTabPaneTabs(updated);
 
   // 以前のサイズ比率を記憶する。
   if (org.topPaneHeightPercentage !== 0 && org.topPaneHeightPercentage !== 100) {
@@ -448,10 +465,10 @@ export function normalizeAppSettings(
   if (result.tab === Tab.INVISIBLE) {
     result.tab = Tab.RECORD_INFO;
   }
-  // 旧バージョンと行き来すると DOUBLE_V2 のまま Tab.COMMENT が選択された状態が発生しうる。
-  if (result.tabPaneType === TabPaneType.DOUBLE_V2 && result.tab2 === Tab.COMMENT) {
-    result.tab2 = Tab.CHART;
+  if (!Object.values(TabPaneType).includes(result.tabPaneType)) {
+    result.tabPaneType = defaults.tabPaneType;
   }
+  normalizeTabPaneTabs(result);
   if (!settings.analysisDBSearchMode) {
     result.analysisDBSearchMode = AnalysisDBSearchMode.EXCEPT_GAMES;
   }

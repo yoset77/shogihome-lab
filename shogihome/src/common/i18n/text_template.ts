@@ -205,6 +205,7 @@ export type Texts = {
   tabViewStyle: string;
   oneColumn: string;
   twoColumns: string;
+  twoByTwo: string;
   sounds: string;
   pieceSoundVolume: string;
   clockSoundVolume: string;
