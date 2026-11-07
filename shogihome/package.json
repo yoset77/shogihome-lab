@@ -43,7 +43,7 @@
     "dayjs": "^1.11.23",
     "encoding-japanese": "^2.4.0",
     "escape-html": "^1.0.3",
-    "hono": "^4.13.13",
+    "hono": "^4.13.16",
     "hono-rate-limiter": "^0.5.4",
     "html-to-image": "^1.11.13",
     "jimp": "^1.6.1",
