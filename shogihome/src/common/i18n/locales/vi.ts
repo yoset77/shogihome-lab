@@ -203,6 +203,7 @@ export const vi: Texts = {
   tabViewStyle: "Hiện thẻ",
   oneColumn: "1 cột",
   twoColumns: "2 cột",
+  twoByTwo: "2 cột × 2 hàng",
   sounds: "Âm thanh",
   pieceSoundVolume: "Âm lượng quân",
   clockSoundVolume: "Âm lượng đồng hồ",

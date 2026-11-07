@@ -71,7 +71,27 @@
           @resized="onResizedBottom"
         >
           <Pane :size="bottomLeftPaneWidthPercentage">
+            <div
+              v-if="appSettings.tabPaneType === TabPaneType.GRID_2X2"
+              class="full column left-split"
+            >
+              <TabPane
+                class="left-split-pane left-split-top"
+                :style="{ height: `${tabPaneSizeLeftTop.height}px` }"
+                :size="tabPaneSizeLeftTop"
+                :visible-tabs="[Tab.RECORD_INFO, Tab.SEARCH, Tab.PV]"
+                :active-tab="viewSettings.tab"
+                :allow-puzzle="true"
+                @on-change-tab="onChangeTab"
+              />
+              <AnalysisDB
+                v-if="isBottomPaneVisible && !isAnalysisDBPaneHidden"
+                class="left-split-pane left-split-bottom"
+                :size="tabPaneSizeLeftBottom"
+              />
+            </div>
             <TabPane
+              v-else
               class="full"
               :size="tabPaneSize"
               :visible-tabs="[Tab.RECORD_INFO, Tab.SEARCH, Tab.PV, Tab.ANALYSIS_DB]"
@@ -110,6 +130,21 @@
   </div>
 </template>
 
+<script lang="ts">
+// Split the left column without a gap, giving the top content area more height.
+export function splitLeftPaneSizes(
+  size: RectSize,
+  headerHeight: number,
+): { top: RectSize; bottom: RectSize } {
+  const contentHeight = Math.max(0, size.height - headerHeight);
+  const topContentHeight = (contentHeight * 5) / 9;
+  return {
+    top: new RectSize(size.width, topContentHeight + headerHeight),
+    bottom: new RectSize(size.width, contentHeight - topContentHeight),
+  };
+}
+</script>
+
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import { reactive, onMounted, onUnmounted, computed, ref, watch } from "vue";
@@ -117,6 +152,7 @@ import BoardPane from "./BoardPane.vue";
 import RecordPane, { minWidth as minRecordWidth } from "./RecordPane.vue";
 import TabPane, { headerHeight as tabHeaderHeight } from "./TabPane.vue";
 import RecordComment from "@/renderer/view/tab/RecordComment.vue";
+import AnalysisDB from "@/renderer/view/tab/AnalysisDB.vue";
 import ControlPane, { ControlGroup } from "./ControlPane.vue";
 import { RectSize } from "@/common/assets/geometry";
 import { Tab, TabPaneType } from "@/common/settings/app";
@@ -125,6 +161,7 @@ import api from "@/renderer/ipc/api";
 import { LogLevel } from "@/common/log";
 import { toString } from "@/common/helpers/string";
 import { Lazy } from "@/renderer/helpers/lazy";
+import { isEvaluationPuzzleState } from "@/renderer/helpers/puzzle";
 import { Splitpanes, Pane } from "splitpanes";
 import "splitpanes/dist/splitpanes.css";
 import { IconType } from "@/renderer/assets/icons";
@@ -309,6 +346,21 @@ const tabPaneSize2a = computed(
       ),
     ),
 );
+
+const leftPaneSizes = computed(() => splitLeftPaneSizes(tabPaneSize.value, tabHeaderHeight));
+
+const isAnalysisDBPaneHidden = computed(
+  () =>
+    // Record info benefits from full height and rarely needs the DB alongside it.
+    viewSettings.value.tab === Tab.RECORD_INFO ||
+    isEvaluationPuzzleState(store.appState, store.puzzle),
+);
+
+const tabPaneSizeLeftTop = computed(() =>
+  isAnalysisDBPaneHidden.value ? tabPaneSize.value : leftPaneSizes.value.top,
+);
+
+const tabPaneSizeLeftBottom = computed(() => leftPaneSizes.value.bottom);
 </script>
 
 <style>
@@ -332,6 +384,16 @@ const tabPaneSize2a = computed(
 </style>
 
 <style scoped>
+.left-split > .left-split-pane {
+  min-height: 0;
+  overflow: hidden;
+}
+.left-split > .left-split-top {
+  flex: 0 0 auto;
+}
+.left-split > .left-split-bottom {
+  flex: 1 1 0;
+}
 .shadow-bottom {
   box-shadow: 0px 6px 6px -3px var(--shadow-color);
 }

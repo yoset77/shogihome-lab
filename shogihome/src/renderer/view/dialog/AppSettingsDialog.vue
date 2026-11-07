@@ -233,6 +233,7 @@
               { label: t.oneColumn, value: TabPaneType.SINGLE },
               { label: t.twoColumns, value: TabPaneType.DOUBLE },
               { label: `${t.twoColumns} v2`, value: TabPaneType.DOUBLE_V2 },
+              { label: t.twoByTwo, value: TabPaneType.GRID_2X2 },
             ]"
           />
         </div>

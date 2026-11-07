@@ -203,6 +203,7 @@ export const ja: Texts = {
   tabViewStyle: "タブビューの形式",
   oneColumn: "1列",
   twoColumns: "2列",
+  twoByTwo: "2列×2段",
   sounds: "音",
   pieceSoundVolume: "駒音の大きさ",
   clockSoundVolume: "時計音の大きさ",

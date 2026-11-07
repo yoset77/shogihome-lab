@@ -205,6 +205,7 @@ export const en: Texts = {
   tabViewStyle: "Tab View Style",
   oneColumn: "1 Column",
   twoColumns: "2 Columns",
+  twoByTwo: "2 Columns × 2 Rows",
   sounds: "Sounds",
   pieceSoundVolume: "Piece Sound Volume",
   clockSoundVolume: "Clock Sound Volume",

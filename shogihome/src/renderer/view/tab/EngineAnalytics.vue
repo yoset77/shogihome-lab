@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="full column">
+    <div class="full column element-list">
       <EngineAnalyticsElement
         v-for="monitor in monitors"
         :key="monitor.sessionID"
@@ -55,6 +55,13 @@ const monitors = computed(() => {
 
 const elementHeight = computed(() => {
   const rows = monitors.value.length;
-  return props.size.height / (rows || 1);
+  // Keep a 2px gap between stacked elements as a separator.
+  return (props.size.height - 2 * (rows - 1)) / (rows || 1);
 });
 </script>
+
+<style scoped>
+.element-list {
+  gap: 2px;
+}
+</style>

@@ -1073,6 +1073,7 @@ describe("store/index", () => {
     it.each([
       [TabPaneType.SINGLE, TabPaneType.DOUBLE, { tab: Tab.COMMENT }, { tab: Tab.RECORD_INFO }],
       [TabPaneType.DOUBLE, TabPaneType.DOUBLE_V2, { tab2: Tab.COMMENT }, { tab2: Tab.CHART }],
+      [TabPaneType.DOUBLE_V2, TabPaneType.GRID_2X2, { tab: Tab.ANALYSIS_DB }, { tab: Tab.PV }],
     ])("revalidates game-only tabs when switching from %s to %s", (from, to, tabs, expected) => {
       settings.setTemporaryUpdate({ tabPaneType: from });
       const original = settings.clone;

@@ -70,6 +70,8 @@ describe("game view preset", () => {
     [TabPaneType.DOUBLE, { tab: Tab.CHART }, { tab: Tab.PV }],
     [TabPaneType.DOUBLE_V2, { tab: Tab.PERCENTAGE_CHART }, { tab: Tab.PV }],
     [TabPaneType.DOUBLE_V2, { tab: Tab.PV, tab2: Tab.COMMENT }, { tab: Tab.PV, tab2: Tab.CHART }],
+    [TabPaneType.GRID_2X2, { tab: Tab.ANALYSIS_DB }, { tab: Tab.PV }],
+    [TabPaneType.GRID_2X2, { tab2: Tab.COMMENT }, { tab2: Tab.CHART }],
     [
       TabPaneType.SINGLE,
       { tab: Tab.SEARCH, tab2: Tab.PERCENTAGE_CHART },

@@ -5,13 +5,17 @@ import {
   defaultAppSettings,
   Tab,
   TabPaneType,
+  AnalysisDBSearchMode,
   type AppSettingsUpdate,
 } from "@/common/settings/app";
 import { GameViewState, type GameViewSettings } from "@/renderer/store/game_view";
-import StandardLayout from "@/renderer/view/main/StandardLayout.vue";
+import StandardLayout, { splitLeftPaneSizes } from "@/renderer/view/main/StandardLayout.vue";
 import RecordPane from "@/renderer/view/main/RecordPane.vue";
 import BoardPane from "@/renderer/view/main/BoardPane.vue";
 import TabPane from "@/renderer/view/main/TabPane.vue";
+import AnalysisDB from "@/renderer/view/tab/AnalysisDB.vue";
+import { RectSize } from "@/common/assets/geometry";
+import { AppState } from "@/common/control/state";
 
 const { useStore, useAppSettings } = vi.hoisted(() => ({
   useStore: vi.fn(),
@@ -26,13 +30,16 @@ const app = reactive({
   updateAppSettings: vi.fn(async (update: AppSettingsUpdate) => Object.assign(app, update)),
 });
 const view = reactive(new GameViewState());
-const store = {
+const store = reactive({
+  appState: AppState.NORMAL as AppState,
+  puzzle: undefined as { type: string } | undefined,
+  record: { position: { sfen: "startpos" } },
   get gameViewSettings() {
     return view.settings;
   },
   updateGameViewSettings: (update: Partial<GameViewSettings>) => view.update(app, update),
-};
-const mountLayout = () =>
+});
+const mountLayout = (withAnalysisDB = false) =>
   mount(StandardLayout, {
     attachTo: document.body,
     global: {
@@ -42,6 +49,7 @@ const mountLayout = () =>
         ControlPane: true,
         TabPane: true,
         RecordComment: true,
+        AnalysisDB: !withAnalysisDB,
         Icon: true,
       },
     },
@@ -51,12 +59,15 @@ const topSize = (wrapper: LayoutWrapper) => wrapper.findAllComponents(Pane)[0].p
 
 enableAutoUnmount(afterEach);
 
-describe("PC game view preset", () => {
+describe("StandardLayout", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     Object.assign(app, defaultAppSettings());
     app.updateAppSettings.mockClear();
     view.setActive(false, app);
+    store.appState = AppState.NORMAL;
+    store.puzzle = undefined;
+    store.record.position.sfen = "startpos";
     useStore.mockReturnValue(store);
     useAppSettings.mockReturnValue(app);
   });
@@ -65,127 +76,336 @@ describe("PC game view preset", () => {
     vi.useRealTimers();
   });
 
-  it.each(Object.values(TabPaneType))("temporarily hides every %s layout", async (tabPaneType) => {
-    app.tabPaneType = tabPaneType;
-    const original = { ...app };
-    const wrapper = mountLayout();
-    expect(topSize(wrapper)).toBe(60);
-    expect(wrapper.getComponent(RecordPane).props("showComment")).toBe(true);
-    view.setActive(true, app);
-    await nextTick();
-    expect(topSize(wrapper)).toBe(100);
-    expect(wrapper.getComponent(RecordPane).props("showComment")).toBe(false);
-    expect(wrapper.getComponent(BoardPane).props("hideCandidates")).toBe(true);
-    expect(wrapper.findAllComponents(TabPane).every((pane) => !pane.isVisible())).toBe(true);
+  describe("PC game view preset", () => {
+    it.each(Object.values(TabPaneType))(
+      "temporarily hides every %s layout",
+      async (tabPaneType) => {
+        app.tabPaneType = tabPaneType;
+        const original = { ...app };
+        const wrapper = mountLayout();
+        expect(topSize(wrapper)).toBe(60);
+        expect(wrapper.getComponent(RecordPane).props("showComment")).toBe(true);
+        view.setActive(true, app);
+        await nextTick();
+        expect(topSize(wrapper)).toBe(100);
+        expect(wrapper.getComponent(RecordPane).props("showComment")).toBe(false);
+        expect(wrapper.getComponent(BoardPane).props("hideCandidates")).toBe(true);
+        expect(wrapper.findAllComponents(TabPane).every((pane) => !pane.isVisible())).toBe(true);
 
-    await wrapper.get(".unhide-tabview-button").trigger("click");
-    expect(topSize(wrapper)).toBe(60);
-    expect(wrapper.findAllComponents(TabPane).every((pane) => pane.isVisible())).toBe(true);
-    wrapper.findAllComponents(TabPane)[0].vm.$emit("onChangeTab", Tab.PV);
-    await nextTick();
-    expect(view.settings?.tab).toBe(Tab.PV);
-    expect(wrapper.getComponent(BoardPane).props("hideCandidates")).toBe(true);
+        await wrapper.get(".unhide-tabview-button").trigger("click");
+        expect(topSize(wrapper)).toBe(60);
+        expect(wrapper.findAllComponents(TabPane).every((pane) => pane.isVisible())).toBe(true);
+        wrapper.findAllComponents(TabPane)[0].vm.$emit("onChangeTab", Tab.PV);
+        await nextTick();
+        expect(view.settings?.tab).toBe(Tab.PV);
+        expect(wrapper.getComponent(BoardPane).props("hideCandidates")).toBe(true);
 
-    view.setActive(false, app);
-    await nextTick();
-    expect(topSize(wrapper)).toBe(60);
-    expect(wrapper.getComponent(RecordPane).props("showComment")).toBe(true);
-    expect(wrapper.getComponent(BoardPane).props("hideCandidates")).toBe(false);
-    expect(wrapper.findAllComponents(TabPane)[0].props("activeTab")).toBe(original.tab);
-    expect(app.updateAppSettings).not.toHaveBeenCalled();
-    expect(app).toEqual(original);
-  });
+        view.setActive(false, app);
+        await nextTick();
+        expect(topSize(wrapper)).toBe(60);
+        expect(wrapper.getComponent(RecordPane).props("showComment")).toBe(true);
+        expect(wrapper.getComponent(BoardPane).props("hideCandidates")).toBe(false);
+        expect(wrapper.findAllComponents(TabPane)[0].props("activeTab")).toBe(original.tab);
+        expect(app.updateAppSettings).not.toHaveBeenCalled();
+        expect(app).toEqual(original);
+      },
+    );
 
-  it("starts hidden on the first render when restoring an active game", () => {
-    view.setActive(true, app);
-    const wrapper = mountLayout();
-    expect(topSize(wrapper)).toBe(100);
-    expect(wrapper.getComponent(RecordPane).props("showComment")).toBe(false);
-    expect(wrapper.getComponent(BoardPane).props("hideCandidates")).toBe(true);
-  });
-
-  it("allows divider dragging and clears delayed resizing when the game ends", async () => {
-    const wrapper = mountLayout();
-    const main = wrapper.findAllComponents(Splitpanes)[0];
-    view.setActive(true, app);
-    await nextTick();
-    main.vm.$emit("resized", { panes: [{ size: 45 }], event: new Event("mouseup") });
-    await nextTick();
-    expect(topSize(wrapper)).toBe(45);
-    expect(view.settings?.topPaneHeightPercentage).toBe(45);
-    main.vm.$emit("resize", { panes: [{ size: 30 }] });
-    view.setActive(false, app);
-    await vi.advanceTimersByTimeAsync(100);
-    expect(topSize(wrapper)).toBe(60);
-    expect(app.updateAppSettings).not.toHaveBeenCalled();
-  });
-
-  it.each([TabPaneType.DOUBLE, TabPaneType.DOUBLE_V2])(
-    "restores both real Splitpanes widths after a game-only resize in %s",
-    async (tabPaneType) => {
-      app.tabPaneType = tabPaneType;
-      const original = { ...app };
+    it("starts hidden on the first render when restoring an active game", () => {
+      view.setActive(true, app);
       const wrapper = mountLayout();
-      const bottom = wrapper.get(".bottom-frame");
-      const widths = () =>
-        bottom
-          .findAll(".splitpanes__pane")
-          .map((pane) => (pane.element as HTMLElement).style.width);
-      await nextTick();
-      expect(widths()).toEqual(["60%", "40%"]);
+      expect(topSize(wrapper)).toBe(100);
+      expect(wrapper.getComponent(RecordPane).props("showComment")).toBe(false);
+      expect(wrapper.getComponent(BoardPane).props("hideCandidates")).toBe(true);
+    });
 
+    it("allows divider dragging and clears delayed resizing when the game ends", async () => {
+      const wrapper = mountLayout();
+      const main = wrapper.findAllComponents(Splitpanes)[0];
       view.setActive(true, app);
       await nextTick();
-      await wrapper.get(".unhide-tabview-button").trigger("click");
-      const divider = bottom.get(".splitpanes__splitter");
-      for (let i = 0; i < 4; ++i) {
-        await divider.trigger("keydown", { key: "ArrowLeft" });
-      }
-      expect(widths()).toEqual(["40%", "60%"]);
-      expect(view.settings?.bottomLeftPaneWidthPercentage).toBe(40);
+      main.vm.$emit("resized", { panes: [{ size: 45 }], event: new Event("mouseup") });
+      await nextTick();
+      expect(topSize(wrapper)).toBe(45);
+      expect(view.settings?.topPaneHeightPercentage).toBe(45);
+      main.vm.$emit("resize", { panes: [{ size: 30 }] });
+      view.setActive(false, app);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(topSize(wrapper)).toBe(60);
+      expect(app.updateAppSettings).not.toHaveBeenCalled();
+    });
 
+    it.each([TabPaneType.DOUBLE, TabPaneType.DOUBLE_V2, TabPaneType.GRID_2X2])(
+      "restores both real Splitpanes widths after a game-only resize in %s",
+      async (tabPaneType) => {
+        app.tabPaneType = tabPaneType;
+        const original = { ...app };
+        const wrapper = mountLayout();
+        const bottom = wrapper.get(".bottom-frame");
+        const widths = () =>
+          bottom
+            .findAll(".splitpanes__pane")
+            .map((pane) => (pane.element as HTMLElement).style.width);
+        await nextTick();
+        expect(widths()).toEqual(["60%", "40%"]);
+
+        view.setActive(true, app);
+        await nextTick();
+        await wrapper.get(".unhide-tabview-button").trigger("click");
+        const divider = bottom.get(".splitpanes__splitter");
+        for (let i = 0; i < 4; ++i) {
+          await divider.trigger("keydown", { key: "ArrowLeft" });
+        }
+        expect(widths()).toEqual(["40%", "60%"]);
+        expect(view.settings?.bottomLeftPaneWidthPercentage).toBe(40);
+
+        view.setActive(false, app);
+        await nextTick();
+        expect(widths()).toEqual(["60%", "40%"]);
+        expect(app.updateAppSettings).not.toHaveBeenCalled();
+        expect(app).toEqual(original);
+      },
+    );
+
+    it("does not persist programmatic Splitpanes resize events", async () => {
+      const wrapper = mountLayout();
+      const main = wrapper.findAllComponents(Splitpanes)[0];
+      main.vm.$emit("resized", { panes: [{ size: 100 }] });
+      view.setActive(true, app);
+      await nextTick();
+      main.vm.$emit("resized", { panes: [{ size: 100 }] });
       view.setActive(false, app);
       await nextTick();
-      expect(widths()).toEqual(["60%", "40%"]);
+      main.vm.$emit("resized", { panes: [{ size: 60 }] });
+      expect(topSize(wrapper)).toBe(60);
       expect(app.updateAppSettings).not.toHaveBeenCalled();
-      expect(app).toEqual(original);
-    },
-  );
+    });
 
-  it("does not persist programmatic Splitpanes resize events", async () => {
-    const wrapper = mountLayout();
-    const main = wrapper.findAllComponents(Splitpanes)[0];
-    main.vm.$emit("resized", { panes: [{ size: 100 }] });
-    view.setActive(true, app);
-    await nextTick();
-    main.vm.$emit("resized", { panes: [{ size: 100 }] });
-    view.setActive(false, app);
-    await nextTick();
-    main.vm.$emit("resized", { panes: [{ size: 60 }] });
-    expect(topSize(wrapper)).toBe(60);
-    expect(app.updateAppSettings).not.toHaveBeenCalled();
+    it("preserves a layout that was already minimized before the game", async () => {
+      app.topPaneHeightPercentage = 100;
+      app.topPanePreviousHeightPercentage = 45;
+      view.setActive(true, app);
+      const wrapper = mountLayout();
+      await wrapper.get(".unhide-tabview-button").trigger("click");
+      expect(topSize(wrapper)).toBe(45);
+      view.setActive(false, app);
+      await nextTick();
+      expect(topSize(wrapper)).toBe(100);
+    });
+
+    it("continues to persist manual layout changes outside the preset", async () => {
+      const wrapper = mountLayout();
+      wrapper
+        .findAllComponents(TabPane)
+        .find((pane) => pane.props("displayMinimizeToggle"))!
+        .vm.$emit("onMinimize");
+      await nextTick();
+      expect(topSize(wrapper)).toBe(100);
+      expect(app.updateAppSettings).toHaveBeenCalledWith({ topPaneHeightPercentage: 100 });
+    });
   });
 
-  it("preserves a layout that was already minimized before the game", async () => {
-    app.topPaneHeightPercentage = 100;
-    app.topPanePreviousHeightPercentage = 45;
-    view.setActive(true, app);
+  it("keeps a single left tab pane for the 2-column v2 layout", () => {
+    app.tabPaneType = TabPaneType.DOUBLE_V2;
     const wrapper = mountLayout();
-    await wrapper.get(".unhide-tabview-button").trigger("click");
-    expect(topSize(wrapper)).toBe(45);
-    view.setActive(false, app);
-    await nextTick();
-    expect(topSize(wrapper)).toBe(100);
+    expect(wrapper.find(".left-split").exists()).toBe(false);
+    expect(wrapper.getComponent(TabPane).props("visibleTabs")).toContain(Tab.ANALYSIS_DB);
   });
 
-  it("continues to persist manual layout changes outside the preset", async () => {
-    const wrapper = mountLayout();
-    wrapper
-      .findAllComponents(TabPane)
-      .find((pane) => pane.props("displayMinimizeToggle"))!
-      .vm.$emit("onMinimize");
-    await nextTick();
-    expect(topSize(wrapper)).toBe(100);
-    expect(app.updateAppSettings).toHaveBeenCalledWith({ topPaneHeightPercentage: 100 });
+  describe("2x2 layout", () => {
+    beforeEach(() => {
+      app.tabPaneType = TabPaneType.GRID_2X2;
+      app.tab = Tab.PV;
+    });
+
+    it("renders the fixed AnalysisDB pane below the tab pane", () => {
+      const wrapper = mountLayout();
+      const left = wrapper.get(".left-split");
+      expect(left.findAll(".left-split-pane")).toHaveLength(2);
+      expect(left.findAllComponents(TabPane)).toHaveLength(1);
+      expect(left.getComponent(TabPane).props("visibleTabs")).toEqual([
+        Tab.RECORD_INFO,
+        Tab.SEARCH,
+        Tab.PV,
+      ]);
+      expect(left.getComponent(AnalysisDB).isVisible()).toBe(true);
+    });
+
+    it("uses the full left pane for record info and restores the DB afterward", async () => {
+      const wrapper = mountLayout();
+      const left = wrapper.get(".left-split");
+      const top = left.getComponent(TabPane);
+      const splitSize = top.props("size");
+      const fullHeight = splitSize.height + left.getComponent(AnalysisDB).props("size").height;
+
+      app.tab = Tab.RECORD_INFO;
+      await nextTick();
+      expect(left.findComponent(AnalysisDB).exists()).toBe(false);
+      expect(top.props("size").height).toBeCloseTo(fullHeight);
+      expect(parseFloat((top.element as HTMLElement).style.height)).toBeCloseTo(fullHeight);
+
+      app.tab = Tab.PV;
+      await nextTick();
+      expect(left.findComponent(AnalysisDB).exists()).toBe(true);
+      expect(top.props("size")).toEqual(splitSize);
+    });
+
+    it("uses the full left pane for evaluation puzzles and restores the DB afterward", async () => {
+      const wrapper = mountLayout();
+      const left = wrapper.get(".left-split");
+      const top = left.getComponent(TabPane);
+      const splitSize = top.props("size");
+      const fullHeight = splitSize.height + left.getComponent(AnalysisDB).props("size").height;
+
+      store.appState = AppState.PUZZLE;
+      store.puzzle = { type: "evaluation" };
+      await nextTick();
+      expect(left.findComponent(AnalysisDB).exists()).toBe(false);
+      expect(top.props("size").height).toBeCloseTo(fullHeight);
+      expect(parseFloat((top.element as HTMLElement).style.height)).toBeCloseTo(fullHeight);
+
+      store.appState = AppState.NORMAL;
+      store.puzzle = undefined;
+      await nextTick();
+      expect(left.findComponent(AnalysisDB).exists()).toBe(true);
+      expect(top.props("size")).toEqual(splitSize);
+
+      store.appState = AppState.PUZZLE;
+      store.puzzle = { type: "next_move" };
+      await nextTick();
+      expect(left.findComponent(AnalysisDB).exists()).toBe(true);
+      expect(top.props("size")).toEqual(splitSize);
+    });
+
+    it("unmounts and restores the DB when the tab view is minimized and reopened", async () => {
+      const wrapper = mountLayout();
+      expect(wrapper.findComponent(AnalysisDB).exists()).toBe(true);
+
+      wrapper
+        .findAllComponents(TabPane)
+        .find((pane) => pane.props("displayMinimizeToggle"))!
+        .vm.$emit("onMinimize");
+      await nextTick();
+      expect(wrapper.findComponent(AnalysisDB).exists()).toBe(false);
+
+      await wrapper.get(".unhide-tabview-button").trigger("click");
+      expect(wrapper.findComponent(AnalysisDB).exists()).toBe(true);
+    });
+
+    describe("DB searches", () => {
+      const fetchMock = vi.fn<typeof fetch>();
+
+      beforeEach(() => {
+        fetchMock
+          .mockReset()
+          .mockImplementation(
+            async () =>
+              new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } }),
+          );
+        vi.stubGlobal("fetch", fetchMock);
+      });
+
+      afterEach(() => vi.unstubAllGlobals());
+
+      it("does not search while record info hides the fixed pane", async () => {
+        app.tab = Tab.RECORD_INFO;
+        mountLayout(true);
+        await vi.advanceTimersByTimeAsync(300);
+        expect(fetchMock).not.toHaveBeenCalled();
+
+        store.record.position.sfen = "hidden-position";
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(300);
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
+
+      it("cancels a debounced search when the fixed pane is hidden", async () => {
+        mountLayout(true);
+        await vi.advanceTimersByTimeAsync(100);
+        app.tab = Tab.RECORD_INFO;
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(300);
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
+
+      it("searches the latest SFEN when the fixed pane is reopened", async () => {
+        mountLayout(true);
+        await vi.advanceTimersByTimeAsync(300);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        app.tab = Tab.RECORD_INFO;
+        await nextTick();
+        store.record.position.sfen = "another-position";
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(300);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        app.tab = Tab.PV;
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(300);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        const url = new URL(String(fetchMock.mock.calls[1][0]));
+        expect(url.pathname).toBe("/api/analysis");
+        expect(url.searchParams.get("sfen")).toBe("another-position");
+      });
+
+      it("does not search while an evaluation puzzle hides the fixed pane", async () => {
+        mountLayout(true);
+        await vi.advanceTimersByTimeAsync(300);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        store.appState = AppState.PUZZLE;
+        store.puzzle = { type: "evaluation" };
+        await nextTick();
+        store.record.position.sfen = "puzzle-position";
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(300);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+
+      it("does not search while the tab view is minimized", async () => {
+        const wrapper = mountLayout(true);
+        await vi.advanceTimersByTimeAsync(300);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        wrapper
+          .findAllComponents(TabPane)
+          .find((pane) => pane.props("displayMinimizeToggle"))!
+          .vm.$emit("onMinimize");
+        await nextTick();
+        store.record.position.sfen = "minimized-position";
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(300);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+
+      it("keeps search manual when the fixed pane is reopened with auto search disabled", async () => {
+        app.tab = Tab.RECORD_INFO;
+        app.analysisDBSearchMode = AnalysisDBSearchMode.NONE;
+        const wrapper = mountLayout(true);
+
+        app.tab = Tab.PV;
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(300);
+        expect(fetchMock).not.toHaveBeenCalled();
+        await wrapper.get(".left-split-bottom button.large").trigger("click");
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it("splits the left column content heights in a 5:4 ratio", () => {
+      const { top, bottom } = splitLeftPaneSizes(new RectSize(1000, 300), 30);
+      expect(top.width).toBe(1000);
+      expect(bottom.width).toBe(1000);
+      expect(top.height).toBe(180);
+      expect(bottom.height).toBe(120);
+      expect(top.height + bottom.height).toBe(300);
+    });
+
+    it("clamps the left split when the pane is very short", () => {
+      const { top, bottom } = splitLeftPaneSizes(new RectSize(1000, 20), 30);
+      expect(top.height).toBe(30);
+      expect(bottom.height).toBe(0);
+    });
   });
 });
