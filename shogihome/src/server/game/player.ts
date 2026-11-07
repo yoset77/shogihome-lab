@@ -91,9 +91,11 @@ export class GamePlayer implements Player {
         }
       }
       if (!current()) return;
+      const go = gameGoCommand(position.color, times);
+      handler.onStart?.();
       this.search = await this.engine.startSearch(
         usi,
-        gameGoCommand(position.color, times),
+        go,
         (line) => {
           if (!current()) return;
           const parsed = parseAnalysisInfo(line);

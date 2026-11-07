@@ -308,7 +308,9 @@ export class LanPlayer implements Player {
         if (generation !== this.searchGeneration) return;
       }
 
-      this.sendSearch(usi, gameGoCommand(position.color, timeStates));
+      const go = gameGoCommand(position.color, timeStates);
+      handler.onStart?.();
+      this.sendSearch(usi, go);
       this.isThinking = true;
       triggerOnStartSearch(this._sessionID, this.position);
     });

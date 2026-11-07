@@ -214,6 +214,151 @@ describe("relay readiness deadlines", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it.each(["identified", "raw"])(
+    "preserves a queued search's %s stop until readyok and returns its terminal result",
+    (route) => {
+      const { session, engine, output, send, startNextGame } = setup();
+      startNextGame();
+      const instanceId = session.internalSnapshot.instanceId;
+      send({
+        type: "search",
+        instanceId,
+        searchId: 1,
+        position: "position startpos",
+        go: "go infinite",
+      });
+      const stop: ClientRelayMessage =
+        route === "identified"
+          ? { type: "stopSearch", instanceId, searchId: 1 }
+          : { type: "usi", command: "stop" };
+      send(stop);
+      vi.advanceTimersByTime(5000);
+      send(stop);
+      expect(engine.write).toHaveBeenCalledExactlyOnceWith("isready\n");
+      expect(session.internalSnapshot.active).toBeNull();
+      output.write("readyok\n");
+      expect(engine.write.mock.calls.map(([command]) => command)).toEqual([
+        "isready\n",
+        "usinewgame\n",
+        "position startpos\n",
+        "go infinite\n",
+        "stop\n",
+      ]);
+      expect(session.internalSnapshot.state).toBe(EngineState.STOPPING_SEARCH);
+      expect(session.internalSnapshot.active).toBe(1);
+      vi.advanceTimersByTime(4000);
+      send(stop);
+      vi.advanceTimersByTime(ENGINE_STOP_TIMEOUT_MS - 4001);
+      expect(engine.close).not.toHaveBeenCalled();
+      output.write("bestmove 7g7f\n");
+      expect(session.internalSnapshot.terminal?.searchId).toBe(1);
+      expect(session.internalSnapshot.cancelled).toBe(0);
+      expect(session.internalSnapshot.state).toBe(EngineState.READY);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it.each(["replace", "cancel"])(
+    "does not carry a queued stop into the next search after %s",
+    (action) => {
+      const { session, engine, output, send, startNextGame } = setup();
+      startNextGame();
+      const instanceId = session.internalSnapshot.instanceId;
+      const search = (searchId: number) =>
+        send({
+          type: "search",
+          instanceId,
+          searchId,
+          position: "position startpos",
+          go: "go infinite",
+        });
+      search(1);
+      send({ type: "stopSearch", instanceId, searchId: 1 });
+      if (action === "cancel") send({ type: "cancelSearch", instanceId, through: 1 });
+      else search(2);
+      output.write("readyok\n");
+      if (action === "cancel") {
+        expect(session.internalSnapshot.active).toBeNull();
+        expect(session.internalSnapshot.settled).toBe(1);
+        expect(engine.write).not.toHaveBeenCalledWith("go infinite\n");
+        search(2);
+      }
+      expect(session.internalSnapshot.active).toBe(2);
+      expect(engine.write).not.toHaveBeenCalledWith("stop\n");
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it("ignores stale identities when stopping a queued search", () => {
+    const { session, engine, output, send, startNextGame } = setup();
+    startNextGame();
+    const instanceId = session.internalSnapshot.instanceId;
+    send({
+      type: "search",
+      instanceId,
+      searchId: 1,
+      position: "position startpos",
+      go: "go infinite",
+    });
+    send({ type: "stopSearch", instanceId: "other-instance", searchId: 1 });
+    send({ type: "stopSearch", instanceId, searchId: 2 });
+    output.write("readyok\n");
+    expect(session.internalSnapshot.active).toBe(1);
+    expect(engine.write).not.toHaveBeenCalledWith("stop\n");
+  });
+
+  it("replays a legacy queued stop through the state machine before later commands", () => {
+    const { session, engine, output, send, startNextGame } = setup();
+    startNextGame();
+    for (const command of [
+      "position startpos",
+      "go infinite",
+      "stop",
+      "position startpos moves 7g7f",
+      "go infinite",
+    ])
+      send({ type: "usi", command });
+    expect(engine.write).toHaveBeenCalledExactlyOnceWith("isready\n");
+    output.write("readyok\n");
+    expect(engine.write.mock.calls.map(([command]) => command)).toEqual([
+      "isready\n",
+      "usinewgame\n",
+      "position startpos\n",
+      "go infinite\n",
+      "stop\n",
+    ]);
+    expect(session.internalSnapshot.state).toBe(EngineState.STOPPING_SEARCH);
+    output.write("bestmove 7g7f\n");
+    expect(engine.write.mock.calls.slice(-2).map(([command]) => command)).toEqual([
+      "position startpos moves 7g7f\n",
+      "go infinite\n",
+    ]);
+    expect(session.internalSnapshot.state).toBe(EngineState.THINKING);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("starts the stop deadline only when a queued stop reaches the engine", () => {
+    const { session, engine, output, send, startNextGame } = setup();
+    startNextGame();
+    const instanceId = session.internalSnapshot.instanceId;
+    send({
+      type: "search",
+      instanceId,
+      searchId: 1,
+      position: "position startpos",
+      go: "go infinite",
+    });
+    send({ type: "stopSearch", instanceId, searchId: 1 });
+    vi.advanceTimersByTime(ENGINE_STOP_TIMEOUT_MS + 1);
+    expect(engine.close).not.toHaveBeenCalled();
+    output.write("readyok\n");
+    vi.advanceTimersByTime(ENGINE_STOP_TIMEOUT_MS - 1);
+    send({ type: "usi", command: "stop" });
+    expect(engine.close).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(engine.close).toHaveBeenCalledOnce();
+  });
+
   it.each([false, true])(
     "keeps the original deadline across browser disconnection (reattach: %s)",
     (reattach) => {

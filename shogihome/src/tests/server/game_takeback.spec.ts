@@ -24,6 +24,7 @@ async function setup(options: Partial<GameSettings> = {}, record = new Record())
     supportsTakeback: true,
     readyNewGame: vi.fn(async () => {}),
     startSearch: vi.fn(async (_p, _u, _t, handler) => {
+      handler.onStart?.();
       requests.push(handler);
     }),
     startPonder: vi.fn(async () => {}),
