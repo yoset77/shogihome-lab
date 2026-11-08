@@ -141,6 +141,38 @@ describe("server-owned engine sessions", () => {
     session.destroyInternal();
   });
 
+  it("preserves MultiPV set before a new game while an internal search is still stopping", async () => {
+    const { session, stream, engine, internal } = setup();
+    const client = new InternalEngine();
+    (client as unknown as { session: EngineSession }).session = session;
+    const signal = new AbortController().signal;
+    try {
+      internal.engineState = EngineState.WAITING_USIOK;
+      stream.write("usiok\nreadyok\n");
+      await client.readyNewGame(signal);
+      const search = await client.startResearch("position startpos", () => {}, signal);
+      engine.write.mockClear();
+      client.setMultiPV(3);
+      const ready = client.readyNewGame(signal);
+      expect(engine.write).toHaveBeenCalledExactlyOnceWith("stop\n");
+      stream.write("bestmove 7g7f\n");
+      await search.finished;
+      expect(session.internalSnapshot.state).toBe(EngineState.WAITING_READYOK);
+      expect(engine.write.mock.calls.map(([command]) => command)).toEqual(["stop\n", "isready\n"]);
+      stream.write("readyok\n");
+      await ready;
+      expect(engine.write.mock.calls.map(([command]) => command)).toEqual([
+        "stop\n",
+        "isready\n",
+        "usinewgame\n",
+        "setoption name MultiPV value 3\n",
+      ]);
+      expect(session.internalSnapshot.state).toBe(EngineState.READY);
+    } finally {
+      session.destroyInternal();
+    }
+  });
+
   it("bounds readiness waiting when the engine never returns readyok", async () => {
     vi.useFakeTimers();
     const { session, engine } = setup();

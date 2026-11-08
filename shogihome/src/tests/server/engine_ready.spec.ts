@@ -360,6 +360,108 @@ describe("relay readiness deadlines", () => {
   });
 
   it.each([false, true])(
+    "preserves a raw post-stop search's stop through replay (new game: %s)",
+    (newGame) => {
+      const { session, engine, output, send } = setup();
+      output.write("usiok\nreadyok\n");
+      for (const command of ["usinewgame", "position startpos", "go infinite"])
+        send({ type: "usi", command });
+      engine.write.mockClear();
+      for (const command of [
+        ...(newGame ? ["usinewgame"] : []),
+        "position startpos moves 7g7f",
+        "go infinite",
+        "stop",
+      ])
+        send({ type: "usi", command });
+      expect(engine.write).toHaveBeenCalledExactlyOnceWith("stop\n");
+      vi.advanceTimersByTime(4000);
+      send({ type: "usi", command: "stop" });
+      output.write("bestmove 7g7f\n");
+      if (newGame) {
+        expect(session.internalSnapshot.state).toBe(EngineState.WAITING_READYOK);
+        expect(engine.write.mock.calls.map(([command]) => command)).toEqual([
+          "stop\n",
+          "isready\n",
+        ]);
+        vi.advanceTimersByTime(ENGINE_STOP_TIMEOUT_MS + 1);
+        expect(engine.close).not.toHaveBeenCalled();
+        output.write("readyok\n");
+      }
+      expect(engine.write.mock.calls.map(([command]) => command)).toEqual([
+        "stop\n",
+        ...(newGame ? ["isready\n", "usinewgame\n"] : []),
+        "position startpos moves 7g7f\n",
+        "go infinite\n",
+        "stop\n",
+      ]);
+      expect(session.internalSnapshot.state).toBe(EngineState.STOPPING_SEARCH);
+      expect(vi.getTimerCount()).toBe(1);
+      vi.advanceTimersByTime(ENGINE_STOP_TIMEOUT_MS - 1);
+      send({ type: "usi", command: "stop" });
+      expect(engine.write.mock.calls.filter(([command]) => command === "stop\n")).toHaveLength(2);
+      expect(engine.close).not.toHaveBeenCalled();
+      output.write("bestmove 3c3d\n");
+      expect(session.internalSnapshot.state).toBe(EngineState.READY);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it.each([false, true])(
+    "does not extend the stop deadline when a raw post-stop stop is repeated (replayed: %s)",
+    (replayed) => {
+      const { session, engine, output, send } = setup();
+      output.write("usiok\nreadyok\n");
+      for (const command of [
+        "position startpos",
+        "go infinite",
+        "position startpos moves 7g7f",
+        "go infinite",
+        "stop",
+      ])
+        send({ type: "usi", command });
+      vi.advanceTimersByTime(ENGINE_STOP_TIMEOUT_MS - 1);
+      send({ type: "usi", command: "stop" });
+      if (replayed) {
+        output.write("bestmove 7g7f\n");
+        vi.advanceTimersByTime(ENGINE_STOP_TIMEOUT_MS - 1);
+        send({ type: "usi", command: "stop" });
+      }
+      expect(engine.close).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(engine.close).toHaveBeenCalledOnce();
+      expect(session.internalSnapshot.state).toBe(EngineState.TERMINATING);
+      expect(engine.write.mock.calls.filter(([command]) => command === "stop\n")).toHaveLength(
+        replayed ? 2 : 1,
+      );
+    },
+  );
+
+  it.each([
+    ["go btime 1000 wtime 1000"],
+    ["position startpos moves 2g2f", "go infinite"],
+    ["usinewgame", "position startpos moves 2g2f", "go infinite"],
+  ])("does not carry a raw post-stop stop into replacement commands %j", (...replacement) => {
+    const { session, engine, output, send } = setup();
+    output.write("usiok\nreadyok\n");
+    for (const command of [
+      "position startpos",
+      "go infinite",
+      "position startpos moves 7g7f",
+      "go infinite",
+      "stop",
+      ...replacement,
+    ])
+      send({ type: "usi", command });
+    output.write("bestmove 7g7f\n");
+    if (replacement.includes("usinewgame")) output.write("readyok\n");
+    expect(session.internalSnapshot.state).toBe(EngineState.THINKING);
+    expect(engine.write).toHaveBeenLastCalledWith(`${replacement.at(-1)}\n`);
+    expect(engine.write.mock.calls.filter(([command]) => command === "stop\n")).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([false, true])(
     "keeps the original deadline across browser disconnection (reattach: %s)",
     (reattach) => {
       const { session, ws, engine, startNextGame } = setup();
