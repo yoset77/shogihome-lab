@@ -54,9 +54,52 @@ describe("post-stop command selection", () => {
       ],
     },
     {
-      name: "preserves the cutoff for commands before the last new game",
+      name: "preserves MultiPV across the last new game",
       commands: ["setoption name MultiPV value 3", "gameover draw", "usinewgame"],
-      expected: ["gameover draw", "usinewgame"],
+      expected: ["gameover draw", "usinewgame", "setoption name MultiPV value 3"],
+    },
+    {
+      name: "keeps only the latest MultiPV across multiple new games",
+      commands: [
+        "setoption name MultiPV value 2",
+        "usinewgame",
+        "setoption name MultiPV value 3",
+        "position startpos",
+        "go infinite",
+        "gameover draw",
+        "usinewgame",
+      ],
+      expected: ["gameover draw", "usinewgame", "setoption name MultiPV value 3"],
+    },
+    {
+      name: "prefers MultiPV set after the last new game",
+      commands: ["setoption name MultiPV value 3", "usinewgame", "setoption name MultiPV value 5"],
+      expected: ["usinewgame", "setoption name MultiPV value 5"],
+    },
+    {
+      name: "keeps one stop after the retained go",
+      commands: ["position startpos", "go infinite", "stop", "stop"],
+      expected: ["position startpos", "go infinite", "stop"],
+    },
+    {
+      name: "omits a stop without a retained go",
+      commands: ["stop", "position startpos"],
+      expected: ["position startpos"],
+    },
+    {
+      name: "does not carry a stop into a replacement go",
+      commands: ["position startpos", "go infinite", "stop", "go btime 1000 wtime 1000"],
+      expected: ["position startpos", "go btime 1000 wtime 1000"],
+    },
+    {
+      name: "drops a stop when a newer position invalidates its go",
+      commands: ["position startpos", "go infinite", "stop", "position startpos moves 7g7f"],
+      expected: ["position startpos moves 7g7f"],
+    },
+    {
+      name: "does not carry a stop across a new game",
+      commands: ["go infinite", "stop", "usinewgame", "go infinite"],
+      expected: ["usinewgame", "go infinite"],
     },
     {
       name: "keeps a gameover after the last new game",

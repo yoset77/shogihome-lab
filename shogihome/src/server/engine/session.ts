@@ -725,7 +725,7 @@ export class EngineSession {
       this.engineState = EngineState.READY;
 
       for (const command of commandsToRun) {
-        this.sendToEngine(command);
+        this.handleRawUsiCommand(command);
       }
     } else {
       this.engineState = EngineState.READY;
@@ -933,6 +933,8 @@ export class EngineSession {
       if (this.queuedSearch) this.queuedSearchStopId = this.queuedSearch.searchId;
       if (this.commandQueue.some((queued) => queued.startsWith("go")))
         this.pushToQueue(this.commandQueue, command);
+      if (this.postStopCommandQueue.some((queued) => queued.startsWith("go")))
+        this.pushToQueue(this.postStopCommandQueue, command);
       this.requestSearchStop();
       return;
     }

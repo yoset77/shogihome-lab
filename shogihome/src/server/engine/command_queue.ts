@@ -16,10 +16,12 @@ export function collectPostStopCommands(queuedCommands: readonly string[]): stri
   const commands = queuedCommands.slice(startIndex >= 0 ? startIndex : 0);
   const result: string[] = [];
 
-  const latestMultiPV = findLast(commands, (cmd) => cmd.startsWith("setoption name MultiPV"));
+  // MultiPV persists across game boundaries, unlike positions and searches.
+  const latestMultiPV = findLast(queuedCommands, (cmd) => cmd.startsWith("setoption name MultiPV"));
   const latestGameover = findLast(commands, (cmd) => cmd.startsWith("gameover"));
   const latestPosition = findLast(commands, (cmd) => cmd.startsWith("position"));
   const latestGo = findLast(commands, (cmd) => cmd.startsWith("go"));
+  const latestStop = findLast(commands, (cmd) => cmd === "stop");
 
   if (startIndex >= 0) {
     const previousGameover = findLast(queuedCommands.slice(0, startIndex), (cmd) =>
@@ -39,6 +41,8 @@ export function collectPostStopCommands(queuedCommands: readonly string[]): stri
   }
   if (latestGo && (!latestPosition || latestGo.index > latestPosition.index)) {
     result.push(latestGo.command);
+    // A stop belongs only to the retained search, not a later replacement.
+    if (latestStop && latestStop.index > latestGo.index) result.push(latestStop.command);
   }
 
   const knownCommands = new Set(result);
@@ -47,6 +51,7 @@ export function collectPostStopCommands(queuedCommands: readonly string[]): stri
     "gameover",
     "position",
     "go",
+    "stop",
     "usinewgame",
   ]);
   for (const command of commands) {
