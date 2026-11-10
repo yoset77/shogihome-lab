@@ -21,7 +21,6 @@ import { generateSessionId } from "@/renderer/helpers/unique";
 // ENGINE_STOP_TIMEOUT_MS (10000ms) in config.ts. The server times out first
 // and returns an error, which resolves this wait.
 const STOP_WAIT_TIMEOUT_MS = 30000;
-const READY_REPLAY_TIMEOUT_MS = 5000;
 
 function normalizeEngineId(engineId: string): string {
   return engineId.startsWith("lan-engine:") ? engineId.substring("lan-engine:".length) : engineId;
@@ -64,7 +63,7 @@ export class LanPlayer implements Player {
   private stopPromise: Promise<void> | null = null;
   private stopExpectedSfen: string | null = null;
   private stopPromiseTimeoutId: number | null = null;
-  private readyReplayTimeoutId: number | null = null;
+  private snapshotTimeoutId: number | null = null;
   private _multiPV: number = 1;
   private onErrorCallback?: (e: Error) => void;
   private lanEngine: LanEngine;
@@ -73,13 +72,14 @@ export class LanPlayer implements Player {
   private hasLaunched = false;
   private isClosing = false;
   private sessionLost = false;
-  private pendingSessionLoss = false;
-  private reportedErrorAwaitingState = false;
+  private reportedErrorAwaitingSnapshot = false;
   private transportConnected = false;
   private transportInterrupted = false;
   private releaseResourcesPromise: Promise<void> | null = null;
   private closePromise: Promise<void> | null = null;
+  private launchState?: Extract<ServerRelayMessage, { type: "state" }>;
   private snapshot?: SearchSnapshot;
+  private snapshotSynchronized = false;
   private nextSearchId = 0;
   private currentSearchId = 0;
   private completedSearchId = 0;
@@ -105,7 +105,6 @@ export class LanPlayer implements Player {
     this.bookAbort?.abort();
     this.clearHandlers();
     this.clearPendingInfo();
-    this.clearReadyReplayTimeout();
     const through = this.nextSearchId;
     this.ignoredThrough = through;
     this.isThinking = false;
@@ -133,20 +132,16 @@ export class LanPlayer implements Player {
   }
 
   private sendSearch(usi: string, go: string) {
-    if (this.snapshot) {
-      this.currentSearchId = ++this.nextSearchId;
-      this.searchOutputEnabled = true;
-      this.lanEngine.sendSearch({
-        type: "search",
-        instanceId: this.snapshot.instanceId,
-        searchId: this.currentSearchId,
-        position: usi,
-        go,
-      });
-    } else {
-      this.lanEngine.sendUsiCommand(usi);
-      this.lanEngine.sendUsiCommand(go);
-    }
+    if (!this.snapshot) throw new Error(t.engineProcessWasClosedUnexpectedly);
+    this.currentSearchId = ++this.nextSearchId;
+    this.searchOutputEnabled = true;
+    this.lanEngine.sendSearch({
+      type: "search",
+      instanceId: this.snapshot.instanceId,
+      searchId: this.currentSearchId,
+      position: usi,
+      go,
+    });
   }
 
   private get connectionToastKey(): string {
@@ -202,7 +197,17 @@ export class LanPlayer implements Player {
           useToastStore().success(t.reconnected, { key: this.connectionToastKey });
         }
         this.transportConnected = true;
-        this.handleTransportReconnect();
+        if (
+          this.hasLaunched &&
+          !this.snapshotSynchronized &&
+          !this.sessionLost &&
+          !this.isClosing
+        ) {
+          this.clearSnapshotTimeout();
+          this.snapshotTimeoutId = window.setTimeout(() => {
+            this.markSessionLost(!this.reportedErrorAwaitingSnapshot);
+          }, this.timeoutSeconds * 1000);
+        }
       }
     });
   }
@@ -232,22 +237,29 @@ export class LanPlayer implements Player {
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
           this.lanEngine.removeMessageListener(readyListener);
-          reject(new Error("Timeout: Failed to receive ready message from engine"));
+          reject(new Error(t.remoteEngineStartupTimedOut));
         }, this.timeoutSeconds * 1000);
 
         const readyListener = (message: ServerRelayMessage) => {
+          if (message.type === "error") {
+            clearTimeout(timeout);
+            this.lanEngine.removeMessageListener(readyListener);
+            reject(new Error(message.message));
+            return true;
+          }
+          // The transport dispatches listeners before the player's message handler.
+          const state = message.type === "state" ? message : this.launchState;
+          const snapshot = message.type === "searchSnapshot" ? message : this.snapshot;
           if (
-            message.type === "state" &&
-            (message.state === "ready" || message.state === "thinking") &&
-            message.engineId === this.engineId
+            (state?.state === "ready" || state?.state === "thinking") &&
+            state.engineId === this.engineId &&
+            snapshot?.engineId === this.engineId &&
+            (message.type === "searchSnapshot" || this.snapshotSynchronized)
           ) {
             clearTimeout(timeout);
             this.lanEngine.removeMessageListener(readyListener);
             resolve();
-          } else if (message.type === "error") {
-            clearTimeout(timeout);
-            this.lanEngine.removeMessageListener(readyListener);
-            reject(new Error(message.message));
+            return true;
           }
           return false;
         };
@@ -257,6 +269,7 @@ export class LanPlayer implements Player {
       });
 
       this.hasLaunched = true;
+      this.launchState = undefined;
       lanPlayers[this._sessionID] = this;
     } catch (e) {
       this.unsubscribeStatus?.();
@@ -278,7 +291,7 @@ export class LanPlayer implements Player {
       await this.stopAndWait();
       this.throwIfUnavailable();
     }
-    this.lanEngine.sendUsiCommand("usinewgame");
+    this.lanEngine.readyNewGame();
   }
 
   async startSearch(
@@ -395,7 +408,7 @@ export class LanPlayer implements Player {
         await this.stopAndWait();
         this.throwIfUnavailable();
       }
-      this.lanEngine.sendUsiCommand("gameover " + result);
+      this.lanEngine.gameover(result);
     });
   }
 
@@ -408,7 +421,7 @@ export class LanPlayer implements Player {
     this.bookAbort?.abort();
     this.finishCancellation(new Error(t.takebackFailed));
     this.isThinking = false;
-    this.clearReadyReplayTimeout();
+    this.clearSnapshotTimeout();
     this.resolveStopPromise();
     this.clearPendingInfo();
     this.clearHandlers();
@@ -517,8 +530,7 @@ export class LanPlayer implements Player {
     if (this.stopPromise) {
       return this.stopPromise;
     }
-    // A legacy search inherited from another client has no identity to stop safely.
-    if (this.snapshot && !this.currentSearchId) {
+    if (!this.snapshot || !this.currentSearchId) {
       throw new Error(t.engineProcessWasClosedUnexpectedly);
     }
 
@@ -526,15 +538,11 @@ export class LanPlayer implements Player {
     this.stopPromise = new Promise((resolve, reject) => {
       this.stopPromiseResolver = resolve;
       this.stopPromiseRejector = reject;
-      if (this.snapshot) {
-        this.lanEngine.stopSearch({
-          type: "stopSearch",
-          instanceId: this.snapshot.instanceId,
-          searchId: this.currentSearchId,
-        });
-      } else {
-        this.lanEngine.sendUsiCommand("stop");
-      }
+      this.lanEngine.stopSearch({
+        type: "stopSearch",
+        instanceId: this.snapshot!.instanceId,
+        searchId: this.currentSearchId,
+      });
       this.startStopPromiseTimeoutIfConnected();
     });
 
@@ -545,24 +553,27 @@ export class LanPlayer implements Player {
     switch (message.type) {
       case "searchSnapshot": {
         if (this.isClosing || this.sessionLost) return;
-        if (this.snapshot && this.snapshot.instanceId !== message.instanceId && this.hasLaunched) {
-          this.markSessionLost();
-          return;
-        }
         if (
           this.snapshot?.instanceId === message.instanceId &&
           this.snapshot.revision >= message.revision
         )
           return;
-        this.snapshot = message;
-        this.nextSearchId = Math.max(this.nextSearchId, message.accepted, message.cancelled);
-        if (!this.hasLaunched && message.active !== null) {
-          this.currentSearchId = message.active;
-          this.isThinking = true;
-        }
-        if (this.hasLaunched && message.engineId !== this.engineId) {
-          this.markSessionLost();
+        const notify = !this.reportedErrorAwaitingSnapshot;
+        this.reportedErrorAwaitingSnapshot = false;
+        if (
+          this.hasLaunched &&
+          (this.snapshot?.instanceId !== message.instanceId || message.engineId !== this.engineId)
+        ) {
+          this.markSessionLost(notify);
           return;
+        }
+        this.snapshot = message;
+        this.snapshotSynchronized = true;
+        this.clearSnapshotTimeout();
+        this.nextSearchId = Math.max(this.nextSearchId, message.accepted, message.cancelled);
+        if (!this.hasLaunched) {
+          this.currentSearchId = message.active ?? 0;
+          this.isThinking = message.active !== null;
         }
         if (this.cancellation && message.settled >= this.cancellation.through)
           this.finishCancellation();
@@ -576,18 +587,14 @@ export class LanPlayer implements Player {
             delay: message.terminal.delay,
           });
         }
+        this.startStopPromiseTimeoutIfConnected();
         return;
       }
       case "error": {
         if (this.sessionLost || this.isClosing) {
           return;
         }
-        if (this.pendingSessionLoss) {
-          this.markSessionLost();
-          return;
-        }
-        this.reportedErrorAwaitingState = true;
-        this.clearReadyReplayTimeout();
+        this.reportedErrorAwaitingSnapshot = true;
         this.isThinking = false;
         const error = new Error(message.message);
         this.finishCancellation(error);
@@ -611,28 +618,32 @@ export class LanPlayer implements Player {
       }
 
       case "engineOutput": {
-        if (this.snapshot) {
+        if (
+          !this.snapshot ||
+          !this.snapshotSynchronized ||
+          message.instanceId !== this.snapshot.instanceId ||
+          message.searchId !== this.currentSearchId ||
+          message.searchId <= this.ignoredThrough ||
+          message.searchId <= this.completedSearchId
+        )
+          return;
+        if (/^(bestmove|checkmate)(?:\s|$)/.test(message.output)) {
           if (
-            message.instanceId !== this.snapshot.instanceId ||
-            message.searchId !== this.currentSearchId ||
-            message.searchId <= this.ignoredThrough ||
-            message.searchId <= this.completedSearchId
+            message.positionCommand !== this.currentSfen &&
+            !this.isStopAcknowledgement(message.positionCommand)
           )
             return;
-          if (/^(bestmove|checkmate)(?:\s|$)/.test(message.output)) {
-            this.completedSearchId = message.searchId;
-            if (!this.searchOutputEnabled) {
-              this.isThinking = false;
-              if (this.isStopAcknowledgement(message.positionCommand)) this.resolveStopPromise();
-              return;
-            }
+          this.completedSearchId = message.searchId;
+          if (!this.searchOutputEnabled) {
+            this.isThinking = false;
+            if (this.isStopAcknowledgement(message.positionCommand)) this.resolveStopPromise();
+            return;
           }
-          if (!this.searchOutputEnabled) return;
         }
+        if (!this.searchOutputEnabled) return;
         const infoStr = message.output;
         const positionCommand = message.positionCommand;
         if (infoStr.startsWith("bestmove")) {
-          this.clearReadyReplayTimeout();
           const isStopAck = this.isStopAcknowledgement(positionCommand);
           if (isStopAck || positionCommand === this.currentSfen) {
             this.isThinking = false;
@@ -677,7 +688,6 @@ export class LanPlayer implements Player {
             }
           }
         } else if (infoStr.startsWith("checkmate") && this.position) {
-          this.clearReadyReplayTimeout();
           const isStopAck = this.isStopAcknowledgement(positionCommand);
           if (isStopAck || positionCommand === this.currentSfen) {
             this.isThinking = false;
@@ -735,52 +745,10 @@ export class LanPlayer implements Player {
         return;
       }
 
-      case "state": {
-        const state = message.state;
-        const stateEngineId = message.engineId;
-        // Identified searches recover from authoritative snapshots, not replay timing guesses.
-        if (this.snapshot && this.hasLaunched) {
-          return;
-        }
-        const errorAlreadyReported = this.reportedErrorAwaitingState;
-        this.reportedErrorAwaitingState = false;
-        if (state === "thinking" && stateEngineId === this.engineId) {
-          this.clearReadyReplayTimeout();
-          this.isThinking = true;
-          return;
-        }
-
-        if (!this.hasLaunched || this.isClosing) {
-          return;
-        }
-
-        if (stateEngineId && stateEngineId !== this.engineId) {
-          this.markSessionLost(!errorAlreadyReported);
-          return;
-        }
-
-        switch (state) {
-          case "uninitialized":
-          case "stopped":
-            if (this.isThinking) {
-              this.scheduleReadyReplayTimeout(true);
-            } else {
-              this.markSessionLost(!errorAlreadyReported);
-            }
-            return;
-          case "ready":
-            if (this.isThinking) {
-              // A replayed bestmove may still follow this state after reconnecting.
-              this.scheduleReadyReplayTimeout(false);
-            }
-            return;
-          case "starting":
-          case "thinking":
-            return;
-        }
+      case "state":
+        // After launch, snapshots own recovery and session identity.
+        if (!this.hasLaunched) this.launchState = message;
         return;
-      }
-
       case "notice":
       case "engineList":
         return;
@@ -863,18 +831,11 @@ export class LanPlayer implements Player {
   }
 
   private handleTransportDisconnect() {
-    this.clearReadyReplayTimeout();
+    this.launchState = undefined;
+    this.snapshotSynchronized = false;
+    this.clearSnapshotTimeout();
     this.clearStopPromiseTimeout();
     console.log("Transport disconnected. Waiting for reconnection...");
-  }
-
-  private handleTransportReconnect() {
-    if (this.snapshot) return;
-    if (!this.stopPromiseResolver) {
-      return;
-    }
-    this.lanEngine.sendUsiCommand("stop");
-    this.startStopPromiseTimeoutIfConnected();
   }
 
   private throwIfUnavailable() {
@@ -888,12 +849,14 @@ export class LanPlayer implements Player {
       return;
     }
     this.sessionLost = true;
+    ++this.searchGeneration;
+    this.bookAbort?.abort();
     this.isThinking = false;
     this.lanEngine.disconnect();
     void this.releasePlayerResources().catch((error) => {
       console.warn("Failed to release LAN player resources:", error);
     });
-    this.clearReadyReplayTimeout();
+    this.clearSnapshotTimeout();
     this.clearPendingInfo();
     const error = new Error(t.engineProcessWasClosedUnexpectedly);
     this.finishCancellation(error);
@@ -927,7 +890,7 @@ export class LanPlayer implements Player {
     if (!this.stopPromiseResolver || this.stopPromiseTimeoutId !== null) {
       return;
     }
-    if (!this.lanEngine.isConnected()) {
+    if (!this.snapshotSynchronized || !this.lanEngine.isConnected()) {
       return;
     }
     this.stopPromiseTimeoutId = window.setTimeout(() => {
@@ -942,12 +905,11 @@ export class LanPlayer implements Player {
     }
   }
 
-  private clearReadyReplayTimeout() {
-    if (this.readyReplayTimeoutId !== null) {
-      clearTimeout(this.readyReplayTimeoutId);
-      this.readyReplayTimeoutId = null;
+  private clearSnapshotTimeout() {
+    if (this.snapshotTimeoutId !== null) {
+      clearTimeout(this.snapshotTimeoutId);
+      this.snapshotTimeoutId = null;
     }
-    this.pendingSessionLoss = false;
   }
 
   private resolveStopPromise() {
@@ -978,40 +940,6 @@ export class LanPlayer implements Player {
       return true;
     }
     return sfen === this.stopExpectedSfen;
-  }
-
-  private scheduleReadyReplayTimeout(sessionEnded = false) {
-    this.clearReadyReplayTimeout();
-    this.pendingSessionLoss = sessionEnded;
-    this.readyReplayTimeoutId = window.setTimeout(() => {
-      this.readyReplayTimeoutId = null;
-      this.pendingSessionLoss = false;
-      if (!this.isThinking) {
-        return;
-      }
-
-      if (sessionEnded) {
-        this.markSessionLost();
-        return;
-      }
-
-      if (this.stopPromiseResolver) {
-        // We were waiting to stop, and it never sent bestmove, but server says it's stopped/ready.
-        // It's safe to resolve the stop promise here.
-        this.isThinking = false;
-        this.resolveStopPromise();
-        return;
-      }
-
-      const error = new Error(t.engineProcessWasClosedUnexpectedly);
-      this.isThinking = false;
-      this.rejectStopPromise(error);
-      if (this.handler) {
-        this.handler.onError(error);
-      } else if (this.onErrorCallback) {
-        this.onErrorCallback(error);
-      }
-    }, READY_REPLAY_TIMEOUT_MS);
   }
 
   private flushInfo() {

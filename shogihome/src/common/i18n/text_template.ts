@@ -692,6 +692,7 @@ export type Texts = {
   remoteEngineConnectionFailed: string;
   remoteEngineInvalidOutput: string;
   remoteEngineReadyTimedOut: string;
+  remoteEngineStartupTimedOut: string;
   serverInvalidKifuSearch: string;
   serverInvalidKifuPagination: string;
   serverKifuSearchRateLimit: string;

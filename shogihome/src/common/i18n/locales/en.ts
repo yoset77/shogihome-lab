@@ -740,6 +740,7 @@ export const en: Texts = {
   jkfImportLimit: "JKF size, move count, fork count, or depth exceeds the import limit.",
   remoteEngineConnectionFailed: "Remote engine connection failed.",
   remoteEngineInvalidOutput: "Invalid engine output; the session was terminated.",
+  remoteEngineStartupTimedOut: "Engine startup timed out.",
   remoteEngineReadyTimedOut:
     "Timed out waiting for the engine to become ready. The session was reset.",
   serverInvalidKifuSearch: "Invalid record search filters or input limit exceeded.",

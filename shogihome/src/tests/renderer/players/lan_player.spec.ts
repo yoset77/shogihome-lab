@@ -1,6 +1,6 @@
 import { LanPlayer, isActiveLanPlayerSession } from "@/renderer/players/lan_player";
 import { LanEngine } from "@/renderer/network/lan_engine";
-import { Record, Position, ImmutablePosition } from "tsshogi";
+import { Record, Position } from "tsshogi";
 import { Mock } from "vitest";
 import api from "@/renderer/ipc/api";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "@/renderer/players/usi_events";
@@ -10,6 +10,8 @@ import { flippedSFEN } from "@/common/helpers/sfen";
 import { USI_PV_ENDS } from "@/common/game/usi";
 import { USIPlayerMonitor } from "@/renderer/store/usi";
 import { yaneuraouRepetitionInfos, yaneuraouRepetitionPosition } from "@/tests/helpers/usi";
+import { searchSnapshot } from "@/tests/helpers/engine_relay";
+import { GameResult } from "@/common/game/result";
 
 vi.mock("@/renderer/network/lan_engine");
 vi.mock("@/renderer/ipc/api");
@@ -56,15 +58,19 @@ describe("LanPlayer", () => {
       // noop
     });
 
-    // Mock sendUsiCommand to automatically resolve stopAndWait
-    (LanEngine.prototype.sendUsiCommand as Mock).mockImplementation((cmd: string) => {
-      if (cmd === "stop") {
-        setTimeout(() => {
-          sendMsg({ sfen: null, info: "bestmove 7g7f" });
-        }, 10);
-      }
-      return Promise.resolve();
+    // A stop acknowledgement belongs to the search being stopped.
+    vi.mocked(LanEngine.prototype.stopSearch).mockImplementation((request) => {
+      const search = vi.mocked(LanEngine.prototype.sendSearch).mock.calls.at(-1)![0];
+      setTimeout(() => {
+        sendOutput({
+          instanceId: request.instanceId,
+          searchId: request.searchId,
+          sfen: search.position,
+          info: "bestmove 7g7f",
+        });
+      }, 10);
     });
+    vi.mocked(LanEngine.prototype.isConnected).mockReturnValue(true);
     (LanEngine.prototype.setMultiPV as Mock).mockResolvedValue(undefined);
     (LanEngine.prototype.terminateEngine as Mock).mockResolvedValue(undefined);
   });
@@ -88,6 +94,16 @@ describe("LanPlayer", () => {
     messageListeners.forEach((listener) => listener(message));
   }
 
+  function sendOutput(output: {
+    sfen: string | null;
+    info: string;
+    searchId?: number;
+    instanceId?: string;
+  }) {
+    const search = vi.mocked(LanEngine.prototype.sendSearch).mock.calls.at(-1)![0];
+    sendMsg({ instanceId: search.instanceId, searchId: search.searchId, ...output });
+  }
+
   async function launchPlayer(
     player: LanPlayer,
     msg: unknown = {
@@ -98,6 +114,13 @@ describe("LanPlayer", () => {
     const launchPromise = player.launch();
     await vi.advanceTimersByTimeAsync(100);
     sendMsg(msg);
+    const state = parseMessage(msg);
+    sendMsg(
+      searchSnapshot({
+        engineId: (player as unknown as { engineId: string }).engineId,
+        ...(state.type === "state" && state.state === "thinking" ? { active: 1, accepted: 1 } : {}),
+      }),
+    );
     await launchPromise;
   }
 
@@ -107,7 +130,7 @@ describe("LanPlayer", () => {
     const record = Record.newByUSI(yaneuraouRepetitionPosition) as Record;
     await player.startResearch(record.position, yaneuraouRepetitionPosition);
     for (const info of yaneuraouRepetitionInfos)
-      sendMsg({ sfen: yaneuraouRepetitionPosition, info });
+      sendOutput({ sfen: yaneuraouRepetitionPosition, info });
 
     expect(dispatchUSIInfoUpdate).toHaveBeenCalledTimes(10);
     const monitor = new USIPlayerMonitor(player.sessionID, player.name);
@@ -128,11 +151,11 @@ describe("LanPlayer", () => {
     await launchPlayer(player);
     const usi = "position startpos";
     await player.startResearch(new Position(), usi);
-    sendMsg({ sfen: usi, info: "info depth 10 score cp 100 pv 7g7f" });
+    sendOutput({ sfen: usi, info: "info depth 10 score cp 100 pv 7g7f" });
     vi.advanceTimersByTime(500);
     vi.mocked(dispatchUSIInfoUpdate).mockClear();
 
-    sendMsg({ sfen: usi, info: `info depth 11 score cp 0 pv ${end}` });
+    sendOutput({ sfen: usi, info: `info depth 11 score cp 0 pv ${end}` });
     vi.advanceTimersByTime(500);
     expect(dispatchUSIInfoUpdate).toHaveBeenCalledExactlyOnceWith(
       player.sessionID,
@@ -142,7 +165,7 @@ describe("LanPlayer", () => {
     );
     expect(onSearchInfo).toHaveBeenLastCalledWith(expect.objectContaining({ score: 0, pv: [] }));
 
-    sendMsg({ sfen: "position startpos moves 7g7f", info: `info pv ${end}` });
+    sendOutput({ sfen: "position startpos moves 7g7f", info: `info pv ${end}` });
     expect(dispatchUSIInfoUpdate).toHaveBeenCalledOnce();
   });
 
@@ -157,12 +180,7 @@ describe("LanPlayer", () => {
     await player.startResearch(record.position, usi);
 
     // PV1
-    messageHandler(
-      JSON.stringify({
-        sfen: usi,
-        info: "info depth 10 multipv 1 score cp 100 pv 7g7f",
-      }),
-    );
+    sendOutput({ sfen: usi, info: "info depth 10 multipv 1 score cp 100 pv 7g7f" });
 
     // Should not call onSearchInfo immediately due to throttling
     expect(onSearchInfo).not.toBeCalled();
@@ -175,12 +193,7 @@ describe("LanPlayer", () => {
     onSearchInfo.mockClear();
 
     // PV2
-    messageHandler(
-      JSON.stringify({
-        sfen: usi,
-        info: "info depth 10 multipv 2 score cp 80 pv 2g2f",
-      }),
-    );
+    sendOutput({ sfen: usi, info: "info depth 10 multipv 2 score cp 80 pv 2g2f" });
 
     // Advance time
     vi.advanceTimersByTime(500);
@@ -188,12 +201,7 @@ describe("LanPlayer", () => {
     expect(onSearchInfo).not.toBeCalled();
 
     // PV1 again with updated score
-    messageHandler(
-      JSON.stringify({
-        sfen: usi,
-        info: "info depth 11 multipv 1 score cp 120 pv 7g7f",
-      }),
-    );
+    sendOutput({ sfen: usi, info: "info depth 11 multipv 1 score cp 120 pv 7g7f" });
     vi.advanceTimersByTime(500);
     expect(onSearchInfo).toBeCalledTimes(1);
     expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ score: 120 }));
@@ -210,7 +218,7 @@ describe("LanPlayer", () => {
       const record = Record.newByUSI(usi) as Record;
       await player.startResearch(record.position, usi);
       const emit = (info: string) => {
-        sendMsg({ sfen: usi, info });
+        sendOutput({ sfen: usi, info });
         vi.advanceTimersByTime(500);
       };
 
@@ -278,7 +286,7 @@ describe("LanPlayer", () => {
     const record = Record.newByUSI(usi) as Record;
     await player.startResearch(record.position, usi);
     const emit = (info: string) => {
-      sendMsg({ sfen: usi, info });
+      sendOutput({ sfen: usi, info });
       vi.advanceTimersByTime(500);
     };
 
@@ -326,37 +334,22 @@ describe("LanPlayer", () => {
     // Position changes to 2
     const p2 = player.startResearch(record2.position, usi2);
     // Simulate bestmove for position 1 to resolve stopAndWait
-    sendMsg({ sfen: null, info: "bestmove 7g7f" });
+    sendOutput({ sfen: usi1, info: "bestmove 7g7f" });
     await vi.runAllTimersAsync();
     await p2;
 
     // Stale message from position 1 arrives
-    messageHandler(
-      JSON.stringify({
-        sfen: usi1,
-        info: "info depth 10 multipv 1 score cp 100 pv 3c3d",
-      }),
-    );
+    sendOutput({ sfen: usi1, info: "info depth 10 multipv 1 score cp 100 pv 3c3d", searchId: 1 });
 
     // Message with null SFEN arrives
-    messageHandler(
-      JSON.stringify({
-        sfen: null,
-        info: "info depth 10 multipv 1 score cp 100 pv 3c3d",
-      }),
-    );
+    sendOutput({ sfen: null, info: "info depth 10 multipv 1 score cp 100 pv 3c3d" });
 
     vi.advanceTimersByTime(500);
     // Both should be ignored
     expect(onSearchInfo).not.toBeCalled();
 
     // Correct message for position 2 arrives
-    messageHandler(
-      JSON.stringify({
-        sfen: usi2,
-        info: "info depth 10 multipv 1 score cp 50 pv 2g2f",
-      }),
-    );
+    sendOutput({ sfen: usi2, info: "info depth 10 multipv 1 score cp 50 pv 2g2f" });
     vi.advanceTimersByTime(500);
     expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ score: 50 }));
   });
@@ -378,18 +371,13 @@ describe("LanPlayer", () => {
     await p1;
 
     // Info for position 1 arrives and is throttled
-    messageHandler(
-      JSON.stringify({
-        sfen: usi1,
-        info: "info depth 10 multipv 1 score cp 100 pv 3c3d",
-      }),
-    );
+    sendOutput({ sfen: usi1, info: "info depth 10 multipv 1 score cp 100 pv 3c3d" });
     expect(onSearchInfo).not.toBeCalled();
 
     // Position changes to 2 before throttle expires
     const p2 = player.startResearch(record2.position, usi2);
     // Simulate bestmove for position 1 to resolve stopAndWait
-    sendMsg({
+    sendOutput({
       sfen: usi1, // Server still tags it with old SFEN
       info: "bestmove 7g7f",
     });
@@ -417,12 +405,7 @@ describe("LanPlayer", () => {
     await p1;
 
     // PV2
-    messageHandler(
-      JSON.stringify({
-        sfen: usi,
-        info: "info depth 10 multipv 2 score cp 80 pv 2g2f",
-      }),
-    );
+    sendOutput({ sfen: usi, info: "info depth 10 multipv 2 score cp 80 pv 2g2f" });
 
     // dispatchUSIInfoUpdate should be called for UI display
     expect(dispatchUSIInfoUpdate).toBeCalled();
@@ -463,6 +446,7 @@ describe("LanPlayer", () => {
       resolved = true;
     });
     await vi.advanceTimersByTimeAsync(100);
+    sendMsg(searchSnapshot({ engineId: "engine-b" }));
 
     sendMsg({ state: "ready", engineId: "engine-a" });
     await vi.advanceTimersByTimeAsync(100);
@@ -480,13 +464,32 @@ describe("LanPlayer", () => {
     await launchPlayer(player);
     await player.startResearch(pos, "position startpos");
 
-    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith("position startpos");
-    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith("go infinite");
+    expect(LanEngine.prototype.sendSearch).toHaveBeenCalledWith({
+      type: "search",
+      instanceId: "test-instance",
+      searchId: 1,
+      position: "position startpos",
+      go: "go infinite",
+    });
+    expect(LanEngine.prototype.sendUsiCommand).not.toHaveBeenCalled();
     expect((player as unknown as { isThinking: boolean }).isThinking).toBe(true);
 
     const closePromise = player.close();
     await vi.advanceTimersByTimeAsync(100);
     await closePromise;
+  });
+
+  it("uses dedicated methods for ordinary USI controls", async () => {
+    const player = new LanPlayer("research_main", "test-engine", "Test");
+    await launchPlayer(player);
+    await player.readyNewGame();
+    await player.gameover(GameResult.DRAW);
+    await player.setMultiPV(3);
+    expect(LanEngine.prototype.readyNewGame).toHaveBeenCalledOnce();
+    expect(LanEngine.prototype.gameover).toHaveBeenCalledExactlyOnceWith(GameResult.DRAW);
+    expect(LanEngine.prototype.setMultiPV).toHaveBeenCalledExactlyOnceWith(3);
+    expect(LanEngine.prototype.sendUsiCommand).not.toHaveBeenCalled();
+    await player.close();
   });
 
   it("should use deterministic sessionID", () => {
@@ -551,10 +554,7 @@ describe("LanPlayer", () => {
     const player = new LanPlayer("research_main", "test-engine", "Test Engine");
     await launchPlayer(player);
 
-    // Override sendUsiCommand mock to NOT send bestmove automatically
-    (LanEngine.prototype.sendUsiCommand as Mock).mockImplementation(() => {
-      return Promise.resolve();
-    });
+    vi.mocked(LanEngine.prototype.stopSearch).mockImplementation(() => {});
 
     const usi = "position startpos";
     const record = Record.newByUSI(usi) as Record;
@@ -773,25 +773,16 @@ describe("LanPlayer", () => {
       "test-book-session",
     );
     expect(onMove.mock.calls[0][0].usi).toBe("8c8d");
-    expect(LanEngine.prototype.sendUsiCommand).not.toHaveBeenCalledWith(record.usi);
+    expect(LanEngine.prototype.sendSearch).not.toHaveBeenCalled();
   });
 
   it("accepts indefinite mate scores, bounds, and currmove", async () => {
-    interface LanPlayerInternals {
-      currentSfen: string;
-      position: ImmutablePosition;
-      isThinking: boolean;
-      onMessage(message: ServerRelayMessage): void;
-    }
-
     const onSearchInfo = vi.fn();
     const player = new LanPlayer("test-session", "test-engine", "Test Engine", 10, onSearchInfo);
     const usi = "position startpos";
     const record = Record.newByUSI(usi) as Record;
-    const internals = player as unknown as LanPlayerInternals;
-    internals.currentSfen = usi;
-    internals.position = record.position;
-    internals.isThinking = true;
+    await launchPlayer(player);
+    await player.startResearch(record.position, usi);
 
     for (const [value, mate] of [
       ["+", 10000],
@@ -800,34 +791,28 @@ describe("LanPlayer", () => {
       ["-", -10000],
       ["-0", -10000],
     ] as const) {
-      internals.onMessage(
-        parseMessage({ sfen: usi, info: `info depth 10 score mate ${value} pv 7g7f` }),
-      );
+      sendOutput({ sfen: usi, info: `info depth 10 score mate ${value} pv 7g7f` });
       vi.advanceTimersByTime(500);
       expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ mate }));
       onSearchInfo.mockClear();
     }
 
     // lowerbound
-    internals.onMessage(
-      parseMessage({ sfen: usi, info: "info depth 10 score cp 100 lowerbound pv 7g7f" }),
-    );
+    sendOutput({ sfen: usi, info: "info depth 10 score cp 100 lowerbound pv 7g7f" });
     vi.advanceTimersByTime(500);
     expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ score: 100, lowerBound: true }));
 
     onSearchInfo.mockClear();
 
     // upperbound
-    internals.onMessage(
-      parseMessage({ sfen: usi, info: "info depth 10 score cp 100 upperbound pv 7g7f" }),
-    );
+    sendOutput({ sfen: usi, info: "info depth 10 score cp 100 upperbound pv 7g7f" });
     vi.advanceTimersByTime(500);
     expect(onSearchInfo).toBeCalledWith(expect.objectContaining({ score: 100, upperBound: true }));
 
     onSearchInfo.mockClear();
 
     // currmove
-    internals.onMessage(parseMessage({ sfen: usi, info: "info depth 10 currmove 7g7f" }));
+    sendOutput({ sfen: usi, info: "info depth 10 currmove 7g7f" });
     vi.advanceTimersByTime(500);
     expect(onSearchInfo).toBeCalled();
   });
@@ -869,7 +854,7 @@ describe("LanPlayer", () => {
     expect(mockHandler.onError).toBeCalledWith(new Error("Something went wrong"));
 
     // Send bestmove after error
-    messageHandler(JSON.stringify({ sfen: usi, info: "bestmove 7g7f" }));
+    sendOutput({ sfen: usi, info: "bestmove 7g7f" });
 
     expect(mockHandler.onMove).not.toBeCalled();
   });
@@ -905,7 +890,7 @@ describe("LanPlayer", () => {
   });
 
   it("should not resolve stop wait with bestmove from unrelated SFEN", async () => {
-    (LanEngine.prototype.sendUsiCommand as Mock).mockImplementation(() => Promise.resolve());
+    vi.mocked(LanEngine.prototype.stopSearch).mockImplementation(() => {});
 
     const player = new LanPlayer("test-session", "test-engine", "Test Engine");
     await launchPlayer(player);
@@ -919,15 +904,19 @@ describe("LanPlayer", () => {
     const secondSearch = player.startResearch(record2.position, usi2);
     await vi.advanceTimersByTimeAsync(100);
 
-    sendMsg({ sfen: "position startpos moves 3g3f", info: "bestmove 8c8d" });
+    sendOutput({ sfen: "position startpos moves 3g3f", info: "bestmove 8c8d" });
     await vi.advanceTimersByTimeAsync(100);
 
-    expect(LanEngine.prototype.sendUsiCommand).not.toHaveBeenCalledWith(usi2);
+    expect(LanEngine.prototype.sendSearch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ position: usi2 }),
+    );
 
-    sendMsg({ sfen: usi1, info: "bestmove 3c3d" });
+    sendOutput({ sfen: usi1, info: "bestmove 3c3d" });
     await vi.advanceTimersByTimeAsync(100);
     await secondSearch;
 
-    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(usi2);
+    expect(LanEngine.prototype.sendSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ position: usi2 }),
+    );
   });
 });

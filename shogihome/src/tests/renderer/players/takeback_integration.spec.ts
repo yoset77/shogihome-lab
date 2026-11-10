@@ -147,6 +147,28 @@ describe("takeback across the real relay", () => {
     await lan.close();
   });
 
+  it("recovers a terminal result lost during socket replacement without searching or publishing twice", async () => {
+    const { lan, records, error } = await start();
+    const oldOnMessage = sockets[0].onmessage!;
+    dropServer = true;
+    stream.write("bestmove 3c3d\n");
+    await vi.advanceTimersByTimeAsync(0);
+    const output = serverFrames.findLast((frame) => frame.includes('"info":"bestmove'))!;
+    expect(records.record.current.ply).toBe(1);
+
+    sockets[0].close();
+    dropServer = false;
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(records.record.current.ply).toBe(2);
+    expect(writes.filter((line) => line.startsWith("go "))).toHaveLength(1);
+    oldOnMessage({ data: output });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(records.record.current.ply).toBe(2);
+    expect(error).not.toHaveBeenCalled();
+    await lan.close();
+  });
+
   it("retries a cancellation whose delivery was unknown without replaying the cancelled go", async () => {
     const { game, lan, records, error } = await start();
     dropClient = true;

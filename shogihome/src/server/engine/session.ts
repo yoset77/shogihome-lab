@@ -146,8 +146,8 @@ export class EngineSession {
     if (search.searchId <= this.cancelledThrough) return;
     this.activeSearch = search;
     this.lastInfos.clear();
-    this.executeUsiCommand(search.position);
-    this.executeUsiCommand(search.go);
+    this.setEnginePosition(search.position);
+    this.beginSearch(search.go);
     if (stopRequested) this.requestSearchStop();
     this.sendSearchSnapshot();
   }
@@ -484,6 +484,7 @@ export class EngineSession {
       const delay = Math.max(0, Date.now() - createdAt);
       if (sendRelayFrame(this.ws, encodeSessionRelayMessage(data, delay))) return;
     }
+    if (data.type === "searchSnapshot") return;
     // Buffer messages during disconnection, keeping only the latest info messages.
     if (data.type === "engineOutput" && data.output.startsWith("info")) {
       const infoCount = this.messageBuffer.filter(
@@ -552,6 +553,11 @@ export class EngineSession {
     this.writeToEngine(go);
   }
 
+  private setEnginePosition(command: string) {
+    this.currentEngineSfen = command;
+    this.writeToEngine(command);
+  }
+
   private executeUsiCommand(command: string) {
     // Readiness and stop gating happen before executing a decoded command.
     if (!this.engineRun.handle) return;
@@ -567,7 +573,10 @@ export class EngineSession {
     if (command === "usinewgame" || command.startsWith("gameover")) {
       this.readyForNewGame = false;
     }
-    if (command.startsWith("position ")) this.currentEngineSfen = command;
+    if (command.startsWith("position ")) {
+      this.setEnginePosition(command);
+      return;
+    }
     this.writeToEngine(command);
   }
 
@@ -993,25 +1002,6 @@ export class EngineSession {
 
     if (command === "usi" || command === "isready") return;
 
-    if (
-      command.startsWith("setoption ") ||
-      command === "usinewgame" ||
-      command.startsWith("gameover")
-    ) {
-      if (this.engineState === EngineState.READY) {
-        this.executeUsiCommand(command);
-      } else if (
-        this.engineState === EngineState.STARTING ||
-        this.engineState === EngineState.WAITING_USIOK ||
-        this.engineState === EngineState.WAITING_READYOK
-      ) {
-        this.pushToQueue(this.commandQueue, command);
-      } else {
-        this.sendError(`engine not ready. Cannot process command: ${command}`);
-      }
-      return;
-    }
-
     if (this.engineState === EngineState.READY || this.engineState === EngineState.THINKING) {
       this.executeUsiCommand(command);
     } else if (
@@ -1021,7 +1011,13 @@ export class EngineSession {
     ) {
       this.pushToQueue(this.commandQueue, command);
     } else {
-      this.sendError(`engine not started. Cannot process command: ${command}`);
+      const reason =
+        command.startsWith("setoption ") ||
+        command === "usinewgame" ||
+        command.startsWith("gameover")
+          ? "not ready"
+          : "not started";
+      this.sendError(`engine ${reason}. Cannot process command: ${command}`);
     }
   }
 }

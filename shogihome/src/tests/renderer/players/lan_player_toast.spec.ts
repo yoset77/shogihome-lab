@@ -3,6 +3,8 @@ import { LanEngine, LanEngineStatus } from "@/renderer/network/lan_engine";
 import { useToastStore } from "@/renderer/store/toast";
 import type { ServerRelayMessage } from "@/common/engine/relay_protocol";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { searchSnapshot } from "@/tests/helpers/engine_relay";
+import { t } from "@/common/i18n";
 
 vi.mock("@/renderer/network/lan_engine");
 vi.mock("@/renderer/ipc/api");
@@ -11,6 +13,7 @@ vi.mock("@/renderer/players/usi_events");
 describe("LanPlayer transport toasts", () => {
   let statusListener: ((status: LanEngineStatus) => void) | undefined;
   let messageListeners: ((message: ServerRelayMessage) => boolean)[];
+  let messageHandler: ((message: ServerRelayMessage) => void) | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -18,6 +21,7 @@ describe("LanPlayer transport toasts", () => {
     useToastStore().clear();
     statusListener = undefined;
     messageListeners = [];
+    messageHandler = undefined;
     (LanEngine.prototype.subscribeStatus as Mock).mockImplementation(
       (listener: (status: LanEngineStatus) => void) => {
         statusListener = listener;
@@ -25,7 +29,9 @@ describe("LanPlayer transport toasts", () => {
         return () => undefined;
       },
     );
-    (LanEngine.prototype.connect as Mock).mockResolvedValue(undefined);
+    vi.mocked(LanEngine.prototype.connect).mockImplementation(async (handler) => {
+      messageHandler = handler;
+    });
     (LanEngine.prototype.addMessageListener as Mock).mockImplementation((listener) => {
       messageListeners.push(listener);
     });
@@ -49,6 +55,10 @@ describe("LanPlayer transport toasts", () => {
       engineId: "test-engine",
     };
     messageListeners.forEach((listener) => listener(readyMessage));
+    messageHandler?.(readyMessage);
+    const snapshot = searchSnapshot();
+    messageListeners.forEach((listener) => listener(snapshot));
+    messageHandler?.(snapshot);
     await launchPromise;
 
     statusListener?.("connecting");
@@ -62,6 +72,7 @@ describe("LanPlayer transport toasts", () => {
     statusListener?.("connected");
     expect(useToastStore().toasts).toHaveLength(1);
     expect(useToastStore().toasts[0].type).toBe("success");
+    await player.close();
   });
 
   it("does not notify when the transport disconnects before launch completes", () => {
@@ -95,7 +106,7 @@ describe("LanPlayer transport toasts", () => {
       statusListener?.("connected");
       const launchPromise = player.launch();
       const expectedLaunchFailure = expect(launchPromise).rejects.toThrow(
-        "Timeout: Failed to receive ready message from engine",
+        t.remoteEngineStartupTimedOut,
       );
 
       await vi.advanceTimersByTimeAsync(1000);
