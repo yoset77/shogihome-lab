@@ -95,13 +95,48 @@ describe("engine cancellation barrier", () => {
     },
   );
 
-  it("replays completion even when the original notification was sent on an open socket", () => {
+  it("recomputes terminal delay on attach without changing the internal result", () => {
+    const { search, stream, session, ws, snapshot } = setup();
+    search(1);
+    const completedAt = Date.now();
+    stream.write("bestmove 7g7f\n");
+    const terminal = {
+      searchId: 1,
+      position: "position startpos",
+      output: "bestmove 7g7f",
+      delay: 0,
+    };
+    expect(session.internalSnapshot.terminal).toEqual(terminal);
+
+    vi.advanceTimersByTime(1250);
+    session.attach(ws as unknown as Parameters<EngineSession["attach"]>[0]);
+    expect(snapshot().value.terminal).toEqual({ ...terminal, delay: 1250 });
+    expect(session.internalSnapshot.terminal).toEqual(terminal);
+
+    vi.setSystemTime(completedAt - 1000);
+    session.attach(ws as unknown as Parameters<EngineSession["attach"]>[0]);
+    expect(snapshot().value.terminal).toEqual(terminal);
+  });
+
+  it("keeps the completion time with the terminal result when a later search finishes", () => {
     const { search, stream, session, ws, snapshot } = setup();
     search(1);
     stream.write("bestmove 7g7f\n");
-    ws.send.mockClear();
+    vi.advanceTimersByTime(5000);
+    search(2);
+    expect(snapshot().value.terminal).toBeNull();
+    expect(session.internalSnapshot.terminal).toBeNull();
+    stream.write("bestmove 2g2f\n");
+    vi.advanceTimersByTime(250);
+
     session.attach(ws as unknown as Parameters<EngineSession["attach"]>[0]);
-    expect(snapshot().value.terminal?.searchId).toBe(1);
+    expect(snapshot().value.terminal).toEqual({
+      searchId: 2,
+      position: "position startpos",
+      output: "bestmove 2g2f",
+      delay: 250,
+    });
+    expect(session.internalSnapshot.terminal?.delay).toBe(0);
   });
 
   it("does not extend the engine stop deadline when the browser disconnects", async () => {
