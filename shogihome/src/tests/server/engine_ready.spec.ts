@@ -31,18 +31,17 @@ function socket() {
 function setup() {
   const session = new EngineSession("ready");
   const ws = socket();
-  const engine = { write: vi.fn(), close: vi.fn(), destroy: vi.fn(), removeAllListeners: vi.fn() };
+  const engine = { write: vi.fn(), close: vi.fn(), destroy: vi.fn() };
   const internal = session as unknown as {
     engineState: EngineState;
     currentEngineId: string;
-    engineHandle: typeof engine;
-    resourceLease?: ResourceLease;
+    engineRun: { handle: typeof engine; resourceLease?: ResourceLease };
     setupEngineHandlers(stream: PassThrough): void;
     onEngineClose(): void;
   };
   internal.engineState = EngineState.WAITING_USIOK;
   internal.currentEngineId = "test";
-  internal.engineHandle = engine;
+  internal.engineRun.handle = engine;
   const output = new PassThrough();
   internal.setupEngineHandlers(output);
   session.attach(ws as unknown as WebSocket);
@@ -166,7 +165,7 @@ describe("relay readiness deadlines", () => {
     (identified) => {
       const { session, engine, internal, output, send, startNextGame, messages } = setup();
       resourceRegistry.resetForTest(true, [{ id: "g", name: "G", budget: 4 }]);
-      internal.resourceLease = resourceRegistry.acquire({ groupId: "g", cost: 4 });
+      internal.engineRun.resourceLease = resourceRegistry.acquire({ groupId: "g", cost: 4 });
       startNextGame();
       if (identified) {
         send({

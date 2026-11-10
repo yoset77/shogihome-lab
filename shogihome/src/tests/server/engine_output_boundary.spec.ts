@@ -27,22 +27,21 @@ describe("engine output boundary", () => {
     const internal = session as unknown as {
       engineState: EngineState;
       currentEngineId: string;
-      engineHandle: EngineHandle;
-      resourceLease: ReturnType<typeof resourceRegistry.acquire>;
+      engineRun: {
+        handle: EngineHandle;
+        resourceLease: ReturnType<typeof resourceRegistry.acquire>;
+      };
       setupEngineHandlers(stream: PassThrough): void;
       onEngineClose(): void;
       sendToClient(data: SessionRelayPayload): void;
     };
     internal.engineState = EngineState.READY;
     internal.currentEngineId = "test";
-    internal.resourceLease = resourceRegistry.acquire({ groupId: "g", cost: 1 });
+    internal.engineRun.resourceLease = resourceRegistry.acquire({ groupId: "g", cost: 1 });
     const close = vi.fn(() => internal.onEngineClose());
-    internal.engineHandle = {
+    internal.engineRun.handle = {
       write: vi.fn(),
       close,
-      on: vi.fn(),
-      off: vi.fn(),
-      removeAllListeners: vi.fn(),
     };
     const output = new PassThrough();
     internal.setupEngineHandlers(output);

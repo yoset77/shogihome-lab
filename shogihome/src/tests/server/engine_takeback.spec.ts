@@ -11,19 +11,19 @@ vi.mock("@/server/database/sqlite", () => ({ saveAnalysisResults: vi.fn() }));
 
 function setup() {
   const ws = { send: vi.fn(), terminate: vi.fn(), on: vi.fn(), readyState: 1 };
-  const engine = { write: vi.fn(), close: vi.fn(), removeAllListeners: vi.fn() };
+  const engine = { write: vi.fn(), close: vi.fn() };
   const session = new EngineSession("takeback");
   const internal = session as unknown as {
     engineState: EngineState;
     currentEngineId: string;
-    engineHandle: typeof engine;
+    engineRun: { handle: typeof engine };
     handleMessage(message: ClientRelayMessage): void;
     setupEngineHandlers(stream: PassThrough): void;
     handleDisconnect(ws: unknown): void;
   };
   internal.engineState = EngineState.READY;
   internal.currentEngineId = "test";
-  internal.engineHandle = engine;
+  internal.engineRun.handle = engine;
   const stream = new PassThrough();
   internal.setupEngineHandlers(stream);
   session.attach(ws as unknown as Parameters<EngineSession["attach"]>[0]);

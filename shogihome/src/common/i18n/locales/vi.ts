@@ -730,6 +730,7 @@ export const vi: Texts = {
   serverInvalidJsonBody: "Nội dung yêu cầu phải là một đối tượng JSON hợp lệ.",
   invalidJKFStructure: "Cấu trúc dữ liệu JKF không hợp lệ.",
   jkfImportLimit: "Kích thước, số nước đi, số nhánh hoặc độ sâu JKF vượt giới hạn nhập.",
+  remoteEngineConnectionFailed: "Không thể kết nối với phần mềm từ xa.",
   remoteEngineInvalidOutput: "Phản hồi của phần mềm không hợp lệ; phiên đã kết thúc.",
   remoteEngineReadyTimedOut: "Hết thời gian chờ phần mềm sẵn sàng. Phiên đã được đặt lại.",
   serverInvalidKifuSearch: "Điều kiện tìm kỳ phổ không hợp lệ hoặc vượt giới hạn nhập.",

@@ -717,6 +717,7 @@ export const zh_tw: Texts = {
   serverInvalidJsonBody: "請求內容必須是有效的 JSON 物件。",
   invalidJKFStructure: "JKF 資料結構無效。",
   jkfImportLimit: "JKF 大小、步數、分支數或深度超過匯入上限。",
+  remoteEngineConnectionFailed: "無法連線至遠端引擎。",
   remoteEngineInvalidOutput: "引擎回應無效，已終止工作階段。",
   remoteEngineReadyTimedOut: "等待引擎準備完成逾時，已重設工作階段。",
   serverInvalidKifuSearch: "棋譜搜尋條件無效或超過輸入上限。",

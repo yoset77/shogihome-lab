@@ -39,11 +39,21 @@ import { mergeAnalysisInfo, selectAnalysisInfosForSave } from "./analysis_info";
 import { collectPostStopCommands } from "./command_queue";
 import { engineRequirements, resourceRegistry, type ResourceLease } from "./resources";
 
+type EngineRun = {
+  socket: net.Socket | null;
+  handle: EngineHandle | null;
+  connectionTimeout?: NodeJS.Timeout;
+  terminationTimeout?: NodeJS.Timeout;
+  disposeTransport?: () => void;
+  disposeOutput?: () => void;
+  // Internal sessions leave reservation ownership with their caller.
+  resourceLease?: ResourceLease;
+};
+
 export class EngineSession {
   private currentEngineId: string | null = null;
   private currentEngineConfig: EngineConfig | null = null;
-  private engineHandle: EngineHandle | null = null;
-  private connectingSocket: net.Socket | null = null;
+  private engineRun: EngineRun = { socket: null, handle: null };
   private engineState = EngineState.UNINITIALIZED;
   // The startup readyok can be used by the first game only.
   private readyForNewGame = false;
@@ -51,7 +61,6 @@ export class EngineSession {
   private postStopCommandQueue: string[] = [];
   private stopTimeout: NodeJS.Timeout | null = null;
   private readyTimeout: NodeJS.Timeout | null = null;
-  private terminationTimeout: NodeJS.Timeout | null = null;
   private currentEngineSfen: string | null = null;
   private pendingGoSfen: string | null = null;
   private terminationRequested = false;
@@ -71,14 +80,6 @@ export class EngineSession {
     createdAt: number;
   } | null = null;
   private internalListeners = new Set<(event: SessionRelayPayload) => void>();
-  // Relay-owned sessions reserve their engine's cost while an engine is
-  // running. Internal sessions receive a caller-provided lease instead.
-  private resourceLease?: ResourceLease;
-
-  private releaseResourceLease(): void {
-    this.resourceLease?.release();
-    this.resourceLease = undefined;
-  }
 
   get internalSnapshot() {
     return {
@@ -115,9 +116,7 @@ export class EngineSession {
 
   destroyInternal(): void {
     if (this.owner !== "internal") throw new Error("Session is owned by relay");
-    this.connectingSocket?.destroy();
-    this.engineHandle?.destroy?.();
-    this.onEngineClose();
+    this.destroyEngineTransport();
   }
 
   private sendSearchSnapshot() {
@@ -180,7 +179,7 @@ export class EngineSession {
       this.sendSearchSnapshot();
       return;
     }
-    if (!this.engineHandle || this.engineState === EngineState.STOPPED) {
+    if (!this.engineRun.handle || this.engineState === EngineState.STOPPED) {
       this.sendError("Engine not ready for search.");
       return;
     }
@@ -364,7 +363,9 @@ export class EngineSession {
 
   private startStopTimeout() {
     this.clearStopTimeout();
+    const run = this.engineRun;
     this.stopTimeout = setTimeout(() => {
+      if (this.engineRun !== run) return;
       this.stopTimeout = null;
       if (
         this.engineState !== EngineState.STOPPING_ENGINE &&
@@ -389,7 +390,9 @@ export class EngineSession {
 
   private startReadyTimeout() {
     if (this.owner !== "relay" || this.readyTimeout) return;
+    const run = this.engineRun;
     this.readyTimeout = setTimeout(() => {
+      if (this.engineRun !== run) return;
       this.readyTimeout = null;
       if (this.engineState !== EngineState.WAITING_READYOK) return;
       console.error(
@@ -415,7 +418,7 @@ export class EngineSession {
 
     if (
       graceful &&
-      this.engineHandle &&
+      this.engineRun.handle &&
       (this.engineState === EngineState.THINKING ||
         this.engineState === EngineState.STOPPING_SEARCH)
     ) {
@@ -436,22 +439,31 @@ export class EngineSession {
     this.lastInfos.clear();
     this.currentEngineSfen = null;
     this.pendingGoSfen = null;
-    if (this.connectingSocket) {
-      this.connectingSocket.destroy();
-      this.connectingSocket = null;
-    }
-    if (this.engineHandle) {
+    const run = this.engineRun;
+    if (run.handle) {
       this.engineState = EngineState.TERMINATING;
       // Keep the lease until close, but bound a peer that never finishes shutdown.
-      this.terminationTimeout = setTimeout(() => {
-        this.terminationTimeout = null;
-        this.engineHandle?.destroy?.();
-        this.onEngineClose();
-      }, ENGINE_STOP_TIMEOUT_MS);
-      this.engineHandle.close();
+      run.terminationTimeout = setTimeout(
+        () => this.destroyEngineTransport(run),
+        ENGINE_STOP_TIMEOUT_MS,
+      );
+      run.handle.close();
     } else {
-      this.onEngineClose();
+      this.destroyEngineTransport(run);
     }
+  }
+
+  private destroyEngineTransport(run = this.engineRun) {
+    if (this.engineRun !== run) return;
+    if (run.handle?.destroy) run.handle.destroy();
+    else run.socket?.destroy();
+    this.onEngineClose(run);
+  }
+
+  private failEngineRun(run: EngineRun, message: string) {
+    if (this.engineRun !== run) return;
+    this.sendError(message);
+    this.destroyEngineTransport(run);
   }
 
   private sendToClient(data: SessionRelayPayload, createdAt: number = Date.now()) {
@@ -514,13 +526,13 @@ export class EngineSession {
   }
 
   private writeToEngine(command: string) {
-    if (!this.engineHandle) return;
+    if (!this.engineRun.handle) return;
     if (!isValidUsiCommand(command)) {
       console.warn(`Invalid USI command blocked: ${command}`);
       return;
     }
     console.log(`Sending to engine (${this.sessionId}): ${command}`);
-    this.engineHandle.write(command + "\n");
+    this.engineRun.handle.write(command + "\n");
   }
 
   private beginReadyCheck(reason: "startup" | "newGame") {
@@ -542,7 +554,7 @@ export class EngineSession {
 
   private executeUsiCommand(command: string) {
     // Readiness and stop gating happen before executing a decoded command.
-    if (!this.engineHandle) return;
+    if (!this.engineRun.handle) return;
     if (command === "usinewgame" && !this.readyForNewGame) {
       this.pushToQueue(this.commandQueue, command);
       this.beginReadyCheck("newGame");
@@ -559,26 +571,25 @@ export class EngineSession {
     this.writeToEngine(command);
   }
 
-  private onEngineClose() {
+  private onEngineClose(run = this.engineRun) {
+    if (this.engineRun !== run) return;
+    // Retire before disposing callbacks, which may synchronously re-enter cleanup.
+    this.engineRun = { socket: null, handle: null };
+    this.clearConnectionTimeout(run);
+    clearTimeout(run.terminationTimeout);
+    run.disposeOutput?.();
+    run.disposeTransport?.();
+    run.resourceLease?.release();
+    run.resourceLease = undefined;
     this.readyForNewGame = false;
     this.clearReadyTimeout();
-    if (this.terminationTimeout) {
-      clearTimeout(this.terminationTimeout);
-      this.terminationTimeout = null;
-    }
-    this.releaseResourceLease();
     if (
       this.engineState === EngineState.STOPPED ||
-      this.engineState === EngineState.UNINITIALIZED ||
-      this.sessionId.startsWith("discovery-")
+      this.engineState === EngineState.UNINITIALIZED
     ) {
       return;
     }
     console.log(`Engine process exited for session ${this.sessionId}.`);
-    if (this.engineHandle) {
-      this.engineHandle.removeAllListeners();
-      this.engineHandle = null;
-    }
     this.currentEngineId = null;
     this.currentEngineConfig = null;
     this.engineState = EngineState.STOPPED;
@@ -619,11 +630,16 @@ export class EngineSession {
     saveAnalysisResults(parsedSfen.hash, parsedSfen.sfen, engineKey, engineName, validInfos);
   }
 
-  private setupEngineHandlers(stream: NodeJS.ReadableStream, rl?: readline.Interface) {
+  private setupEngineHandlers(
+    stream: NodeJS.ReadableStream,
+    rl?: readline.Interface,
+    run = this.engineRun,
+  ) {
     const interface_ = rl || readline.createInterface({ input: stream });
     // Socket handlers own transport errors; consume readline's forwarded errors.
     interface_.on("error", () => {});
-    interface_.on("line", (line) => {
+    const onLine = (line: string) => {
+      if (this.engineRun !== run) return;
       try {
         this.handleEngineLine(line);
       } catch (error) {
@@ -631,7 +647,12 @@ export class EngineSession {
         this.sendError(t.remoteEngineInvalidOutput);
         this.terminate(false);
       }
-    });
+    };
+    interface_.on("line", onLine);
+    run.disposeOutput = () => {
+      interface_.off("line", onLine);
+      interface_.close();
+    };
   }
 
   private handleEngineLine(line: string) {
@@ -758,120 +779,126 @@ export class EngineSession {
 
   private async startEngine(engineId: string, config?: EngineConfig): Promise<void> {
     if (this.terminationRequested) return;
-    if (this.engineHandle || this.engineState === EngineState.STARTING) {
+    if (this.engineRun.handle || this.engineState === EngineState.STARTING) {
       this.sendError("engine already running or starting");
       return;
     }
     this.engineState = EngineState.STARTING;
     this.readyForNewGame = false;
     this.currentEngineId = engineId;
-    const instanceId = this.instanceId;
+    const run = this.engineRun;
     try {
       // Relay starts resolve their own catalog, independently of browser discovery.
       const resolvedConfig =
         config ?? (await fetchEngineConfigs()).find((entry) => entry.id === engineId);
-      if (this.instanceId !== instanceId || this.terminationRequested) return;
+      if (!this.isStartingEngine(run)) return;
       if (!resolvedConfig) throw new Error(t.remoteEngineUnavailable);
       if (this.owner === "relay") {
-        this.resourceLease = resourceRegistry.acquire(...engineRequirements(resolvedConfig));
+        run.resourceLease = resourceRegistry.acquire(...engineRequirements(resolvedConfig));
       }
       this.currentEngineConfig = structuredClone(resolvedConfig);
     } catch (error) {
-      if (this.instanceId !== instanceId || this.terminationRequested) return;
+      if (!this.isStartingEngine(run)) return;
       console.warn(`Engine start rejected for session ${this.sessionId}:`, error);
       this.sendError(error instanceof Error ? error.message : String(error));
-      this.onEngineClose();
+      this.onEngineClose(run);
       return;
     }
 
+    this.connectEngine(run, engineId);
+  }
+
+  private isStartingEngine(run: EngineRun): boolean {
+    return (
+      this.engineRun === run &&
+      !this.terminationRequested &&
+      this.engineState === EngineState.STARTING
+    );
+  }
+
+  private clearConnectionTimeout(run: EngineRun) {
+    clearTimeout(run.connectionTimeout);
+    run.connectionTimeout = undefined;
+  }
+
+  private connectEngine(run: EngineRun, engineId: string) {
     console.log(`Connecting to remote engine at ${REMOTE_ENGINE_HOST}:${REMOTE_ENGINE_PORT}`);
     const socket = new net.Socket();
-    this.connectingSocket = socket;
-
-    const connectionTimeout = setTimeout(() => {
+    run.socket = socket;
+    run.connectionTimeout = setTimeout(() => {
+      if (!this.isStartingEngine(run)) return;
       console.error("Connection timed out after 5 seconds");
-      this.sendError("connection timed out");
-      socket.destroy();
-      this.connectingSocket = null;
-      this.onEngineClose();
+      this.failEngineRun(run, "connection timed out");
     }, 5000);
 
-    socket.on("connect", async () => {
-      clearTimeout(connectionTimeout);
-      if (this.terminationRequested || this.engineState === EngineState.TERMINATING) {
-        socket.destroy();
+    const onConnect = () => {
+      if (!this.isStartingEngine(run)) return;
+      this.clearConnectionTimeout(run);
+      void this.openEngineTransport(run, socket, engineId);
+    };
+    const onClose = () => {
+      if (this.isStartingEngine(run)) this.sendError(t.remoteEngineConnectionFailed);
+      this.onEngineClose(run);
+    };
+    const onError = (error: Error) => {
+      if (this.engineRun !== run) return;
+      console.error(
+        run.handle ? "Remote engine connection error:" : "Failed to connect to remote engine:",
+        error,
+      );
+      this.failEngineRun(run, t.remoteEngineConnectionFailed);
+    };
+    socket.on("connect", onConnect);
+    socket.on("close", onClose);
+    socket.on("error", onError);
+    run.disposeTransport = () => {
+      socket.off("connect", onConnect);
+      socket.off("close", onClose);
+      socket.off("error", onError);
+      // A destroyed socket can still emit an already scheduled error.
+      socket.on("error", () => {});
+    };
+    try {
+      socket.connect(REMOTE_ENGINE_PORT, REMOTE_ENGINE_HOST);
+    } catch (error) {
+      onError(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  private async openEngineTransport(run: EngineRun, socket: net.Socket, engineId: string) {
+    console.log(`Connected to remote engine. Specifying engine ID: ${engineId}`);
+    const accessToken = process.env.WRAPPER_ACCESS_TOKEN;
+    let rl: readline.Interface | undefined;
+    if (accessToken) {
+      try {
+        rl = await authenticateSocket(socket, accessToken);
+      } catch (error) {
+        if (!this.isStartingEngine(run)) return;
+        console.error("Authentication failed:", error);
+        this.failEngineRun(run, t.remoteEngineConnectionFailed);
         return;
       }
-      console.log(`Connected to remote engine. Specifying engine ID: ${engineId}`);
-
-      const accessToken = process.env.WRAPPER_ACCESS_TOKEN;
-
-      const setup = (rl?: readline.Interface) => {
-        if (this.terminationRequested || this.engineState === EngineState.TERMINATING) {
-          socket.destroy();
-          return;
-        }
-
-        this.connectingSocket = null;
-        socket.write(`run ${engineId}\n`);
-
-        this.engineState = EngineState.WAITING_USIOK;
-        this.engineHandle = {
-          write: (cmd) => socket.write(cmd),
-          close: () => socket.end(),
-          destroy: () => socket.destroy(),
-          on: (e, l) => socket.on(e, l),
-          off: (e, l) => socket.off(e, l),
-          removeAllListeners: (e) => socket.removeAllListeners(e),
-        };
-        this.setupEngineHandlers(socket, rl);
-        this.engineHandle.on("close", () => this.onEngineClose());
-        this.engineHandle.on("error", (err) => {
-          console.error("Remote engine connection error:", err);
-          this.sendError("remote engine connection failed");
-          this.onEngineClose();
-        });
-        this.writeToEngine("usi");
+    }
+    if (!this.isStartingEngine(run)) {
+      rl?.close();
+      return;
+    }
+    try {
+      socket.write(`run ${engineId}\n`);
+      this.engineState = EngineState.WAITING_USIOK;
+      run.handle = {
+        write: (cmd) => socket.write(cmd),
+        close: () => socket.end(),
+        destroy: () => socket.destroy(),
       };
-
-      if (accessToken) {
-        try {
-          const rl = await authenticateSocket(socket, accessToken);
-          setup(rl);
-        } catch (err: unknown) {
-          if (this.terminationRequested) {
-            return;
-          }
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(`Authentication failed: ${message}`);
-          this.sendError(message);
-          socket.destroy();
-          this.onEngineClose();
-        }
-      } else {
-        setup();
-      }
-    });
-
-    socket.on("close", () => {
-      clearTimeout(connectionTimeout);
-      if (this.connectingSocket === socket) this.connectingSocket = null;
-    });
-
-    socket.on("error", (err) => {
-      clearTimeout(connectionTimeout);
-      if (this.connectingSocket === socket) this.connectingSocket = null;
-      if (this.terminationRequested || this.engineState === EngineState.TERMINATING) {
-        return;
-      }
-      if (this.engineState === EngineState.STARTING) {
-        console.error("Failed to connect to remote engine:", err);
-        this.sendError(`failed to connect to remote engine (${err.message})`);
-        this.onEngineClose();
-      }
-    });
-
-    socket.connect(REMOTE_ENGINE_PORT, REMOTE_ENGINE_HOST);
+      this.setupEngineHandlers(socket, rl, run);
+      this.writeToEngine("usi");
+    } catch (error) {
+      if (this.engineRun !== run) return;
+      if (!run.disposeOutput) rl?.close();
+      console.error("Engine connection setup failed:", error);
+      this.failEngineRun(run, t.remoteEngineConnectionFailed);
+    }
   }
 
   private handleMessage(message: ClientRelayMessage) {
@@ -907,7 +934,7 @@ export class EngineSession {
         const engineId = message.engineId;
         if (
           this.currentEngineId === engineId &&
-          (this.engineHandle || this.engineState === EngineState.STARTING)
+          (this.engineRun.handle || this.engineState === EngineState.STARTING)
         ) {
           console.log(
             `Engine ${engineId} is already active or starting for session ${this.sessionId}. Ignoring redundant start request.`,
@@ -915,7 +942,7 @@ export class EngineSession {
           this.sendState();
           return;
         }
-        if (this.engineHandle || this.engineState === EngineState.STARTING) {
+        if (this.engineRun.handle || this.engineState === EngineState.STARTING) {
           this.sendError("engine already running or starting");
           return;
         }

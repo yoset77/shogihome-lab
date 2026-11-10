@@ -2,6 +2,7 @@
 import { EventEmitter } from "node:events";
 import net from "node:net";
 import { WebSocket } from "ws";
+import { t } from "@/common/i18n";
 import { EngineSession } from "@/server/engine/session";
 import { engineConfigCache, fetchEngineConfigs } from "@/server/engine/list";
 import { resourceRegistry } from "@/server/engine/resources";
@@ -169,7 +170,7 @@ describe("relay resource admission", () => {
         expect(() => engineSocket.emit("error", new Error("Connection reset"))).not.toThrow();
 
         expect(socket.send).toHaveBeenCalledWith(
-          expect.stringContaining("remote engine connection failed"),
+          expect.stringContaining(t.remoteEngineConnectionFailed),
         );
         expect(session.internalSnapshot.state).toBe(EngineState.STOPPED);
         expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);

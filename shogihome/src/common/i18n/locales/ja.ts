@@ -729,6 +729,7 @@ export const ja: Texts = {
   serverInvalidJsonBody: "リクエストには有効なJSONオブジェクトを指定してください。",
   invalidJKFStructure: "JKFのデータ構造が不正です。",
   jkfImportLimit: "JKFのサイズ、指し手数、分岐数、または深さが読み込み上限を超えています。",
+  remoteEngineConnectionFailed: "リモートエンジンへの接続に失敗しました。",
   remoteEngineInvalidOutput: "エンジンの応答が不正なため、セッションを終了しました。",
   remoteEngineReadyTimedOut:
     "エンジンの準備待ちがタイムアウトしたため、セッションをリセットしました。",
