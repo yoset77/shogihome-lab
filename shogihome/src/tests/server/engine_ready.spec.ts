@@ -94,6 +94,73 @@ describe("relay readiness deadlines", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it.each(["usinewgame", "gameover draw", "go infinite", "go mate infinite"])(
+    "requires fresh readiness after sending %s, even without a completed game",
+    (command) => {
+      const { session, engine, output, send } = setup();
+      output.write("usiok\nreadyok\n");
+      send({ type: "usi", command });
+      if (command.startsWith("go")) {
+        output.write(command.startsWith("go mate") ? "checkmate timeout\n" : "bestmove 7g7f\n");
+      }
+      engine.write.mockClear();
+
+      send({ type: "usi", command: "usinewgame" });
+      expect(engine.write).toHaveBeenCalledExactlyOnceWith("isready\n");
+      expect(session.internalSnapshot.state).toBe(EngineState.WAITING_READYOK);
+      output.write("readyok\n");
+      expect(engine.write.mock.calls.map(([line]) => line)).toEqual(["isready\n", "usinewgame\n"]);
+      expect(session.internalSnapshot.state).toBe(EngineState.READY);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it.each(["raw", "identified"])(
+    "updates the search state and position before writing a %s go command",
+    (route) => {
+      const { session, engine, output, send, messages } = setup();
+      output.write("usiok\nreadyok\n");
+      const instanceId = session.internalSnapshot.instanceId;
+      const position = "position startpos moves 7g7f";
+      const go = "go btime 1000 wtime 1000";
+      engine.write.mockImplementation((line: string) => {
+        if (line !== `${go}\n`) return;
+        expect(session.internalSnapshot).toMatchObject({
+          state: EngineState.THINKING,
+          active: route === "identified" ? 1 : null,
+        });
+        expect(
+          messages()
+            .filter((message) => message.type === "state")
+            .at(-1),
+        ).toMatchObject({
+          state: "thinking",
+        });
+        // A synchronous engine response must already belong to this search.
+        output.write("info depth 10 score cp 20 pv 3c3d\n");
+      });
+
+      if (route === "identified") send({ type: "search", instanceId, searchId: 1, position, go });
+      else {
+        send({ type: "usi", command: position });
+        send({ type: "usi", command: go });
+      }
+
+      expect(engine.write).toHaveBeenLastCalledWith(`${go}\n`);
+      expect(
+        messages()
+          .filter((message) => message.type === "engineOutput")
+          .at(-1),
+      ).toEqual({
+        type: "engineOutput",
+        positionCommand: position,
+        output: "info depth 10 score cp 20 pv 3c3d",
+        delay: 0,
+        ...(route === "identified" ? { instanceId, searchId: 1 } : {}),
+      });
+    },
+  );
+
   it.each([false, true])(
     "closes an unresponsive engine and retains its lease until transport destruction (identified: %s)",
     (identified) => {
@@ -258,9 +325,14 @@ describe("relay readiness deadlines", () => {
     },
   );
 
-  it.each(["replace", "cancel"])(
-    "does not carry a queued stop into the next search after %s",
-    (action) => {
+  it.each([
+    { action: "replace", route: "raw" },
+    { action: "replace", route: "identified" },
+    { action: "cancel", route: "raw" },
+    { action: "cancel", route: "identified" },
+  ])(
+    "does not carry a queued $route stop into the next search after $action",
+    ({ action, route }) => {
       const { session, engine, output, send, startNextGame } = setup();
       startNextGame();
       const instanceId = session.internalSnapshot.instanceId;
@@ -273,7 +345,11 @@ describe("relay readiness deadlines", () => {
           go: "go infinite",
         });
       search(1);
-      send({ type: "stopSearch", instanceId, searchId: 1 });
+      send(
+        route === "identified"
+          ? { type: "stopSearch", instanceId, searchId: 1 }
+          : { type: "usi", command: "stop" },
+      );
       if (action === "cancel") send({ type: "cancelSearch", instanceId, through: 1 });
       else search(2);
       output.write("readyok\n");

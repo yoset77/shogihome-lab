@@ -63,12 +63,13 @@ export class EngineSession {
   private searchRevision = 0;
   private acceptedSearch: SearchRequest | null = null;
   private activeSearch: SearchRequest | null = null;
-  private queuedSearch: SearchRequest | null = null;
-  private queuedSearchStopId: number | null = null;
+  private queuedSearch: { request: SearchRequest; stopRequested: boolean } | null = null;
   private cancelledThrough = 0;
   private settledThrough = 0;
-  private terminalSearch: SearchSnapshot["terminal"] = null;
-  private terminalCreatedAt = 0;
+  private terminalSearch: {
+    result: NonNullable<SearchSnapshot["terminal"]>;
+    createdAt: number;
+  } | null = null;
   private internalListeners = new Set<(event: SessionRelayPayload) => void>();
   // Relay-owned sessions reserve their engine's cost while an engine is
   // running. Internal sessions receive a caller-provided lease instead.
@@ -86,7 +87,7 @@ export class EngineSession {
       active: this.activeSearch?.searchId ?? null,
       settled: this.settledThrough,
       cancelled: this.cancelledThrough,
-      terminal: this.terminalSearch,
+      terminal: this.terminalSearch?.result ?? null,
     };
   }
 
@@ -133,23 +134,21 @@ export class EngineSession {
       active: this.activeSearch?.searchId ?? null,
       protectionMs: CONNECTION_PROTECTION_TIMEOUT,
       terminal: this.terminalSearch && {
-        ...this.terminalSearch,
-        delay: Math.max(0, Date.now() - this.terminalCreatedAt),
+        ...this.terminalSearch.result,
+        delay: Math.max(0, Date.now() - this.terminalSearch.createdAt),
       },
     });
   }
 
   private startQueuedSearch() {
     if (this.engineState !== EngineState.READY || !this.queuedSearch) return;
-    const search = this.queuedSearch;
-    const stopRequested = this.queuedSearchStopId === search.searchId;
+    const { request: search, stopRequested } = this.queuedSearch;
     this.queuedSearch = null;
-    this.queuedSearchStopId = null;
     if (search.searchId <= this.cancelledThrough) return;
     this.activeSearch = search;
     this.lastInfos.clear();
-    this.sendToEngine(search.position);
-    this.sendToEngine(search.go);
+    this.executeUsiCommand(search.position);
+    this.executeUsiCommand(search.go);
     if (stopRequested) this.requestSearchStop();
     this.sendSearchSnapshot();
   }
@@ -158,7 +157,7 @@ export class EngineSession {
     if (this.engineState !== EngineState.THINKING) return;
     this.engineState = EngineState.STOPPING_SEARCH;
     this.postStopCommandQueue.length = 0;
-    this.sendToEngine("stop");
+    this.writeToEngine("stop");
     this.startStopTimeout();
   }
 
@@ -186,8 +185,7 @@ export class EngineSession {
       return;
     }
     this.acceptedSearch = search;
-    this.queuedSearch = search;
-    this.queuedSearchStopId = null;
+    this.queuedSearch = { request: search, stopRequested: false };
     this.terminalSearch = null;
     this.requestSearchStop();
     this.startQueuedSearch();
@@ -200,9 +198,8 @@ export class EngineSession {
       return;
     }
     this.cancelledThrough = Math.max(this.cancelledThrough, through);
-    if (this.queuedSearch && this.queuedSearch.searchId <= this.cancelledThrough) {
+    if (this.queuedSearch && this.queuedSearch.request.searchId <= this.cancelledThrough) {
       this.queuedSearch = null;
-      this.queuedSearchStopId = null;
     }
     if (this.activeSearch && this.activeSearch.searchId <= this.cancelledThrough) {
       this.requestSearchStop();
@@ -413,7 +410,6 @@ export class EngineSession {
     this.commandQueue.length = 0;
     this.postStopCommandQueue.length = 0;
     this.queuedSearch = null;
-    this.queuedSearchStopId = null;
     // Unregister only once: a new session may already be using the same ID.
     if (!alreadyTerminated) this.removeSession(this.sessionId);
 
@@ -427,7 +423,7 @@ export class EngineSession {
       this.engineState = EngineState.STOPPING_ENGINE;
       // Preserve an existing stop deadline, including across browser disconnects.
       if (!this.stopTimeout) this.startStopTimeout();
-      if (needsStop) this.sendToEngine("stop");
+      if (needsStop) this.writeToEngine("stop");
       return;
     }
     this.closeEngineTransport();
@@ -517,39 +513,50 @@ export class EngineSession {
     this.sendToClient({ type: "error", message: safeMessage });
   }
 
-  private sendToEngine(command: string) {
-    if (this.engineHandle) {
-      if (!isValidUsiCommand(command)) {
-        console.warn(`Invalid USI command blocked: ${command}`);
-        return;
-      }
-
-      if (this.engineState === EngineState.WAITING_READYOK && command !== "isready") {
-        this.pushToQueue(this.commandQueue, command);
-        return;
-      }
-      if (command === "usinewgame" && !this.readyForNewGame) {
-        this.pushToQueue(this.commandQueue, command);
-        this.engineState = EngineState.WAITING_READYOK;
-        this.sendState();
-        this.startReadyTimeout();
-        this.sendToEngine("isready");
-        return;
-      }
-      if (command === "usinewgame" || command.startsWith("gameover") || command.startsWith("go")) {
-        this.readyForNewGame = false;
-      }
-      if (command.startsWith("position ")) {
-        this.currentEngineSfen = command;
-      }
-      if (command.startsWith("go")) {
-        this.engineState = EngineState.THINKING;
-        this.pendingGoSfen = this.currentEngineSfen;
-        this.sendState();
-      }
-      console.log(`Sending to engine (${this.sessionId}): ${command}`);
-      this.engineHandle.write(command + "\n");
+  private writeToEngine(command: string) {
+    if (!this.engineHandle) return;
+    if (!isValidUsiCommand(command)) {
+      console.warn(`Invalid USI command blocked: ${command}`);
+      return;
     }
+    console.log(`Sending to engine (${this.sessionId}): ${command}`);
+    this.engineHandle.write(command + "\n");
+  }
+
+  private beginReadyCheck(reason: "startup" | "newGame") {
+    this.engineState = EngineState.WAITING_READYOK;
+    if (reason === "newGame") {
+      this.sendState();
+      this.startReadyTimeout();
+    }
+    this.writeToEngine("isready");
+  }
+
+  private beginSearch(go: string) {
+    this.readyForNewGame = false;
+    this.engineState = EngineState.THINKING;
+    this.pendingGoSfen = this.currentEngineSfen;
+    this.sendState();
+    this.writeToEngine(go);
+  }
+
+  private executeUsiCommand(command: string) {
+    // Readiness and stop gating happen before executing a decoded command.
+    if (!this.engineHandle) return;
+    if (command === "usinewgame" && !this.readyForNewGame) {
+      this.pushToQueue(this.commandQueue, command);
+      this.beginReadyCheck("newGame");
+      return;
+    }
+    if (command.startsWith("go")) {
+      this.beginSearch(command);
+      return;
+    }
+    if (command === "usinewgame" || command.startsWith("gameover")) {
+      this.readyForNewGame = false;
+    }
+    if (command.startsWith("position ")) this.currentEngineSfen = command;
+    this.writeToEngine(command);
   }
 
   private onEngineClose() {
@@ -585,7 +592,6 @@ export class EngineSession {
     this.acceptedSearch = null;
     this.activeSearch = null;
     this.queuedSearch = null;
-    this.queuedSearchStopId = null;
     this.terminalSearch = null;
     this.cancelledThrough = 0;
     this.settledThrough = 0;
@@ -681,7 +687,7 @@ export class EngineSession {
     }
 
     if (this.engineState === EngineState.WAITING_USIOK && line.trim() === "usiok") {
-      this.handleUsiOk();
+      this.beginReadyCheck("startup");
     } else if (this.engineState === EngineState.WAITING_READYOK && line.trim() === "readyok") {
       this.handleReadyOk();
     }
@@ -707,12 +713,14 @@ export class EngineSession {
       return;
     }
     if (this.activeSearch) {
-      this.terminalCreatedAt = Date.now();
       this.terminalSearch = {
-        searchId: this.activeSearch.searchId,
-        position: this.activeSearch.position,
-        output: line,
-        delay: 0,
+        createdAt: Date.now(),
+        result: {
+          searchId: this.activeSearch.searchId,
+          position: this.activeSearch.position,
+          output: line,
+          delay: 0,
+        },
       };
       this.activeSearch = null;
       this.settledThrough = this.cancelledThrough;
@@ -733,11 +741,6 @@ export class EngineSession {
     this.sendState();
     this.startQueuedSearch();
     this.sendSearchSnapshot();
-  }
-
-  private handleUsiOk() {
-    this.engineState = EngineState.WAITING_READYOK;
-    this.sendToEngine("isready");
   }
 
   private handleReadyOk() {
@@ -828,7 +831,7 @@ export class EngineSession {
           this.sendError("remote engine connection failed");
           this.onEngineClose();
         });
-        this.sendToEngine("usi");
+        this.writeToEngine("usi");
       };
 
       if (accessToken) {
@@ -886,8 +889,8 @@ export class EngineSession {
         return;
       case "stopSearch":
         if (message.instanceId === this.instanceId) {
-          if (message.searchId === this.queuedSearch?.searchId)
-            this.queuedSearchStopId = message.searchId;
+          if (message.searchId === this.queuedSearch?.request.searchId)
+            this.queuedSearch.stopRequested = true;
           else if (message.searchId === this.activeSearch?.searchId) this.requestSearchStop();
         }
         this.sendSearchSnapshot();
@@ -930,7 +933,7 @@ export class EngineSession {
 
   private handleRawUsiCommand(command: string) {
     if (command === "stop") {
-      if (this.queuedSearch) this.queuedSearchStopId = this.queuedSearch.searchId;
+      if (this.queuedSearch) this.queuedSearch.stopRequested = true;
       if (this.commandQueue.some((queued) => queued.startsWith("go")))
         this.pushToQueue(this.commandQueue, command);
       if (this.postStopCommandQueue.some((queued) => queued.startsWith("go")))
@@ -969,7 +972,7 @@ export class EngineSession {
       command.startsWith("gameover")
     ) {
       if (this.engineState === EngineState.READY) {
-        this.sendToEngine(command);
+        this.executeUsiCommand(command);
       } else if (
         this.engineState === EngineState.STARTING ||
         this.engineState === EngineState.WAITING_USIOK ||
@@ -983,7 +986,7 @@ export class EngineSession {
     }
 
     if (this.engineState === EngineState.READY || this.engineState === EngineState.THINKING) {
-      this.sendToEngine(command);
+      this.executeUsiCommand(command);
     } else if (
       this.engineState === EngineState.STARTING ||
       this.engineState === EngineState.WAITING_USIOK ||
