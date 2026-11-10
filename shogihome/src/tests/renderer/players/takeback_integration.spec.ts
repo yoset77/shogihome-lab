@@ -73,16 +73,15 @@ describe("takeback across the real relay", () => {
     const internal = session as unknown as {
       currentEngineId: string;
       engineState: EngineState;
-      engineHandle: unknown;
+      engineRun: { handle: unknown };
       setupEngineHandlers(stream: PassThrough): void;
       onEngineClose(): void;
     };
     internal.currentEngineId = "test";
     internal.engineState = EngineState.WAITING_USIOK;
-    internal.engineHandle = {
+    internal.engineRun.handle = {
       write: (line: string) => writes.push(line),
       close: () => internal.onEngineClose(),
-      removeAllListeners: () => {},
     };
     internal.setupEngineHandlers(stream);
     stream.write("usiok\nreadyok\n");

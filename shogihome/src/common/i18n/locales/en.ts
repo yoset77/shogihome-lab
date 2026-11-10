@@ -738,6 +738,7 @@ export const en: Texts = {
   serverInvalidJsonBody: "The request body must be a valid JSON object",
   invalidJKFStructure: "Invalid JKF data structure.",
   jkfImportLimit: "JKF size, move count, fork count, or depth exceeds the import limit.",
+  remoteEngineConnectionFailed: "Remote engine connection failed.",
   remoteEngineInvalidOutput: "Invalid engine output; the session was terminated.",
   remoteEngineReadyTimedOut:
     "Timed out waiting for the engine to become ready. The session was reset.",

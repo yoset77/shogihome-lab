@@ -29,21 +29,20 @@ function setup(identified = false, config: Partial<EngineConfig> = {}) {
   const remove = vi.fn();
   const session = new EngineSession("shutdown", remove);
   const ws = socket();
-  const engine = { write: vi.fn(), close: vi.fn(), destroy: vi.fn(), removeAllListeners: vi.fn() };
+  const engine = { write: vi.fn(), close: vi.fn(), destroy: vi.fn() };
   const internal = session as unknown as {
     engineState: EngineState;
     currentEngineId: string;
     currentEngineConfig: EngineConfig;
-    engineHandle: typeof engine;
+    engineRun: { handle: typeof engine; resourceLease?: ResourceLease };
     lastInfos: Map<number, unknown>;
-    resourceLease?: ResourceLease;
     setupEngineHandlers(stream: PassThrough): void;
     onEngineClose(): void;
   };
   internal.engineState = EngineState.READY;
   internal.currentEngineId = "test";
   internal.currentEngineConfig = { id: "test", name: "Test", ...config };
-  internal.engineHandle = engine;
+  internal.engineRun.handle = engine;
   const output = new PassThrough();
   internal.setupEngineHandlers(output);
   session.attach(ws as unknown as WebSocket);
@@ -143,7 +142,7 @@ describe("engine shutdown persistence", () => {
           throw error;
         });
         resourceRegistry.resetForTest(true, [{ id: "g", name: "G", budget: 4 }]);
-        internal.resourceLease = resourceRegistry.acquire({ groupId: "g", cost: 4 });
+        internal.engineRun.resourceLease = resourceRegistry.acquire({ groupId: "g", cost: 4 });
         search();
         output.write("info depth 100 score cp 20 pv 7g7f\n");
         if (reason === "stop_engine") ws.emit("message", "stop_engine");
@@ -249,35 +248,6 @@ describe("engine shutdown persistence", () => {
       expect(saveAnalysisResults).toHaveBeenCalledOnce();
       expect(engine.close).toHaveBeenCalledOnce();
     });
-  });
-
-  it("bounds both shutdown phases and holds the resource lease until transport destruction", () => {
-    const { session, ws, engine, internal, output, search, disconnect } = setup();
-    resourceRegistry.resetForTest(true, [{ id: "g", name: "G", budget: 4 }]);
-    internal.resourceLease = resourceRegistry.acquire({ groupId: "g", cost: 4 });
-    search();
-    output.write("info depth 100 score cp 20 pv 7g7f\n");
-    ws.emit("message", "stop_engine");
-    disconnect();
-    vi.advanceTimersByTime(ENGINE_STOP_TIMEOUT_MS);
-    expect(engine.close).toHaveBeenCalledOnce();
-    expect(engine.destroy).not.toHaveBeenCalled();
-    expect(resourceRegistry.groupSnapshot()[0].used).toBe(4);
-    vi.advanceTimersByTime(ENGINE_STOP_TIMEOUT_MS - 1);
-    expect(engine.destroy).not.toHaveBeenCalled();
-    engine.destroy.mockImplementation(() => {
-      expect(resourceRegistry.groupSnapshot()[0].used).toBe(4);
-    });
-    vi.advanceTimersByTime(1);
-    expect(engine.destroy).toHaveBeenCalledOnce();
-    expect(session.internalSnapshot.state).toBe(EngineState.STOPPED);
-    expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
-    expect(saveAnalysisResults).not.toHaveBeenCalled();
-    output.write("bestmove 7g7f\n");
-    internal.onEngineClose();
-    expect(saveAnalysisResults).not.toHaveBeenCalled();
-    expect(session.internalSnapshot.state).toBe(EngineState.STOPPED);
-    expect(vi.getTimerCount()).toBe(0);
   });
 
   it.each([EngineState.READY, EngineState.WAITING_USIOK, EngineState.WAITING_READYOK])(

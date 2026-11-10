@@ -689,6 +689,7 @@ export type Texts = {
   serverInvalidJsonBody: string;
   invalidJKFStructure: string;
   jkfImportLimit: string;
+  remoteEngineConnectionFailed: string;
   remoteEngineInvalidOutput: string;
   remoteEngineReadyTimedOut: string;
   serverInvalidKifuSearch: string;

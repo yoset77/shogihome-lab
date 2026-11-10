@@ -7,17 +7,17 @@ vi.mock("@/server/database/sqlite", () => ({ saveAnalysisResults: vi.fn() }));
 
 function setup() {
   const session = new EngineSession("internal-test", undefined, "internal");
-  const engine = { write: vi.fn(), close: vi.fn(), destroy: vi.fn(), removeAllListeners: vi.fn() };
+  const engine = { write: vi.fn(), close: vi.fn(), destroy: vi.fn() };
   const internal = session as unknown as {
     engineState: EngineState;
-    engineHandle: typeof engine;
+    engineRun: { handle: typeof engine };
     currentEngineId: string;
     setupEngineHandlers(stream: PassThrough): void;
     onEngineClose(): void;
     messageBuffer: unknown[];
   };
   internal.engineState = EngineState.READY;
-  internal.engineHandle = engine;
+  internal.engineRun.handle = engine;
   internal.currentEngineId = "test";
   const stream = new PassThrough();
   internal.setupEngineHandlers(stream);

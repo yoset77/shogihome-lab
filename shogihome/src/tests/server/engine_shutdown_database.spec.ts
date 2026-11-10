@@ -35,7 +35,7 @@ describe("engine shutdown with the analysis database", () => {
         engineState: EngineState;
         currentEngineId: string;
         currentEngineConfig: EngineConfig;
-        engineHandle: EngineHandle;
+        engineRun: { handle: EngineHandle };
         setupEngineHandlers(stream: PassThrough): void;
         onEngineClose(): void;
       };
@@ -48,13 +48,10 @@ describe("engine shutdown with the analysis database", () => {
         ]);
         internal.onEngineClose();
       });
-      internal.engineHandle = {
+      internal.engineRun.handle = {
         write: vi.fn(),
         close,
         destroy: vi.fn(),
-        on: vi.fn(),
-        off: vi.fn(),
-        removeAllListeners: vi.fn(),
       };
       const output = new PassThrough();
       internal.setupEngineHandlers(output);

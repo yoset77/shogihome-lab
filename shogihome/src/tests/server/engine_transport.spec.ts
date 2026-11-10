@@ -97,20 +97,20 @@ it("restores a search result after disconnecting a slow consumer", () => {
   const internal = session as unknown as {
     engineState: EngineState;
     currentEngineId: string;
-    engineHandle: {
-      write: ReturnType<typeof vi.fn>;
-      close: () => void;
-      removeAllListeners: () => void;
+    engineRun: {
+      handle: {
+        write: ReturnType<typeof vi.fn>;
+        close: () => void;
+      };
     };
     setupEngineHandlers(stream: PassThrough): void;
     onEngineClose(): void;
   };
   internal.engineState = EngineState.READY;
   internal.currentEngineId = "test";
-  internal.engineHandle = {
+  internal.engineRun.handle = {
     write: vi.fn(),
     close: () => internal.onEngineClose(),
-    removeAllListeners: () => {},
   };
   const output = new PassThrough();
   internal.setupEngineHandlers(output);

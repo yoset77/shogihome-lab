@@ -57,6 +57,8 @@ Process treeの所有と回収は共有 [`process/`](../../engine-wrapper/proces
 
 Middle Serverがwrapperへの接続からUSI handshake、探索、停止、終了までを管理します。Browserからの検証済みcommandも現在のstate machineに従って送信・待機させ、handshakeを迂回しません。明示的終了、session失効、回復不能なfailureではtransportを終了してprocess cleanupへ収束させます。
 
+接続、購読、接続・終了の期限、relayのresource予約は起動単位で所有し、起動失敗や接続途中の切断も一度だけのcleanupへ収束させます。完了済みの起動に属する非同期callbackは、後続の起動の状態や予約を変更しません。[寿命境界テスト](../../shogihome/src/tests/server/engine_lifecycle.spec.ts)を参照してください。
+
 初局は起動時の`isready`／`readyok`を利用し、再利用する次局では`EngineSession`が再び準備完了を確認してから`usinewgame`と後続の探索を送信します。Server所有の対局・解析はこの完了を待ち、待機の取消・失敗・期限超過はownerのcleanupへ収束させます。[内部sessionテスト](../../shogihome/src/tests/server/engine_internal.spec.ts)と[対局統合テスト](../../shogihome/src/tests/server/game_integration.spec.ts)を参照してください。
 
 公開relayの再準備待ちはBrowserの切断・再接続で延長しない独立した期限を持ち、期限超過時はエラーを通知してtransportを終了します。起動時とServer所有sessionの待機期限は呼び出し元の設定を維持します。[準備待ちテスト](../../shogihome/src/tests/server/engine_ready.spec.ts)を参照してください。
