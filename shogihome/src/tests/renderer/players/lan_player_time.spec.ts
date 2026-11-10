@@ -5,6 +5,7 @@ import { TimeStates } from "@/common/game/time";
 import { SearchHandler } from "@/renderer/players/player";
 import { Mock } from "vitest";
 import type { ServerRelayMessage } from "@/common/engine/relay_protocol";
+import { searchSnapshot } from "@/tests/helpers/engine_relay";
 
 vi.mock("@/renderer/network/lan_engine");
 
@@ -52,6 +53,9 @@ describe("LanPlayer Time Control", () => {
           messageHandler(readyMsg);
         }
         messageListeners = messageListeners.filter((l) => !l(readyMsg));
+        const snapshot = searchSnapshot();
+        messageHandler(snapshot);
+        messageListeners = messageListeners.filter((l) => !l(snapshot));
       });
     });
 
@@ -88,7 +92,9 @@ describe("LanPlayer Time Control", () => {
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
     const expectedGo = "go btime 60000 wtime 60000 binc 5000 winc 5000";
-    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(expectedGo);
+    expect(LanEngine.prototype.sendSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ position: usi, go: expectedGo }),
+    );
   });
 
   it("should send correct go command for Byoyomi rule (Black)", async () => {
@@ -103,7 +109,9 @@ describe("LanPlayer Time Control", () => {
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
     const expectedGo = "go btime 60000 wtime 60000 byoyomi 10000";
-    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(expectedGo);
+    expect(LanEngine.prototype.sendSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ position: usi, go: expectedGo }),
+    );
   });
 
   it("should send correct go command for Fischer rule (White)", async () => {
@@ -118,7 +126,9 @@ describe("LanPlayer Time Control", () => {
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
     const expectedGo = "go btime 55000 wtime 60000 binc 5000 winc 5000";
-    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(expectedGo);
+    expect(LanEngine.prototype.sendSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ position: usi, go: expectedGo }),
+    );
   });
 
   it("should prioritize Byoyomi over Increment if Byoyomi > 0", async () => {
@@ -133,7 +143,9 @@ describe("LanPlayer Time Control", () => {
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
     const expectedGo = "go btime 60000 wtime 60000 byoyomi 10000";
-    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(expectedGo);
+    expect(LanEngine.prototype.sendSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ position: usi, go: expectedGo }),
+    );
   });
 
   it("should calculate correct time for 3rd move (Black) with Fischer rule", async () => {
@@ -148,7 +160,9 @@ describe("LanPlayer Time Control", () => {
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
     const expectedGo = "go btime 55000 wtime 60000 binc 5000 winc 5000";
-    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(expectedGo);
+    expect(LanEngine.prototype.sendSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ position: usi, go: expectedGo }),
+    );
   });
 
   it("should pass delay to handler", async () => {
@@ -168,11 +182,13 @@ describe("LanPlayer Time Control", () => {
 
     await player.startSearch(record.position, usi, timeStates, dummyHandler);
 
-    expect(LanEngine.prototype.sendUsiCommand).toHaveBeenCalledWith(
-      "go btime 60000 wtime 60000 byoyomi 0",
+    expect(LanEngine.prototype.sendSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ position: usi, go: "go btime 60000 wtime 60000 byoyomi 0" }),
     );
     const response: ServerRelayMessage = {
       type: "engineOutput",
+      instanceId: "test-instance",
+      searchId: 1,
       positionCommand: usi,
       output: "bestmove 7g7f",
       delay: 1234,

@@ -2,7 +2,11 @@
 import { EventEmitter } from "node:events";
 import { WebSocket } from "ws";
 import { PassThrough } from "node:stream";
-import { decodeServerRelayMessage, encodeClientRelayMessage } from "@/common/engine/relay_protocol";
+import {
+  decodeServerRelayMessage,
+  encodeClientRelayMessage,
+  type SessionRelayPayload,
+} from "@/common/engine/relay_protocol";
 import {
   createRelayMessageLimiter,
   MAX_RELAY_BUFFERED_BYTES,
@@ -90,6 +94,47 @@ it("bounds replay when a reconnecting socket is already congested", () => {
   expect(replacement.send).toHaveBeenCalledWith(expect.stringContaining('"pong"'));
   replacement.emit("close");
 });
+
+it.each(["backpressure", "send error"])(
+  "regenerates snapshots without replaying failed sends after %s",
+  (failure) => {
+    vi.useFakeTimers();
+    const session = new EngineSession("transport-snapshot");
+    const internal = session as unknown as { sendToClient(data: SessionRelayPayload): void };
+    const slow = socket();
+    if (failure === "backpressure") {
+      slow.send.mockImplementationOnce(() => {
+        slow.bufferedAmount = MAX_RELAY_BUFFERED_BYTES;
+      });
+    } else {
+      slow.send
+        .mockImplementationOnce(() => {})
+        .mockImplementationOnce(() => {
+          throw new Error("Snapshot send failed");
+        });
+    }
+    session.attach(asWs(slow));
+    expect(slow.terminate).toHaveBeenCalledOnce();
+    internal.sendToClient({ type: "error", message: "Buffered error" });
+    internal.sendToClient({ type: "notice", notice: "pong" });
+
+    const replacement = socket();
+    session.attach(asWs(replacement));
+
+    const messages = replacement.send.mock.calls.map(([frame]) => {
+      const decoded = decodeServerRelayMessage(frame);
+      if (!decoded.ok) throw new Error(decoded.error);
+      return decoded.value;
+    });
+    expect(messages.filter((message) => message.type === "searchSnapshot")).toEqual([
+      expect.objectContaining({ revision: 2 }),
+    ]);
+    expect(messages).toContainEqual({ type: "error", message: "Buffered error", delay: 0 });
+    expect(messages).toContainEqual({ type: "notice", notice: "pong", delay: 0 });
+    replacement.emit("close");
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
 
 it("restores a search result after disconnecting a slow consumer", () => {
   vi.useFakeTimers();

@@ -1,5 +1,7 @@
 import { LanEngine } from "@/renderer/network/lan_engine";
 import { vi, describe, it, expect, beforeEach, afterEach, type Mock } from "vitest";
+import { GameResult } from "@/common/game/result";
+import { searchSnapshot } from "@/tests/helpers/engine_relay";
 
 interface MockWebSocket {
   readyState: number;
@@ -187,6 +189,112 @@ describe("LanEngine", () => {
     expect(mockWs.send).not.toHaveBeenCalledWith("setoption name USI_Hash value 1024");
   });
 
+  it("keeps ordinary USI control commands separate from identified searches", async () => {
+    const engine = new LanEngine("test-session");
+    const connect = engine.connect();
+    mockWs.readyState = 1;
+    mockWs.onopen?.();
+    await connect;
+
+    engine.readyNewGame();
+    engine.gameover(GameResult.DRAW);
+    engine.setMultiPV(3);
+    for (const value of [-1, 0, 11, NaN]) engine.setMultiPV(value);
+
+    expect(mockWs.send.mock.calls.map(([command]) => command)).toEqual([
+      "usinewgame",
+      "gameover draw",
+      "setoption name MultiPV value 3",
+    ]);
+    engine.disconnect();
+  });
+
+  it("holds identified commands until a snapshot and sends cancellation before search and stop", async () => {
+    const engine = new LanEngine("test-session");
+    const connect = engine.connect();
+    mockWs.readyState = 1;
+    mockWs.onopen?.();
+    await connect;
+    const cancellation = { type: "cancelSearch", instanceId: "test-instance", through: 1 } as const;
+    const search = {
+      type: "search",
+      instanceId: "test-instance",
+      searchId: 2,
+      position: "position startpos",
+      go: "go infinite",
+    } as const;
+    const stop = { type: "stopSearch", instanceId: "test-instance", searchId: 2 } as const;
+
+    engine.cancelSearch(cancellation);
+    engine.sendSearch(search);
+    engine.stopSearch(stop);
+    mockWs.onmessage?.({ data: JSON.stringify({ state: "ready", engineId: "test-engine" }) });
+    expect(mockWs.send).not.toHaveBeenCalled();
+    mockWs.onmessage?.({ data: JSON.stringify(searchSnapshot()) });
+
+    expect(mockWs.send.mock.calls.map(([frame]) => JSON.parse(frame))).toEqual([
+      cancellation,
+      search,
+      stop,
+    ]);
+    engine.disconnect();
+  });
+
+  it.each(["unaccepted", "active", "terminal"])(
+    "reconciles a pending stop with a fresh %s snapshot after reconnect",
+    async (phase) => {
+      const oldWs = mockWs;
+      const newWs: MockWebSocket = { ...mockWs, send: vi.fn(), close: vi.fn() };
+      installWebSocketSequence(oldWs, newWs);
+      const engine = new LanEngine("test-session");
+      const messages = vi.fn();
+      const connect = engine.connect(messages);
+      oldWs.readyState = 1;
+      oldWs.onopen?.();
+      await connect;
+      oldWs.onmessage?.({ data: JSON.stringify(searchSnapshot({ revision: 2 })) });
+      const search = {
+        type: "search",
+        instanceId: "test-instance",
+        searchId: 1,
+        position: "position startpos",
+        go: "go infinite",
+      } as const;
+      const stop = { type: "stopSearch", instanceId: "test-instance", searchId: 1 } as const;
+      engine.sendSearch(search);
+      engine.stopSearch(stop);
+      (engine as unknown as { onVisibilityChange(): void }).onVisibilityChange();
+      newWs.readyState = 1;
+      newWs.onopen?.();
+      messages.mockClear();
+
+      for (const revision of [2, 1]) {
+        newWs.onmessage?.({ data: JSON.stringify(searchSnapshot({ revision })) });
+        expect(newWs.send).not.toHaveBeenCalled();
+        expect(messages).not.toHaveBeenCalled();
+      }
+      newWs.onmessage?.({
+        data: JSON.stringify(
+          searchSnapshot({
+            revision: 3,
+            accepted: phase === "unaccepted" ? 0 : 1,
+            active: phase === "active" ? 1 : null,
+            terminal:
+              phase === "terminal"
+                ? { searchId: 1, position: search.position, output: "bestmove 7g7f", delay: 1000 }
+                : null,
+          }),
+        ),
+      });
+
+      expect(newWs.send.mock.calls.map(([frame]) => JSON.parse(frame))).toEqual(
+        phase === "unaccepted" ? [search, stop] : phase === "active" ? [stop] : [],
+      );
+      expect(messages).toHaveBeenCalledOnce();
+      engine.disconnect();
+    },
+  );
+
   it("should drop invalid outbound relay messages without buffering them", async () => {
     const engine = new LanEngine("test-session");
     const connectPromise = engine.connect();
@@ -295,47 +403,7 @@ describe("LanEngine", () => {
     expect(mockWs.close).toHaveBeenCalled();
   });
 
-  it("should keep onmessage intact to preserve in-flight messages on visibility change", async () => {
-    const engine = new LanEngine("test-session");
-    const connectPromise = engine.connect();
-    mockWs.readyState = 1;
-    mockWs.onopen?.();
-    await connectPromise;
-
-    expect(mockWs.onopen).not.toBeNull();
-
-    // Prevent connect() from overwriting mockWs properties
-    vi.spyOn(engine, "connect").mockImplementation(() => Promise.resolve());
-
-    // Mock document.visibilityState
-    const originalVisibilityState = document.visibilityState;
-    Object.defineProperty(document, "visibilityState", {
-      value: "visible",
-      writable: true,
-      configurable: true,
-    });
-
-    // Simulate visibility change
-    const onVisibilityChange = (engine as unknown as { onVisibilityChange: () => void })
-      .onVisibilityChange;
-    onVisibilityChange();
-
-    expect(mockWs.onopen).toBeNull();
-    // onmessage must remain attached so in-flight bestmove/info is not dropped.
-    expect(mockWs.onmessage).not.toBeNull();
-    expect(mockWs.onerror).toBeNull();
-    expect(mockWs.onclose).toBeNull();
-    expect(mockWs.close).toHaveBeenCalled();
-
-    // Clean up
-    Object.defineProperty(document, "visibilityState", {
-      value: originalVisibilityState,
-      writable: true,
-      configurable: true,
-    });
-  });
-
-  it("should deliver in-flight messages via old socket onmessage after visibility change", async () => {
+  it("detaches retired socket handlers and ignores captured messages without extending the heartbeat", async () => {
     const oldWs = mockWs;
     const newWs: MockWebSocket = {
       readyState: 0,
@@ -350,15 +418,14 @@ describe("LanEngine", () => {
 
     const engine = new LanEngine("test-session");
     const onMessageHandler = vi.fn();
+    const messageListener = vi.fn(() => false);
+    engine.addMessageListener(messageListener);
     const connectPromise = engine.connect(onMessageHandler);
 
-    // Simulate successful connection (OPEN)
-    oldWs.readyState = 1; // OPEN
-    if (oldWs.onopen) oldWs.onopen();
+    oldWs.readyState = 1;
+    oldWs.onopen?.();
     await connectPromise;
-
-    // Track messages dispatched through the handler.
-    onMessageHandler.mockClear();
+    const oldOnMessage = oldWs.onmessage!;
 
     const originalVisibilityState = document.visibilityState;
     Object.defineProperty(document, "visibilityState", {
@@ -367,49 +434,57 @@ describe("LanEngine", () => {
       configurable: true,
     });
 
-    const onVisibilityChange = (engine as unknown as { onVisibilityChange: () => void })
-      .onVisibilityChange;
-    onVisibilityChange();
+    try {
+      (engine as unknown as { onVisibilityChange(): void }).onVisibilityChange();
+      expect(oldWs.onopen).toBeNull();
+      expect(oldWs.onmessage).toBeNull();
+      expect(oldWs.onerror).toBeNull();
+      expect(oldWs.onclose).toBeNull();
+      expect(oldWs.close).toHaveBeenCalledOnce();
 
-    newWs.readyState = 1;
-    newWs.onopen?.();
-    newWs.onmessage?.({ data: JSON.stringify({ state: "ready", engineId: null }) });
-    onMessageHandler.mockClear();
+      newWs.readyState = 1;
+      newWs.onopen?.();
+      newWs.onmessage?.({ data: JSON.stringify({ state: "ready", engineId: "test-engine" }) });
+      expect(onMessageHandler).toHaveBeenCalledOnce();
+      expect(messageListener).toHaveBeenCalledOnce();
+      onMessageHandler.mockClear();
+      messageListener.mockClear();
+      await vi.advanceTimersByTimeAsync(6000);
+      expect(newWs.send).toHaveBeenCalledWith("ping");
+      expect(newWs.close).not.toHaveBeenCalled();
 
-    // Simulate a message that was already in the browser's delivery queue when
-    // visibilitychange fired, arriving just after close() was called.
-    const inFlightMessages = [
-      JSON.stringify({ sfen: "position startpos", info: "info depth 10" }),
-      JSON.stringify({ sfen: "position startpos", info: "bestmove 7g7f" }),
-      JSON.stringify({ sfen: "position startpos", info: "checkmate nomate" }),
-    ];
-    for (const data of inFlightMessages) {
-      oldWs.onmessage?.({ data });
+      // Invoke callbacks already queued before the old socket was detached.
+      const inFlightMessages = [
+        { state: "thinking", engineId: "test-engine" },
+        { error: "stale error" },
+        { info: "pong" },
+        { engineList: [] },
+        searchSnapshot(),
+        ...["info depth 10", "bestmove 7g7f", "checkmate nomate"].map((info) => ({
+          instanceId: "test-instance",
+          searchId: 1,
+          sfen: "position startpos",
+          info,
+        })),
+      ];
+      for (const message of inFlightMessages) {
+        oldOnMessage({ data: JSON.stringify(message) });
+      }
+
+      expect(onMessageHandler).not.toHaveBeenCalled();
+      expect(messageListener).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(5999);
+      expect(newWs.close).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(newWs.close).toHaveBeenCalledOnce();
+    } finally {
+      Object.defineProperty(document, "visibilityState", {
+        value: originalVisibilityState,
+        writable: true,
+        configurable: true,
+      });
+      engine.disconnect();
     }
-
-    expect(onMessageHandler.mock.calls.map(([message]) => message)).toEqual([
-      {
-        type: "engineOutput",
-        positionCommand: "position startpos",
-        output: "info depth 10",
-      },
-      {
-        type: "engineOutput",
-        positionCommand: "position startpos",
-        output: "bestmove 7g7f",
-      },
-      {
-        type: "engineOutput",
-        positionCommand: "position startpos",
-        output: "checkmate nomate",
-      },
-    ]);
-
-    Object.defineProperty(document, "visibilityState", {
-      value: originalVisibilityState,
-      writable: true,
-      configurable: true,
-    });
   });
 
   it("should keep the transport connected while refreshing after a visibility change", async () => {
@@ -455,50 +530,6 @@ describe("LanEngine", () => {
       configurable: true,
     });
     engine.disconnect();
-  });
-
-  it("should ignore state messages from a replaced socket", async () => {
-    const oldWs = mockWs;
-    const newWs: MockWebSocket = {
-      readyState: 0,
-      send: vi.fn(),
-      close: vi.fn(),
-      onopen: null,
-      onerror: null,
-      onclose: null,
-      onmessage: null,
-    };
-    installWebSocketSequence(oldWs, newWs);
-    const engine = new LanEngine("test-session");
-    const onMessageHandler = vi.fn();
-    const messageListener = vi.fn(() => false);
-    engine.addMessageListener(messageListener);
-    const connectPromise = engine.connect(onMessageHandler);
-    oldWs.readyState = 1;
-    oldWs.onopen?.();
-    await connectPromise;
-
-    Object.defineProperty(document, "visibilityState", {
-      value: "visible",
-      writable: true,
-      configurable: true,
-    });
-    (engine as unknown as { onVisibilityChange: () => void }).onVisibilityChange();
-    newWs.readyState = 1;
-    newWs.onopen?.();
-    onMessageHandler.mockClear();
-
-    for (const data of [
-      JSON.stringify({ state: "thinking", engineId: "test-engine" }),
-      JSON.stringify({ error: "stale error" }),
-      JSON.stringify({ info: "pong" }),
-      JSON.stringify({ engineList: [] }),
-    ]) {
-      oldWs.onmessage?.({ data });
-    }
-
-    expect(onMessageHandler).not.toHaveBeenCalled();
-    expect(messageListener).not.toHaveBeenCalled();
   });
 
   it("should not replace a websocket that is still connecting on visibility change", () => {
@@ -591,41 +622,6 @@ describe("LanEngine", () => {
     }
 
     expect(newWs.close).not.toHaveBeenCalled();
-  });
-
-  it("should ignore a stale pong while waiting for the replacement pong", async () => {
-    const oldWs = mockWs;
-    const newWs: MockWebSocket = {
-      readyState: 0,
-      send: vi.fn(),
-      close: vi.fn(),
-      onopen: null,
-      onerror: null,
-      onclose: null,
-      onmessage: null,
-    };
-    installWebSocketSequence(oldWs, newWs);
-    const engine = new LanEngine("test-session");
-    const connectPromise = engine.connect();
-    oldWs.readyState = 1;
-    oldWs.onopen?.();
-    await connectPromise;
-
-    Object.defineProperty(document, "visibilityState", {
-      value: "visible",
-      writable: true,
-      configurable: true,
-    });
-    (engine as unknown as { onVisibilityChange: () => void }).onVisibilityChange();
-    newWs.readyState = 1;
-    newWs.onopen?.();
-    await vi.advanceTimersByTimeAsync(6000);
-    expect(newWs.send).toHaveBeenCalledWith("ping");
-
-    oldWs.onmessage?.({ data: JSON.stringify({ info: "pong" }) });
-    await vi.advanceTimersByTimeAsync(6000);
-
-    expect(newWs.close).toHaveBeenCalledOnce();
   });
 
   it("should schedule reconnect when socket closes before onopen", async () => {

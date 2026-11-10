@@ -24,7 +24,7 @@ Remote engine は `sessionId` で識別される論理sessionに属します。M
 
 ### Browser
 
-- [`lan_engine.ts`](../../shogihome/src/renderer/network/lan_engine.ts) はWebSocket transport、再接続、送受信frameのcodecを管理します。
+- [`lan_engine.ts`](../../shogihome/src/renderer/network/lan_engine.ts) はWebSocket transport、再接続、送受信frameのcodecを管理します。探索・停止・取消は現在のsocketのsnapshotと照合して再送し、置換済みsocketからの通知は採用しません。
 - [`lan_player.ts`](../../shogihome/src/renderer/players/lan_player.ts) はrelayをShogiHomeのplayer interfaceへ適合させ、探索の直列化、stop待ち、局面照合、結果通知を管理します。
 - Browserが保持する `sessionId` は再接続用の識別子であり、server resourceへの認証情報ではありません。
 
@@ -104,13 +104,16 @@ Browser切断ではなくownerの完了・取消・失敗がcleanupを決定し�
 
 ### Identified Search and Cancellation
 
-識別付き探索はsession実体IDと単調増加する探索IDで要求・結果を照合します。Raw USI relayは互換経路であり、識別付き探索の保証と同一視しません。
+識別付き探索はsession実体IDと単調増加する探索IDで要求・結果を照合します。Browserのplayerはsnapshotを必須とし、準備完了と同じengineのsnapshotを確認して起動を完了します。再接続後の同期も有期限であり、snapshotを返さない旧Serverへraw探索でフォールバックしません。[同期・回復テスト](../../shogihome/src/tests/renderer/players/lan_player_resilience.spec.ts)を参照してください。
+
+`usinewgame`、`gameover`、MultiPVは探索識別とは別のUSI制御commandとして維持します。Server側のraw探索受付は互換経路に限り、Browserのplayerは使用せず、識別付き探索の保証と同一視しません。
 
 - 同一要求の再送で再探索せず、古い要求や同じIDの異なる条件は実行しません。
 - 通常停止は結果を利用する操作、取消は指定ID以下の探索を無効化する操作です。取消受付と停止完了を区別し、terminal outputを消費してから完了を通知します。
 - 同一局面でも別の探索や取消済み探索の出力は採用しません。定跡応答にも取消世代を適用します。
 - 最新snapshotから探索・取消完了と直近terminal resultを再同期できます。Snapshotの保持量も有界です。
 - Browserは現在のsocketのsnapshotを正本として必要な要求だけを再送し、置換済みsocketやraw stateの遅延再生で上書きしません。
+- Socket置換時に取り逃した終端結果もsnapshotから回復し、遅延outputやbufferの再生で重複通知しません。
 
 棋譜・時計の巻き戻しはServerの対局moduleが所有し、このmoduleは探索の取消完了だけを保証します。Wrapperへ対局ルールや時計を持ち込みません。巻き戻しの整合性は [Game Session Architecture](game-sessions.md) を参照してください。
 

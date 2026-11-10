@@ -2,6 +2,7 @@ import {
   decodeServerRelayMessage,
   encodeClientRelayMessage,
   isValidUsiCommand,
+  isValidMultiPV,
   type ClientRelayMessage,
   type LanEngineInfo,
   type ServerRelayMessage,
@@ -10,6 +11,7 @@ import {
   type SearchSnapshot,
   type StopSearchRequest,
 } from "@/common/engine/relay_protocol";
+import type { GameResult } from "@/common/game/result";
 
 type MessageHandler = (data: ServerRelayMessage) => void;
 type MessageListener = (data: ServerRelayMessage) => boolean; // Return true to remove listener
@@ -23,17 +25,6 @@ const timeout = (timeoutMs: number, message: string): Promise<never> =>
   new Promise((_, reject) => {
     window.setTimeout(() => reject(new Error(message)), timeoutMs);
   });
-
-const decodeRetiredSocketEngineOutput = (data: unknown): ServerRelayMessage | null => {
-  const result = decodeServerRelayMessage(data);
-  if (!result.ok) return null;
-  const message = result.value;
-  return message.type === "engineOutput" &&
-    typeof message.positionCommand === "string" &&
-    /^(?:bestmove|checkmate|info)(?:\s|$)/.test(message.output)
-    ? message
-    : null;
-};
 
 export class LanEngine {
   private ws: WebSocket | null = null;
@@ -53,6 +44,7 @@ export class LanEngine {
   private listenersRegistered = false;
   private activeRequestCount = 0;
   private synchronized = false;
+  private snapshot?: SearchSnapshot;
   private pendingSearch?: SearchRequest;
   private pendingCancellation?: CancelSearchRequest;
   private pendingStop?: StopSearchRequest;
@@ -87,6 +79,12 @@ export class LanEngine {
   }
 
   private reconcileSearches(snapshot: SearchSnapshot) {
+    if (
+      this.snapshot?.instanceId === snapshot.instanceId &&
+      this.snapshot.revision >= snapshot.revision
+    )
+      return false;
+    this.snapshot = snapshot;
     const reconnecting = !this.synchronized;
     this.synchronized = true;
     if (
@@ -110,11 +108,13 @@ export class LanEngine {
         this.pendingStop.searchId === snapshot.terminal?.searchId)
     )
       this.pendingStop = undefined;
-    if (!reconnecting) return;
-    if (this.pendingCancellation) this.sendIdentified(this.pendingCancellation);
-    if (this.pendingSearch && this.pendingSearch.searchId > snapshot.accepted)
-      this.sendIdentified(this.pendingSearch);
-    if (this.pendingStop) this.sendIdentified(this.pendingStop);
+    if (reconnecting) {
+      if (this.pendingCancellation) this.sendIdentified(this.pendingCancellation);
+      if (this.pendingSearch && this.pendingSearch.searchId > snapshot.accepted)
+        this.sendIdentified(this.pendingSearch);
+      if (this.pendingStop) this.sendIdentified(this.pendingStop);
+    }
+    return true;
   }
 
   constructor(private sessionId: string) {}
@@ -143,16 +143,12 @@ export class LanEngine {
           return;
         }
         const oldWs = this.ws;
-        const preserveEngineOutput = oldWs.readyState === WebSocket.OPEN;
-        // Keep onmessage intact so in-flight engine output is still dispatched;
-        // server replay starts only after the server detects the disconnect.
+        // The replacement socket's snapshot recovers terminal output.
         this.stopHeartbeat();
         oldWs.onopen = null;
         oldWs.onerror = null;
         oldWs.onclose = null;
-        if (!preserveEngineOutput) {
-          oldWs.onmessage = null;
-        }
+        oldWs.onmessage = null;
         this.ws = null;
         oldWs.close();
       }
@@ -253,13 +249,7 @@ export class LanEngine {
       ws.onmessage = (event) => {
         const data = event.data;
 
-        if (this.ws !== ws) {
-          const message = decodeRetiredSocketEngineOutput(data);
-          if (message && this.onMessageHandler) {
-            this.onMessageHandler(message);
-          }
-          return;
-        }
+        if (this.ws !== ws) return;
 
         const result = decodeServerRelayMessage(data);
         if (!result.ok) {
@@ -267,7 +257,7 @@ export class LanEngine {
           return;
         }
         const message = result.value;
-        if (message.type === "searchSnapshot") this.reconcileSearches(message);
+        if (message.type === "searchSnapshot" && !this.reconcileSearches(message)) return;
         if (message.type === "notice" && message.notice === "pong") {
           this.handlePong(ws);
           return;
@@ -398,6 +388,7 @@ export class LanEngine {
     this.pendingSearch = undefined;
     this.pendingCancellation = undefined;
     this.pendingStop = undefined;
+    this.snapshot = undefined;
     this.synchronized = false;
     this.isExplicitlyClosed = true;
     this.removeListeners();
@@ -634,8 +625,16 @@ export class LanEngine {
     this.sendRelayMessage({ type: "stopEngine" });
   }
 
+  readyNewGame() {
+    this.sendUsiCommand("usinewgame");
+  }
+
+  gameover(result: GameResult) {
+    this.sendUsiCommand(`gameover ${result}`);
+  }
+
   setMultiPV(value: number) {
-    if (!Number.isSafeInteger(value) || value < 0) {
+    if (!isValidMultiPV(value)) {
       console.warn("Invalid MultiPV value blocked:", value);
       return;
     }

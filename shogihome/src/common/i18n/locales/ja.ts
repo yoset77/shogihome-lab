@@ -731,6 +731,7 @@ export const ja: Texts = {
   jkfImportLimit: "JKFのサイズ、指し手数、分岐数、または深さが読み込み上限を超えています。",
   remoteEngineConnectionFailed: "リモートエンジンへの接続に失敗しました。",
   remoteEngineInvalidOutput: "エンジンの応答が不正なため、セッションを終了しました。",
+  remoteEngineStartupTimedOut: "エンジンの起動がタイムアウトしました。",
   remoteEngineReadyTimedOut:
     "エンジンの準備待ちがタイムアウトしたため、セッションをリセットしました。",
   serverInvalidKifuSearch: "棋譜検索条件が不正、または入力上限を超えています。",

@@ -732,6 +732,7 @@ export const vi: Texts = {
   jkfImportLimit: "Kích thước, số nước đi, số nhánh hoặc độ sâu JKF vượt giới hạn nhập.",
   remoteEngineConnectionFailed: "Không thể kết nối với phần mềm từ xa.",
   remoteEngineInvalidOutput: "Phản hồi của phần mềm không hợp lệ; phiên đã kết thúc.",
+  remoteEngineStartupTimedOut: "Hết thời gian khởi động phần mềm.",
   remoteEngineReadyTimedOut: "Hết thời gian chờ phần mềm sẵn sàng. Phiên đã được đặt lại.",
   serverInvalidKifuSearch: "Điều kiện tìm kỳ phổ không hợp lệ hoặc vượt giới hạn nhập.",
   serverInvalidKifuPagination: "Số lượng hoặc vị trí bắt đầu tìm kỳ phổ không hợp lệ.",

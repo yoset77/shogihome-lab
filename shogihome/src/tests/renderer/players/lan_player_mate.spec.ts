@@ -4,6 +4,7 @@ import { LanEngine } from "@/renderer/network/lan_engine";
 import { Position } from "tsshogi";
 import { triggerOnStartSearch, dispatchUSIInfoUpdate } from "@/renderer/players/usi_events";
 import type { ServerRelayMessage } from "@/common/engine/relay_protocol";
+import { searchSnapshot } from "@/tests/helpers/engine_relay";
 
 vi.mock("@/renderer/network/lan_engine");
 vi.mock("@/renderer/ipc/api");
@@ -16,6 +17,7 @@ describe("LanPlayer Mate Search", () => {
     startEngine: Mock;
     stopEngine: Mock;
     sendUsiCommand: Mock;
+    sendSearch: Mock;
     addMessageListener: Mock;
     removeMessageListener: Mock;
     subscribeStatus: Mock;
@@ -37,6 +39,7 @@ describe("LanPlayer Mate Search", () => {
       startEngine: vi.fn(),
       stopEngine: vi.fn(),
       sendUsiCommand: vi.fn(),
+      sendSearch: vi.fn(),
       addMessageListener: vi.fn().mockImplementation((l) => messageListeners.push(l)),
       removeMessageListener: vi.fn().mockImplementation((l) => {
         messageListeners = messageListeners.filter((i) => i !== l);
@@ -57,6 +60,17 @@ describe("LanPlayer Mate Search", () => {
     messageListeners.forEach((listener) => listener(msg));
   }
 
+  function sendOutput(output: string) {
+    const search = mockLanEngine.sendSearch.mock.calls.at(-1)![0];
+    sendMsg({
+      type: "engineOutput",
+      instanceId: search.instanceId,
+      searchId: search.searchId,
+      positionCommand: search.position,
+      output,
+    });
+  }
+
   async function launchPlayer(
     player: LanPlayer,
     msg: ServerRelayMessage = {
@@ -68,6 +82,7 @@ describe("LanPlayer Mate Search", () => {
     const launchPromise = player.launch();
     await vi.advanceTimersByTimeAsync(100);
     sendMsg(msg);
+    sendMsg(searchSnapshot());
     await launchPromise;
   }
 
@@ -86,16 +101,18 @@ describe("LanPlayer Mate Search", () => {
 
     await player.startMateSearch(pos, "position startpos", 10, handler);
 
-    expect(mockLanEngine.sendUsiCommand).toHaveBeenCalledWith("position startpos");
-    expect(mockLanEngine.sendUsiCommand).toHaveBeenCalledWith("go mate 10000");
+    expect(mockLanEngine.sendSearch).toHaveBeenCalledWith({
+      type: "search",
+      instanceId: "test-instance",
+      searchId: 1,
+      position: "position startpos",
+      go: "go mate 10000",
+    });
+    expect(mockLanEngine.sendUsiCommand).not.toHaveBeenCalled();
     expect(triggerOnStartSearch).toHaveBeenCalled();
 
     // Simulate engine response
-    sendMsg({
-      type: "engineOutput",
-      positionCommand: "position startpos",
-      output: "checkmate 7g7f 3c3d",
-    });
+    sendOutput("checkmate 7g7f 3c3d");
 
     expect(handler.onCheckmate).toHaveBeenCalled();
     const moves = handler.onCheckmate.mock.calls[0][0];
@@ -125,11 +142,7 @@ describe("LanPlayer Mate Search", () => {
 
     await player.startMateSearch(pos, "position startpos", 10, handler);
 
-    sendMsg({
-      type: "engineOutput",
-      positionCommand: "position startpos",
-      output: "info depth 10 nodes 1000 score mate +5 pv 7g7f 3c3d",
-    });
+    sendOutput("info depth 10 nodes 1000 score mate +5 pv 7g7f 3c3d");
 
     expect(dispatchUSIInfoUpdate).toHaveBeenCalledWith(
       expect.any(Number),
@@ -158,13 +171,11 @@ describe("LanPlayer Mate Search", () => {
     };
 
     await player.startMateSearch(pos, "position startpos", undefined, handler);
-    expect(mockLanEngine.sendUsiCommand).toHaveBeenCalledWith("go mate infinite");
+    expect(mockLanEngine.sendSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ go: "go mate infinite" }),
+    );
 
-    sendMsg({
-      type: "engineOutput",
-      positionCommand: "position startpos",
-      output: "checkmate nomate",
-    });
+    sendOutput("checkmate nomate");
 
     expect(handler.onNoMate).toHaveBeenCalled();
   });
@@ -184,11 +195,7 @@ describe("LanPlayer Mate Search", () => {
 
     await player.startMateSearch(pos, "position startpos", 5, handler);
 
-    sendMsg({
-      type: "engineOutput",
-      positionCommand: "position startpos",
-      output: "checkmate timeout",
-    });
+    sendOutput("checkmate timeout");
 
     expect(handler.onTimeout).toHaveBeenCalled();
   });
@@ -208,11 +215,7 @@ describe("LanPlayer Mate Search", () => {
 
     await player.startMateSearch(pos, "position startpos", undefined, handler);
 
-    sendMsg({
-      type: "engineOutput",
-      positionCommand: "position startpos",
-      output: "checkmate notimplemented",
-    });
+    sendOutput("checkmate notimplemented");
 
     expect(handler.onNotImplemented).toHaveBeenCalled();
   });
@@ -232,11 +235,7 @@ describe("LanPlayer Mate Search", () => {
 
     await player.startMateSearch(pos, "position startpos", undefined, handler);
 
-    sendMsg({
-      type: "engineOutput",
-      positionCommand: "position startpos",
-      output: "checkmate invalidmove",
-    });
+    sendOutput("checkmate invalidmove");
 
     expect(handler.onError).toHaveBeenCalledWith(expect.stringContaining("Invalid move"));
     expect(handler.onCheckmate).not.toHaveBeenCalled();
