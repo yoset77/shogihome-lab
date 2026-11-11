@@ -111,7 +111,10 @@ export class EngineSession {
       encodeClientRelayMessage({ type: "startEngine", engineId: config.id }),
     );
     if (!decoded.ok) throw new Error(decoded.error);
-    void this.startEngine(config.id, structuredClone(config));
+    const run = this.engineRun;
+    void this.startEngine(config.id, structuredClone(config)).catch((error) =>
+      this.handleEngineTaskError(run, error),
+    );
   }
 
   destroyInternal(): void {
@@ -426,7 +429,14 @@ export class EngineSession {
       this.engineState = EngineState.STOPPING_ENGINE;
       // Preserve an existing stop deadline, including across browser disconnects.
       if (!this.stopTimeout) this.startStopTimeout();
-      if (needsStop) this.writeToEngine("stop");
+      if (needsStop) {
+        try {
+          this.writeToEngine("stop");
+        } catch (error) {
+          console.error(`Failed to send stop while terminating session ${this.sessionId}`, error);
+          this.closeEngineTransport();
+        }
+      }
       return;
     }
     this.closeEngineTransport();
@@ -447,7 +457,12 @@ export class EngineSession {
         () => this.destroyEngineTransport(run),
         ENGINE_STOP_TIMEOUT_MS,
       );
-      run.handle.close();
+      try {
+        run.handle.close();
+      } catch (error) {
+        console.error(`Engine transport close failed for session ${this.sessionId}`, error);
+        this.destroyEngineTransport(run);
+      }
     } else {
       this.destroyEngineTransport(run);
     }
@@ -455,15 +470,39 @@ export class EngineSession {
 
   private destroyEngineTransport(run = this.engineRun) {
     if (this.engineRun !== run) return;
-    if (run.handle?.destroy) run.handle.destroy();
-    else run.socket?.destroy();
-    this.onEngineClose(run);
+    try {
+      if (run.handle?.destroy) run.handle.destroy();
+      else run.socket?.destroy();
+    } catch (error) {
+      console.error(`Engine transport destroy failed for session ${this.sessionId}`, error);
+    } finally {
+      // Release and state finalization must run even if the peer teardown fails.
+      this.onEngineClose(run);
+    }
   }
 
   private failEngineRun(run: EngineRun, message: string) {
     if (this.engineRun !== run) return;
-    this.sendError(message);
+    this.runCleanupStep("error notification", () => this.sendError(message));
     this.destroyEngineTransport(run);
+  }
+
+  private runCleanupStep(label: string, action: () => void): void {
+    try {
+      action();
+    } catch (error) {
+      console.error(`Engine cleanup failed during ${label} (${this.sessionId})`, error);
+    }
+  }
+
+  private handleEngineTaskError(run: EngineRun, error: unknown) {
+    console.error(`Engine background task failed for session ${this.sessionId}`, error);
+    try {
+      this.failEngineRun(run, t.remoteEngineConnectionFailed);
+    } catch (cleanupError) {
+      // Never let a cleanup failure turn into an unhandled rejection.
+      console.error(`Engine failure cleanup failed for session ${this.sessionId}`, cleanupError);
+    }
   }
 
   private sendToClient(data: SessionRelayPayload, createdAt: number = Date.now()) {
@@ -586,9 +625,9 @@ export class EngineSession {
     this.engineRun = { socket: null, handle: null };
     this.clearConnectionTimeout(run);
     clearTimeout(run.terminationTimeout);
-    run.disposeOutput?.();
-    run.disposeTransport?.();
-    run.resourceLease?.release();
+    this.runCleanupStep("output disposal", () => run.disposeOutput?.());
+    this.runCleanupStep("transport disposal", () => run.disposeTransport?.());
+    this.runCleanupStep("resource release", () => run.resourceLease?.release());
     run.resourceLease = undefined;
     this.readyForNewGame = false;
     this.clearReadyTimeout();
@@ -615,9 +654,11 @@ export class EngineSession {
     this.terminalSearch = null;
     this.cancelledThrough = 0;
     this.settledThrough = 0;
-    this.sendState();
-    this.sendSearchSnapshot();
-    this.sendToClient({ type: "notice", notice: "engineStopped" });
+    this.runCleanupStep("state notification", () => this.sendState());
+    this.runCleanupStep("snapshot notification", () => this.sendSearchSnapshot());
+    this.runCleanupStep("shutdown notification", () =>
+      this.sendToClient({ type: "notice", notice: "engineStopped" }),
+    );
   }
 
   private saveCurrentAnalysis() {
@@ -843,7 +884,9 @@ export class EngineSession {
     const onConnect = () => {
       if (!this.isStartingEngine(run)) return;
       this.clearConnectionTimeout(run);
-      void this.openEngineTransport(run, socket, engineId);
+      void this.openEngineTransport(run, socket, engineId).catch((error) =>
+        this.handleEngineTaskError(run, error),
+      );
     };
     const onClose = () => {
       if (this.isStartingEngine(run)) this.sendError(t.remoteEngineConnectionFailed);
@@ -955,7 +998,8 @@ export class EngineSession {
           this.sendError("engine already running or starting");
           return;
         }
-        void this.startEngine(engineId);
+        const run = this.engineRun;
+        void this.startEngine(engineId).catch((error) => this.handleEngineTaskError(run, error));
         return;
       }
       case "stopEngine":

@@ -342,6 +342,131 @@ describe("engine transport lifetimes", () => {
     await ready();
   });
 
+  it("contains an unexpected start failure instead of rejecting in the background", async () => {
+    const { session, ws, messages } = fixture;
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const error = new Error("Unexpected socket setup failure");
+    vi.spyOn(
+      session as unknown as { connectEngine: (...args: unknown[]) => void },
+      "connectEngine",
+    ).mockImplementationOnce(() => {
+      throw error;
+    });
+
+    ws.emit("message", "start_engine test");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(log).toHaveBeenCalledWith("Engine background task failed for session lifecycle", error);
+    expect(messages().filter((message) => message.type === "error")).toEqual([
+      { type: "error", message: `error: ${t.remoteEngineConnectionFailed}`, delay: 0 },
+    ]);
+    expect(session.internalSnapshot.state).toBe(EngineState.STOPPED);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("contains an unexpected transport failure instead of rejecting in the background", async () => {
+    const { session, start, messages } = fixture;
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const error = new Error("Unexpected transport setup failure");
+    const engine = await start();
+    vi.spyOn(
+      session as unknown as {
+        openEngineTransport: (...args: unknown[]) => Promise<void>;
+      },
+      "openEngineTransport",
+    ).mockRejectedValueOnce(error);
+
+    engine.socket.emit("connect");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(log).toHaveBeenCalledWith("Engine background task failed for session lifecycle", error);
+    expect(engine.destroy).toHaveBeenCalledOnce();
+    expect(messages().filter((message) => message.type === "error")).toEqual([
+      { type: "error", message: `error: ${t.remoteEngineConnectionFailed}`, delay: 0 },
+    ]);
+    expect(session.internalSnapshot.state).toBe(EngineState.STOPPED);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(["output", "transport"] as const)(
+    "completes cleanup when %s disposal throws",
+    async (step) => {
+      const { session, ready } = fixture;
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      const engine = await ready();
+      const run = (
+        session as unknown as {
+          engineRun: { disposeOutput?: () => void; disposeTransport?: () => void };
+        }
+      ).engineRun;
+      const error = new Error(`${step} disposal failed`);
+
+      if (step === "output") {
+        const disposeOutput = run.disposeOutput!;
+        run.disposeOutput = () => {
+          disposeOutput();
+          throw error;
+        };
+      } else {
+        const disposeTransport = run.disposeTransport!;
+        run.disposeTransport = () => {
+          disposeTransport();
+          throw error;
+        };
+      }
+
+      engine.socket.emit("close");
+
+      expect(log).toHaveBeenCalledWith(
+        `Engine cleanup failed during ${step} disposal (lifecycle)`,
+        error,
+      );
+      expect(session.internalSnapshot.state).toBe(EngineState.STOPPED);
+      expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+      await ready();
+    },
+  );
+
+  it("completes cleanup when destroying the transport throws", async () => {
+    const { session, ready, messages } = fixture;
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const engine = await ready();
+    const error = new Error("destroy failed");
+    engine.destroy.mockImplementationOnce(() => {
+      throw error;
+    });
+
+    engine.socket.emit("error", new Error("Connection reset"));
+
+    expect(log).toHaveBeenCalledWith(
+      "Engine transport destroy failed for session lifecycle",
+      error,
+    );
+    expect(session.internalSnapshot.state).toBe(EngineState.STOPPED);
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(messages().filter((message) => message.type === "error")).toHaveLength(1);
+    await ready();
+  });
+
+  it("completes cleanup when closing the transport throws", async () => {
+    const { session, ws, ready } = fixture;
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const engine = await ready();
+    const error = new Error("close failed");
+    engine.end.mockImplementationOnce(() => {
+      throw error;
+    });
+
+    ws.emit("message", "stop_engine");
+
+    expect(log).toHaveBeenCalledWith("Engine transport close failed for session lifecycle", error);
+    expect(session.internalSnapshot.state).toBe(EngineState.STOPPED);
+    expect(resourceRegistry.groupSnapshot()[0].used).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it.each([false, true])(
     "cleans up a failed run command without exposing its error (authenticated: %s)",
     async (authenticated) => {

@@ -628,15 +628,16 @@ export class LanPlayer implements Player {
         )
           return;
         if (/^(bestmove|checkmate)(?:\s|$)/.test(message.output)) {
-          if (
-            message.positionCommand !== this.currentSfen &&
-            !this.isStopAcknowledgement(message.positionCommand)
-          )
+          const isStopAck = this.isStopAcknowledgement(message.positionCommand);
+          // A search inherited on re-attach has no local SFEN or handler yet.
+          const isInheritedTerminal = !this.searchOutputEnabled && this.currentSfen === "";
+          if (message.positionCommand !== this.currentSfen && !isStopAck && !isInheritedTerminal)
             return;
           this.completedSearchId = message.searchId;
+          this.nextSearchId = Math.max(this.nextSearchId, message.searchId);
           if (!this.searchOutputEnabled) {
             this.isThinking = false;
-            if (this.isStopAcknowledgement(message.positionCommand)) this.resolveStopPromise();
+            if (isStopAck) this.resolveStopPromise();
             return;
           }
         }

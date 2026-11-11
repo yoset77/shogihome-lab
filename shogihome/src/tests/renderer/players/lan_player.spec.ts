@@ -419,6 +419,45 @@ describe("LanPlayer", () => {
     expect((player as unknown as { isThinking: boolean }).isThinking).toBe(true);
   });
 
+  it("settles an inherited search that finishes before this player searches", async () => {
+    const player = new LanPlayer("test-session", "test-engine", "Test Engine");
+    await launchPlayer(player, { state: "thinking", engineId: "test-engine" });
+    const internals = player as unknown as {
+      isThinking: boolean;
+      completedSearchId: number;
+    };
+    expect(internals.isThinking).toBe(true);
+
+    sendMsg(
+      searchSnapshot({
+        revision: 2,
+        accepted: 1,
+        terminal: {
+          searchId: 1,
+          position: "position startpos",
+          output: "bestmove 7g7f",
+          delay: 0,
+        },
+      }),
+    );
+
+    expect(internals.isThinking).toBe(false);
+    expect(internals.completedSearchId).toBe(1);
+
+    const record = Record.newByUSI("position startpos") as Record;
+    await player.startResearch(record.position, record.usi);
+
+    expect(LanEngine.prototype.stopSearch).not.toHaveBeenCalled();
+    expect(LanEngine.prototype.sendSearch).toHaveBeenCalledWith({
+      type: "search",
+      instanceId: "test-instance",
+      searchId: 2,
+      position: "position startpos",
+      go: "go infinite",
+    });
+    await player.close();
+  });
+
   it("should rotate the persistent session ID when the selected engine changes", () => {
     new LanPlayer("research_main", "engine-a", "Engine A");
     const firstSessionId = (LanEngine as unknown as Mock).mock.calls.at(-1)?.[0];
