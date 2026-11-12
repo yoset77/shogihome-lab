@@ -285,6 +285,7 @@ export const vi: Texts = {
   score: "Đ.giá",
   estimatedWinRate: "Tỷ lệ thắng ước tính",
   evaluationAndEstimatedWinRateAndPV: "Đánh giá & tỷ lệ thắng ước tính & PV",
+  evaluationChartRange: "Phạm vi biểu đồ đánh giá",
   hideEngineThinkingInHumanGames: "Ẩn suy nghĩ của engine khi đấu với người",
   swapEachTurnChange: "Đổi mỗi lượt",
   alwaysSenteIsPositive: "Tiên luôn dương",

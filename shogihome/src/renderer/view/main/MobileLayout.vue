@@ -85,6 +85,7 @@
       :style="{ flexShrink: 0 }"
       :size="bottomViewSize"
       :type="appSettings.evaluationChartType"
+      :score-range="Number(appSettings.evaluationChartRange)"
       :thema="appSettings.thema"
       :coefficient-in-sigmoid="appSettings.coefficientInSigmoid"
     />

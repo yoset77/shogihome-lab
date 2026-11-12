@@ -545,6 +545,18 @@
             ]"
           />
         </div>
+        <div class="form-item">
+          <div class="form-item-label-wide">{{ t.evaluationChartRange }}</div>
+          <HorizontalSelector
+            v-model:value="update.evaluationChartRange"
+            class="selector"
+            :items="[
+              { label: '±1000', value: '1000' },
+              { label: '±1500', value: '1500' },
+              { label: '±2000', value: '2000' },
+            ]"
+          />
+        </div>
         <!-- 矢印の表示本数 -->
         <div class="form-item">
           <div class="form-item-label-wide">
@@ -779,6 +791,7 @@ const update = ref({
   researchMultiPV: org.researchMultiPV,
   researchChangeMultiPVFromPV: org.researchChangeMultiPVFromPV,
   coefficientInSigmoid: org.coefficientInSigmoid,
+  evaluationChartRange: org.evaluationChartRange,
   badMoveLevelThreshold1: org.badMoveLevelThreshold1,
   badMoveLevelThreshold2: org.badMoveLevelThreshold2,
   badMoveLevelThreshold3: org.badMoveLevelThreshold3,

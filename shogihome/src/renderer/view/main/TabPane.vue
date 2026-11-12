@@ -47,6 +47,7 @@
           class="full tab-content"
           :size="contentSize"
           :type="EvaluationChartType.RAW"
+          :score-range="Number(appSettings.evaluationChartRange)"
           :thema="appSettings.thema"
           :coefficient-in-sigmoid="appSettings.coefficientInSigmoid"
         />
@@ -55,6 +56,7 @@
           class="full tab-content"
           :size="contentSize"
           :type="EvaluationChartType.WIN_RATE"
+          :score-range="Number(appSettings.evaluationChartRange)"
           :thema="appSettings.thema"
           :coefficient-in-sigmoid="appSettings.coefficientInSigmoid"
         />

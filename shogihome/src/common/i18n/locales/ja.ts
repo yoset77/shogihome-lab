@@ -283,6 +283,7 @@ export const ja: Texts = {
   score: "評価値",
   estimatedWinRate: "期待勝率",
   evaluationAndEstimatedWinRateAndPV: "評価値・期待勝率・読み筋",
+  evaluationChartRange: "評価値グラフの表示範囲",
   hideEngineThinkingInHumanGames: "人との対局時にエンジンの思考を非表示",
   swapEachTurnChange: "手番側有利がプラスの値",
   alwaysSenteIsPositive: "先手有利がプラスの値",
