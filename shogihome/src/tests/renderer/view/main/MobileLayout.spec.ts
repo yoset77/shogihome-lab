@@ -13,6 +13,7 @@ import EngineAnalytics from "@/renderer/view/tab/EngineAnalytics.vue";
 import PuzzlePane from "@/renderer/view/tab/PuzzlePane.vue";
 import RecordComment from "@/renderer/view/tab/RecordComment.vue";
 import RecordInfo from "@/renderer/view/tab/RecordInfo.vue";
+import EvaluationChart from "@/renderer/view/tab/EvaluationChart.vue";
 
 const { useStore, useAppSettings } = vi.hoisted(() => ({
   useStore: vi.fn(),
@@ -255,6 +256,17 @@ describe("MobileLayout", () => {
     expect(wrapper.getComponent(RecordInfo).props("size")).toEqual(
       new RectSize(390, height - 500 - controlHeight - 30),
     );
+  });
+
+  it("passes the updated numeric score range to the chart", async () => {
+    settings.evaluationChartRange = "1000";
+    const wrapper = mountLayout();
+    await selectTab(wrapper, "chart");
+    expect(wrapper.getComponent(EvaluationChart).props("scoreRange")).toBe(1000);
+
+    settings.evaluationChartRange = "1500";
+    await nextTick();
+    expect(wrapper.getComponent(EvaluationChart).props("scoreRange")).toBe(1500);
   });
 
   describe.each([ResearchState.IDLE, ResearchState.STARTUP_DIALOG])(

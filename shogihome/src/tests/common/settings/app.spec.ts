@@ -22,6 +22,28 @@ describe("settings/app", () => {
     expect(result).toStrictEqual(defaultAppSettings());
   });
 
+  it("defaults and normalizes the evaluation chart range", () => {
+    const defaults = defaultAppSettings();
+    expect(defaults.evaluationChartRange).toBe("2000");
+    for (const value of ["1000", "1500", "2000"] as const) {
+      expect(
+        normalizeAppSettings({ ...defaults, evaluationChartRange: value }).evaluationChartRange,
+      ).toBe(value);
+      expect(
+        buildUpdatedAppSettings(defaults, { evaluationChartRange: value }).evaluationChartRange,
+      ).toBe(value);
+    }
+    for (const value of [undefined, null, 1000, "4000", ""]) {
+      const invalid = value as typeof defaults.evaluationChartRange;
+      expect(
+        normalizeAppSettings({ ...defaults, evaluationChartRange: invalid }).evaluationChartRange,
+      ).toBe("2000");
+      expect(
+        buildUpdatedAppSettings(defaults, { evaluationChartRange: invalid }).evaluationChartRange,
+      ).toBe("2000");
+    }
+  });
+
   it("does not include the retired auto-save directory in app defaults", () => {
     expect(defaultAppSettings()).not.toHaveProperty("autoSaveDirectory");
   });

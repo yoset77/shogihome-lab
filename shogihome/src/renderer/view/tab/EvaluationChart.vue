@@ -20,8 +20,6 @@ import { Lazy } from "@/renderer/helpers/lazy";
 import { EvaluationChartType } from "@/common/settings/layout";
 
 const MATE_SCORE = 1000000;
-const MAX_SCORE = 2000;
-const MIN_SCORE = -MAX_SCORE;
 
 enum Series {
   BLACK_PLAYER,
@@ -80,6 +78,7 @@ function getScore(
   searchInfo: SearchInfo,
   type: EvaluationChartType,
   coefficientInSigmoid: number,
+  scoreRange: number,
 ): number | undefined {
   let score = searchInfo.score;
   // mateがある場合はMATE_SCOREを代わりに使用する。
@@ -91,7 +90,7 @@ function getScore(
   }
   switch (type) {
     case EvaluationChartType.RAW:
-      return Math.min(Math.max(score, MIN_SCORE), MAX_SCORE);
+      return Math.min(Math.max(score, -scoreRange), scoreRange);
     case EvaluationChartType.WIN_RATE:
       return scoreToPercentage(score, coefficientInSigmoid);
   }
@@ -146,6 +145,7 @@ type ChartConfig = {
   type: EvaluationChartType;
   palette: ColorPalette;
   coefficientInSigmoid: number;
+  scoreRange: number;
   showLegend: boolean;
 };
 
@@ -166,6 +166,10 @@ const props = defineProps({
     type: Number,
     required: true,
   },
+  scoreRange: {
+    type: Number,
+    required: true,
+  },
   showLegend: {
     type: Boolean,
     required: false,
@@ -177,12 +181,12 @@ const canvas = ref();
 const store = useStore();
 let chart: Chart;
 
-const getMaxScore = (type: EvaluationChartType) => {
-  return type === EvaluationChartType.RAW ? MAX_SCORE : 100;
+const getMaxScore = (config: ChartConfig) => {
+  return config.type === EvaluationChartType.RAW ? config.scoreRange : 100;
 };
 
-const getMinScore = (type: EvaluationChartType) => {
-  return type === EvaluationChartType.RAW ? MIN_SCORE : 0;
+const getMinScore = (config: ChartConfig) => {
+  return config.type === EvaluationChartType.RAW ? -config.scoreRange : 0;
 };
 
 const buildDataset = (
@@ -198,7 +202,7 @@ const buildDataset = (
     if (!searchInfo) {
       continue;
     }
-    const score = getScore(searchInfo, config.type, config.coefficientInSigmoid);
+    const score = getScore(searchInfo, config.type, config.coefficientInSigmoid, config.scoreRange);
     if (score !== undefined) {
       dataPoints.push({
         x: node.ply,
@@ -213,7 +217,12 @@ const buildDataset = (
   ) {
     const data = lastNode.customData as RecordCustomData;
     if (data && data.opponentSearchInfo) {
-      const score = getScore(data.opponentSearchInfo, config.type, config.coefficientInSigmoid);
+      const score = getScore(
+        data.opponentSearchInfo,
+        config.type,
+        config.coefficientInSigmoid,
+        config.scoreRange,
+      );
       if (score !== undefined) {
         dataPoints.push({
           x: lastNode.ply + 1,
@@ -230,17 +239,13 @@ const buildDataset = (
   };
 };
 
-const verticalLine = (
-  type: EvaluationChartType,
-  record: ImmutableRecord,
-  palette: ColorPalette,
-) => {
+const verticalLine = (config: ChartConfig, record: ImmutableRecord, palette: ColorPalette) => {
   return {
     label: t.currentPosition,
     borderColor: palette.head,
     data: [
-      { x: record.current.ply, y: getMaxScore(type) },
-      { x: record.current.ply, y: getMinScore(type) },
+      { x: record.current.ply, y: getMaxScore(config) },
+      { x: record.current.ply, y: getMinScore(config) },
     ],
     showLine: true,
     pointBorderWidth: 0,
@@ -257,7 +262,7 @@ const buildDatasets = (record: ImmutableRecord, config: ChartConfig) => {
     { borderColor: config.palette.researcher3, type: Series.RESEARCHER_3 },
     { borderColor: config.palette.researcher4, type: Series.RESEARCHER_4 },
   ];
-  const datasets: ChartDataset[] = [verticalLine(config.type, record, config.palette)];
+  const datasets: ChartDataset[] = [verticalLine(config, record, config.palette)];
   for (const s of series) {
     const dataset = buildDataset(s.borderColor, s.type, record, config);
     if (dataset.data.length > 0) {
@@ -268,7 +273,7 @@ const buildDatasets = (record: ImmutableRecord, config: ChartConfig) => {
 };
 
 const buildScalesOption = (record: ImmutableRecord, config: ChartConfig) => {
-  const stepSize = config.type === EvaluationChartType.RAW ? MAX_SCORE / 2 : 25;
+  const stepSize = config.type === EvaluationChartType.RAW ? config.scoreRange / 2 : 25;
   return {
     x: {
       min: 0,
@@ -277,8 +282,8 @@ const buildScalesOption = (record: ImmutableRecord, config: ChartConfig) => {
       grid: { color: config.palette.grid },
     },
     y: {
-      min: getMinScore(config.type),
-      max: getMaxScore(config.type),
+      min: getMinScore(config),
+      max: getMaxScore(config),
       ticks: { color: config.palette.ticks, stepSize },
       grid: { color: config.palette.grid },
     },
@@ -316,6 +321,7 @@ const config = computed(() => {
     type: props.type,
     palette: getColorPalette(props.thema),
     coefficientInSigmoid: props.coefficientInSigmoid,
+    scoreRange: props.scoreRange,
     showLegend: props.showLegend,
   };
 });

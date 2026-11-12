@@ -244,6 +244,7 @@ export type AppSettings = {
   maxArrowsPerEngine: number;
   arrowScoreDiffRange: number;
   coefficientInSigmoid: number;
+  evaluationChartRange: "1000" | "1500" | "2000";
   badMoveLevelThreshold1: number;
   badMoveLevelThreshold2: number;
   badMoveLevelThreshold3: number;
@@ -329,6 +330,7 @@ export function buildUpdatedAppSettings(org: AppSettings, update: AppSettingsUpd
     ...update,
   };
   updated.fileQuickAction = normalizeFileQuickAction(updated.fileQuickAction);
+  updated.evaluationChartRange = normalizeEvaluationChartRange(updated.evaluationChartRange);
   normalizeTabPaneTabs(updated);
 
   // 以前のサイズ比率を記憶する。
@@ -392,6 +394,7 @@ export function defaultAppSettings(opt?: { returnCode?: string }): AppSettings {
     maxArrowsPerEngine: 3,
     arrowScoreDiffRange: 100,
     coefficientInSigmoid: 600,
+    evaluationChartRange: "2000",
     badMoveLevelThreshold1: 5,
     badMoveLevelThreshold2: 10,
     badMoveLevelThreshold3: 20,
@@ -433,6 +436,7 @@ export function normalizeAppSettings(
   // Game settings migration reads this legacy key directly from browser storage.
   delete result.autoSaveDirectory;
   result.fileQuickAction = normalizeFileQuickAction(result.fileQuickAction);
+  result.evaluationChartRange = normalizeEvaluationChartRange(result.evaluationChartRange);
   result.hideEngineThinkingInHumanGames = settings.hideEngineThinkingInHumanGames === true;
   // 旧バージョンでは盤画像に合わせて自動で駒台の色が選ばれていた。
   if (!settings.pieceStandImage) {
@@ -491,6 +495,10 @@ export function normalizeAppSettings(
     }
   }
   return result;
+}
+
+function normalizeEvaluationChartRange(value: unknown): AppSettings["evaluationChartRange"] {
+  return value === "1000" || value === "1500" || value === "2000" ? value : "2000";
 }
 
 export function validateAppSettings(settings: AppSettings): Error | undefined {

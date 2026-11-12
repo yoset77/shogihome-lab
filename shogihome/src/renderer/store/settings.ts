@@ -199,6 +199,9 @@ class AppSettingsStore {
   get coefficientInSigmoid(): number {
     return this.merged.coefficientInSigmoid;
   }
+  get evaluationChartRange(): AppSettings["evaluationChartRange"] {
+    return this.merged.evaluationChartRange;
+  }
   get badMoveLevelThreshold1(): number {
     return this.merged.badMoveLevelThreshold1;
   }
