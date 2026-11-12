@@ -279,6 +279,7 @@ export const en: Texts = {
   confirmCleanupData:
     "Are you sure you want to delete all analysis results with depth less than specified?",
   noDataInAnalysisDB: "No data available in DB for this position.",
+  noSavedAnalysisResults: "No analysis results are saved in the DB.",
   mateShort: "M",
   displayPVShort: "Play",
   evaluation: "Evaluation",

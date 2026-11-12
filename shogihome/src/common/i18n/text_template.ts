@@ -273,6 +273,7 @@ export type Texts = {
   confirmDeleteEngineData: string;
   confirmCleanupData: string;
   noDataInAnalysisDB: string;
+  noSavedAnalysisResults: string;
   mateShort: string;
   displayPVShort: string;
   evaluation: string;

@@ -276,6 +276,7 @@ export const zh_tw: Texts = {
   confirmDeleteEngineData: "您確定要刪除此引擎的所有分析結果嗎？",
   confirmCleanupData: "您確定要刪除所有深度小於指定值的分析結果嗎？",
   noDataInAnalysisDB: "資料庫中沒有此局面的資料。",
+  noSavedAnalysisResults: "資料庫中沒有儲存的分析結果。",
   mateShort: "詰",
   displayPVShort: "再現",
   evaluation: "評價值",

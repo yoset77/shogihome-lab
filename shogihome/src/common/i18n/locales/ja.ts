@@ -275,6 +275,7 @@ export const ja: Texts = {
   confirmDeleteEngineData: "このエンジンの解析結果をすべて削除しますか？",
   confirmCleanupData: "指定された深さ未満の解析結果をすべて削除しますか？",
   noDataInAnalysisDB: "この局面の検討結果はDBに登録されていません。",
+  noSavedAnalysisResults: "検討結果はDBに登録されていません。",
   mateShort: "詰",
   displayPVShort: "再現",
   evaluation: "評価値",
