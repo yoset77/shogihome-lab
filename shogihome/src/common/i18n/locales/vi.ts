@@ -277,6 +277,7 @@ export const vi: Texts = {
   confirmCleanupData:
     "Are you sure you want to delete all analysis results with depth less than specified?",
   noDataInAnalysisDB: "Không có dữ liệu trong DB cho vị trí này.",
+  noSavedAnalysisResults: "Không có kết quả phân tích nào được lưu trong DB.",
   mateShort: "M",
   displayPVShort: "Đi",
   evaluation: "Đánh giá",

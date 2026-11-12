@@ -6,7 +6,7 @@
       <!-- Stats Area -->
       <div class="stats-area column">
         <div v-if="stats.length === 0" class="no-data">
-          {{ t.noDataInAnalysisDB }}
+          {{ t.noSavedAnalysisResults }}
         </div>
 
         <!-- Desktop Table Layout -->
