@@ -4,6 +4,7 @@ import VisionPositionEditDialog from "@/renderer/view/dialog/VisionPositionEditD
 import PositionEditorCore from "@/renderer/view/dialog/PositionEditorCore.vue";
 import type { VisionEditSession } from "@/renderer/vision/types";
 import { InitialPositionSFEN, Position } from "tsshogi";
+import { BoardLayoutType } from "@/common/settings/layout";
 
 const destroyModalDialog = vi.hoisted(() => vi.fn());
 const importVisionSFEN = vi.hoisted(() => vi.fn());
@@ -55,58 +56,73 @@ describe("VisionPositionEditDialog", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows the source image on its tab and releases the object URL", async () => {
-    const session = createSession();
-    const wrapper = shallowMount(VisionPositionEditDialog, {
-      props: { session },
-      global: {
-        stubs: {
-          DialogFrame: { template: "<div><slot /></div>" },
-          BoardView: true,
-          PieceBox: true,
+  it.each([false, true])(
+    "shows the source image and releases its URL (mobile=%s)",
+    async (mobile) => {
+      isMobileWebApp.mockReturnValue(mobile);
+      const session = createSession();
+      const wrapper = shallowMount(VisionPositionEditDialog, {
+        attachTo: document.body,
+        props: { session },
+        global: {
+          stubs: {
+            DialogFrame: { template: "<div><slot /></div>" },
+            BoardView: true,
+            PieceBox: true,
+          },
         },
-      },
-    });
+      });
 
-    expect(wrapper.find(".position-tab").exists()).toBe(true);
-    expect(wrapper.find(".source-image").exists()).toBe(false);
-    expect(URL.createObjectURL).not.toHaveBeenCalled();
-    expect(wrapper.text()).not.toContain("0.123456");
-    expect(wrapper.text()).not.toContain("0.234567");
-    expect(wrapper.text()).not.toContain("SECRET_CANDIDATE_WARNING");
-    expect(wrapper.text()).not.toContain("SECRET_SCAN_WARNING");
+      expect(wrapper.find(".position-tab").exists()).toBe(true);
+      expect(wrapper.find(".source-image").exists()).toBe(false);
+      expect(URL.createObjectURL).not.toHaveBeenCalled();
+      expect(wrapper.text()).not.toContain("0.123456");
+      expect(wrapper.text()).not.toContain("0.234567");
+      expect(wrapper.text()).not.toContain("SECRET_CANDIDATE_WARNING");
+      expect(wrapper.text()).not.toContain("SECRET_SCAN_WARNING");
 
-    await wrapper.find('[data-tab="source"]').trigger("click");
+      await wrapper.find('[data-tab="source"]').trigger("click");
 
-    expect(URL.createObjectURL).toHaveBeenCalledWith(session.sourceImage);
-    expect(wrapper.find(".source-image").attributes("src")).toBe("blob:source-image");
+      expect(URL.createObjectURL).toHaveBeenCalledWith(session.sourceImage);
+      expect(wrapper.find(".source-image").attributes("src")).toBe("blob:source-image");
+      expect(wrapper.find(".position-tab").isVisible()).toBe(false);
 
-    await wrapper.find('[data-tab="position"]').trigger("click");
-    await wrapper.find('[data-tab="source"]').trigger("click");
-    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+      await wrapper.find('[data-tab="position"]').trigger("click");
+      expect(wrapper.find(".position-tab").isVisible()).toBe(true);
+      expect(wrapper.find(".source-image").exists()).toBe(false);
+      await wrapper.find('[data-tab="source"]').trigger("click");
+      expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
 
-    wrapper.unmount();
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:source-image");
-  });
+      wrapper.unmount();
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:source-image");
+    },
+  );
 
-  it("removes the redundant title on mobile", () => {
-    isMobileWebApp.mockReturnValue(true);
+  it.each([false, true])(
+    "uses separate sizing shells on desktop and mobile (mobile=%s)",
+    (mobile) => {
+      isMobileWebApp.mockReturnValue(mobile);
 
-    const wrapper = shallowMount(VisionPositionEditDialog, {
-      props: { session: createSession() },
-      global: {
-        stubs: {
-          DialogFrame: { template: "<div><slot /></div>" },
-          BoardView: true,
-          PieceBox: true,
+      const wrapper = shallowMount(VisionPositionEditDialog, {
+        props: { session: createSession() },
+        global: {
+          stubs: {
+            DialogFrame: { template: "<div><slot /></div>" },
+            BoardView: true,
+            PieceBox: true,
+          },
         },
-      },
-    });
+      });
 
-    expect(wrapper.find(".vision-position-edit-dialog").classes()).toContain("mobile");
-    expect(wrapper.find(".dialog-header").exists()).toBe(false);
-    expect(wrapper.findComponent(PositionEditorCore).props("mobile")).toBe(true);
-  });
+      expect(wrapper.find(".mobile-shell").exists()).toBe(mobile);
+      expect(wrapper.find(".desktop-dialog").exists()).toBe(!mobile);
+      expect(wrapper.find(".dialog-header").exists()).toBe(!mobile);
+      expect(wrapper.findComponent(PositionEditorCore).props("mobile")).toBe(mobile);
+      expect(wrapper.findComponent(PositionEditorCore).props("layoutType")).toBe(
+        mobile ? BoardLayoutType.PORTRAIT : BoardLayoutType.STANDARD,
+      );
+    },
+  );
 
   it("imports the position emitted by the shared editor core", async () => {
     const wrapper = shallowMount(VisionPositionEditDialog, {
