@@ -107,7 +107,8 @@ function onCancel() {
 <style scoped>
 .frame {
   width: 460px;
-  max-width: 80vw;
+  max-width: min(80vw, 100%);
+  box-sizing: border-box;
   min-height: 100px;
 }
 .list-area {

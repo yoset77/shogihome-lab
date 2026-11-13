@@ -416,7 +416,8 @@ const onCancel = () => {
 /* Include borders and padding so groups fit inside the scroll container on narrow screens. */
 .form-group:not(.scroll) {
   box-sizing: border-box;
-  min-width: min(502px, calc(95vw - 54px));
+  width: 502px;
+  max-width: 100%;
 }
 /* Keep toggle columns aligned even when a label is long. */
 .form-item.row > .form-item-label-wide {

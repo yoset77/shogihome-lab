@@ -221,7 +221,7 @@ const upload = async () => {
 <style scoped>
 .root {
   width: clamp(420px, 45vw, 640px);
-  max-width: calc(95vw - 32px);
+  max-width: 100%;
   max-height: min(864px, 95dvh);
   gap: 10px;
   overflow-y: auto;

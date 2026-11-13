@@ -1,6 +1,6 @@
 <template>
   <DialogFrame :limited="isMobile" @cancel="onClose">
-    <div class="preview-dialog preview-dialog-constrained">
+    <div ref="contentRef" class="preview-dialog preview-dialog-constrained">
       <div class="file-path" :title="path">{{ fileName }}</div>
 
       <div v-if="loading" class="status-message">
@@ -256,6 +256,7 @@ import {
 import {
   computed,
   markRaw,
+  nextTick,
   onBeforeUnmount,
   onMounted,
   reactive,
@@ -312,6 +313,9 @@ const currentPosition = shallowRef<ImmutablePosition>(new Record().position);
 const lastMove = shallowRef<Move | null>(null);
 const flip = ref(appSettings.boardFlipping);
 const maxSize = reactive(new RectSize(0, 0));
+const contentRef = ref<HTMLElement>();
+let resizeObserver: ResizeObserver | undefined;
+let preferredBoardWidth = 0;
 const installedHotKeyElements: HTMLElement[] = [];
 let previewControls: HTMLElement | undefined;
 let cancelled = false;
@@ -374,6 +378,20 @@ function updateSize() {
     maxSize.width = Math.min(window.innerWidth * 0.8, Math.max(1, maxBoardWidth));
     maxSize.height = window.innerHeight * 0.8 - 80;
   }
+  preferredBoardWidth = maxSize.width;
+  // Measure after the preferred size is rendered so the dialog can grow on resize.
+  void nextTick(() => fitBoardWidth(contentRef.value?.getBoundingClientRect().width ?? 0));
+}
+
+function fitBoardWidth(contentWidth: number) {
+  if (cancelled || loading.value || contentWidth <= 0) return;
+  const boardAreaWidth = contentRef.value
+    ?.querySelector(".board-view")
+    ?.getBoundingClientRect().width;
+  const availableWidth = isMobile
+    ? Math.max(1, boardAreaWidth ?? contentWidth)
+    : Math.max(1, contentWidth - RECORD_LIST_WIDTH - PREVIEW_CONTENT_GAP);
+  maxSize.width = Math.min(preferredBoardWidth, availableWidth);
 }
 
 function findMatchedNode(target: Record): ImmutableNode | undefined {
@@ -529,10 +547,19 @@ watch(
 onMounted(() => {
   updateSize();
   window.addEventListener("resize", updateSize);
+  if (contentRef.value) {
+    resizeObserver = new ResizeObserver(([entry]) => fitBoardWidth(entry.contentRect.width));
+    resizeObserver.observe(contentRef.value);
+  }
+});
+
+watch(loading, (value) => {
+  if (!value) updateSize();
 });
 
 onBeforeUnmount(() => {
   cancelled = true;
+  resizeObserver?.disconnect();
   for (const element of installedHotKeyElements) {
     uninstall(element);
   }
@@ -543,7 +570,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .preview-dialog {
   width: fit-content;
-  max-width: calc(95vw - 30px);
+  max-width: 100%;
   min-width: 0;
 }
 
@@ -614,7 +641,7 @@ onBeforeUnmount(() => {
 }
 
 .board-view {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
 }
 

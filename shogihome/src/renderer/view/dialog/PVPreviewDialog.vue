@@ -56,7 +56,7 @@
         </div>
       </template>
     </BoardView>
-    <div class="informations">
+    <div ref="informationRef" class="informations">
       <div class="information">
         {{ info }}
       </div>
@@ -80,7 +80,16 @@
 
 <script setup lang="ts">
 import { Color, ImmutablePosition, Move, Record } from "tsshogi";
-import { onMounted, PropType, ref, reactive, watch, onBeforeUnmount, computed } from "vue";
+import {
+  onMounted,
+  PropType,
+  ref,
+  reactive,
+  watch,
+  onBeforeUnmount,
+  computed,
+  nextTick,
+} from "vue";
 import BoardView from "@/renderer/view/primitive/BoardView.vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { RectSize } from "@/common/assets/geometry.js";
@@ -162,12 +171,21 @@ const store = useStore();
 const toastStore = useToastStore();
 const appSettings = useAppSettings();
 const maxSize = reactive(new RectSize(0, 0));
+const informationRef = ref<HTMLElement>();
+let resizeObserver: ResizeObserver | undefined;
 const record = reactive(new Record());
 const flip = ref(appSettings.boardFlipping);
 
 const updateSize = () => {
   maxSize.width = window.innerWidth * 0.8;
   maxSize.height = window.innerHeight * 0.8 - 80;
+  void nextTick(fitBoardWidth);
+};
+
+const fitBoardWidth = () => {
+  // Include the scrollbar consistently on mount and observer updates.
+  const informationWidth = informationRef.value?.getBoundingClientRect().width ?? 0;
+  if (informationWidth > 0) maxSize.width = Math.min(window.innerWidth * 0.8, informationWidth);
 };
 
 const updateRecord = () => {
@@ -182,9 +200,14 @@ onMounted(() => {
   updateSize();
   updateRecord();
   window.addEventListener("resize", updateSize);
+  if (informationRef.value) {
+    resizeObserver = new ResizeObserver(fitBoardWidth);
+    resizeObserver.observe(informationRef.value, { box: "border-box" });
+  }
 });
 
 onBeforeUnmount(() => {
+  resizeObserver?.disconnect();
   window.removeEventListener("resize", updateSize);
 });
 
@@ -355,6 +378,7 @@ const insertToComment = () => {
 .informations {
   height: 120px;
   width: 80vw;
+  max-width: 100%;
   overflow-y: scroll;
   margin-left: auto;
   margin-right: auto;

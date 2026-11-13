@@ -190,7 +190,7 @@ onMounted(async () => {
 <style scoped>
 .form-group {
   width: clamp(800px, 55vw, 1100px);
-  max-width: calc(100vw - 30px);
+  max-width: 100%;
   box-sizing: border-box;
 }
 .header {
@@ -258,9 +258,6 @@ hr {
   margin: 10px;
 }
 @media (max-width: 600px) {
-  .form-group {
-    max-width: 100%;
-  }
   .header {
     flex-wrap: wrap;
     gap: 10px;

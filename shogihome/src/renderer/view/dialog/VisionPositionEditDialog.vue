@@ -191,7 +191,7 @@ const onCancel = () => {
 
 .desktop-dialog {
   width: clamp(600px, 45vw, 900px);
-  max-width: calc(95vw - 30px);
+  max-width: 100%;
   height: clamp(480px, 80dvh, 840px);
 }
 

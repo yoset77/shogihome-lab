@@ -211,6 +211,7 @@ onUnmounted(() => {
 <style scoped>
 .root {
   width: clamp(320px, 50vw, 620px);
+  max-width: 100%;
   gap: 18px;
 }
 .settings,

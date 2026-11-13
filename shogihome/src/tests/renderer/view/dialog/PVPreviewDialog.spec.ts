@@ -22,6 +22,9 @@ vi.mock("@/renderer/store/toast", () => ({
 }));
 
 const settings = reactive(defaultAppSettings());
+let resizeObserverCallback: ResizeObserverCallback;
+const observe = vi.fn();
+const disconnect = vi.fn();
 const store = {
   appState: AppState.NORMAL,
   record: new Record(),
@@ -30,6 +33,10 @@ const store = {
 };
 
 enableAutoUnmount(afterEach);
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe.each([
   ["PC", PVPreviewDialog],
@@ -45,7 +52,7 @@ describe.each([
         stubs: {
           DialogFrame: { template: "<div><slot /></div>" },
           BoardView: {
-            props: ["position", "lastMove"],
+            props: ["position", "lastMove", "maxSize"],
             template: '<div><slot name="right-control" /><slot name="left-control" /></div>',
           },
         },
@@ -56,6 +63,18 @@ describe.each([
   };
 
   beforeEach(() => {
+    observe.mockClear();
+    disconnect.mockClear();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeObserverCallback = callback;
+        }
+        observe = observe;
+        disconnect = disconnect;
+      },
+    );
     Object.assign(settings, defaultAppSettings());
     store.appState = AppState.NORMAL;
     store.record = new Record();
@@ -74,6 +93,69 @@ describe.each([
       positions.push(record.position.sfen);
     }
   });
+
+  it.runIf(component === PVPreviewDialog)(
+    "keeps the border-box width on mount, observer updates, and height-only resizes",
+    async () => {
+      vi.stubGlobal("innerWidth", 500);
+      vi.stubGlobal("innerHeight", 800);
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        return new DOMRect(0, 0, this.classList.contains("informations") ? 400 : 0, 120);
+      });
+      const wrapper = await mountDialog();
+      const board = wrapper.getComponent(BoardView);
+      expect(board.props("maxSize").width).toBe(400);
+
+      resizeObserverCallback(
+        [
+          {
+            target: wrapper.get(".informations").element,
+            contentRect: new DOMRect(0, 0, 385, 120),
+          } as ResizeObserverEntry,
+        ],
+        {} as ResizeObserver,
+      );
+      await nextTick();
+      expect(board.props("maxSize").width).toBe(400);
+
+      vi.stubGlobal("innerHeight", 900);
+      window.dispatchEvent(new Event("resize"));
+      await nextTick();
+      expect(board.props("maxSize").width).toBe(400);
+      expect(board.props("maxSize").height).toBe(640);
+    },
+  );
+
+  it.runIf(component === PVPreviewDialog)(
+    "fits the board to the information area on narrow screens",
+    async () => {
+      const wrapper = await mountDialog();
+      const information = wrapper.get(".informations").element;
+      expect(observe).toHaveBeenCalledWith(information, { box: "border-box" });
+      const bounds = vi.spyOn(information, "getBoundingClientRect");
+      const board = wrapper.getComponent(BoardView);
+      const height = board.props("maxSize").height;
+      for (const width of [242, 294, 0, 400, window.innerWidth]) {
+        bounds.mockReturnValue(new DOMRect(0, 0, width, 120));
+        resizeObserverCallback(
+          [
+            {
+              target: information,
+              contentRect: new DOMRect(0, 0, width, 120),
+            } as ResizeObserverEntry,
+          ],
+          {} as ResizeObserver,
+        );
+        await nextTick();
+        expect(board.props("maxSize").width).toBe(Math.min(window.innerWidth * 0.8, width || 294));
+        expect(board.props("maxSize").height).toBe(height);
+      }
+      wrapper.unmount();
+      expect(disconnect).toHaveBeenCalledOnce();
+    },
+  );
 
   it.each([0, 1, 3])(
     "jumps to the position after PV move %i without changing the main record",

@@ -129,7 +129,7 @@ function onCancel() {
 <style scoped>
 .scroll {
   max-height: calc(100vh - 200px);
-  max-width: calc(100vw - 80px);
+  max-width: 100%;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -160,7 +160,7 @@ function onCancel() {
 
 @media (max-width: 600px) {
   .scroll {
-    max-width: calc(100vw - 40px);
+    max-width: 100%;
   }
   .entry {
     flex-direction: column;
