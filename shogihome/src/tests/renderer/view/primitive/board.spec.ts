@@ -51,6 +51,21 @@ const pointerEvent = (type: string, clientX: number, clientY: number) => {
 };
 
 describe("BoardView", () => {
+  it.each(Object.values(BoardLayoutType))(
+    "enables centered frames only on mobile (%s)",
+    async (layoutType) => {
+      const wrapper = mountEditable();
+      await wrapper.setProps({ layoutType });
+      expect(wrapper.get(".frame").classes()).not.toContain("mobile");
+
+      await wrapper.setProps({ mobile: true });
+      expect(wrapper.get(".frame").classes()).toContain("mobile");
+
+      await wrapper.setProps({ mobile: false });
+      expect(wrapper.get(".frame").classes()).not.toContain("mobile");
+    },
+  );
+
   it("hitomoji", () => {
     const position = new Position();
     const wrapper = shallowMount(BoardView, {

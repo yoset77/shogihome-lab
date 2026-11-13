@@ -57,7 +57,8 @@ const onCancel = () => {
 <style scoped>
 .form-group > * {
   width: 80vw;
-  max-width: 460px;
+  max-width: min(460px, 100%);
+  box-sizing: border-box;
 }
 .message {
   text-align: left;

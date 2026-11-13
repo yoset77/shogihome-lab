@@ -90,6 +90,7 @@ const onCancel = () => {
 <style scoped>
 .root {
   width: 420px;
+  max-width: 100%;
 }
 input.number {
   text-align: right;

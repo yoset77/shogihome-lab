@@ -227,7 +227,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 12px;
   width: clamp(600px, 45vw, 900px);
-  max-width: calc(95vw - 30px);
+  max-width: 100%;
   height: min(90dvh, 840px);
   max-height: 100%;
   min-height: 0;
@@ -302,7 +302,7 @@ button:disabled {
   .vision-scan-dialog {
     gap: 12px;
     width: min(680px, calc(95vw - 30px));
-    max-width: none;
+    max-width: 100%;
     height: auto;
     max-height: none;
     min-height: initial;

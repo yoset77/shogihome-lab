@@ -54,6 +54,7 @@ onMounted(refresh);
 <style scoped>
 .root {
   width: min(540px, calc(95vw - 32px));
+  max-width: 100%;
   overflow-wrap: anywhere;
 }
 ol {
