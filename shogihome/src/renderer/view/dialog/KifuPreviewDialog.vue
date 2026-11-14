@@ -22,142 +22,147 @@
           {{ t.matchedPositionNotFound }}
         </div>
 
-        <div class="preview-content">
-          <BoardView
-            class="board-view"
-            :layout-type="isMobile ? BoardLayoutType.PORTRAIT : BoardLayoutType.STANDARD"
-            :mobile="isMobile"
-            :board-image-type="appSettings.boardImage"
-            :board-image-opacity="appSettings.enableTransparent ? appSettings.boardOpacity : 1"
-            :board-grid-color="appSettings.boardGridColor || undefined"
-            :piece-stand-image-type="appSettings.pieceStandImage"
-            :piece-stand-image-opacity="
-              appSettings.enableTransparent ? appSettings.pieceStandOpacity : 1
-            "
-            :promotion-selector-style="appSettings.promotionSelectorStyle"
-            :board-label-type="appSettings.boardLabelType"
-            :piece-image-url-template="getPieceImageURLTemplate(appSettings)"
-            :king-piece-type="appSettings.kingPieceType"
-            :max-size="maxSize"
-            :position="currentPosition"
-            :last-move="lastMove"
-            :flip="flip"
-            :hide-clock="true"
-            :allow-move="false"
-            :allow-edit="false"
-            :enable-drag-and-drop="false"
-            :drop-shadows="!isMobile"
-            :black-player-name="blackPlayerName || t.sente"
-            :white-player-name="whitePlayerName || t.gote"
-          >
-            <template #left-control>
-              <div v-if="!isMobile" class="full column desktop-preview-actions">
-                <button
-                  class="preview-action"
-                  type="button"
-                  :aria-label="t.open"
-                  :title="t.open"
-                  @click="onOpen"
-                >
-                  <Icon :icon="IconType.OPEN" />
-                  <span>{{ t.open }}</span>
-                </button>
-                <button
-                  class="preview-action"
-                  type="button"
-                  :disabled="!canGoPrevious"
-                  :aria-label="t.previousKifu"
-                  :title="t.previousKifu"
-                  @click="onPrevious"
-                >
-                  <Icon :icon="IconType.BACK" />
-                  <span>{{ t.previousKifu }}</span>
-                </button>
-                <button
-                  class="preview-action"
-                  type="button"
-                  :disabled="!canGoNext"
-                  :aria-label="t.nextKifu"
-                  :title="t.nextKifu"
-                  @click="onNext"
-                >
-                  <Icon :icon="IconType.NEXT" />
-                  <span>{{ t.nextKifu }}</span>
-                </button>
-              </div>
-            </template>
-            <template #right-control>
-              <div v-if="!isMobile" :ref="setPreviewControls" class="full column desktop-controls">
-                <div class="row control-row">
+        <div ref="previewContentRef" class="preview-content">
+          <div ref="boardAreaRef" class="board-view" :class="{ desktop: !isMobile }">
+            <BoardView
+              :layout-type="isMobile ? BoardLayoutType.PORTRAIT : BoardLayoutType.STANDARD"
+              :mobile="isMobile"
+              :board-image-type="appSettings.boardImage"
+              :board-image-opacity="appSettings.enableTransparent ? appSettings.boardOpacity : 1"
+              :board-grid-color="appSettings.boardGridColor || undefined"
+              :piece-stand-image-type="appSettings.pieceStandImage"
+              :piece-stand-image-opacity="
+                appSettings.enableTransparent ? appSettings.pieceStandOpacity : 1
+              "
+              :promotion-selector-style="appSettings.promotionSelectorStyle"
+              :board-label-type="appSettings.boardLabelType"
+              :piece-image-url-template="getPieceImageURLTemplate(appSettings)"
+              :king-piece-type="appSettings.kingPieceType"
+              :max-size="maxSize"
+              :position="currentPosition"
+              :last-move="lastMove"
+              :flip="flip"
+              :hide-clock="true"
+              :allow-move="false"
+              :allow-edit="false"
+              :enable-drag-and-drop="false"
+              :drop-shadows="!isMobile"
+              :black-player-name="blackPlayerName || t.sente"
+              :white-player-name="whitePlayerName || t.gote"
+            >
+              <template #left-control>
+                <div v-if="!isMobile" class="full column desktop-preview-actions">
                   <button
-                    class="control-item"
+                    class="preview-action"
                     type="button"
-                    data-hotkey="Mod+t"
-                    :aria-label="t.flipBoard"
-                    :title="t.flipBoard"
-                    @click="doFlip"
+                    :aria-label="t.open"
+                    :title="t.open"
+                    @click="onOpen"
                   >
-                    <Icon :icon="IconType.FLIP" />
+                    <Icon :icon="IconType.OPEN" />
+                    <span>{{ t.open }}</span>
                   </button>
                   <button
-                    class="control-item"
+                    class="preview-action"
                     type="button"
-                    autofocus
-                    data-hotkey="Escape"
-                    :aria-label="t.close"
-                    :title="t.close"
-                    @click="onClose"
-                  >
-                    <Icon :icon="IconType.CLOSE" />
-                  </button>
-                </div>
-                <div class="row control-row">
-                  <button
-                    class="control-item"
-                    type="button"
-                    :data-hotkey="shortcutKeys.Begin"
-                    :aria-label="t.firstMove"
-                    :title="t.firstMove"
-                    @click="goBegin"
-                  >
-                    <Icon :icon="IconType.FIRST" />
-                  </button>
-                  <button
-                    class="control-item"
-                    type="button"
-                    :data-hotkey="shortcutKeys.End"
-                    :aria-label="t.finalPosition"
-                    :title="t.finalPosition"
-                    @click="goEnd"
-                  >
-                    <Icon :icon="IconType.LAST" />
-                  </button>
-                </div>
-                <div class="row control-row">
-                  <button
-                    class="control-item"
-                    type="button"
-                    :data-hotkey="shortcutKeys.Back"
-                    :aria-label="t.previousMove"
-                    :title="t.previousMove"
-                    @click="goBack"
+                    :disabled="!canGoPrevious"
+                    :aria-label="t.previousKifu"
+                    :title="t.previousKifu"
+                    @click="onPrevious"
                   >
                     <Icon :icon="IconType.BACK" />
+                    <span>{{ t.previousKifu }}</span>
                   </button>
                   <button
-                    class="control-item"
+                    class="preview-action"
                     type="button"
-                    :data-hotkey="shortcutKeys.Forward"
-                    :aria-label="t.nextMove"
-                    :title="t.nextMove"
-                    @click="goForward"
+                    :disabled="!canGoNext"
+                    :aria-label="t.nextKifu"
+                    :title="t.nextKifu"
+                    @click="onNext"
                   >
                     <Icon :icon="IconType.NEXT" />
+                    <span>{{ t.nextKifu }}</span>
                   </button>
                 </div>
-              </div>
-            </template>
-          </BoardView>
+              </template>
+              <template #right-control>
+                <div
+                  v-if="!isMobile"
+                  :ref="setPreviewControls"
+                  class="full column desktop-controls"
+                >
+                  <div class="row control-row">
+                    <button
+                      class="control-item"
+                      type="button"
+                      data-hotkey="Mod+t"
+                      :aria-label="t.flipBoard"
+                      :title="t.flipBoard"
+                      @click="doFlip"
+                    >
+                      <Icon :icon="IconType.FLIP" />
+                    </button>
+                    <button
+                      class="control-item"
+                      type="button"
+                      autofocus
+                      data-hotkey="Escape"
+                      :aria-label="t.close"
+                      :title="t.close"
+                      @click="onClose"
+                    >
+                      <Icon :icon="IconType.CLOSE" />
+                    </button>
+                  </div>
+                  <div class="row control-row">
+                    <button
+                      class="control-item"
+                      type="button"
+                      :data-hotkey="shortcutKeys.Begin"
+                      :aria-label="t.firstMove"
+                      :title="t.firstMove"
+                      @click="goBegin"
+                    >
+                      <Icon :icon="IconType.FIRST" />
+                    </button>
+                    <button
+                      class="control-item"
+                      type="button"
+                      :data-hotkey="shortcutKeys.End"
+                      :aria-label="t.finalPosition"
+                      :title="t.finalPosition"
+                      @click="goEnd"
+                    >
+                      <Icon :icon="IconType.LAST" />
+                    </button>
+                  </div>
+                  <div class="row control-row">
+                    <button
+                      class="control-item"
+                      type="button"
+                      :data-hotkey="shortcutKeys.Back"
+                      :aria-label="t.previousMove"
+                      :title="t.previousMove"
+                      @click="goBack"
+                    >
+                      <Icon :icon="IconType.BACK" />
+                    </button>
+                    <button
+                      class="control-item"
+                      type="button"
+                      :data-hotkey="shortcutKeys.Forward"
+                      :aria-label="t.nextMove"
+                      :title="t.nextMove"
+                      @click="goForward"
+                    >
+                      <Icon :icon="IconType.NEXT" />
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </BoardView>
+          </div>
           <div v-if="isMobile" :ref="setPreviewControls" class="mobile-controls">
             <button
               class="control-item"
@@ -224,6 +229,7 @@
           <RecordView
             :key="navigationVersion"
             class="record-list"
+            :class="{ desktop: !isMobile }"
             :record="record"
             :operational="true"
             :show-top-control="false"
@@ -314,8 +320,11 @@ const lastMove = shallowRef<Move | null>(null);
 const flip = ref(appSettings.boardFlipping);
 const maxSize = reactive(new RectSize(0, 0));
 const contentRef = ref<HTMLElement>();
+const previewContentRef = ref<HTMLElement>();
+const boardAreaRef = ref<HTMLElement>();
 let resizeObserver: ResizeObserver | undefined;
 let preferredBoardWidth = 0;
+let preferredBoardHeight = 0;
 const installedHotKeyElements: HTMLElement[] = [];
 let previewControls: HTMLElement | undefined;
 let cancelled = false;
@@ -324,6 +333,7 @@ let loadVersion = 0;
 const RECORD_LIST_WIDTH = 300;
 const PREVIEW_CONTENT_GAP = 15;
 const DIALOG_CONTENT_MARGIN = 30;
+const BOARD_LEFT_PADDING = 2;
 
 const shortcutKeys = computed(() => getRecordShortcutKeys(appSettings.recordShortcutKeys));
 const fileName = computed(() => props.path.split(/[\\/]/).pop() || props.path);
@@ -374,24 +384,40 @@ function updateSize() {
     );
   } else {
     const maxDialogContentWidth = window.innerWidth * 0.95 - DIALOG_CONTENT_MARGIN;
-    const maxBoardWidth = maxDialogContentWidth - RECORD_LIST_WIDTH - PREVIEW_CONTENT_GAP;
+    const maxBoardWidth =
+      maxDialogContentWidth - RECORD_LIST_WIDTH - PREVIEW_CONTENT_GAP - BOARD_LEFT_PADDING;
     maxSize.width = Math.min(window.innerWidth * 0.8, Math.max(1, maxBoardWidth));
     maxSize.height = window.innerHeight * 0.8 - 80;
   }
   preferredBoardWidth = maxSize.width;
+  preferredBoardHeight = maxSize.height;
   // Measure after the preferred size is rendered so the dialog can grow on resize.
-  void nextTick(() => fitBoardWidth(contentRef.value?.getBoundingClientRect().width ?? 0));
+  void nextTick(() => fitBoardSize());
 }
 
-function fitBoardWidth(contentWidth: number) {
+function fitBoardSize(contentWidth = contentRef.value?.getBoundingClientRect().width ?? 0) {
   if (cancelled || loading.value || contentWidth <= 0) return;
-  const boardAreaWidth = contentRef.value
-    ?.querySelector(".board-view")
-    ?.getBoundingClientRect().width;
+  const boardAreaWidth = boardAreaRef.value?.getBoundingClientRect().width;
   const availableWidth = isMobile
     ? Math.max(1, boardAreaWidth ?? contentWidth)
-    : Math.max(1, contentWidth - RECORD_LIST_WIDTH - PREVIEW_CONTENT_GAP);
+    : Math.max(1, contentWidth - RECORD_LIST_WIDTH - PREVIEW_CONTENT_GAP - BOARD_LEFT_PADDING);
   maxSize.width = Math.min(preferredBoardWidth, availableWidth);
+
+  const content = previewContentRef.value;
+  if (!isMobile || !content || !previewControls) return;
+  const style = getComputedStyle(content);
+  if (style.flexDirection !== "column" || content.clientHeight <= 0) return;
+  const recordList = content.querySelector<HTMLElement>(".record-list");
+  if (!recordList) return;
+  const controlsStyle = getComputedStyle(previewControls);
+  const controlsHeight =
+    previewControls.getBoundingClientRect().height +
+    (parseFloat(controlsStyle.marginTop) || 0) +
+    (parseFloat(controlsStyle.marginBottom) || 0);
+  const recordMinHeight = parseFloat(getComputedStyle(recordList).minHeight) || 0;
+  const gaps = (parseFloat(style.rowGap) || 0) * (content.children.length - 1);
+  const availableHeight = content.clientHeight - controlsHeight - recordMinHeight - gaps;
+  maxSize.height = Math.max(1, Math.min(preferredBoardHeight, availableHeight));
 }
 
 function findMatchedNode(target: Record): ImmutableNode | undefined {
@@ -548,10 +574,24 @@ onMounted(() => {
   updateSize();
   window.addEventListener("resize", updateSize);
   if (contentRef.value) {
-    resizeObserver = new ResizeObserver(([entry]) => fitBoardWidth(entry.contentRect.width));
+    resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries.find((entry) => entry.target === contentRef.value);
+      fitBoardSize(entry?.contentRect.width);
+    });
     resizeObserver.observe(contentRef.value);
+    if (previewContentRef.value) resizeObserver.observe(previewContentRef.value);
   }
 });
+
+watch(
+  previewContentRef,
+  (element, previous) => {
+    if (previous) resizeObserver?.unobserve(previous);
+    if (element) resizeObserver?.observe(element);
+    void nextTick(() => fitBoardSize());
+  },
+  { flush: "post" },
+);
 
 watch(loading, (value) => {
   if (!value) updateSize();
@@ -583,6 +623,7 @@ onBeforeUnmount(() => {
 }
 
 .file-path {
+  flex-shrink: 0;
   margin: 0 0 8px;
   overflow: hidden;
   color: var(--text-color-sub);
@@ -608,6 +649,7 @@ onBeforeUnmount(() => {
 
 .metadata {
   display: flex;
+  flex-shrink: 0;
   flex-wrap: wrap;
   gap: 5px 15px;
   margin-bottom: 8px;
@@ -625,6 +667,7 @@ onBeforeUnmount(() => {
 }
 
 .match-warning {
+  flex-shrink: 0;
   margin-bottom: 8px;
   color: var(--text-color-warning);
   font-size: 0.8em;
@@ -632,6 +675,7 @@ onBeforeUnmount(() => {
 }
 
 .preview-content {
+  --board-label-space: 8px;
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
@@ -645,6 +689,13 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
+.board-view.desktop {
+  /* The left turn border extends 2px beyond the board frame. */
+  padding-left: 2px;
+  /* Bottom coordinate labels extend slightly beyond the board frame. */
+  padding-bottom: var(--board-label-space);
+}
+
 .record-list {
   width: 300px;
   min-width: 220px;
@@ -652,6 +703,14 @@ onBeforeUnmount(() => {
   min-height: 0;
   max-height: min(65vh, 650px);
   overflow: hidden;
+}
+
+.record-list.desktop {
+  height: auto;
+  max-height: none;
+  margin-bottom: var(--board-label-space);
+  /* Let the board determine the height, regardless of the number of moves. */
+  contain: size;
 }
 
 .record-list :deep(.branch-side-control) {
