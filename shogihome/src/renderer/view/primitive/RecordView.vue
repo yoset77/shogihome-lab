@@ -132,7 +132,7 @@
 <script setup lang="ts">
 import { t } from "@/common/i18n";
 import { ImmutableRecord, ImmutableNode } from "tsshogi";
-import { computed, ref, PropType, onMounted, onUpdated, watch } from "vue";
+import { computed, ref, PropType, onMounted, onUpdated, onBeforeUnmount, watch } from "vue";
 import Icon from "@/renderer/view/primitive/Icon.vue";
 import { IconType } from "@/renderer/assets/icons";
 import ToggleButton from "./ToggleButton.vue";
@@ -238,6 +238,7 @@ const emit = defineEmits<{
 
 const moveList = ref(null as HTMLDivElement | null);
 const branchList = ref(null as HTMLDivElement | null);
+let resizeObserver: ResizeObserver | undefined;
 const showSubArea = ref(false);
 const selectedNextBranchIndex = ref(-1);
 const branchPopup = ref(
@@ -391,30 +392,47 @@ const branches = computed(() => {
   }
 });
 
-const scrollSelectedItems = () => {
-  const moveListElement = moveList.value;
-  moveListElement?.childNodes.forEach((elem) => {
-    if (elem instanceof HTMLElement && elem.classList.contains("selected")) {
-      elem.scrollIntoView?.({ behavior: "auto", block: "nearest" });
-    }
-  });
-  const branchListElement = branchList.value as HTMLElement;
-  branchListElement?.childNodes.forEach((elem) => {
-    if (elem instanceof HTMLElement && elem.classList.contains("selected")) {
-      elem.scrollIntoView?.({ behavior: "auto", block: "nearest" });
-    }
-  });
+const scrollSelectedItem = (list: HTMLElement | null) => {
+  const selected = list?.querySelector<HTMLElement>(".selected");
+  if (!list || !selected || list.clientHeight <= 0) return;
+
+  const viewportTop = list.getBoundingClientRect().top + list.clientTop;
+  const item = selected.getBoundingClientRect();
+  const style = getComputedStyle(selected);
+  const maxMargin = Math.max(0, (list.clientHeight - item.height) / 2);
+  const top = item.top - Math.min(parseFloat(style.scrollMarginTop) || 0, maxMargin);
+  const bottom = item.bottom + Math.min(parseFloat(style.scrollMarginBottom) || 0, maxMargin);
+  // Scroll only this list, never ancestors containing the board or other controls.
+  if (top < viewportTop) {
+    list.scrollTop += top - viewportTop;
+  } else if (bottom > viewportTop + list.clientHeight) {
+    list.scrollTop += Math.min(item.top - viewportTop, bottom - viewportTop - list.clientHeight);
+  }
 };
 
-onMounted(scrollSelectedItems);
-onUpdated(() => {
-  // ポップアップの開閉では自動スクロールしない。
-  // スクロールすると move-list の scroll イベントでポップアップが即閉じてしまうため。
-  if (branchPopup.value) {
-    return;
-  }
+const scrollSelectedItems = () => {
+  // Do not scroll while a popup is open: its outside-scroll handler would close it.
+  if (branchPopup.value) return;
+  scrollSelectedItem(moveList.value);
+  scrollSelectedItem(branchList.value);
+};
+
+onMounted(() => {
+  resizeObserver = new ResizeObserver(scrollSelectedItems);
+  if (moveList.value) resizeObserver.observe(moveList.value);
+  if (branchList.value) resizeObserver.observe(branchList.value);
   scrollSelectedItems();
 });
+watch([moveList, branchList], (lists, previous) => {
+  previous.forEach((list, index) => {
+    if (list && list !== lists[index]) resizeObserver?.unobserve(list);
+  });
+  lists.forEach((list, index) => {
+    if (list && list !== previous[index]) resizeObserver?.observe(list);
+  });
+});
+onUpdated(scrollSelectedItems);
+onBeforeUnmount(() => resizeObserver?.disconnect());
 </script>
 
 <style scoped>
