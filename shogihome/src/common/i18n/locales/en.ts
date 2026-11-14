@@ -205,6 +205,7 @@ export const en: Texts = {
   tabViewStyle: "Tab View Style",
   oneColumn: "1 Column",
   twoColumns: "2 Columns",
+  twoByTwo: "2 Columns × 2 Rows",
   sounds: "Sounds",
   pieceSoundVolume: "Piece Sound Volume",
   clockSoundVolume: "Clock Sound Volume",
@@ -278,6 +279,7 @@ export const en: Texts = {
   confirmCleanupData:
     "Are you sure you want to delete all analysis results with depth less than specified?",
   noDataInAnalysisDB: "No data available in DB for this position.",
+  noSavedAnalysisResults: "No analysis results are saved in the DB.",
   mateShort: "M",
   displayPVShort: "Play",
   evaluation: "Evaluation",
@@ -285,6 +287,7 @@ export const en: Texts = {
   score: "Score",
   estimatedWinRate: "Estimated Win Rate",
   evaluationAndEstimatedWinRateAndPV: "Evaluation & Estimated Win Rate & PV",
+  evaluationChartRange: "Evaluation Chart Range",
   hideEngineThinkingInHumanGames: "Hide engine thinking during games against a human",
   swapEachTurnChange: "Swap Each Turn Change",
   alwaysSenteIsPositive: "Always Sente is Positive",

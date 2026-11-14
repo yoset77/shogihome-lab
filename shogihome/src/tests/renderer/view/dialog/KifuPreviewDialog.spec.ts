@@ -1,5 +1,5 @@
 import { flushPromises, shallowMount } from "@vue/test-utils";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Color, ImmutablePosition, PieceType, Record, importKIF } from "tsshogi";
 import { readFileSync } from "node:fs";
 import { normalizeSfen } from "@/common/usi/sfen";
@@ -14,7 +14,29 @@ const detectRecordFileFormatByPath = vi.hoisted(() => vi.fn(() => ".kif"));
 const installHotKey = vi.hoisted(() => vi.fn());
 const uninstallHotKey = vi.hoisted(() => vi.fn());
 let parsedRecord: Record;
+let resizeObserverCallback: ResizeObserverCallback;
+const observe = vi.fn();
+const unobserve = vi.fn();
+const disconnect = vi.fn();
 
+function notifyResize(target: Element, width: number, height = 0) {
+  resizeObserverCallback(
+    [
+      {
+        target,
+        contentRect: new DOMRect(0, 0, width, height),
+        borderBoxSize: [],
+        contentBoxSize: [],
+        devicePixelContentBoxSize: [],
+      },
+    ],
+    {} as ResizeObserver,
+  );
+}
+
+function resizeContent(width: number) {
+  notifyResize(observe.mock.calls[0][0], width);
+}
 function createDeferred<T>() {
   let resolve: (value: T) => void;
   const promise = new Promise<T>((resolvePromise) => {
@@ -56,6 +78,7 @@ const mountDialog = (props?: {
         DialogFrame: { template: "<div><slot /></div>" },
         BoardView: {
           name: "BoardView",
+          inheritAttrs: false,
           props: {
             position: { type: Object as PropType<ImmutablePosition>, required: true },
             mobile: { type: Boolean, required: false },
@@ -69,7 +92,7 @@ const mountDialog = (props?: {
             return { blackHandCount };
           },
           template:
-            '<div class="board-view-stub"><span class="black-hand-count">{{ blackHandCount }}</span><slot name="left-control" /><slot name="right-control" /></div>',
+            '<div class="board-view-stub"><span class="black-hand-count">{{ blackHandCount }}</span><slot name="left-control" /><slot name="right-control" /></div><span class="board-extra-root" />',
         },
         RecordView: {
           name: "RecordView",
@@ -82,7 +105,26 @@ const mountDialog = (props?: {
   });
 
 describe("KifuPreviewDialog", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   beforeEach(() => {
+    observe.mockClear();
+    unobserve.mockClear();
+    disconnect.mockClear();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeObserverCallback = callback;
+        }
+        observe = observe;
+        unobserve = unobserve;
+        disconnect = disconnect;
+      },
+    );
     loadServerKifu.mockReset();
     openRecord.mockReset();
     importRecordFromBuffer.mockReset();
@@ -196,12 +238,15 @@ describe("KifuPreviewDialog", () => {
   it("provides PV preview controls on desktop", async () => {
     const wrapper = mountDialog({ matchedPly: 1 });
     await flushPromises();
+    expect(wrapper.get(".record-list").classes()).toContain("desktop");
 
     const boardSize = wrapper.findComponent({ name: "BoardView" }).props("maxSize") as {
       width: number;
       height: number;
     };
-    expect(boardSize.width + 300 + 15).toBeLessThanOrEqual(window.innerWidth * 0.95 - 30 + 0.001);
+    expect(boardSize.width + 2 + 300 + 15).toBeLessThanOrEqual(
+      window.innerWidth * 0.95 - 30 + 0.001,
+    );
 
     const buttons = wrapper.findAll(".desktop-controls button");
     expect(buttons).toHaveLength(6);
@@ -242,6 +287,147 @@ describe("KifuPreviewDialog", () => {
     expect(wrapper.emitted("open")).toHaveLength(1);
     expect(wrapper.emitted("previous")).toHaveLength(1);
     expect(wrapper.emitted("next")).toHaveLength(1);
+  });
+
+  it.each([false, true])(
+    "fits the board to the measured content width with desktop turn clearance (mobile=%s)",
+    async (mobile) => {
+      isMobileWebApp.mockReturnValue(mobile);
+      const wrapper = mountDialog();
+      await flushPromises();
+
+      expect(observe).toHaveBeenCalledWith(wrapper.get(".preview-dialog").element);
+      const board = wrapper.findComponent({ name: "BoardView" });
+      const bounds = vi.spyOn(wrapper.get(".board-view").element, "getBoundingClientRect");
+      bounds.mockReturnValue({ width: 242 } as DOMRect);
+      const height = board.props("maxSize").height;
+      resizeContent(mobile ? 242 : 500);
+      await wrapper.vm.$nextTick();
+      expect(board.props("maxSize").width).toBe(mobile ? 242 : 183);
+      expect(board.props("maxSize").height).toBe(height);
+
+      resizeContent(0);
+      await wrapper.vm.$nextTick();
+      expect(board.props("maxSize").width).toBe(mobile ? 242 : 183);
+
+      bounds.mockReturnValue({ width: 294 } as DOMRect);
+      resizeContent(mobile ? 294 : 600);
+      await wrapper.vm.$nextTick();
+      expect(board.props("maxSize").width).toBe(mobile ? 294 : 283);
+      wrapper.unmount();
+      expect(disconnect).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("fits the mobile board to its own area when controls and the record share a row", async () => {
+    isMobileWebApp.mockReturnValue(true);
+    const wrapper = mountDialog();
+    await flushPromises();
+    const bounds = vi.spyOn(wrapper.get(".board-view").element, "getBoundingClientRect");
+    const board = wrapper.findComponent({ name: "BoardView" });
+    for (const width of [0, 66, 224, 314]) {
+      bounds.mockReturnValue({ width } as DOMRect);
+      resizeContent(600);
+      await wrapper.vm.$nextTick();
+      expect(board.props("maxSize").width).toBe(Math.max(1, width));
+    }
+    wrapper.unmount();
+  });
+
+  it("owns the board layout wrapper independently of the component roots", async () => {
+    const wrapper = mountDialog();
+    await flushPromises();
+    expect(wrapper.get(".board-view").element.tagName).toBe("DIV");
+    expect(wrapper.get(".board-view").classes()).toContain("desktop");
+    expect(wrapper.find(".board-view > .board-view-stub").exists()).toBe(true);
+    expect(wrapper.find(".board-view > .board-extra-root").exists()).toBe(true);
+    expect(wrapper.get(".board-view-stub").classes()).not.toContain("board-view");
+    wrapper.unmount();
+  });
+
+  it("reserves mobile controls, gaps, and the record minimum before sizing the board", async () => {
+    isMobileWebApp.mockReturnValue(true);
+    const wrapper = mountDialog();
+    await flushPromises();
+    const board = wrapper.findComponent({ name: "BoardView" });
+    const preferredHeight = board.props("maxSize").height;
+    const content = wrapper.get(".preview-content").element as HTMLElement;
+    const controls = wrapper.get(".mobile-controls").element as HTMLElement;
+    const recordList = wrapper.get(".record-list").element as HTMLElement;
+    expect(observe).toHaveBeenCalledWith(content);
+    content.style.flexDirection = "column";
+    content.style.rowGap = "6px";
+    controls.style.marginTop = "4px";
+    recordList.style.minHeight = "80px";
+    vi.spyOn(controls, "getBoundingClientRect").mockReturnValue({ height: 40 } as DOMRect);
+    vi.spyOn(wrapper.get(".preview-dialog").element, "getBoundingClientRect").mockReturnValue({
+      width: 360,
+    } as DOMRect);
+    vi.spyOn(wrapper.get(".board-view").element, "getBoundingClientRect").mockReturnValue({
+      width: 308,
+    } as DOMRect);
+    const height = vi.spyOn(content, "clientHeight", "get");
+    const resizeHeight = async (value: number) => {
+      height.mockReturnValue(value);
+      notifyResize(content, 360, value);
+      await wrapper.vm.$nextTick();
+    };
+
+    await resizeHeight(450);
+    expect(board.props("maxSize").height).toBe(314);
+    expect(board.props("maxSize").width).toBe(308);
+    await resizeHeight(350);
+    expect(board.props("maxSize").height).toBe(214);
+    await resizeHeight(250);
+    expect(board.props("maxSize").height).toBe(114);
+    await resizeHeight(600);
+    expect(board.props("maxSize").height).toBe(preferredHeight);
+    wrapper.unmount();
+  });
+
+  it("observes the replacement content after changing preview files", async () => {
+    const wrapper = mountDialog();
+    await flushPromises();
+    const previous = wrapper.get(".preview-content").element;
+    await wrapper.setProps({ path: "games/second.kif" });
+    await flushPromises();
+    const current = wrapper.get(".preview-content").element;
+    expect(current).not.toBe(previous);
+    expect(unobserve).toHaveBeenCalledWith(previous);
+    expect(observe).toHaveBeenCalledWith(current);
+    wrapper.unmount();
+  });
+
+  it("remeasures the content after a viewport resize without locking the smaller board size", async () => {
+    const wrapper = mountDialog();
+    await flushPromises();
+    const content = wrapper.get(".preview-dialog").element;
+    const bounds = vi.spyOn(content, "getBoundingClientRect");
+    bounds.mockReturnValue({ width: 500 } as DOMRect);
+    window.dispatchEvent(new Event("resize"));
+    await flushPromises();
+    const board = wrapper.findComponent({ name: "BoardView" });
+    expect(board.props("maxSize").width).toBe(183);
+
+    bounds.mockReturnValue({ width: 600 } as DOMRect);
+    window.dispatchEvent(new Event("resize"));
+    await flushPromises();
+    expect(board.props("maxSize").width).toBe(283);
+    wrapper.unmount();
+  });
+
+  it("does not constrain the board to the temporary loading message width", async () => {
+    const pendingLoad = createDeferred<string>();
+    loadServerKifu.mockReturnValue(pendingLoad.promise);
+    const wrapper = mountDialog();
+    resizeContent(100);
+    pendingLoad.resolve("server://games/example.kif");
+    await flushPromises();
+
+    expect(wrapper.findComponent({ name: "BoardView" }).props("maxSize").width).toBeGreaterThan(
+      100,
+    );
+    wrapper.unmount();
   });
 
   it("installs hotkeys for controls rendered after loading", async () => {
@@ -338,6 +524,8 @@ describe("KifuPreviewDialog", () => {
     await flushPromises();
 
     expect(wrapper.find(".preview-dialog").exists()).toBe(true);
+    expect(wrapper.get(".board-view").classes()).not.toContain("desktop");
+    expect(wrapper.get(".record-list").classes()).not.toContain("desktop");
     const boardView = wrapper.findComponent({ name: "BoardView" });
     expect(boardView.props("mobile")).toBe(true);
     expect((boardView.props("maxSize") as { height: number }).height).toBeGreaterThan(

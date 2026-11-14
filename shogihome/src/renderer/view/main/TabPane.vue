@@ -47,6 +47,7 @@
           class="full tab-content"
           :size="contentSize"
           :type="EvaluationChartType.RAW"
+          :score-range="Number(appSettings.evaluationChartRange)"
           :thema="appSettings.thema"
           :coefficient-in-sigmoid="appSettings.coefficientInSigmoid"
         />
@@ -55,6 +56,7 @@
           class="full tab-content"
           :size="contentSize"
           :type="EvaluationChartType.WIN_RATE"
+          :score-range="Number(appSettings.evaluationChartRange)"
           :thema="appSettings.thema"
           :coefficient-in-sigmoid="appSettings.coefficientInSigmoid"
         />
@@ -83,7 +85,7 @@ import { IconType } from "@/renderer/assets/icons";
 import { t } from "@/common/i18n";
 import { useAppSettings } from "@/renderer/store/settings";
 import { useStore } from "@/renderer/store";
-import { AppState } from "@/common/control/state";
+import { isEvaluationPuzzleState } from "@/renderer/helpers/puzzle";
 
 const props = defineProps({
   size: {
@@ -126,9 +128,7 @@ const contentSize = computed(() => {
 });
 
 const isEvaluationPuzzle = computed(() => {
-  return (
-    props.allowPuzzle && store.appState === AppState.PUZZLE && store.puzzle?.type === "evaluation"
-  );
+  return props.allowPuzzle && isEvaluationPuzzleState(store.appState, store.puzzle);
 });
 
 const tabs = {

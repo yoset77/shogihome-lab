@@ -205,6 +205,7 @@ export type Texts = {
   tabViewStyle: string;
   oneColumn: string;
   twoColumns: string;
+  twoByTwo: string;
   sounds: string;
   pieceSoundVolume: string;
   clockSoundVolume: string;
@@ -272,6 +273,7 @@ export type Texts = {
   confirmDeleteEngineData: string;
   confirmCleanupData: string;
   noDataInAnalysisDB: string;
+  noSavedAnalysisResults: string;
   mateShort: string;
   displayPVShort: string;
   evaluation: string;
@@ -279,6 +281,7 @@ export type Texts = {
   score: string;
   estimatedWinRate: string;
   evaluationAndEstimatedWinRateAndPV: string;
+  evaluationChartRange: string;
   hideEngineThinkingInHumanGames: string;
   swapEachTurnChange: string;
   alwaysSenteIsPositive: string;

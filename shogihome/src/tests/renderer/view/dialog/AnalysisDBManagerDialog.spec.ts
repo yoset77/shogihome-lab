@@ -3,6 +3,7 @@ import AnalysisDBManagerDialog from "@/renderer/view/dialog/AnalysisDBManagerDia
 import { useBusyState } from "@/renderer/store/busy";
 import { useFileSaveStore } from "@/renderer/store/fileSave";
 import { useConfirmationStore } from "@/renderer/store/confirm";
+import { t } from "@/common/i18n";
 
 const error = vi.hoisted(() => vi.fn());
 const message = vi.hoisted(() => vi.fn());
@@ -11,12 +12,26 @@ vi.mock("@/renderer/store/lan", () => ({ useLanStore: () => ({}) }));
 vi.mock("@/renderer/store/error", () => ({ useErrorStore: () => ({ add: error }) }));
 vi.mock("@/renderer/store/message", () => ({ useMessageStore: () => ({ enqueue: message }) }));
 
-describe("AnalysisDBManagerDialog export", () => {
+describe("AnalysisDBManagerDialog", () => {
   afterEach(() => {
     useFileSaveStore().finish();
     useConfirmationStore().cancel();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("shows a database-wide message when no analysis results are saved", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify([]))));
+    const wrapper = mount(AnalysisDBManagerDialog, {
+      global: { stubs: { DialogFrame: { template: "<div><slot /></div>" }, Icon: true } },
+    });
+    try {
+      await flushPromises();
+      expect(wrapper.get(".no-data").text()).toBe(t.noSavedAnalysisResults);
+      expect(wrapper.text()).not.toContain(t.noDataInAnalysisDB);
+    } finally {
+      wrapper.unmount();
+    }
   });
 
   it("cancels an overwrite without showing an error or a success message", async () => {
@@ -44,6 +59,7 @@ describe("AnalysisDBManagerDialog export", () => {
     });
     try {
       await flushPromises();
+      expect(wrapper.find(".no-data").exists()).toBe(false);
       await wrapper.get(".actions button").trigger("click");
       expect(useFileSaveStore().options).toMatchObject({
         defaultPath: "engine.db",

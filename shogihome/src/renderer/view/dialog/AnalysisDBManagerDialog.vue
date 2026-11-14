@@ -6,7 +6,7 @@
       <!-- Stats Area -->
       <div class="stats-area column">
         <div v-if="stats.length === 0" class="no-data">
-          {{ t.noDataInAnalysisDB }}
+          {{ t.noSavedAnalysisResults }}
         </div>
 
         <!-- Desktop Table Layout -->
@@ -299,7 +299,7 @@ const migrate = async () => {
 /* Common Layout & Dialog */
 .root {
   width: clamp(800px, 55vw, 1100px);
-  max-width: 90vw;
+  max-width: 100%;
   height: clamp(400px, 70dvh, 800px);
 }
 .title {

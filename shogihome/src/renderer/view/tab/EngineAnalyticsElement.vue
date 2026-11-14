@@ -48,7 +48,7 @@
       <div
         v-if="!mobileLayout || historyMode"
         class="list-area"
-        :style="{ height: `${height - (showHeader ? 22 : 0) - 2}px` }"
+        :style="{ height: `${height - (showHeader ? 22 : 0)}px` }"
       >
         <table class="list">
           <thead>
@@ -156,7 +156,7 @@
       <div
         v-else-if="mobileLayout && !historyMode"
         class="mobile-list-area"
-        :style="{ height: `${height - (showHeader ? 22 : 0) - 2}px` }"
+        :style="{ height: `${height - (showHeader ? 22 : 0)}px` }"
       >
         <div v-for="info in monitor.latestInfo" :key="info.id" class="mobile-pv-card">
           <div class="mobile-pv-header">
@@ -416,7 +416,6 @@ const updateMultiPV = (add: number) => {
 <style scoped>
 .root {
   position: relative;
-  padding-bottom: 2px;
   background-color: var(--tab-content-bg-color);
 }
 .headers {

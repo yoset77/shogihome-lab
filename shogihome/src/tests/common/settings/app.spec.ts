@@ -9,6 +9,8 @@ import {
   AnalysisDBSearchMode,
   FileQuickAction,
   buildUpdatedAppSettings,
+  Tab,
+  TabPaneType,
 } from "@/common/settings/app";
 import { BookFormat } from "@/common/book";
 
@@ -18,6 +20,28 @@ describe("settings/app", () => {
       returnCode: "\r\n",
     });
     expect(result).toStrictEqual(defaultAppSettings());
+  });
+
+  it("defaults and normalizes the evaluation chart range", () => {
+    const defaults = defaultAppSettings();
+    expect(defaults.evaluationChartRange).toBe("2000");
+    for (const value of ["1000", "1500", "2000"] as const) {
+      expect(
+        normalizeAppSettings({ ...defaults, evaluationChartRange: value }).evaluationChartRange,
+      ).toBe(value);
+      expect(
+        buildUpdatedAppSettings(defaults, { evaluationChartRange: value }).evaluationChartRange,
+      ).toBe(value);
+    }
+    for (const value of [undefined, null, 1000, "4000", ""]) {
+      const invalid = value as typeof defaults.evaluationChartRange;
+      expect(
+        normalizeAppSettings({ ...defaults, evaluationChartRange: invalid }).evaluationChartRange,
+      ).toBe("2000");
+      expect(
+        buildUpdatedAppSettings(defaults, { evaluationChartRange: invalid }).evaluationChartRange,
+      ).toBe("2000");
+    }
   });
 
   it("does not include the retired auto-save directory in app defaults", () => {
@@ -172,5 +196,56 @@ describe("settings/app", () => {
       pieceStandImage: PieceStandImageType.GREEN,
     };
     expect(normalizeAppSettings(settings)).toEqual(settings);
+  });
+
+  describe("tab pane normalization", () => {
+    it("defaults an unknown layout before normalizing its tabs", () => {
+      const result = normalizeAppSettings({
+        ...defaultAppSettings(),
+        tabPaneType: "unknown" as TabPaneType,
+        tab: Tab.COMMENT,
+        tab2: Tab.COMMENT,
+      });
+      expect(result.tabPaneType).toBe(defaultAppSettings().tabPaneType);
+      expect(result.tab).toBe(Tab.RECORD_INFO);
+      expect(result.tab2).toBe(Tab.CHART);
+      expect(normalizeAppSettings(result)).toEqual(result);
+    });
+
+    it.each([
+      [TabPaneType.SINGLE, Tab.COMMENT, Tab.COMMENT],
+      [TabPaneType.DOUBLE, Tab.COMMENT, Tab.RECORD_INFO],
+      [TabPaneType.DOUBLE, Tab.CHART, Tab.PV],
+      [TabPaneType.DOUBLE, Tab.ANALYSIS_DB, Tab.ANALYSIS_DB],
+      [TabPaneType.DOUBLE_V2, Tab.COMMENT, Tab.RECORD_INFO],
+      [TabPaneType.DOUBLE_V2, Tab.PERCENTAGE_CHART, Tab.PV],
+      [TabPaneType.DOUBLE_V2, Tab.ANALYSIS_DB, Tab.ANALYSIS_DB],
+      [TabPaneType.GRID_2X2, Tab.COMMENT, Tab.RECORD_INFO],
+      [TabPaneType.GRID_2X2, Tab.CHART, Tab.PV],
+      [TabPaneType.GRID_2X2, Tab.PERCENTAGE_CHART, Tab.PV],
+      [TabPaneType.GRID_2X2, Tab.ANALYSIS_DB, Tab.PV],
+      [TabPaneType.GRID_2X2, Tab.SEARCH, Tab.SEARCH],
+    ])("normalizes tab for %s: %s -> %s", (tabPaneType, tab, expected) => {
+      const updated = buildUpdatedAppSettings(defaultAppSettings(), { tabPaneType, tab });
+      const normalized = normalizeAppSettings({ ...defaultAppSettings(), tabPaneType, tab });
+      expect(updated.tab).toBe(expected);
+      expect(normalized.tab).toBe(expected);
+      expect(normalizeAppSettings(normalized)).toEqual(normalized);
+    });
+
+    it.each([
+      [TabPaneType.DOUBLE, Tab.COMMENT, Tab.COMMENT],
+      [TabPaneType.DOUBLE, Tab.PERCENTAGE_CHART, Tab.PERCENTAGE_CHART],
+      [TabPaneType.DOUBLE_V2, Tab.COMMENT, Tab.CHART],
+      [TabPaneType.DOUBLE_V2, Tab.PERCENTAGE_CHART, Tab.PERCENTAGE_CHART],
+      [TabPaneType.GRID_2X2, Tab.COMMENT, Tab.CHART],
+      [TabPaneType.GRID_2X2, Tab.PERCENTAGE_CHART, Tab.PERCENTAGE_CHART],
+    ])("normalizes tab2 for %s: %s -> %s", (tabPaneType, tab2, expected) => {
+      const updated = buildUpdatedAppSettings(defaultAppSettings(), { tabPaneType, tab2 });
+      const normalized = normalizeAppSettings({ ...defaultAppSettings(), tabPaneType, tab2 });
+      expect(updated.tab2).toBe(expected);
+      expect(normalized.tab2).toBe(expected);
+      expect(normalizeAppSettings(normalized)).toEqual(normalized);
+    });
   });
 });

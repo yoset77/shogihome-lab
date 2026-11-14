@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="frame" :style="main.frame.style" @click="clickFrame()">
+    <div class="frame" :class="{ mobile }" :style="main.frame.style" @click="clickFrame()">
       <!-- 盤面 -->
       <div class="board" :style="main.boardStyle">
         <div v-if="board.background.textureImagePath" :style="board.background.style">
@@ -1131,6 +1131,9 @@ const whitePlayerTimeSeverity = computed(() => {
   color: var(--text-color);
   user-select: none;
   position: relative;
+}
+.frame.mobile {
+  margin-inline: auto;
 }
 .frame > * {
   position: absolute;

@@ -85,6 +85,7 @@
       :style="{ flexShrink: 0 }"
       :size="bottomViewSize"
       :type="appSettings.evaluationChartType"
+      :score-range="Number(appSettings.evaluationChartRange)"
       :thema="appSettings.thema"
       :coefficient-in-sigmoid="appSettings.coefficientInSigmoid"
     />
@@ -136,7 +137,8 @@ import PuzzlePane from "@/renderer/view/tab/PuzzlePane.vue";
 import BookPane from "@/renderer/view/tab/BookPane.vue";
 import { useAppSettings } from "@/renderer/store/settings";
 import { useStore } from "@/renderer/store";
-import { AppState, ResearchState } from "@/common/control/state";
+import { ResearchState } from "@/common/control/state";
+import { isEvaluationPuzzleState } from "@/renderer/helpers/puzzle";
 import { isIOS } from "@/renderer/ipc/api";
 
 const lazyUpdateDelay = 80;
@@ -183,7 +185,7 @@ const updateSize = () => {
 };
 
 const isEvaluationPuzzle = computed(() => {
-  return store.appState === AppState.PUZZLE && store.puzzle?.type === "evaluation";
+  return isEvaluationPuzzleState(store.appState, store.puzzle);
 });
 
 const controlPaneHeight = computed(() =>

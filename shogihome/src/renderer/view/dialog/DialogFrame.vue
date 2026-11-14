@@ -51,7 +51,7 @@ dialog {
   display: flex;
   flex-direction: column;
   justify-content: space-evenly;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: stable both-edges;
   box-sizing: border-box;
 }
 

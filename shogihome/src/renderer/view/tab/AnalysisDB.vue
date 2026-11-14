@@ -2,7 +2,7 @@
   <div>
     <div class="full column root">
       <!-- Desktop Layout -->
-      <div v-if="!mobileLayout" class="list-area" :style="{ height: `${size.height - 2}px` }">
+      <div v-if="!mobileLayout" class="list-area" :style="{ height: `${size.height}px` }">
         <table v-if="formattedResults.length > 0" class="list">
           <thead>
             <tr class="list-header">
@@ -65,7 +65,7 @@
       </div>
 
       <!-- Mobile Layout -->
-      <div v-else class="mobile-list-area" :style="{ height: `${size.height - 2}px` }">
+      <div v-else class="mobile-list-area" :style="{ height: `${size.height}px` }">
         <div v-if="formattedResults.length > 0">
           <div v-for="info in formattedResults" :key="info.id" class="mobile-pv-card">
             <div class="mobile-pv-header">
@@ -389,8 +389,7 @@ const deleteRecord = (info: FormattedInfo) => {
 <style scoped>
 .root {
   position: relative;
-  padding-bottom: 2px;
-  background-color: var(--active-tab-bg-color);
+  background-color: var(--tab-content-bg-color);
 }
 .control {
   box-sizing: border-box;

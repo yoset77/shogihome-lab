@@ -1,6 +1,6 @@
 <template>
   <DialogFrame ref="dialogFrame" :limited="isMobile" @cancel="onCancel">
-    <div class="vision-position-edit-dialog" :class="{ mobile: isMobile }">
+    <div class="vision-position-edit-dialog" :class="isMobile ? 'mobile-shell' : 'desktop-dialog'">
       <header v-if="!isMobile" class="dialog-header">
         <h2>{{ t.importBoardImage }}</h2>
       </header>
@@ -186,42 +186,43 @@ const onCancel = () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  width: auto;
-  min-width: min(800px, calc(95vw - 30px));
-  max-width: calc(95vw - 30px);
-  height: clamp(520px, 90dvh, 1400px);
-  aspect-ratio: 4 / 3;
   align-self: center;
 }
 
-.vision-position-edit-dialog.mobile {
+.desktop-dialog {
+  width: clamp(600px, 45vw, 900px);
+  max-width: 100%;
+  height: clamp(480px, 80dvh, 840px);
+}
+
+.mobile-shell {
   width: calc(95vw - 32px);
   min-width: 0;
   max-width: 100%;
   max-height: calc(100dvh - 2em - 33px);
-  aspect-ratio: auto;
+  min-height: 0;
   overflow: hidden;
   gap: 0;
 }
 
-.vision-position-edit-dialog.mobile .tab-header {
+.mobile-shell .tab-header {
   flex-shrink: 0;
   margin-top: 0;
 }
 
-.vision-position-edit-dialog.mobile .position-tab,
-.vision-position-edit-dialog.mobile .source-tab {
+.mobile-shell .position-tab,
+.mobile-shell .source-tab {
   flex: 1;
   min-height: 0;
   padding-top: 10px;
   box-sizing: border-box;
 }
 
-.vision-position-edit-dialog.mobile .main-buttons {
+.mobile-shell .main-buttons {
   flex-shrink: 0;
 }
 
-.vision-position-edit-dialog.mobile .content {
+.mobile-shell .content {
   flex: 1;
   min-height: 0;
   justify-content: center;
@@ -284,7 +285,7 @@ h2 {
   object-fit: contain;
 }
 
-.vision-position-edit-dialog.mobile .source-image {
+.mobile-shell .source-image {
   width: 100%;
   height: auto;
   max-height: calc(100dvh - 190px);

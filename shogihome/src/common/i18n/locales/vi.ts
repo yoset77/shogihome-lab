@@ -203,6 +203,7 @@ export const vi: Texts = {
   tabViewStyle: "Hiện thẻ",
   oneColumn: "1 cột",
   twoColumns: "2 cột",
+  twoByTwo: "2 cột × 2 hàng",
   sounds: "Âm thanh",
   pieceSoundVolume: "Âm lượng quân",
   clockSoundVolume: "Âm lượng đồng hồ",
@@ -276,6 +277,7 @@ export const vi: Texts = {
   confirmCleanupData:
     "Are you sure you want to delete all analysis results with depth less than specified?",
   noDataInAnalysisDB: "Không có dữ liệu trong DB cho vị trí này.",
+  noSavedAnalysisResults: "Không có kết quả phân tích nào được lưu trong DB.",
   mateShort: "M",
   displayPVShort: "Đi",
   evaluation: "Đánh giá",
@@ -283,6 +285,7 @@ export const vi: Texts = {
   score: "Đ.giá",
   estimatedWinRate: "Tỷ lệ thắng ước tính",
   evaluationAndEstimatedWinRateAndPV: "Đánh giá & tỷ lệ thắng ước tính & PV",
+  evaluationChartRange: "Phạm vi biểu đồ đánh giá",
   hideEngineThinkingInHumanGames: "Ẩn suy nghĩ của engine khi đấu với người",
   swapEachTurnChange: "Đổi mỗi lượt",
   alwaysSenteIsPositive: "Tiên luôn dương",
