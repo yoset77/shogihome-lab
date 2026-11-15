@@ -58,14 +58,17 @@ export function stopBeep(): void {
 }
 
 let lastPieceBeatTime: number;
+let pieceBeatAudio: HTMLAudioElement | undefined;
 
 export function playPieceBeat(volume: number): void {
   const time = Date.now();
   if (lastPieceBeatTime && time < lastPieceBeatTime + 200) {
     return;
   }
-  const audio = new Audio("sound/piece.mp3");
+  const audio = (pieceBeatAudio ||= new Audio("sound/piece.mp3"));
+  audio.currentTime = 0;
   audio.volume = volume * 0.01;
-  audio.play();
+  // Browsers can reject playback until audio is allowed by a user gesture.
+  void audio.play().catch(() => {});
   lastPieceBeatTime = time;
 }

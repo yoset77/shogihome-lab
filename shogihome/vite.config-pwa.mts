@@ -2,6 +2,7 @@
 import { defineConfig } from "vite";
 import base from "./vite.config.mjs";
 import { VitePWA } from "vite-plugin-pwa";
+import { staticAssetPathPatterns } from "./src/common/assets/static.ts";
 
 export default defineConfig({
   ...base,
@@ -25,7 +26,12 @@ export default defineConfig({
       workbox: {
         skipWaiting: false,
         clientsClaim: false,
-        navigateFallbackDenylist: [/^\/third-party-licenses/],
+        globPatterns: ["**/*.{js,css,html}", "{board,piece,stand,icon}/**/*.{png,webp,svg}"],
+        navigateFallbackDenylist: [
+          /^\/api(?:\/|$)/,
+          /^\/third-party-licenses/,
+          ...staticAssetPathPatterns,
+        ],
       },
     }),
   ],

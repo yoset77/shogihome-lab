@@ -14,9 +14,11 @@ describe("store/webapp", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.useFakeTimers();
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
