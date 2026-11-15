@@ -80,9 +80,9 @@ describe("BoardView", () => {
       },
     });
     const imgs = wrapper.findAll("img");
-    expect(imgs.filter((img) => img.attributes()["src"] === "./board/wood_light.png")).toHaveLength(
-      1,
-    );
+    expect(
+      imgs.filter((img) => img.attributes()["src"] === "./board/wood_light.webp"),
+    ).toHaveLength(1);
     expect(
       imgs.filter((img) => img.attributes()["src"] === "./piece/hitomoji/white_bishop.png"),
     ).toHaveLength(1);
@@ -95,6 +95,27 @@ describe("BoardView", () => {
     expect(
       imgs.filter((img) => img.attributes()["src"] === "./piece/hitomoji_gothic/black_gold.png"),
     ).toHaveLength(0);
+  });
+
+  it.each([
+    [BoardImageType.LIGHT, "./board/wood_light.webp"],
+    [BoardImageType.LIGHT2, "./board/wood_light2.webp"],
+    [BoardImageType.LIGHT3, "./board/wood_light3.webp"],
+    [BoardImageType.WARM, "./board/wood_warm.webp"],
+    [BoardImageType.WARM2, "./board/wood_warm2.webp"],
+  ])("uses bundled WebP textures for %s boards and wooden stands", async (boardImageType, src) => {
+    const wrapper = mountEditable();
+    await wrapper.setProps({
+      boardImageType,
+      pieceStandImageType: PieceStandImageType.DARK_WOOD,
+    });
+
+    expect(wrapper.get(".board img.full").attributes("src")).toBe(src);
+    const stands = wrapper.findAll(".hand-background img");
+    expect(stands).toHaveLength(2);
+    for (const stand of stands) {
+      expect(stand.attributes("src")).toBe("./stand/wood_dark.webp");
+    }
   });
 
   describe("candidate arrows", () => {
