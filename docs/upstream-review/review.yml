@@ -23,6 +23,28 @@ last_review:
 
 candidates:
   - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1900
+    summary: 盤・駒台のWebP化と木製一文字駒の軽量化
+    status: closed
+    assessed_lab_sha: 04b664883845663009fd24a29867a8cc03c6658b
+    targets:
+      - shogihome/public/board/
+      - shogihome/public/stand/
+      - shogihome/public/piece/hitomoji_wood/
+      - shogihome/src/renderer/view/primitive/board/config.ts
+      - shogihome/src/tests/renderer/view/primitive/board.spec.ts
+    evidence: >-
+      対象36画像は本家の変更前とバイト単位で一致。既定構成で参照する画像の合計は
+      約1.15MBから0.36MBへ減る。LabはgenerateSWを使い、盤・駒画像の実行時キャッシュを
+      設定していないため、本家のsrc/sw.jsの変更は適用対象外。
+    resolution: >-
+      利用者の承認に基づき、本家のmerge e8f5a614の画像36点と盤・駒台の参照先を移植。
+      5種類の盤と両駒台のWebP参照を回帰テストに追加。
+      設定値・PWAのキャッシュ方針・音声処理は変更しない。
+      関連単体テストとChromiumの本番buildで36画像のデコード・寸法維持、
+      対局画面風の局面図のPNG/JPEG出力を確認。WebKit・オフライン更新は未試験。
+
+  - sources:
       - https://github.com/sunfish-shogi/shogihome/blob/59a2b75b1fe50afc8bb0852a9697318ebe6c6e87/src/background/usi/engine.ts#L404-L428
     summary: 再利用エンジンの各局開始前の準備完了確認
     status: closed
