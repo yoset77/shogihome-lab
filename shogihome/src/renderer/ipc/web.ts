@@ -542,7 +542,7 @@ export const webAPI: Bridge = {
       (el, canvasWidth, canvasHeight) =>
         toPng(el, {
           pixelRatio: 1,
-          cacheBust: true,
+          cacheBust: false,
           backgroundColor: "white",
           canvasWidth,
           canvasHeight,
@@ -556,7 +556,7 @@ export const webAPI: Bridge = {
       (el, canvasWidth, canvasHeight) =>
         toJpeg(el, {
           pixelRatio: 1,
-          cacheBust: true,
+          cacheBust: false,
           backgroundColor: "white",
           quality: 0.9,
           canvasWidth,

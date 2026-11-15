@@ -40,7 +40,9 @@ candidates:
     resolution: >-
       利用者の承認に基づき、本家のmerge e8f5a614の画像36点と盤・駒台の参照先を移植。
       5種類の盤と両駒台のWebP参照を回帰テストに追加。
-      設定値・PWAのキャッシュ方針・音声処理は変更しない。
+      同梱画像の事前キャッシュ、静的配信のETag・Range対応、局面図出力のcacheBust無効化、
+      駒音のHTMLAudioElement再利用はLab独自判断で採用。
+      本家のStaleWhileRevalidateやWeb Audio APIへの変更を移植したものではない。
       関連単体テストとChromiumの本番buildで36画像のデコード・寸法維持、
       対局画面風の局面図のPNG/JPEG出力を確認。WebKit・オフライン更新は未試験。
 
@@ -103,7 +105,8 @@ candidates:
       Serverジョブは既存の終了・デタッチ経路を使い、暗黙停止や再作成はしない。
       単体テストと2世代の本番buildを用いた
       Chromiumで、更新検知・延期・別タブ維持・明示適用・棋譜情報復元・390px幅を確認。
-      WebKit・実インストールPWAは未試験。画像キャッシュ拡張は取り込まない。
+      WebKit・実インストールPWAは未試験。
+      画像キャッシュはLab独自判断で全デザインの事前キャッシュを採用。
 
   - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1671

@@ -576,6 +576,7 @@ describe("renderer/ipc/web", () => {
       board,
       expect.objectContaining({
         pixelRatio: 1,
+        cacheBust: false,
         backgroundColor: "white",
         canvasWidth: 1200,
         canvasHeight: 900,
@@ -616,6 +617,7 @@ describe("renderer/ipc/web", () => {
       board,
       expect.objectContaining({
         pixelRatio: 1,
+        cacheBust: false,
         backgroundColor: "white",
         canvasWidth: 800,
         canvasHeight: 450,
@@ -663,6 +665,7 @@ describe("renderer/ipc/web", () => {
       board,
       expect.objectContaining({
         pixelRatio: 1,
+        cacheBust: false,
         backgroundColor: "white",
         quality: 0.9,
         canvasWidth: 1200,
