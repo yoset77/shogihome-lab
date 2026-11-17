@@ -23,6 +23,42 @@ last_review:
 
 candidates:
   - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1282
+    summary: 時計音のAudioContext再利用
+    status: closed
+    assessed_lab_sha: 8f5efa9276daf309cedad895dcb6183ca396f8c7
+    targets:
+      - shogihome/src/renderer/devices/audio.ts
+      - shogihome/src/tests/renderer/devices/audio.spec.ts
+    evidence: >-
+      時計音の各再生でAudioContextを生成し、ノードのdisconnect後もcloseしていない。
+      既存コードの最小再現と追加した回帰テストで、短音20回に対してContextが20個生成されることを確認。
+    resolution: >-
+      利用者の承認に基づき、Contextの遅延生成・短音と長音での共有・closed時の再生成を移植。
+      既存の音量・音程の既定値、長音の停止、ノードの切断は維持する。
+      非running時はresumeを試み、再開拒否による未処理Promise拒否は防ぐ。
+      非running中の時計音は予約せず破棄し、復旧後に古い通知をまとめて鳴らさない。
+      既存の長音が中断された場合も、重複ノードを作らず再開を試みる。
+      回帰確認はaudio.spec.tsを参照。実ブラウザーの割り込み復旧・長時間メモリ計測は未実施。
+
+  - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1283
+    summary: 音量0以下で時計音・駒音の音声API呼び出しを抑止
+    status: closed
+    assessed_lab_sha: 8f5efa9276daf309cedad895dcb6183ca396f8c7
+    targets:
+      - shogihome/src/renderer/devices/audio.ts
+      - shogihome/src/tests/renderer/devices/audio.spec.ts
+    evidence: >-
+      時計音はvolumeの既定値に||を使うため、音量0でもgainが0.01になる。
+      駒音も音量0でHTMLAudioElementの生成・再生とthrottleの時刻更新を行う。
+    resolution: >-
+      利用者の承認に基づき、音量0以下では音声APIを呼び出さずに終了するよう修正。
+      無音の駒音は既存要素とthrottleに触れず、次の有音再生を妨げない。
+      回帰確認はaudio.spec.tsを参照。駒音はHTMLAudioElement再利用を維持し、
+      #1899のWeb Audio APIへの変更は移植しない。
+
+  - sources:
       - https://github.com/sunfish-shogi/shogihome/pull/1900
     summary: 盤・駒台のWebP化と木製一文字駒の軽量化
     status: closed
