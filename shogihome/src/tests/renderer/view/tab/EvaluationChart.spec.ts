@@ -80,6 +80,10 @@ describe("EvaluationChart", () => {
         { x: 3, y: range },
       ]);
       expect(chart.data.datasets[2].data).toEqual([{ x: 2, y: Math.max(-1800, -range) }]);
+      expect(chart.data.datasets.slice(1)).toEqual([
+        expect.objectContaining({ borderJoinStyle: "round" }),
+        expect.objectContaining({ borderJoinStyle: "round" }),
+      ]);
     }
     wrapper.unmount();
   });
@@ -95,6 +99,10 @@ describe("EvaluationChart", () => {
       },
     });
     const chart = charts[0];
+    expect(chart.data.datasets.slice(1)).toEqual([
+      expect.objectContaining({ borderJoinStyle: "round" }),
+      expect.objectContaining({ borderJoinStyle: "round" }),
+    ]);
     const originalDatasets = structuredClone(chart.data.datasets);
     await wrapper.setProps({ scoreRange: 1000 });
     expect(chart.options.scales.y).toMatchObject({ min: 0, max: 100, ticks: { stepSize: 25 } });
