@@ -1,4 +1,15 @@
 let lastLongBeep: OscillatorNode | undefined;
+let audioContext: AudioContext | undefined;
+
+function getAudioContext(): AudioContext {
+  if (!audioContext || audioContext.state === "closed") {
+    audioContext = new AudioContext();
+  }
+  if (audioContext.state !== "running") {
+    void audioContext.resume().catch(() => {});
+  }
+  return audioContext;
+}
 
 function beep(options?: {
   type?: OscillatorType;
@@ -6,13 +17,17 @@ function beep(options?: {
   time?: number;
   volume?: number;
 }): void {
-  if (lastLongBeep) {
+  const volume = options?.volume ?? 2;
+  if (volume <= 0) {
+    return;
+  }
+  const context = getAudioContext();
+  // Do not queue clock sounds while the audio context is paused.
+  if (context.state !== "running" || lastLongBeep) {
     return;
   }
   const type = options?.type || "sine";
   const frequency = options?.frequency || 440;
-  const volume = options?.volume || 2;
-  const context = new AudioContext();
   const oscillator = context.createOscillator();
   const gain = context.createGain();
   oscillator.connect(gain);
@@ -61,11 +76,17 @@ let lastPieceBeatTime: number;
 let pieceBeatAudio: HTMLAudioElement | undefined;
 
 export function playPieceBeat(volume: number): void {
+  if (volume <= 0) {
+    return;
+  }
   const time = Date.now();
   if (lastPieceBeatTime && time < lastPieceBeatTime + 200) {
     return;
   }
   const audio = (pieceBeatAudio ||= new Audio("sound/piece.mp3"));
+  if (audio.error) {
+    audio.load();
+  }
   audio.currentTime = 0;
   audio.volume = volume * 0.01;
   // Browsers can reject playback until audio is allowed by a user gesture.
