@@ -234,6 +234,7 @@ const buildDataset = (
   return {
     label: getSeriesName(series),
     borderColor,
+    borderJoinStyle: "round" as const,
     data: dataPoints,
     showLine: true,
   };
