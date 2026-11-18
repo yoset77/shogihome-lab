@@ -24,13 +24,16 @@ describe("server game books", () => {
     filePath: "server://book.db",
   };
   let book: GameBook;
-  beforeEach(async () => {
-    config.directory = await fs.mkdtemp(path.join(os.tmpdir(), "game-book-"));
+  const openBook = async (moves: string) => {
     await fs.writeFile(
       path.join(config.directory, "book.db"),
-      `#YANEURAOU-DB2016 1.00\nsfen ${new Position().sfen}\n7g7f 3c3d 100 8 10\n2g2f none 50 12 20\n5i5a none 999 99 1\n`,
+      `#YANEURAOU-DB2016 1.00\nsfen ${new Position().sfen}\n${moves}\n`,
     );
-    book = await GameBook.open(options);
+    return GameBook.open(options);
+  };
+  beforeEach(async () => {
+    config.directory = await fs.mkdtemp(path.join(os.tmpdir(), "game-book-"));
+    book = await openBook("7g7f 3c3d 100 8 10\n2g2f none 50 12 20\n5i5a none 999 99 1");
   });
   afterEach(async () => {
     book?.close();
@@ -55,9 +58,18 @@ describe("server game books", () => {
       (await search({ ...options, moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_SCORE }))
         ?.usi,
     ).toBe("7g7f");
-    expect((await search({ ...options, bookDepthLimit: 10 }))?.usi).toBe("2g2f");
+    expect((await search({ ...options, bookDepthLimit: 8 }))?.usi).toBe("2g2f");
+    expect((await search({ ...options, maxEvalDiff: 0 }))?.usi).toBe("7g7f");
     expect((await search({ ...options, ignoreRate: 100 }))?.usi).toBeUndefined();
     expect((await search({ ...options, minEvalBlack: 200 }))?.usi).toBeUndefined();
+  });
+  it("rejects a .db entry when the primary move omits its depth column", async () => {
+    book.close();
+    book = await openBook("7g7f none 100\n2g2f none 90 30 1");
+    expect((await book.search(new Position().sfen))[0].depth).toBeUndefined();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    expect((await search())?.usi).toBe("7g7f");
+    expect((await search({ ...options, bookDepthLimit: 10 }))?.usi).toBeUndefined();
   });
   it("uses flipped positions only when the original position is absent", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
@@ -95,7 +107,7 @@ describe("server game books", () => {
       await expect(GameBook.open({ ...options, filePath })).rejects.toThrow();
   });
 
-  const fixture = () => {
+  const fixture = (settings = options) => {
     const engine: GameEngine = {
       launch: vi.fn(),
       setMultiPV: vi.fn(),
@@ -116,7 +128,7 @@ describe("server game books", () => {
       onWin: vi.fn(),
       onError: vi.fn(),
     };
-    const player = new GamePlayer(engine, book, options);
+    const player = new GamePlayer(engine, book, settings);
     const start = () =>
       player.startSearch(
         new Position(),
@@ -129,6 +141,22 @@ describe("server game books", () => {
       );
     return { player, engine, handler, start };
   };
+  it("falls back to engine search when the highest-scored legal book move is shallow", async () => {
+    const { player, engine, handler, start } = fixture({ ...options, bookDepthLimit: 10 });
+    await start();
+    expect(engine.startSearch).toHaveBeenCalledOnce();
+    expect(handler.onMove).not.toHaveBeenCalled();
+    await player.close();
+  });
+  it("falls back to engine search if the evaluation limit leaves no scored book moves", async () => {
+    book.close();
+    book = await openBook("7g7f none none 30 100");
+    const { player, engine, handler, start } = fixture({ ...options, maxEvalDiff: 0 });
+    await start();
+    expect(engine.startSearch).toHaveBeenCalledOnce();
+    expect(handler.onMove).not.toHaveBeenCalled();
+    await player.close();
+  });
   it("falls back to timed engine search after a book read failure and closes its owned handle", async () => {
     vi.spyOn(book, "search").mockRejectedValue(new Error("Book read failed"));
     const close = vi.spyOn(book, "close");

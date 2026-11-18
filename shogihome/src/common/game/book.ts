@@ -13,50 +13,111 @@ export interface BookSearchOptions {
   bookDepthLimit?: number;
 }
 
-export function filterBookMoves(moves: BookMove[], options: BookSearchOptions): BookMove[] {
+function primaryMoveScore({ score }: BookMove): number {
+  return score !== undefined && Number.isFinite(score) ? score : -Infinity;
+}
+
+function comparePrimaryBookMoves(a: BookMove, b: BookMove): number {
+  const aScore = primaryMoveScore(a);
+  const bScore = primaryMoveScore(b);
+  return aScore === bScore ? (b.count ?? 1) - (a.count ?? 1) : bScore - aScore;
+}
+
+/**
+ * Filters book moves by legality (when isValid is given) and evaluation.
+ * Evaluation limits require a known score. maxEvalDiff is measured from the
+ * highest eligible score before applying depth limits.
+ *
+ * When a depth limit applies, check the remaining move with the highest known
+ * score first, breaking ties (or falling back if no scores are known) by count.
+ * If that move fails the depth limit, reject the whole entry. Otherwise, keep
+ * only moves that meet the limit.
+ */
+export function filterBookMoves(
+  moves: BookMove[],
+  options: BookSearchOptions,
+  isValid?: (move: BookMove) => boolean,
+): BookMove[] {
   if (options.ignoreRate && Math.random() < options.ignoreRate / 100) return [];
-  let filtered = moves.filter(
-    (move) =>
-      !options.bookDepthLimit || move.depth === undefined || move.depth >= options.bookDepthLimit,
-  );
+  let filtered = isValid ? moves.filter(isValid) : moves;
   const min = options.turn === Color.BLACK ? options.minEvalBlack : options.minEvalWhite;
-  if (min !== undefined)
-    filtered = filtered.filter((move) => move.score === undefined || move.score >= min);
-  if (options.maxEvalDiff !== undefined && options.maxEvalDiff >= 0) {
-    const best = Math.max(...filtered.map((move) => move.score ?? -Infinity));
-    filtered = filtered.filter(
-      (move) => move.score === undefined || best - move.score <= options.maxEvalDiff!,
+  const { maxEvalDiff } = options;
+  const hasMaxEvalDiff = maxEvalDiff !== undefined && maxEvalDiff >= 0;
+  if (min !== undefined || hasMaxEvalDiff) {
+    const scored = filtered.filter(
+      (move): move is BookMove & { score: number } =>
+        move.score !== undefined &&
+        Number.isFinite(move.score) &&
+        (min === undefined || move.score >= min),
     );
+    if (hasMaxEvalDiff) {
+      const bestScore = scored.reduce((best, { score }) => Math.max(best, score), -Infinity);
+      filtered = scored.filter(({ score }) => bestScore - score <= maxEvalDiff);
+    } else {
+      filtered = scored;
+    }
   }
-  return filtered;
+  const depthLimit = options.bookDepthLimit ?? 0;
+  if (!(depthLimit > 0) || !filtered.length) return filtered;
+  const meetsDepthLimit = ({ depth }: BookMove) =>
+    depth !== undefined && Number.isFinite(depth) && depth >= depthLimit;
+  const primary = filtered.reduce((best, move) =>
+    comparePrimaryBookMoves(move, best) < 0 ? move : best,
+  );
+  return meetsDepthLimit(primary) ? filtered.filter(meetsDepthLimit) : [];
 }
 
 export function selectBookMove(moves: BookMove[], options: BookSearchOptions): BookMove {
-  if (moves.length <= 1) return moves[0];
-  if (options.moveSelectionRule === BookMoveSelectionRule.UNIFORM)
-    return moves[Math.floor(Math.random() * moves.length)];
-  let weights: number[];
-  if (options.moveSelectionRule === BookMoveSelectionRule.WEIGHTED_BY_COUNT)
-    weights = moves.map((move) => move.count ?? 1);
-  else if (options.moveSelectionRule === BookMoveSelectionRule.WEIGHTED_BY_SCORE) {
-    const max = Math.max(...moves.map((move) => move.score ?? -Infinity));
-    if (!Number.isFinite(max)) return moves[0];
-    const temperature =
-      options.scoreTemperature > 0 && Number.isFinite(options.scoreTemperature)
-        ? options.scoreTemperature
-        : DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE;
-    weights = moves.map((move) =>
-      move.score === undefined ? 0 : Math.exp((move.score - max) / temperature),
-    );
-  } else return moves[0];
-  weights = weights.map((weight) => (Number.isFinite(weight) && weight > 0 ? weight : 0));
-  const max = Math.max(...weights);
-  if (max === 0) return moves[0];
-  weights = weights.map((weight) => weight / max);
-  let choice = Math.random() * weights.reduce((sum, weight) => sum + weight, 0);
-  for (let index = 0; index < moves.length; index++) {
-    choice -= weights[index];
-    if (choice < 0) return moves[index];
+  if (moves.length <= 1) {
+    return moves[0];
   }
-  return moves[moves.length - 1];
+
+  switch (options.moveSelectionRule) {
+    case BookMoveSelectionRule.WEIGHTED_BY_COUNT:
+      return selectWeightedRandom(moves, (move) => move.count ?? 1);
+    case BookMoveSelectionRule.WEIGHTED_BY_SCORE: {
+      const scores = moves
+        .map((move) => move.score)
+        .filter((score): score is number => score !== undefined && Number.isFinite(score));
+      if (scores.length === 0) {
+        return moves[0];
+      }
+      const maxScore = Math.max(...scores);
+      const temperature =
+        Number.isFinite(options.scoreTemperature) && options.scoreTemperature > 0
+          ? options.scoreTemperature
+          : DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE;
+      return selectWeightedRandom(moves, (move) =>
+        move.score !== undefined && Number.isFinite(move.score)
+          ? Math.exp((move.score - maxScore) / temperature)
+          : 0,
+      );
+    }
+    case BookMoveSelectionRule.UNIFORM:
+      return moves[Math.floor(Math.random() * moves.length)];
+    default:
+      return moves[0];
+  }
+}
+
+function selectWeightedRandom<T>(items: T[], getWeight: (item: T) => number): T {
+  const weights = items.map((item) => {
+    const weight = getWeight(item);
+    return Number.isFinite(weight) && weight > 0 ? weight : 0;
+  });
+  const maxWeight = Math.max(...weights);
+  if (maxWeight <= 0) {
+    return items[0];
+  }
+
+  const normalizedWeights = weights.map((weight) => weight / maxWeight);
+  const total = normalizedWeights.reduce((sum, weight) => sum + weight, 0);
+  let remaining = Math.random() * total;
+  for (let i = 0; i < items.length; i++) {
+    remaining -= normalizedWeights[i];
+    if (remaining < 0) {
+      return items[i];
+    }
+  }
+  return items[items.length - 1];
 }

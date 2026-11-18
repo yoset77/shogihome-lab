@@ -58,6 +58,11 @@ function normalizeSFEN(sfen: string): [string, number] {
   ];
 }
 
+function parseOptionalInteger(column: string | undefined): number | undefined {
+  const value = parseInt(column ?? "", 10);
+  return Number.isFinite(value) ? value : undefined;
+}
+
 function parseLine(line: string): Line {
   // コメント
   if (line.startsWith(CommentMarker1)) {
@@ -84,12 +89,9 @@ function parseLine(line: string): Line {
       move: {
         usi: columns[0],
         usi2: columns[1] === MOVE_NONE ? undefined : columns[1],
-        // ShogiHome v1.20.0 は score と depth の省略時に空文字を出力する実装なので空文字も判定に含める。
-        score:
-          columns[2] === SCORE_NONE || columns[2] === "" ? undefined : parseInt(columns[2], 10),
-        depth:
-          columns[3] === DEPTH_NONE || columns[3] === "" ? undefined : parseInt(columns[3], 10),
-        count: columns[4] ? parseInt(columns[4], 10) : undefined,
+        score: parseOptionalInteger(columns[2]),
+        depth: parseOptionalInteger(columns[3]),
+        count: parseOptionalInteger(columns[4]),
         comment:
           commentIndex < line.length ? line.slice(commentIndex).replace(/^(#|\/\/)/, "") : "",
       },
