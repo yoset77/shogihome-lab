@@ -61,9 +61,11 @@ export async function searchGameBook(
         }));
       if (signal.aborted) return;
       const options = { ...config, turn: position.color };
-      const candidates = filterBookMoves(moves, options).filter((candidate) => {
+      // Invalid moves are dropped before the primary move is picked, mirroring
+      // YaneuraOu's illegal-move exclusion.
+      const candidates = filterBookMoves(moves, options, (candidate) => {
         const move = position.createMoveByUSI(candidate.usi);
-        return move && position.isValidMove(move);
+        return move !== null && position.isValidMove(move);
       });
       if (!candidates.length) return;
       for (const [index, move] of moves.slice(0, 32).entries())

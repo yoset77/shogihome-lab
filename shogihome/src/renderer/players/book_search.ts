@@ -1,22 +1,10 @@
-import { Color, ImmutablePosition, Move } from "tsshogi";
+import { ImmutablePosition, Move } from "tsshogi";
 import api from "@/renderer/ipc/api";
 import { LogLevel } from "@/common/log";
 import { USIInfoCommand } from "@/common/game/usi";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "./usi_events";
-import { BookMove } from "@/common/book";
-import { BookMoveSelectionRule, DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE } from "@/common/settings/usi";
+import { filterBookMoves, selectBookMove, type BookSearchOptions } from "@/common/game/book";
 import { flippedSFEN, flippedUSIMove } from "@/common/helpers/sfen";
-
-export interface BookSearchOptions {
-  moveSelectionRule: BookMoveSelectionRule;
-  scoreTemperature: number;
-  turn: Color;
-  minEvalBlack?: number;
-  minEvalWhite?: number;
-  maxEvalDiff?: number;
-  ignoreRate?: number;
-  bookDepthLimit?: number;
-}
 
 /**
  * Searches for book moves and reports them to the player.
@@ -56,36 +44,11 @@ export async function searchBookMovesForPlayer(
       return false;
     }
 
-    // Apply ignoreRate: randomly skip book and fall back to engine search
-    // ignoreRate is stored as percentage (0-100), convert to probability (0.0-1.0)
-    const ignoreRate = (options.ignoreRate ?? 0) / 100;
-    if (ignoreRate > 0 && Math.random() < ignoreRate) {
-      return false;
-    }
-
-    // Apply bookDepthLimit filter
-    let filteredMoves = bookMoves;
-    const depthLimit = options.bookDepthLimit ?? 0;
-    if (depthLimit > 0) {
-      filteredMoves = filteredMoves.filter((m) => m.depth === undefined || m.depth >= depthLimit);
-    }
-
-    // Apply minEval filter
-    const minEval = options.turn === Color.BLACK ? options.minEvalBlack : options.minEvalWhite;
-    if (typeof minEval === "number") {
-      filteredMoves = filteredMoves.filter((m) => m.score === undefined || m.score >= minEval);
-    }
-
-    // Apply maxEvalDiff filter
-    if (typeof options.maxEvalDiff === "number" && options.maxEvalDiff >= 0) {
-      const bestScore = Math.max(...filteredMoves.map((m) => m.score ?? -Infinity));
-      if (bestScore > -Infinity) {
-        filteredMoves = filteredMoves.filter(
-          (m) => m.score === undefined || bestScore - m.score <= options.maxEvalDiff!,
-        );
-      }
-    }
-
+    // Rejecting the entry here makes the engine search on its own.
+    const filteredMoves = filterBookMoves(bookMoves, options, (candidate) => {
+      const move = position.createMoveByUSI(candidate.usi);
+      return move !== null && position.isValidMove(move);
+    });
     if (filteredMoves.length === 0) {
       return false;
     }
@@ -127,59 +90,4 @@ export async function searchBookMovesForPlayer(
     api.log(LogLevel.ERROR, `Failed to search book moves: ${e}`);
     return false;
   }
-}
-
-function selectBookMove(moves: BookMove[], options: BookSearchOptions): BookMove {
-  if (moves.length <= 1) {
-    return moves[0];
-  }
-
-  switch (options.moveSelectionRule) {
-    case BookMoveSelectionRule.WEIGHTED_BY_COUNT:
-      return selectWeightedRandom(moves, (move) => move.count ?? 1);
-    case BookMoveSelectionRule.WEIGHTED_BY_SCORE: {
-      const scores = moves
-        .map((move) => move.score)
-        .filter((score): score is number => score !== undefined && Number.isFinite(score));
-      if (scores.length === 0) {
-        return moves[0];
-      }
-      const maxScore = Math.max(...scores);
-      const temperature =
-        Number.isFinite(options.scoreTemperature) && options.scoreTemperature > 0
-          ? options.scoreTemperature
-          : DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE;
-      return selectWeightedRandom(moves, (move) =>
-        move.score !== undefined && Number.isFinite(move.score)
-          ? Math.exp((move.score - maxScore) / temperature)
-          : 0,
-      );
-    }
-    case BookMoveSelectionRule.UNIFORM:
-      return moves[Math.floor(Math.random() * moves.length)];
-    default:
-      return moves[0];
-  }
-}
-
-function selectWeightedRandom<T>(items: T[], getWeight: (item: T) => number): T {
-  const weights = items.map((item) => {
-    const weight = getWeight(item);
-    return Number.isFinite(weight) && weight > 0 ? weight : 0;
-  });
-  const maxWeight = Math.max(...weights);
-  if (maxWeight <= 0) {
-    return items[0];
-  }
-
-  const normalizedWeights = weights.map((weight) => weight / maxWeight);
-  const total = normalizedWeights.reduce((sum, weight) => sum + weight, 0);
-  let remaining = Math.random() * total;
-  for (let i = 0; i < items.length; i++) {
-    remaining -= normalizedWeights[i];
-    if (remaining < 0) {
-      return items[i];
-    }
-  }
-  return items[items.length - 1];
 }

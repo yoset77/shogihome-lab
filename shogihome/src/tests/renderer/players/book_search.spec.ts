@@ -72,7 +72,7 @@ describe("searchBookMovesForPlayer", () => {
     (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
       { usi: "7g7f", score: 100, comment: "" },
       { usi: "2g2f", score: -50, comment: "" },
-      { usi: "3c3d", score: 200, comment: "" },
+      { usi: "3g3f", score: 200, comment: "" },
     ]);
 
     const onMove = vi.fn();
@@ -89,13 +89,13 @@ describe("searchBookMovesForPlayer", () => {
     expect(result).toBe(true);
     expect(onMove).toBeCalledTimes(1);
     const calledMove = onMove.mock.calls[0][0];
-    expect(["7g7f", "3c3d"]).toContain(calledMove.usi);
+    expect(["7g7f", "3g3f"]).toContain(calledMove.usi);
   });
 
   it("should filter moves by minEvalWhite", async () => {
     (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { usi: "7g7f", score: 100, comment: "" },
-      { usi: "2g2f", score: -50, comment: "" },
+      { usi: "7c7d", score: 100, comment: "" },
+      { usi: "2c2d", score: -50, comment: "" },
       { usi: "3c3d", score: 200, comment: "" },
     ]);
 
@@ -115,14 +115,14 @@ describe("searchBookMovesForPlayer", () => {
     expect(result).toBe(true);
     expect(onMove).toBeCalledTimes(1);
     const calledMove = onMove.mock.calls[0][0];
-    expect(["7g7f", "3c3d"]).toContain(calledMove.usi);
+    expect(["7c7d", "3c3d"]).toContain(calledMove.usi);
   });
 
   it("should filter moves by maxEvalDiff", async () => {
     (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
       { usi: "7g7f", score: 200, comment: "" },
       { usi: "2g2f", score: 150, comment: "" },
-      { usi: "3c3d", score: 50, comment: "" },
+      { usi: "3g3f", score: 50, comment: "" },
     ]);
 
     const onMove = vi.fn();
@@ -144,8 +144,8 @@ describe("searchBookMovesForPlayer", () => {
 
   it("should filter moves by maxEvalDiff for White's turn", async () => {
     (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { usi: "7g7f", score: 200, comment: "" },
-      { usi: "2g2f", score: 150, comment: "" },
+      { usi: "7c7d", score: 200, comment: "" },
+      { usi: "2c2d", score: 150, comment: "" },
       { usi: "3c3d", score: 120, comment: "" },
       { usi: "8c8d", score: -50, comment: "" },
     ]);
@@ -166,7 +166,7 @@ describe("searchBookMovesForPlayer", () => {
     expect(result).toBe(true);
     expect(onMove).toBeCalledTimes(1);
     const calledMove = onMove.mock.calls[0][0];
-    expect(["7g7f", "2g2f"]).toContain(calledMove.usi);
+    expect(["7c7d", "2c2d"]).toContain(calledMove.usi);
   });
 
   it("should search the flipped position when the direct book has no moves", async () => {
@@ -208,7 +208,7 @@ describe("searchBookMovesForPlayer", () => {
     (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
       { usi: "7g7f", score: 200, comment: "" },
       { usi: "2g2f", score: 200, comment: "" },
-      { usi: "3c3d", score: 150, comment: "" },
+      { usi: "3g3f", score: 150, comment: "" },
     ]);
 
     const onMove = vi.fn();
@@ -226,6 +226,27 @@ describe("searchBookMovesForPlayer", () => {
     expect(onMove).toBeCalledTimes(1);
     const calledMove = onMove.mock.calls[0][0];
     expect(["7g7f", "2g2f"]).toContain(calledMove.usi);
+  });
+
+  it("should ignore illegal moves when applying the evaluation and depth limits", async () => {
+    (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { usi: "7g7e", count: 100, score: 999, depth: 3, comment: "" },
+      { usi: "2g2f", count: 1, score: 100, depth: 30, comment: "" },
+    ]);
+
+    const onMove = vi.fn();
+    const result = await searchBookMovesForPlayer(
+      mockSessionID,
+      mockPosition,
+      mockBookSessionID,
+      mockEngineName,
+      { ...weightedByCountOptions, turn: Color.BLACK, maxEvalDiff: 0, bookDepthLimit: 10 },
+      mockUSI,
+      onMove,
+    );
+
+    expect(result).toBe(true);
+    expect(onMove.mock.calls[0][0].usi).toBe("2g2f");
   });
 
   it("should return false when all moves are filtered out", async () => {
@@ -246,11 +267,54 @@ describe("searchBookMovesForPlayer", () => {
     expect(result).toBe(false);
   });
 
-  it("should filter moves by bookDepthLimit", async () => {
+  it("should fall back to the engine when the highest-scored move is shallow", async () => {
     (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { usi: "7g7f", score: 100, depth: 5, comment: "" },
-      { usi: "2g2f", score: 200, depth: 10, comment: "" },
-      { usi: "3c3d", score: 150, depth: 3, comment: "" },
+      { usi: "7g7f", count: 1, score: 200, depth: 3, comment: "" },
+      { usi: "2g2f", count: 100, score: 100, depth: 30, comment: "" },
+    ]);
+
+    const onMove = vi.fn();
+    const result = await searchBookMovesForPlayer(
+      mockSessionID,
+      mockPosition,
+      mockBookSessionID,
+      mockEngineName,
+      { ...uniformOptions, turn: Color.BLACK, bookDepthLimit: 10 },
+      mockUSI,
+      onMove,
+    );
+
+    expect(result).toBe(false);
+    expect(onMove).not.toBeCalled();
+    expect(triggerOnStartSearch).not.toBeCalled();
+  });
+
+  it("should exclude a shallow, frequent move when the highest-scored move is deep enough", async () => {
+    (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { usi: "7g7f", count: 1, score: 100, depth: 30, comment: "" },
+      { usi: "2g2f", count: 100, score: 90, depth: 3, comment: "" },
+    ]);
+
+    vi.spyOn(Math, "random").mockReturnValue(0.6);
+    const onMove = vi.fn();
+    const result = await searchBookMovesForPlayer(
+      mockSessionID,
+      mockPosition,
+      mockBookSessionID,
+      mockEngineName,
+      { ...uniformOptions, turn: Color.BLACK, bookDepthLimit: 10 },
+      mockUSI,
+      onMove,
+    );
+
+    expect(result).toBe(true);
+    expect(onMove.mock.calls[0][0].usi).toBe("7g7f");
+  });
+
+  it("should treat a missing depth as zero below the limit", async () => {
+    (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { usi: "7g7f", count: 1, score: 200, comment: "" },
+      { usi: "2g2f", count: 100, score: 100, depth: 30, comment: "" },
     ]);
 
     const onMove = vi.fn();
@@ -264,36 +328,11 @@ describe("searchBookMovesForPlayer", () => {
       onMove,
     );
 
-    expect(result).toBe(true);
-    expect(onMove).toBeCalledTimes(1);
-    const calledMove = onMove.mock.calls[0][0];
-    expect(["7g7f", "2g2f"]).toContain(calledMove.usi);
+    expect(result).toBe(false);
+    expect(onMove).not.toBeCalled();
   });
 
-  it("should allow moves with undefined depth when bookDepthLimit > 0", async () => {
-    (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { usi: "7g7f", score: 100, depth: 10, comment: "" },
-      { usi: "2g2f", score: 200, comment: "" },
-    ]);
-
-    const onMove = vi.fn();
-    const result = await searchBookMovesForPlayer(
-      mockSessionID,
-      mockPosition,
-      mockBookSessionID,
-      mockEngineName,
-      { ...uniformOptions, turn: Color.BLACK, bookDepthLimit: 5 },
-      mockUSI,
-      onMove,
-    );
-
-    expect(result).toBe(true);
-    expect(onMove).toBeCalledTimes(1);
-    const calledMove = onMove.mock.calls[0][0];
-    expect(["7g7f", "2g2f"]).toContain(calledMove.usi);
-  });
-
-  it("should return false when all moves are filtered out by bookDepthLimit", async () => {
+  it("should return false when the primary move's depth is below the limit for all moves", async () => {
     (api.searchBookMoves as ReturnType<typeof vi.fn>).mockResolvedValue([
       { usi: "7g7f", score: 100, depth: 2, comment: "" },
       { usi: "2g2f", score: 200, depth: 3, comment: "" },
