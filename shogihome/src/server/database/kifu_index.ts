@@ -572,81 +572,69 @@ export function getKifuSearchCount(params: KifuSearchParams): number {
 export function getKifuSearchStatistics(params: KifuSearchParams): KifuSearchStatistics {
   if (!db) throw new Error("Kifu index is unavailable");
   const search = buildKifuSearchSql(params);
-  // For position search, each matched file contributes exactly one representative
-  // row (PRIMARY KEY (kifu_id, position_id)), so next_move partitions every file.
-  const matchedColumns = `f.id, f.strategy, f.strategy_raw, f.black_name, f.white_name${
-    search.isPositionSearch ? ", kp.next_move" : ""
-  }`;
-  const matched = `WITH matched AS (
-    SELECT ${matchedColumns}
-    ${search.from}${search.where}
-  )`;
-  db.exec("BEGIN");
-  try {
-    const strategies = db
-      .prepare(
-        `${matched}
-      SELECT CASE WHEN strategy IS NOT NULL THEN strategy
-        WHEN strategy_raw IS NOT NULL THEN 'raw-only' ELSE 'unclassified' END AS strategy,
-        COUNT(*) AS count
-      FROM matched GROUP BY 1 ORDER BY count DESC, strategy ASC
-    `,
+  const nextMoveCounts = search.isPositionSearch
+    ? `,
+        (SELECT json_group_array(json_object('move', move, 'count', count)
+          ORDER BY count DESC, move IS NULL, move ASC)
+          FROM (SELECT next_move AS move, COUNT(*) AS count FROM matched GROUP BY next_move)) AS nextMoves`
+    : "";
+  // A single statement shares a read snapshot. Reuse filtered rows across aggregates,
+  // but let SQLite read the unfiltered table directly instead of copying it.
+  const materialization = search.where ? "MATERIALIZED" : "NOT MATERIALIZED";
+  const rows = db
+    .prepare(
+      `WITH matched AS ${materialization} (
+        SELECT CASE WHEN f.strategy IS NOT NULL THEN f.strategy
+          WHEN f.strategy_raw IS NOT NULL THEN 'raw-only' ELSE 'unclassified' END AS strategy,
+          f.black_name, f.white_name${search.isPositionSearch ? ", kp.next_move" : ""}
+        ${search.from}${search.where}
+      ),
+      strategy_counts AS (
+        SELECT strategy, COUNT(*) AS count FROM matched GROUP BY strategy
+      ),
+      appearances AS (
+        SELECT black_name AS raw_name, COUNT(*) AS black, 0 AS white FROM matched GROUP BY black_name
+        UNION ALL
+        SELECT white_name AS raw_name, 0 AS black, COUNT(*) AS white FROM matched GROUP BY white_name
+      ),
+      top_players AS (
+        SELECT CASE WHEN TRIM(raw_name) = '' THEN NULL ELSE raw_name END AS name,
+          SUM(black) AS black, SUM(white) AS white, SUM(black + white) AS total
+        FROM appearances GROUP BY 1 ORDER BY total DESC, name COLLATE BINARY ASC LIMIT ?
       )
-      .all(...search.args) as unknown as KifuSearchStatistics["strategies"];
-    const total = strategies.reduce((sum, row) => sum + row.count, 0);
-    const players = db
-      .prepare(
-        `${matched}, appearances AS (
-      SELECT CASE WHEN TRIM(COALESCE(black_name, '')) = '' THEN NULL ELSE black_name END AS name,
-        1 AS black, 0 AS white FROM matched
-      UNION ALL
-      SELECT CASE WHEN TRIM(COALESCE(white_name, '')) = '' THEN NULL ELSE white_name END AS name,
-        0 AS black, 1 AS white FROM matched
-    ) SELECT name, SUM(black) AS black, SUM(white) AS white, COUNT(*) AS total
-      FROM appearances GROUP BY name ORDER BY total DESC, name COLLATE BINARY ASC LIMIT ?
-    `,
-      )
-      .all(
-        ...search.args,
-        KIFU_STATISTICS_PLAYER_LIMIT,
-      ) as unknown as KifuSearchStatistics["players"];
-    // Each file contributes one appearance per side, including missing names.
-    const otherPlayers = players.reduce(
-      (remaining, row) => ({
-        black: remaining.black - row.black,
-        white: remaining.white - row.white,
-        total: remaining.total - row.total,
-      }),
-      { black: total, white: total, total: total * 2 },
-    );
-    const nextMoves = search.isPositionSearch
-      ? (db
-          .prepare(
-            `${matched}
-      SELECT next_move AS move, COUNT(*) AS count
-      FROM matched GROUP BY next_move
-      ORDER BY count DESC, next_move IS NULL, next_move ASC
-    `,
-          )
-          .all(...search.args) as unknown as NonNullable<KifuSearchStatistics["nextMoves"]>)
-      : undefined;
-    db.exec("COMMIT");
-    return {
-      total,
-      generatedAt: Date.now(),
-      strategies,
-      players,
-      otherPlayers,
-      ...(nextMoves ? { nextMoves } : {}),
-    };
-  } catch (error) {
-    try {
-      db.exec("ROLLBACK");
-    } catch {
-      // Preserve the original statistics error.
-    }
-    throw error;
-  }
+      SELECT
+        (SELECT json_group_array(json_object('strategy', strategy, 'count', count)
+          ORDER BY count DESC, strategy ASC) FROM strategy_counts) AS strategies,
+        (SELECT json_group_array(json_object('name', name, 'black', black, 'white', white, 'total', total)
+          ORDER BY total DESC, name COLLATE BINARY ASC) FROM top_players) AS players${nextMoveCounts}`,
+    )
+    .get(...search.args, KIFU_STATISTICS_PLAYER_LIMIT) as {
+    strategies: string;
+    players: string;
+    nextMoves?: string;
+  };
+  const strategies = JSON.parse(rows.strategies) as KifuSearchStatistics["strategies"];
+  const players = JSON.parse(rows.players) as KifuSearchStatistics["players"];
+  const total = strategies.reduce((sum, row) => sum + row.count, 0);
+  // Each file contributes one appearance per side, including missing names.
+  const otherPlayers = players.reduce(
+    (remaining, row) => ({
+      black: remaining.black - row.black,
+      white: remaining.white - row.white,
+      total: remaining.total - row.total,
+    }),
+    { black: total, white: total, total: total * 2 },
+  );
+  return {
+    total,
+    generatedAt: Date.now(),
+    strategies,
+    players,
+    otherPlayers,
+    ...(rows.nextMoves !== undefined
+      ? { nextMoves: JSON.parse(rows.nextMoves) as NonNullable<KifuSearchStatistics["nextMoves"]> }
+      : {}),
+  };
 }
 
 export function getKifuSearchFilePaths(
