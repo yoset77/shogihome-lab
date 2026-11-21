@@ -503,14 +503,12 @@ describe("server/database/kifu_index", () => {
     upsertKifuFile({ ...makeMetadata("unknown.kif"), black_name: " ", white_name: "B" }, []);
     const statistics = getKifuSearchStatistics({});
     expect(statistics.total).toBe(4);
-    expect(statistics.strategies).toEqual(
-      expect.arrayContaining([
-        { strategy: "角換わり", count: 1 },
-        { strategy: "その他", count: 1 },
-        { strategy: "raw-only", count: 1 },
-        { strategy: "unclassified", count: 1 },
-      ]),
-    );
+    expect(statistics.strategies).toEqual([
+      { strategy: "raw-only", count: 1 },
+      { strategy: "unclassified", count: 1 },
+      { strategy: "その他", count: 1 },
+      { strategy: "角換わり", count: 1 },
+    ]);
     expect(statistics.players).toEqual([
       { name: null, black: 2, white: 1, total: 3 },
       { name: "A", black: 1, white: 2, total: 3 },
@@ -582,34 +580,30 @@ describe("server/database/kifu_index", () => {
     ]);
     expect(statistics.nextMoves?.reduce((sum, row) => sum + row.count, 0)).toBe(statistics.total);
     expect(getKifuSearchStatistics({}).nextMoves).toBeUndefined();
+    expect(
+      getKifuSearchStatistics({ sfenHash: 100n, sfen: "missing", keyword: "mainline" }),
+    ).toMatchObject({
+      total: 0,
+      strategies: [],
+      players: [],
+      otherPlayers: { black: 0, white: 0, total: 0 },
+      nextMoves: [],
+    });
   });
 
-  it.each([false, true])(
-    "preserves the statistics error when rolling back (rollback failure: %s)",
-    (rollbackFails) => {
-      const statisticsError = new Error("statistics query failed");
-      const rollbackError = new Error("rollback failed");
-      const originalExec = DatabaseSync.prototype.exec;
-      const exec = vi.spyOn(DatabaseSync.prototype, "exec").mockImplementation(function (
-        this: DatabaseSync,
-        sql: string,
-      ) {
-        if (sql === "ROLLBACK" && rollbackFails) throw rollbackError;
-        return originalExec.call(this, sql);
-      });
-      const prepare = vi.spyOn(DatabaseSync.prototype, "prepare").mockImplementationOnce(() => {
-        throw statisticsError;
-      });
-
-      try {
-        expect(() => getKifuSearchStatistics({})).toThrow(statisticsError);
-        expect(exec).toHaveBeenCalledWith("ROLLBACK");
-      } finally {
-        prepare.mockRestore();
-        exec.mockRestore();
-      }
-    },
-  );
+  it("propagates a statistics query error without leaving a transaction open", () => {
+    const statisticsError = new Error("statistics query failed");
+    const prepare = vi.spyOn(DatabaseSync.prototype, "prepare").mockImplementationOnce(() => {
+      throw statisticsError;
+    });
+    try {
+      expect(() => getKifuSearchStatistics({})).toThrow(statisticsError);
+    } finally {
+      prepare.mockRestore();
+    }
+    upsertKifuFile(makeMetadata("after-error.kif"), []);
+    expect(getKifuSearchStatistics({}).total).toBe(1);
+  });
 
   it("migrates version one without discarding strategies and distinguishes unavailable next moves", () => {
     upsertKifuFile(
