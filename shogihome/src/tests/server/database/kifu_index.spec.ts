@@ -251,6 +251,7 @@ describe("server/database/kifu_index", () => {
     const positions = [
       { sfen_hash: 200n, sfen: "shared", ply: 10, next_move: "☗２五歩" },
       { sfen_hash: 200n, sfen: "shared", ply: 2, next_move: "☗５六歩" },
+      { sfen_hash: 200n, sfen: "different", ply: 20 },
     ];
     for (const [filePath, startDate] of [
       ["older.kif", "2024/05/01"],
@@ -269,7 +270,9 @@ describe("server/database/kifu_index", () => {
       expect(row).toMatchObject({ matched_ply: 10, matched_sfen: "shared", next_move: "☗２五歩" });
     }
     expect(searchKifu({ ...query, limit: 1, offset: 1 })).toEqual([results[1]]);
-    expect(getKifuSearchCount(query)).toBe(3);
+    expect(getKifuSearchCount({ ...query, limit: 1, offset: 1 })).toBe(3);
+    expect(getKifuSearchCount({ ...query, sfen: "missing" })).toBe(0);
+    expect(getKifuSearchCount({})).toBe(4);
     expect(getKifuSearchFilePaths({ ...query, limit: 1, offset: 1 })).toEqual(paths);
     expect(getKifuSearchFilePaths(query, { strict: true, limit: 1 })).toEqual(paths.slice(0, 2));
     expect(getKifuSearchFilePaths(query, { strict: true, limit: 3 })).toEqual(paths);
