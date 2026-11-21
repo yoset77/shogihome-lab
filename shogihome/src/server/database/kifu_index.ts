@@ -557,7 +557,8 @@ export function searchKifu(params: KifuSearchParams) {
 export function getKifuSearchCount(params: KifuSearchParams): number {
   if (!db) return 0;
   const searchSql = buildKifuSearchSql(params);
-  const query = `SELECT COUNT(DISTINCT f.id) as count${searchSql.from}${searchSql.where}`;
+  // SFEN is unique, and (kifu_id, position_id) permits only one match per file.
+  const query = `SELECT COUNT(*) as count${searchSql.from}${searchSql.where}`;
 
   try {
     const result = db.prepare(query).get(...searchSql.args) as { count: number } | undefined;
