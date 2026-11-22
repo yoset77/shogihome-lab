@@ -11,8 +11,9 @@ import {
   searchSbkBookEntryOnTheFly,
   storeSbkBook,
 } from "@/server/book/sbk";
+import * as packedSfen from "@/server/book/packed_sfen";
 import { toSbkMove } from "@/server/book/sbk_move";
-import { SBook } from "@/server/book/proto/sbk";
+import { SBook, SBookState } from "@/server/book/proto/sbk";
 import { SbkBook } from "@/server/book/types";
 import { Position } from "tsshogi";
 
@@ -454,18 +455,97 @@ describe("server/book/sbk", () => {
   });
 
   it("stores an unpatched on-the-fly book preserving state order and content", async () => {
-    // Exercises the file-order row iteration and the batched writer used by
-    // the overwrite-save path for large on-the-fly books.
-    const filePath = "src/tests/testdata/book/shogihome01.sbk";
+    const filePath = "src/tests/testdata/book/shogigui01.sbk";
     const book = await loadSbkBookOnTheFly(filePath);
-    const stored = SBook.decode(await storeToData(book));
     const original = SBook.decode(fs.readFileSync(filePath));
-    expect(stored.BookStates.map((state) => state.Id)).toEqual(
-      original.BookStates.map((state) => state.Id),
-    );
-    expect(stored.BookStates.map((state) => state.Moves.length)).toEqual(
-      original.BookStates.map((state) => state.Moves.length),
-    );
+    for (const state of original.BookStates) {
+      state.BoardKey = 0n;
+      state.HandKey = 0;
+    }
+    const unpack = vi.spyOn(packedSfen, "packedSfenToSfen");
+    try {
+      expect(await storeToData(book)).toEqual(Buffer.from(SBook.encode(original).finish()));
+      expect(unpack).not.toHaveBeenCalled();
+    } finally {
+      unpack.mockRestore();
+    }
+  });
+
+  it.each([
+    { type: "normal" as const, weights: [7, 7] },
+    { type: "patch" as const, weights: [9, 10] },
+  ])("applies a $type entry to every matching on-the-fly row", async ({ type, weights }) => {
+    const pos = new Position();
+    const sfen = pos.sfen;
+    const usi = "7g7f";
+    const move = pos.createMoveByUSI(usi);
+    if (!move) {
+      throw new Error("Invalid test move");
+    }
+    const child = SBookState.create({ Id: 42, Comment: "child" });
+    const orphan = SBookState.create({ Id: 83, Comment: "unindexed" });
+    const source = {
+      Author: "author",
+      Description: "duplicates",
+      BookStates: [
+        SBookState.create({
+          Id: 20,
+          Position: sfen,
+          Moves: [{ Move: toSbkMove(move), Weight: 2, NextStateId: child.Id }],
+        }),
+        child,
+        SBookState.create({
+          Id: 5,
+          Position: sfen.replace(/ 1$/, " 23"),
+          Moves: [{ Move: toSbkMove(move), Weight: 3, NextStateId: child.Id }],
+        }),
+        orphan,
+      ],
+    };
+    const book = await loadOnTheFlyFromData(SBook.encode(source).finish());
+    expect(book.sbkIndex?.firstNonZeroRow).toBe(1);
+    book.entries.set(sfen, {
+      type,
+      comment: "",
+      minPly: 0,
+      moves: [{ usi, count: 7, comment: "" }],
+    });
+
+    const unpack = vi.spyOn(packedSfen, "packedSfenToSfen");
+    try {
+      const stored = SBook.decode(await storeToData(book));
+      const [first, , second] = source.BookStates;
+      expect(stored).toEqual({
+        ...source,
+        BookStates: [
+          { ...first, Moves: [{ ...first.Moves[0], Weight: weights[0] }] },
+          child,
+          { ...second, Position: sfen, Moves: [{ ...second.Moves[0], Weight: weights[1] }] },
+          orphan,
+        ],
+      });
+      expect(unpack).toHaveBeenCalledTimes(1);
+    } finally {
+      unpack.mockRestore();
+    }
+  });
+
+  it("does not apply an edit with a noncanonical SFEN to an existing on-the-fly row", async () => {
+    const sfen = new Position().sfen;
+    const rawData = SBook.encode({
+      Author: "",
+      Description: "",
+      BookStates: [SBookState.create({ Id: 10, Position: sfen, Comment: "original" })],
+    }).finish();
+    const book = await loadOnTheFlyFromData(rawData);
+    book.entries.set(sfen.replace(/ 1$/, " 23"), {
+      type: "normal",
+      comment: "edit",
+      minPly: 0,
+      moves: [],
+    });
+
+    expect(await storeToData(book)).toEqual(Buffer.from(rawData));
   });
 
   it("copies unindexed on-the-fly rows without decoding packed SFEN", async () => {
