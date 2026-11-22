@@ -15,10 +15,13 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 
-// Polling and write stability each take one second; leave scheduling slack for CI.
-const WATCH_EVENT_TIMEOUT = 5000;
-// Cover all event waits, initial scanning, and the negative observation windows.
-const WATCH_TEST_TIMEOUT = 30000;
+// Leave CI slack for the three-second poll and the one-second stability check.
+const WATCH_EVENT_TIMEOUT = 8000;
+const WATCH_TEST_TIMEOUT = 45000;
+
+function ignoredEventWaitMs(usePolling: boolean): number {
+  return usePolling ? 4500 : 1500;
+}
 
 describe("server/helpers/kifu", () => {
   let tempDir: string;
@@ -103,11 +106,11 @@ describe("server/helpers/kifu", () => {
           fs.writeFileSync(path.join(tempDir, name, "internal.kif"), "internal");
         }
         fs.mkdirSync(path.join(tempDir, ".atomic-test"));
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await new Promise((resolve) => setTimeout(resolve, ignoredEventWaitMs(usePolling)));
         for (const name of [...reservedNames, ".atomic-test"]) {
           fs.rmSync(path.join(tempDir, name), { recursive: true });
         }
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await new Promise((resolve) => setTimeout(resolve, ignoredEventWaitMs(usePolling)));
 
         expect(events).toEqual([]);
         expect(allEvents).toEqual([]);
@@ -161,9 +164,9 @@ describe("server/helpers/kifu", () => {
         expect(Object.keys(watcher!.getWatched())).toContain(
           fs.realpathSync(path.join(tempDir, "games")),
         );
-        // `ready` ends the scan, but fs.watchFile still needs its initial stat sample.
         if (usePolling) {
-          await new Promise((resolve) => setTimeout(resolve, watcher!.options.interval));
+          expect(watcher!.options.pollingInterval).toBe(3000);
+          expect(watcher!.options.pollingBinaryInterval).toBe(3000);
         }
         const target = path.join(tempDir, "games", "game.kif");
         fs.writeFileSync(target, "old");
@@ -211,7 +214,7 @@ describe("server/helpers/kifu", () => {
         // Hidden directories under the root remain excluded.
         fs.mkdirSync(path.join(hiddenRealRoot, ".secrets"), { recursive: true });
         fs.writeFileSync(path.join(hiddenRealRoot, ".secrets", "inner.kif"), "inner");
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await new Promise((resolve) => setTimeout(resolve, ignoredEventWaitMs(usePolling)));
         expect(events).toEqual([]);
 
         const target = path.join(hiddenRealRoot, "game.kif");
