@@ -1,7 +1,8 @@
-import { hash } from "@/server/book/apery_zobrist";
+import { hash, hashPosition } from "@/server/book/apery_zobrist";
+import { Position } from "tsshogi";
 
 describe("apery_zobrist", () => {
-  it("hash", () => {
+  it("hashes SFEN and parsed positions to the same known Apery keys", () => {
     const testCases = [
       {
         sfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
@@ -31,6 +32,7 @@ describe("apery_zobrist", () => {
     for (const { sfen, wants } of testCases) {
       const wantsBigInt = Buffer.from(wants, "hex").readBigUInt64LE();
       expect(hash(sfen)).toBe(wantsBigInt);
+      expect(hashPosition(Position.newBySFEN(sfen)!)).toBe(wantsBigInt);
     }
   });
 });

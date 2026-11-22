@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { parseAndIndexFile } from "@/server/kifu_index/engine";
+import { normalizeKifuSearchQuery } from "@/server/kifu_index/query";
 import { onKifuFileEvent, syncKifuDirectory } from "@/server/kifu_index/sync";
 import { STRATEGY_INDEX_VERSION } from "@/server/kifu_index/strategy";
 import {
@@ -152,7 +153,17 @@ describe("server/kifu_index/engine", () => {
       "戦型：角換わり\n手合割：平手\n手数----指手----\n1 ７六歩(77)\n2 ３四歩(33)\n3 ２二角成(88)\n4 同銀(31)\n",
     );
     const result = await parseAndIndexFile(tempDir, "same.kif");
-    expect(result?.positions.find((row) => row.ply === 3)?.next_move).toBe("☖２二銀");
+    if (!result) throw new Error("Failed to parse fixture");
+    upsertKifuFile(result.metadata, result.positions);
+
+    for (const [sfen, ply, next_move] of [
+      ["startpos", 0, "☗７六歩"],
+      ["startpos moves 7g7f 3c3d 8h2b+", 3, "☖２二銀"],
+    ] as const) {
+      expect(searchKifu(normalizeKifuSearchQuery({ sfen }))).toEqual([
+        expect.objectContaining({ matched_ply: ply, next_move }),
+      ]);
+    }
   });
 
   it("backfills next moves for unchanged files instead of updating only strategy metadata", async () => {

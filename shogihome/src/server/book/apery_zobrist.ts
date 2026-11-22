@@ -1,4 +1,11 @@
-import { Color, handPieceTypes, PieceType, Position, Square } from "tsshogi";
+import {
+  Color,
+  handPieceTypes,
+  type ImmutablePosition,
+  PieceType,
+  Position,
+  Square,
+} from "tsshogi";
 import { toAperyPiece, toAperySquare } from "./apery_move.js";
 
 const pieceTable = [
@@ -2679,6 +2686,10 @@ export function hash(sfen: string): bigint {
   if (!position) {
     throw new Error("Invalid SFEN");
   }
+  return hashPosition(position);
+}
+
+export function hashPosition(position: ImmutablePosition): bigint {
   let result = 0n;
   for (const square of Square.all) {
     const piece = position.board.at(square);
