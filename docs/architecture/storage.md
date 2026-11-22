@@ -36,14 +36,14 @@ Server data rootは [`src/node/proc/path.ts`](../../shogihome/src/node/proc/path
 
 - Indexは検索を高速化する派生データであり、元ファイルの正本ではありません。
 - JKFはBrowserとServerで共有する [`common/file/jkf.ts`](../../shogihome/src/common/file/jkf.ts) を通し、分岐containerの形状と走査量を棋譜parserの実行前に検証します。
-- File更新時はmetadata、局面関連、不要になった関連データをtransactionalに更新します。
+- Fileの更新・削除で参照を失った局面は同じtransactionで回収します。起動時や全件同期で孤立局面を一括回収しません。旧DBに残る孤立局面は検索・統計の対象になりません。
 - Full syncとfilesystem event処理を調停し、同じsingleton DBへの競合更新を避けます。
 - 外部変更の検出とparseの間は一時的に以前のindexが見える可能性があります。
 - 全件同期と監視eventの双方で既存のpath boundaryを通し、root配下のsymlinkや対象外fileを読み込みません。削除や対象外への置換は派生indexにも反映します。
 - Watcherはconfigured rootのreal pathを基準に監視します。Atomic writerの内部名前空間は監視対象から除外し、内部lockの変化をユーザーファイルの変更として扱いません。
 - Indexのschemaやclassifier versionが変わった場合は、元ファイルから再同期できます。
 - 局面関連は同一file・正規化SFENを1件にまとめ、共有の深さ優先走査で最初の箇所を代表とします。その箇所の先頭の継続手と変化手順内かどうかも保持します。Previewとopenも同じ共有選択規則を使います。継続手の未取得と、取得済みだが継続がない状態は区別します。
-- 局面関連の派生情報は戦型判定とは別の版で追跡します。Fileが未変更でも局面情報の版が古い場合は関連全体を再構築し、戦型だけのbackfillでは更新済みとみなしません。
+- 局面関連の派生情報は戦型判定とは別の版で追跡します。読み込んだfileの更新時刻・サイズが索引と一致し、局面情報の版も最新なら、戦型のbackfillでは局面関連を生成しません。Fileまたは局面情報の版が変わった場合は関連全体を再構築します。
 - 検索統計は検索・件数取得と同じSQL条件から全一致fileを集計します。一覧のpaginationは集計対象に影響せず、戦型・対局者と、局面検索時の代表次手を同じ一致集合・同じDB snapshotから取得します。集計時点のindexを対象とし、過去の検索結果を固定保存する機能ではありません。
 - 検索条件の入力予算は [`common/file/kifu_search.ts`](../../shogihome/src/common/file/kifu_search.ts) で共有し、検索・件数・統計・export・一括解析に適用します。HTTPの検索系入口は [`security.ts`](../../shogihome/src/server/security.ts) のclient別rate枠を共有し、超過要求をqueueに積みません。
 - 対局者統計はDB集計後に上位件数を制限して返し、省略分の先後別登場件数を別fieldで保持します。共有decoderは返却件数の上限と、上位・省略分を合わせた各側の件数および総登場件数を検証します。Rendererは上位と省略分を表示し、対局者表のpaginationは行いません。

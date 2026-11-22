@@ -1,8 +1,8 @@
-import fs from "node:fs";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import {
   getKifuList,
   clearKifuListCache,
-  resolveIndexableKifuPath,
+  statIndexableKifuFile,
   type KifuFileEvent,
 } from "@/server/helpers/kifu";
 import { normalizePath } from "@/common/helpers/path";
@@ -14,10 +14,11 @@ import {
   deleteKifuFile,
   getKifuCount,
   KIFU_POSITION_INDEX_VERSION,
-  cleanupOrphanedPositions,
 } from "@/server/database/kifu_index";
-import { parseAndIndexFile } from "./engine.js";
+import { buildKifuPositions, parseKifuFile } from "./engine.js";
 import { STRATEGY_INDEX_VERSION } from "./strategy.js";
+
+const SYNC_SLICE_MS = 8;
 
 export interface SyncStatus {
   total: number;
@@ -70,32 +71,25 @@ export async function syncKifuDirectory(kifuDir: string) {
     // 2. Identify files to index (new or changed) and files to delete
     const filesOnDisk = new Set<string>();
     const filesToIndex: string[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const relPath = files[i];
-      const fullPath = resolveIndexableKifuPath(kifuDir, relPath);
-      if (!fullPath) continue;
-      let stats: fs.Stats;
-      try {
-        stats = await fs.promises.lstat(fullPath);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-        throw error;
+    let sliceStart = performance.now();
+    for (const relPath of files) {
+      if (performance.now() - sliceStart >= SYNC_SLICE_MS) {
+        await yieldToEventLoop();
+        sliceStart = performance.now();
       }
-      if (!stats.isFile() || stats.isSymbolicLink()) continue;
+      const file = statIndexableKifuFile(kifuDir, relPath);
+      if (!file) continue;
       filesOnDisk.add(relPath);
       const existing = getKifuFileByPath(relPath);
 
-      if (!existing || existing.mtime !== stats.mtimeMs || existing.size !== stats.size) {
-        filesToIndex.push(relPath);
-      } else if (
+      if (
+        !existing ||
+        existing.mtime !== file.stat.mtimeMs ||
+        existing.size !== file.stat.size ||
         existing.strategy_index_version !== STRATEGY_INDEX_VERSION ||
         existing.position_index_version !== KIFU_POSITION_INDEX_VERSION
       ) {
         filesToIndex.push(relPath);
-      }
-
-      if (i % 100 === 0) {
-        await new Promise((resolve) => setImmediate(resolve));
       }
     }
 
@@ -104,6 +98,10 @@ export async function syncKifuDirectory(kifuDir: string) {
     for (const dbPath of allPathsInDB) {
       if (!filesOnDisk.has(dbPath)) {
         deleteKifuFile(dbPath);
+        if (performance.now() - sliceStart >= SYNC_SLICE_MS) {
+          await yieldToEventLoop();
+          sliceStart = performance.now();
+        }
       }
     }
 
@@ -113,7 +111,7 @@ export async function syncKifuDirectory(kifuDir: string) {
 
       const relPath = filesToIndex[i];
       try {
-        const result = await parseAndIndexFile(kifuDir, relPath);
+        const result = await parseKifuFile(kifuDir, relPath);
         if (result) {
           const existing = getKifuFileByPath(relPath);
           if (
@@ -124,7 +122,7 @@ export async function syncKifuDirectory(kifuDir: string) {
           ) {
             updateKifuFileStrategy(result.metadata);
           } else {
-            upsertKifuFile(result.metadata, result.positions);
+            upsertKifuFile(result.metadata, buildKifuPositions(result.first));
           }
         } else {
           deleteKifuFile(relPath);
@@ -139,11 +137,8 @@ export async function syncKifuDirectory(kifuDir: string) {
       }
 
       // Yield to the event loop
-      await new Promise((resolve) => setImmediate(resolve));
+      await yieldToEventLoop();
     }
-
-    // 4. Final cleanup of orphaned positions
-    cleanupOrphanedPositions();
   } catch (e) {
     console.error("Critical error during kifu indexing:", e);
     syncStatus.lastError = String(e);
@@ -217,9 +212,9 @@ export function onKifuFileEvent(event: KifuFileEvent, kifuDir: string, relPath: 
             if (ev === "unlink") {
               deleteKifuFile(path);
             } else {
-              const result = await parseAndIndexFile(kifuDir, path);
+              const result = await parseKifuFile(kifuDir, path);
               if (result) {
-                upsertKifuFile(result.metadata, result.positions);
+                upsertKifuFile(result.metadata, buildKifuPositions(result.first));
               } else {
                 deleteKifuFile(path);
               }

@@ -357,7 +357,10 @@ export const resolveKifuPath = (baseDir: string, relPath: string): string | null
   return fullPath;
 };
 
-export const resolveIndexableKifuPath = (baseDir: string, relPath: string): string | null => {
+export const statIndexableKifuFile = (
+  baseDir: string,
+  relPath: string,
+): { fullPath: string; stat: fs.Stats } | null => {
   if (typeof relPath !== "string" || getServerFileKind(relPath) !== "kifu") return null;
   const parentRel = normalizePath(path.dirname(relPath));
   const parent = resolveKifuDirectory(baseDir, parentRel === "." ? "" : parentRel);
@@ -366,11 +369,14 @@ export const resolveIndexableKifuPath = (baseDir: string, relPath: string): stri
   if (!fullPath || path.dirname(fullPath) !== parent) return null;
   try {
     const stat = fs.lstatSync(fullPath);
-    return stat.isFile() && !stat.isSymbolicLink() ? fullPath : null;
+    return stat.isFile() && !stat.isSymbolicLink() ? { fullPath, stat } : null;
   } catch {
     return null;
   }
 };
+
+export const resolveIndexableKifuPath = (baseDir: string, relPath: string): string | null =>
+  statIndexableKifuFile(baseDir, relPath)?.fullPath ?? null;
 
 export const resolveWritableKifuPath = (
   baseDir: string,
