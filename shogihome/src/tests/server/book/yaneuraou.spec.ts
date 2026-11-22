@@ -74,6 +74,87 @@ describe("server/book/yaneuraou", () => {
     },
   );
 
+  describe("on-the-fly probes", () => {
+    async function withFile(
+      name: string,
+      text: string,
+      test: (file: fs.promises.FileHandle, size: number) => Promise<void>,
+    ) {
+      const directory = getTempPathForTesting();
+      const filePath = path.join(directory, name);
+      await fs.promises.mkdir(directory, { recursive: true });
+      await fs.promises.writeFile(filePath, text);
+      const file = await fs.promises.open(filePath, "r");
+      try {
+        await test(file, Buffer.byteLength(text));
+      } finally {
+        await file.close();
+      }
+    }
+
+    const first = "+B3g3l/5rgk1/pB+P1ppn1p/n4spp1/1G1SP3P/K2P5/1+pS3P2/P2+l+r4/LNP6 b SNL2Pg2p";
+    const second = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b -";
+
+    it("decodes a complete SFEN from its probe without a second read", async () => {
+      const text = `#YANEURAOU-DB2016 1.00\n#${" ".repeat(200)}\nsfen ${second} 42\n7g7f none 10 20 1\n`;
+      await withFile("probe-read.db", text, async (file, size) => {
+        const read = vi.spyOn(file, "read");
+        expect(await searchYaneuraOuBookMovesOnTheFly(`${second} 1`, file, size)).toMatchObject({
+          minPly: 42,
+          moves: [{ usi: "7g7f" }],
+        });
+        expect(read).toHaveBeenCalledTimes(2);
+        expect(read.mock.calls[0][0]).toBe(read.mock.calls[1][0]);
+      });
+    });
+
+    it.each(["\n", "\r\n"])("finds boundary positions around long entries with %j", async (eol) => {
+      const text = [
+        "#YANEURAOU-DB2016 1.00",
+        `sfen ${first}`,
+        `#${"あ".repeat(1666)}`,
+        "9f9e 8g7g 0 32 1",
+        `sfen ${second} 42`,
+        `#${"指".repeat(1666)}`,
+        "2g2f none 42 20 1",
+      ].join(eol);
+      const expected = (await loadYaneuraOuBook(Readable.from([text]))).entries;
+      await withFile(`long-probe-${eol.length}.db`, text, async (file, size) => {
+        const keys = [`${first} 1`, `${second} 1`, `${second.replace(" b -", " w -")} 1`];
+        expect(
+          await Promise.all(keys.map((sfen) => searchYaneuraOuBookMovesOnTheFly(sfen, file, size))),
+        ).toEqual(keys.map((key) => expected.get(key)));
+      });
+    });
+
+    it.each(["", "\ufeff"])("finds an SFEN at the head of a headerless file (%j)", async (bom) => {
+      const text = `${bom}sfen ${second} 1\n7g7f none 10 20 1\n`;
+      await withFile(`headerless-${bom.length}.db`, text, async (file, size) => {
+        expect(await searchYaneuraOuBookMovesOnTheFly(`${second} 1`, file, size)).toMatchObject({
+          moves: [{ usi: "7g7f" }],
+        });
+      });
+    });
+
+    // The first 4 KiB probe ends at byte 9095. Split either the SFEN line or its marker.
+    it.each([9070, 9093])(
+      "finds an SFEN crossing the probe boundary at byte %i",
+      async (offset) => {
+        const header = "#YANEURAOU-DB2016 1.00\n#";
+        const entry = `${header}${"x".repeat(offset - header.length - 1)}\nsfen ${second} 23\n7g7f none 10 20 1\n#`;
+        const text = entry.padEnd(10_000, "x");
+        await withFile(`split-probe-${offset}.db`, text, async (file, size) => {
+          const expected = (await loadYaneuraOuBook(Readable.from([text]))).entries.get(
+            `${second} 1`,
+          );
+          expect(await searchYaneuraOuBookMovesOnTheFly(`${second} 1`, file, size)).toEqual(
+            expected,
+          );
+        });
+      },
+    );
+  });
+
   describe("loadYaneuraOuBook", () => {
     it("ok", async () => {
       const input = Readable.from([

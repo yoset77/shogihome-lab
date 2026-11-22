@@ -14,6 +14,8 @@ const INDEX_HEADER_SIZE = 32; // magic(16) + record_count(8) + flags(8)
 const RECORD_SIZE = 44; // packed_sfen(32) + moves_offset(8) + ply(2) + move_count(2)
 const MOVE_ENTRY_SIZE_V0 = 4; // move16(2) + eval(2)
 const MOVE_ENTRY_SIZE_V1 = 6; // move16(2) + eval(2) + depth(2)
+const YBB_SEARCH_BLOCK_RECORDS = 128;
+const YBB_SEARCH_CACHE_BLOCKS = 256; // At most 1.375 MiB of cached index data per handle.
 // Number of index records prefetched per read and the approximate byte size
 // flushed per batched write. YBB saves issue per-record I/O without batching,
 // so large books spend most of their save time in syscalls.
@@ -225,6 +227,44 @@ export async function openYbbBookOnTheFly(path: string): Promise<YbbOnTheFly> {
   }
 }
 
+type SearchCache = {
+  blocks: Map<number, Buffer>;
+  pending: Map<number, Promise<Buffer>>;
+};
+
+// Keyed by the opened file, not the path: reopening or saving uses a fresh handle.
+const searchCaches = new WeakMap<fs.promises.FileHandle, SearchCache>();
+
+function readIndexBlock(
+  file: fs.promises.FileHandle,
+  cache: SearchCache,
+  start: number,
+  recordCount: number,
+): Buffer | Promise<Buffer> {
+  const cached = cache.blocks.get(start);
+  if (cached) {
+    cache.blocks.delete(start);
+    cache.blocks.set(start, cached);
+    return cached;
+  }
+  const pending = cache.pending.get(start);
+  if (pending) return pending;
+
+  const count = Math.min(YBB_SEARCH_BLOCK_RECORDS, recordCount - start);
+  const block = Buffer.allocUnsafe(count * RECORD_SIZE);
+  const load = readExact(file, block, 0, block.length, INDEX_HEADER_SIZE + start * RECORD_SIZE)
+    .then(() => {
+      if (cache.blocks.size >= YBB_SEARCH_CACHE_BLOCKS) {
+        cache.blocks.delete(cache.blocks.keys().next().value!);
+      }
+      cache.blocks.set(start, block);
+      return block;
+    })
+    .finally(() => cache.pending.delete(start));
+  cache.pending.set(start, load);
+  return load;
+}
+
 export async function searchYbbBookMovesOnTheFly(
   sfen: string,
   file: fs.promises.FileHandle,
@@ -239,23 +279,26 @@ export async function searchYbbBookMovesOnTheFly(
   const targetBytes = packedSfenToBytes(target);
   const entrySize = moveEntrySize(flags);
   const movesAreaStart = validateYbbLayout(size, recordCount);
-  const recBuf = Buffer.alloc(RECORD_SIZE);
+  const count = Number(recordCount);
+  let cache = searchCaches.get(file);
+  if (!cache) {
+    cache = { blocks: new Map(), pending: new Map() };
+    searchCaches.set(file, cache);
+  }
 
-  let lo = 0n;
-  let hi = recordCount - 1n;
+  let lo = 0;
+  let hi = count - 1;
   while (lo <= hi) {
-    const mid = (lo + hi) / 2n;
-    const offset = INDEX_HEADER_SIZE + Number(mid) * RECORD_SIZE;
-    await readExact(file, recBuf, 0, RECORD_SIZE, offset);
-    const cmp = comparePackedSfen(
-      new Uint8Array(recBuf.buffer, recBuf.byteOffset, 32),
-      targetBytes,
-    );
+    const mid = lo + Math.floor((hi - lo) / 2);
+    const blockStart = mid - (mid % YBB_SEARCH_BLOCK_RECORDS);
+    const read = readIndexBlock(file, cache, blockStart, count);
+    const block = Buffer.isBuffer(read) ? read : await read;
+    const offset = (mid - blockStart) * RECORD_SIZE;
+    const cmp = comparePackedSfen(block.subarray(offset, offset + 32), targetBytes);
     if (cmp === 0) {
-      const view = new DataView(recBuf.buffer, recBuf.byteOffset);
-      const movesRelOffset = view.getBigUint64(32, true);
-      const moveCount = view.getUint16(42, true);
-      const ply = view.getUint16(40, true);
+      const movesRelOffset = block.readBigUInt64LE(offset + 32);
+      const moveCount = block.readUInt16LE(offset + 42);
+      const ply = block.readUInt16LE(offset + 40);
       if (moveCount === 0) {
         return { type: "normal", comment: "", moves: [], minPly: ply };
       }
@@ -271,12 +314,9 @@ export async function searchYbbBookMovesOnTheFly(
       const moves = readMoves(movesBuf, moveCount, entrySize);
       return { type: "normal", comment: "", moves, minPly: ply };
     } else if (cmp < 0) {
-      lo = mid + 1n;
+      lo = mid + 1;
     } else {
-      if (mid === 0n) {
-        break;
-      }
-      hi = mid - 1n;
+      hi = mid - 1;
     }
   }
   return undefined;

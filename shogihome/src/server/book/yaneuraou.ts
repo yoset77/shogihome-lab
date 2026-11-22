@@ -16,6 +16,8 @@ const CommentMarker1 = "#";
 const CommentMarker2 = "//";
 const LF = "\n".charCodeAt(0);
 const CR = "\r".charCodeAt(0);
+const SEARCH_PROBE_BYTES = 4 * 1024;
+const SEARCH_ENTRY_BYTES = 8 * 1024;
 
 type Line = CommentLine | PositionLine | MoveLine;
 
@@ -340,20 +342,22 @@ function checkSFENMarker(offset: number, buffer: Buffer): boolean {
   return true;
 }
 
-function readLineFromBuffer(buffer: Buffer, size: number, offset: number = 0): string {
+function findLineEnd(buffer: Buffer, size: number, offset: number): number {
   let end = offset;
   while (end < size && buffer[end] !== LF && buffer[end] !== CR) {
     end++;
   }
-  return buffer.toString("utf-8", offset, end);
+  return end;
 }
 
-function findSFENMarker(buffer: Buffer, size: number, isFileHead: boolean): number {
-  if (isFileHead) {
-    // 通常はファイルの先頭にヘッダーがあるが、いきなり SFEN が来ても扱えるようにする。
-    if (checkSFENMarker(0, buffer)) {
+function findSFENMarker(buffer: Buffer, size: number, start: number, isFileHead: boolean): number {
+  if (isFileHead && size >= SFENMarker.length) {
+    // A headerless file may start with a position, optionally preceded by a BOM.
+    if (start === 0 && checkSFENMarker(0, buffer)) {
       return 0;
     } else if (
+      start <= 3 &&
+      size >= 3 + SFENMarker.length &&
       buffer[0] === 0xef &&
       buffer[1] === 0xbb &&
       buffer[2] === 0xbf &&
@@ -362,9 +366,9 @@ function findSFENMarker(buffer: Buffer, size: number, isFileHead: boolean): numb
       return 3;
     }
   }
-  for (let i = 0; i < size - (SFENMarker.length + 1); i++) {
-    if ((buffer[i] === LF || buffer[i] === CR) && checkSFENMarker(i + 1, buffer)) {
-      return i + 1;
+  for (let i = Math.max(1, start); i <= size - SFENMarker.length; i++) {
+    if ((buffer[i - 1] === LF || buffer[i - 1] === CR) && checkSFENMarker(i, buffer)) {
+      return i;
     }
   }
   return -1;
@@ -374,46 +378,56 @@ async function binarySearch(
   sfen: string,
   file: fs.promises.FileHandle,
   size: number,
+  buffer: Buffer,
 ): Promise<[number, number]> {
-  const bufferSize = 1024;
-  const buffer = Buffer.alloc(bufferSize);
   let begin = 0;
   let end = size;
+  let readOffset = -1;
+  let bytesRead = 0;
   while (begin < end) {
-    // 範囲の中央を読み込む
-    const mid = Math.floor((begin + end) / 2);
+    const mid = begin + Math.floor((end - begin) / 2);
 
-    // SFEN の開始位置を探す
     let head = mid;
-    let sfenOffset = -1;
+    let marker = -1;
     while (head < end) {
-      const read = await file.read(buffer, 0, bufferSize, head);
-      if (read.bytesRead === 0) {
-        break;
+      // Include the preceding delimiter, or the BOM near the start of the file.
+      const probeStart = head <= 3 ? 0 : head - 1;
+      if (probeStart < readOffset || head + SFENMarker.length > readOffset + bytesRead) {
+        ({ bytesRead } = await file.read(buffer, 0, SEARCH_PROBE_BYTES, probeStart));
+        readOffset = probeStart;
       }
-      const offset = findSFENMarker(buffer, read.bytesRead, head === 0);
-      if (offset >= 0) {
-        sfenOffset = head + offset;
-        break;
-      }
-      head += bufferSize - (SFENMarker.length + 1);
+      marker = findSFENMarker(buffer, bytesRead, head - readOffset, readOffset === 0);
+      if (marker >= 0) break;
+      // Overlap the delimiter and marker when either straddles a read boundary.
+      const nextHead = readOffset + bytesRead - SFENMarker.length + 1;
+      if (nextHead <= head || readOffset + bytesRead >= size) break;
+      head = nextHead;
     }
-    if (sfenOffset < 0) {
-      return [-1, 0];
+    const sfenOffset = readOffset + marker;
+    if (marker < 0 || sfenOffset >= end) {
+      // No position in the right half. The target may be before a long entry.
+      end = mid;
+      continue;
     }
 
-    // SFEN を読み込む
-    const read = await file.read(buffer, 0, bufferSize, sfenOffset);
-    const sfenLine = readLineFromBuffer(buffer, read.bytesRead);
+    // Decode from the probe itself unless the SFEN line crosses its boundary.
+    let lineEnd = findLineEnd(buffer, bytesRead, marker);
+    if (lineEnd === bytesRead && readOffset + bytesRead < size) {
+      ({ bytesRead } = await file.read(buffer, 0, SEARCH_PROBE_BYTES, sfenOffset));
+      readOffset = sfenOffset;
+      marker = 0;
+      lineEnd = findLineEnd(buffer, bytesRead, 0);
+    }
+    const sfenLine = buffer.toString("utf-8", marker, lineEnd);
     const [currentSFEN, ply] = normalizeSFEN(sfenLine);
     if (sfen === currentSFEN) {
-      return [sfenOffset + sfenLine.length + 1, ply];
+      return [readOffset + lineEnd + 1, ply];
     }
 
     if (sfen < currentSFEN) {
       end = mid;
     } else {
-      begin = sfenOffset + sfenLine.length + 1;
+      begin = readOffset + lineEnd + 1;
     }
   }
   return [-1, 0];
@@ -424,14 +438,14 @@ export async function searchYaneuraOuBookMovesOnTheFly(
   file: fs.promises.FileHandle,
   size: number,
 ): Promise<BookEntry | undefined> {
-  const [offset, ply] = await binarySearch(sfen, file, size);
+  // Each concurrent lookup owns its scratch buffer for both probes and moves.
+  const buffer = Buffer.allocUnsafe(SEARCH_ENTRY_BYTES);
+  const [offset, ply] = await binarySearch(sfen, file, size, buffer);
   if (offset < 0) {
     return;
   }
 
-  const bufferSize = 8 * 1024;
-  const buffer = Buffer.alloc(bufferSize);
-  const read = await file.read(buffer, 0, bufferSize, offset);
+  const read = await file.read(buffer, 0, buffer.length, offset);
   if (read.bytesRead === 0) {
     return;
   }
@@ -439,9 +453,10 @@ export async function searchYaneuraOuBookMovesOnTheFly(
   const moves: BookMove[] = [];
   let i = 0;
   while (i < read.bytesRead) {
-    const moveLine = readLineFromBuffer(buffer, read.bytesRead, i);
-    i += Buffer.byteLength(moveLine);
-    if (buffer[i] === CR && buffer[i + 1] === LF) {
+    const lineEnd = findLineEnd(buffer, read.bytesRead, i);
+    const moveLine = buffer.toString("utf-8", i, lineEnd);
+    i = lineEnd;
+    if (i + 1 < read.bytesRead && buffer[i] === CR && buffer[i + 1] === LF) {
       i++;
     }
     i++;
