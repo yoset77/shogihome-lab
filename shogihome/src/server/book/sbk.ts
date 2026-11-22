@@ -669,6 +669,25 @@ function readSfenAtRow(table: Uint32Array, row: number): string | undefined {
   }
 }
 
+function getEditedSfensByRow(sfens: Iterable<string>, index: SbkOnTheFlyLUT): Map<number, string> {
+  const { table, rowCount } = index;
+  const editedSfens = new Map<number, string>();
+  for (const sfen of sfens) {
+    const firstRow = searchOnTheFlyRow(sfen, index);
+    // Packing ignores the move number and formatting. Keep exact SFEN key matching.
+    if (firstRow === undefined || readSfenAtRow(table, firstRow) !== sfen) {
+      continue;
+    }
+    const start = firstRow * SBK_ON_THE_FLY_ROW_SIZE;
+    const packed = table.subarray(start, start + 8);
+    // Equal positions are contiguous in the index, even with distinct state IDs.
+    for (let row = firstRow; row < rowCount && compareRowPacked(table, row, packed) === 0; row++) {
+      editedSfens.set(row, sfen);
+    }
+  }
+  return editedSfens;
+}
+
 function getRowsByOffset(table: Uint32Array, rowCount: number): number[] {
   // Extract file offsets once so the comparator avoids a function call and
   // index arithmetic per comparison. The save path calls this for every row
@@ -919,6 +938,7 @@ async function storeSbkBookOnTheFly(
     sfenAndUsiToNextId.set(sfen, usiToNextId);
   }
 
+  const editedSfensByRow = getEditedSfensByRow(book.entries.keys(), book.sbkIndex);
   await writeBytes(
     SBook.encode({
       Author: book.sbkAuthor ?? "",
@@ -930,7 +950,7 @@ async function storeSbkBookOnTheFly(
   for (const row of getRowsByOffset(book.sbkIndex.table, book.sbkIndex.rowCount)) {
     const offset = readRowOffset(book.sbkIndex.table, row);
     const sourceState = decodeStateAt(book.rawData, offset);
-    const sfen = readSfenAtRow(book.sbkIndex.table, row);
+    const sfen = editedSfensByRow.get(row);
     const patch = sfen ? book.entries.get(sfen) : undefined;
     let state: SBookState | undefined;
 

@@ -83,6 +83,23 @@ candidates:
       対局画面風の局面図のPNG/JPEG出力を確認。WebKit・オフライン更新は未試験。
 
   - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1919
+    summary: On-the-fly SBK保存時の編集局面の逆引き
+    status: closed
+    assessed_lab_sha: bd891ea1570ddc111763399cfa5b00e898cbdfe6
+    targets:
+      - shogihome/src/server/book/sbk.ts
+      - shogihome/src/tests/server/book/sbk.spec.ts
+    evidence: >-
+      約99万局面のSBKで1手を編集すると、上書き時間は13.20秒から4.51秒に短縮
+      （ウォームアップ後3回の中央値）。計測用に構築予算を1 GiBとし、
+      実装前後の出力一致と再読込後の編集反映を確認。
+    resolution: >-
+      編集局面から既存索引を逆引きする部分のみ移植。同一局面の複数行に反映し、
+      元のファイル順と局面ID、既存の遷移解決・未索引行の保存・上書き前検証を維持する。
+      protobufのバイトコピー、Packed SFENの高速化、構築予算の変更は対象外。
+
+  - sources:
       - https://github.com/sunfish-shogi/shogihome/blob/59a2b75b1fe50afc8bb0852a9697318ebe6c6e87/src/background/usi/engine.ts#L404-L428
     summary: 再利用エンジンの各局開始前の準備完了確認
     status: closed
