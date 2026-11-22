@@ -112,6 +112,7 @@ Uploadはraw bodyをtemporary fileへstreamingし、完成したfileだけをato
 - SBKは両modeともprotobufのmessage境界と件数を展開前に走査し、同じ局所的な構築予算を適用します。正本は [`sbk.ts`](../../shogihome/src/server/book/sbk.ts) と[回帰テスト](../../shogihome/src/tests/server/book/sbk.spec.ts)です。
 - YBBのIn-memory読み込みは、全索引の参照範囲と総参照量を展開前に検証し、指し手領域の共有による入力サイズを超える参照量を拒否します。判定の正本は [`ybb.ts`](../../shogihome/src/server/book/ybb.ts)、互換性の判断理由は [Book Loading](../features/book-loading.md) を参照してください。
 - Importはresource制限と事前検証を終えてから一括反映し、途中失敗で既存entryや未保存変更を失いません。処理上限は [`import_limits.ts`](../../shogihome/src/server/book/import_limits.ts) を正本とします。
+- 現在の棋譜からの一括登録も、同じsession内で形式別の検証と編集の準備を済ませてからまとめて反映します。入力順で同一局面の編集を適用し、失敗時は既存entryと未保存変更を保持します。
 - Book更新のHTTP境界では既存のSFEN・指し手decoderと形式別validatorを使用します。Batch検索とimportは重い事前処理でもevent loopの実行機会を確保し、HTTP／WebSocket中継を長時間ブロックしません。
 - Book sessionは作業状態であり、明示的に `KIFU_DIR` へ保存されるまで永続データではありません。
 - Session IDはresourceを選択する識別子であり、認証credentialではありません。

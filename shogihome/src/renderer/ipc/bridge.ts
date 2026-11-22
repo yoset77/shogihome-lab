@@ -51,6 +51,7 @@ export interface Bridge {
   searchBookMoves(sfen: string, sessionId?: string): Promise<string>;
   searchBookMovesBatch(sfens: string[], sessionId?: string): Promise<string>;
   updateBookMove(sfen: string, move: string, sessionId?: string): Promise<void>;
+  updateBookMoves(json: string, sessionId?: string): Promise<void>;
   removeBookMove(sfen: string, usi: string, sessionId?: string): Promise<void>;
   updateBookMoveOrder(sfen: string, usi: string, order: number, sessionId?: string): Promise<void>;
   importBookMoves(json: string, sessionId?: string): Promise<string>;

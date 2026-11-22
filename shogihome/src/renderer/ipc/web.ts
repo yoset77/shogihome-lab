@@ -495,6 +495,20 @@ export const webAPI: Bridge = {
       throw new Error(await response.text());
     }
   },
+  async updateBookMoves(json: string, sessionId?: string): Promise<void> {
+    const response = await apiClient.api.book.update.batch.$post(
+      undefined,
+      apiOptions({
+        timeoutMs: 60000,
+        sessionId,
+        headers: { "Content-Type": "application/json" },
+        body: json,
+      }),
+    );
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+  },
   async removeBookMove(sfen: string, usi: string, sessionId?: string): Promise<void> {
     const response = await apiClient.api.book.remove.$post(
       { query: { sfen, usi } },

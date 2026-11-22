@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { validator } from "hono/validator";
 import type { BookImportSettings } from "@/common/settings/book";
-import { isBookFormat } from "@/common/book";
+import { isBookFormat, type BookMoveUpdate } from "@/common/book";
 import { getBookList, resolveKifuPath, resolveWritableKifuPath } from "@/server/helpers/kifu";
 import {
   clearBook,
@@ -13,6 +13,7 @@ import {
   saveBook,
   searchBookMoves,
   updateBookMove,
+  updateBookMoves,
   updateBookMoveOrder,
 } from "@/server/book";
 import {
@@ -30,11 +31,12 @@ import {
   type AppEnv,
 } from "@/server/hono";
 import { getOptionalInt, getString } from "@/server/routes/query";
-import { readJsonBody } from "@/server/routes/body";
+import { parseJsonObject, readJsonBody } from "@/server/routes/body";
 import { parseBookMove, parseBookSfen, parseBookUsi } from "@/server/book/validation";
 import { t } from "@/common/i18n";
 
 const BATCH_YIELD_INTERVAL = 100;
+const MAX_BOOK_MOVE_UPDATES = 10_000;
 
 const runBookOperation = <T>(
   c: Context<AppEnv>,
@@ -248,6 +250,29 @@ export const bookRoutes = new Hono<AppEnv>()
       return c.text("ok");
     },
   )
+
+  .post("/update/batch", createBodyLimit(LARGE_BODY_LIMIT), async (c) => {
+    const { updates } = await readJsonBody(c);
+    if (!Array.isArray(updates)) {
+      throw new HttpError(400, t.serverInvalidBookMove);
+    }
+    if (updates.length > MAX_BOOK_MOVE_UPDATES) {
+      throw new HttpError(413, t.serverBookImportLimit);
+    }
+    await runBookOperation(c, async (bookSession) => {
+      const format = getBookFormat(bookSession);
+      const validated: BookMoveUpdate[] = [];
+      for (const [index, update] of updates.entries()) {
+        const { sfen, move } = parseJsonObject(update, t.serverInvalidBookMove);
+        validated.push({ sfen: parseBookSfen(sfen), move: parseBookMove(move, format) });
+        if ((index + 1) % BATCH_YIELD_INTERVAL === 0) {
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+      }
+      await updateBookMoves(bookSession, validated);
+    });
+    return c.text("ok");
+  })
 
   .post(
     "/remove",

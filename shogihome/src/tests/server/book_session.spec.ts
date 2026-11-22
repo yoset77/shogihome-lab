@@ -52,6 +52,7 @@ vi.mock("@/server/book/index.js", () => {
     }),
     getBookFormat: vi.fn(() => "sbk"),
     updateBookMove: vi.fn(),
+    updateBookMoves: vi.fn(),
     removeBookMove: vi.fn(),
     updateBookMoveOrder: vi.fn(),
     searchBookMoves: vi.fn(async () => {
@@ -116,6 +117,10 @@ describe("Book Session API", () => {
 
   it.each([
     ["/api/book/update?sfen=startpos", { usi: "7g7f", comment: "" }],
+    [
+      "/api/book/update/batch",
+      { updates: [{ sfen: "startpos", move: { usi: "7g7f", comment: "" } }] },
+    ],
     ["/api/book/remove?sfen=startpos&usi=7g7f", {}],
     ["/api/book/order?sfen=startpos&usi=7g7f&order=0", {}],
     ["/api/book/import", {}],
@@ -128,6 +133,7 @@ describe("Book Session API", () => {
     expect(response.status).toBe(410);
     expect(bookAPI.initBookSession).not.toHaveBeenCalled();
     expect(bookAPI.updateBookMove).not.toHaveBeenCalled();
+    expect(bookAPI.updateBookMoves).not.toHaveBeenCalled();
     expect(bookAPI.removeBookMove).not.toHaveBeenCalled();
     expect(bookAPI.updateBookMoveOrder).not.toHaveBeenCalled();
     expect(bookAPI.importBookMoves).not.toHaveBeenCalled();
@@ -205,6 +211,75 @@ describe("Book Session API", () => {
     });
     expect(response.status).toBe(400);
     expect(bookAPI.updateBookMove).not.toHaveBeenCalled();
+  });
+
+  it("forwards normalized batch edits in order to the selected session", async () => {
+    const id = "batch-edit-client";
+    const session = bookSessionManager.get(id, true);
+    const first = { usi: "7g7f", comment: "", score: 45 };
+    const second = { usi: "2g2f", comment: "" };
+    try {
+      const response = await requestApp(app, "POST", "/api/book/update/batch", {
+        host,
+        headers: { "X-Book-Session-Id": id },
+        json: {
+          updates: [
+            { sfen: "startpos", move: first },
+            { sfen: normalizedStartpos.replace(/ 1$/, " 42"), move: second },
+          ],
+        },
+      });
+      expect(response.status).toBe(200);
+      expect(bookAPI.updateBookMoves).toHaveBeenCalledExactlyOnceWith(session, [
+        { sfen: normalizedStartpos, move: first },
+        { sfen: normalizedStartpos, move: second },
+      ]);
+      expect(bookAPI.updateBookMove).not.toHaveBeenCalled();
+    } finally {
+      bookSessionManager.close(id);
+    }
+  });
+
+  it.each([
+    {},
+    { sfen: "startpos\n", move: { usi: "7g7f", comment: "" } },
+    { sfen: "startpos", move: { usi: "7g7f", comment: "", score: 32768 } },
+  ])("rejects the entire batch when a later edit is invalid: %j", async (invalid) => {
+    const id = "batch-invalid-client";
+    bookSessionManager.get(id, true);
+    vi.mocked(bookAPI.getBookFormat).mockReturnValueOnce("ybb");
+    try {
+      const response = await requestApp(app, "POST", "/api/book/update/batch", {
+        host,
+        headers: { "X-Book-Session-Id": id },
+        json: {
+          updates: [{ sfen: "startpos", move: { usi: "2g2f", comment: "" } }, invalid],
+        },
+      });
+      expect(response.status).toBe(400);
+      expect(bookAPI.updateBookMoves).not.toHaveBeenCalled();
+    } finally {
+      bookSessionManager.close(id);
+    }
+  });
+
+  it("rejects too many batch edits before reading any position", async () => {
+    const id = "batch-limit-client";
+    bookSessionManager.get(id, true);
+    const parse = vi.spyOn(bookValidation, "parseBookSfen");
+    try {
+      const response = await requestApp(app, "POST", "/api/book/update/batch", {
+        host,
+        headers: { "X-Book-Session-Id": id },
+        json: { updates: Array.from({ length: 10_001 }, () => ({})) },
+      });
+      expect(response.status).toBe(413);
+      expect(parse).not.toHaveBeenCalled();
+      expect(bookAPI.updateBookMoves).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+      bookSessionManager.close(id);
+    }
   });
 
   it.each([

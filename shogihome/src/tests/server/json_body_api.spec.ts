@@ -14,7 +14,7 @@ vi.mock("@/server/file/atomic_stream.js");
 
 import { app } from "@/server/main";
 import { bookSessionManager } from "@/server/bookSessionManager";
-import { importBookMoves, searchBookMoves, updateBookMove } from "@/server/book";
+import { importBookMoves, searchBookMoves, updateBookMove, updateBookMoves } from "@/server/book";
 import { addHistory } from "@/server/file/history";
 import {
   cleanupAnalysisResults,
@@ -31,6 +31,7 @@ const operations = [
   importBookMoves,
   searchBookMoves,
   updateBookMove,
+  updateBookMoves,
   addHistory,
   cleanupAnalysisResults,
   deleteAnalysisResult,
@@ -43,6 +44,7 @@ const routes = [
   { path: "/api/book/search/batch", limit: LARGE_BODY_LIMIT },
   { path: "/api/book/import", limit: DEFAULT_JSON_BODY_LIMIT },
   { path: "/api/book/update?sfen=startpos", limit: DEFAULT_JSON_BODY_LIMIT },
+  { path: "/api/book/update/batch", limit: LARGE_BODY_LIMIT },
   { path: "/api/analysis/delete_by_engine", limit: DEFAULT_JSON_BODY_LIMIT },
   { path: "/api/analysis/cleanup", limit: DEFAULT_JSON_BODY_LIMIT },
   { path: "/api/analysis/export", limit: DEFAULT_JSON_BODY_LIMIT },

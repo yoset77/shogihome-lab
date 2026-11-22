@@ -222,6 +222,46 @@ describe("store/book", () => {
     ).rejects.toThrow(t.bookSessionIsNoLongerAvailable);
   });
 
+  it("sends one batch and refreshes only the edited book once", async () => {
+    await useAppSettings().updateAppSettings({ flippedBook: false });
+    mockAPI.updateBookMoves.mockResolvedValue(undefined);
+    mockAPI.searchBookMoves.mockResolvedValue([{ usi: "7g7f", comment: "" }]);
+    const record = new Record();
+    const store = new BookStore(record);
+    const first = new BookSessionStore("first", "server://first.db");
+    const second = new BookSessionStore("second", "server://second.db");
+    store.books = [first, second];
+    store.activeBookId = "second";
+    const updates = [
+      { sfen, move: { usi: "8a4a", comment: "first" } },
+      { sfen, move: { usi: "8a7a", comment: "second" } },
+    ];
+
+    await store.updateMoves(updates, "first");
+
+    expect(mockAPI.updateBookMoves).toHaveBeenCalledExactlyOnceWith(updates, "first");
+    expect(mockAPI.searchBookMoves).toHaveBeenCalledExactlyOnceWith(record.position.sfen, "first");
+    expect(mockAPI.updateBookMove).not.toHaveBeenCalled();
+    expect(first.isUnsaved).toBe(true);
+    expect(second.isUnsaved).toBe(false);
+  });
+
+  it("does not refresh or mark the book dirty after a failed or empty batch", async () => {
+    const store = new BookStore(new Record());
+    const book = new BookSessionStore("first", "server://first.db");
+    store.books = [book];
+    mockAPI.updateBookMoves.mockRejectedValueOnce(new Error("invalid batch"));
+
+    await store.updateMoves([], "first");
+    await expect(
+      store.updateMoves([{ sfen, move: { usi: "8a4a", comment: "" } }], "first"),
+    ).rejects.toThrow("invalid batch");
+
+    expect(mockAPI.updateBookMoves).toHaveBeenCalledTimes(1);
+    expect(mockAPI.searchBookMoves).not.toHaveBeenCalled();
+    expect(book.isUnsaved).toBe(false);
+  });
+
   it("closes only the selected session", async () => {
     mockAPI.openBookAsNewSession.mockResolvedValueOnce("first").mockResolvedValueOnce("second");
     mockAPI.searchBookMoves.mockResolvedValue([]);
