@@ -100,6 +100,26 @@ candidates:
       protobufのバイトコピー、Packed SFENの高速化、構築予算の変更は対象外。
 
   - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1919
+    summary: SBK・YBB共用のPacked SFEN変換の高速化
+    status: closed
+    assessed_lab_sha: 0e1c6768007307a831311dc9368f03763434723c
+    targets:
+      - shogihome/src/server/book/packed_sfen.ts
+      - shogihome/src/tests/server/book/packed_sfen.spec.ts
+    evidence: >-
+      逆引き実装後のLabでcodecだけを差し替え、約99万局面のSBKのOn-the-fly読み込みは
+      3.34秒から3.02秒、上書きは4.46秒から4.14秒。同じSBKから生成した約98万局面のYBBの
+      In-memory読み込みは9.28秒から4.35秒（各5回の中央値、SBK構築予算は計測のみ1 GiB）。
+      両形式の保存バイトとSBK索引が一致。定跡関連248テストが成功し、
+      直接比較でも有効SFENと約1万個のPacked SFENの出力または拒否結果が一致。
+      YBBのOn-the-fly性能は未計測。
+    resolution: >-
+      数値の復号表、座標変換表、1ビット専用の読み書き、盤上の駒の変換時に割り当てを避ける処理を
+      共用codecのみに移植。成駒・持駒・駒箱の固定バイトと不正な入力の回帰テストを追加し、
+      読み込みモード・構築予算・protobufの処理は維持する。
+
+  - sources:
       - https://github.com/sunfish-shogi/shogihome/blob/59a2b75b1fe50afc8bb0852a9697318ebe6c6e87/src/background/usi/engine.ts#L404-L428
     summary: 再利用エンジンの各局開始前の準備完了確認
     status: closed
