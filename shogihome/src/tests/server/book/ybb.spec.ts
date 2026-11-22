@@ -225,4 +225,68 @@ describe("server/book/ybb", () => {
       await book.file.close();
     }
   });
+
+  it("shares concurrent index reads and retains those blocks for later hits and misses", async () => {
+    const sfens = createDistinctYbbPositions(301);
+    const tmpPath = path.join(tmpdir, "cached-index.ybb");
+    const referenceBook = new Map(
+      sfens.map((sfen, i): [string, BookEntry] => [
+        sfen,
+        {
+          type: "normal",
+          comment: "",
+          minPly: i + 1,
+          moves: [{ usi: "5i5h", score: i, depth: 20, comment: "" }],
+        },
+      ]),
+    );
+    await storeYbbBook(referenceBook, tmpPath);
+    const book = await openYbbBookOnTheFly(tmpPath);
+    const read = vi.spyOn(book.file, "read");
+    const movesStart = 32 + sfens.length * 44;
+    const lookup = (sfen: string) =>
+      searchYbbBookMovesOnTheFly(sfen, book.file, book.size, book.recordCount, book.flags);
+    try {
+      const ordered = [...(await loadYbbBook(tmpPath)).entries.keys()];
+      const keys = [ordered[0], ordered[127], ordered[128], ordered.at(-1)!, ...sfens.slice(0, 16)];
+      expect(await Promise.all(keys.map(lookup))).toEqual(
+        keys.map((sfen) => referenceBook.get(sfen)),
+      );
+      expect(read).toHaveBeenCalledTimes(keys.length + 3);
+      expect(read).toHaveBeenCalledWith(expect.any(Buffer), 0, 128 * 44, 32);
+      expect(read).toHaveBeenCalledWith(expect.any(Buffer), 0, 128 * 44, 32 + 128 * 44);
+      expect(read).toHaveBeenCalledWith(expect.any(Buffer), 0, 45 * 44, 32 + 256 * 44);
+
+      read.mockClear();
+      expect(await lookup(ordered.at(-1)!)).toEqual(referenceBook.get(ordered.at(-1)!));
+      expect(await lookup(createDistinctYbbPositions(302)[301])).toBeUndefined();
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(read).toHaveBeenCalledWith(
+        expect.any(Buffer),
+        0,
+        6,
+        movesStart + (sfens.length - 1) * 6,
+      );
+    } finally {
+      read.mockRestore();
+      await book.file.close();
+    }
+  });
+
+  it("does not retain a failed block read", async () => {
+    const book = await openYbbBookOnTheFly(ybbPath);
+    const sfen = [...(await loadYbbBook(ybbPath)).entries.keys()][0];
+    const lookup = () =>
+      searchYbbBookMovesOnTheFly(sfen, book.file, book.size, book.recordCount, book.flags);
+    const read = vi.spyOn(book.file, "read").mockRejectedValueOnce(new Error("read failed"));
+    try {
+      const results = await Promise.allSettled([lookup(), lookup()]);
+      expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(await lookup()).toBeDefined();
+    } finally {
+      read.mockRestore();
+      await book.file.close();
+    }
+  });
 });

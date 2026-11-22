@@ -120,6 +120,8 @@ Uploadはraw bodyをtemporary fileへstreamingし、完成したfileだけをato
 
 YBB／DBのOn-the-flyはfile handleを中心とし、SBKはraw dataと局面indexを保持します。SBKの構築予算はこの局所的な構築に対する制約であり、process全体のメモリ上限ではありません。設定の既定値・範囲は [`config.ts`](../../shogihome/src/server/config.ts)、運用上の説明は [`.env.example`](../../shogihome/.env.example)、形式別の判断理由は [Book Loading](../features/book-loading.md) を参照してください。
 
+YBBの検索用index cacheは開いたfile handleごとに上限付きで保持し、同じblockへの並行読み込みを共有します。再open・上書き保存で新しいhandleに切り替わり、古いcacheは引き継ぎません。On-the-flyで開いているfileを外部から直接書き換えた場合は再openが必要です。DBは検索ごとのbuffer内で読み込んだ範囲を再利用し、sessionをまたいで保持しません。
+
 ### On-the-fly Bookの上書き保存
 
 On-the-fly modeで読み込み中の定跡は、読み込み元のfileへの上書き保存が可能です。公開とsession状態の切り替えは次の契約に従います。
