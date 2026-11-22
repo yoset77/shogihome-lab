@@ -8,6 +8,7 @@ import {
   formatSpecialMove,
   getBlackPlayerName,
   getWhitePlayerName,
+  type ImmutableNode,
 } from "tsshogi";
 import { importRecordFromBuffer, detectRecordFileFormatByPath } from "@/common/file/record";
 import { normalizeSfen } from "@/common/usi/sfen";
@@ -63,12 +64,12 @@ function parseIndexedPosition(sfen: string) {
   }
 }
 
-export async function parseAndIndexFile(
+export async function parseKifuFile(
   baseDir: string,
   relativePath: string,
 ): Promise<{
   metadata: Omit<KifuFileMetadata, "indexed_at">;
-  positions: KifuPositionData[];
+  first: ImmutableNode;
 } | null> {
   const format = detectRecordFileFormatByPath(relativePath);
   if (!format) return null;
@@ -92,7 +93,7 @@ export async function parseAndIndexFile(
     await file.close();
   }
 
-  const record = importRecordFromBuffer(new Uint8Array(buffer), format, {
+  const record = importRecordFromBuffer(buffer, format, {
     autoDetect: true,
   });
   if (record instanceof Error) {
@@ -143,9 +144,12 @@ export async function parseAndIndexFile(
     strategy_index_version: strategyIndexVersion,
     position_index_version: KIFU_POSITION_INDEX_VERSION,
   };
+  return { metadata, first: record.first };
+}
 
+export function buildKifuPositions(first: ImmutableNode): KifuPositionData[] {
   const positions: KifuPositionData[] = [];
-  for (const { node, isVariation } of iterateKifuNodes(record.first)) {
+  for (const { node, isVariation } of iterateKifuNodes(first)) {
     const indexed = parseIndexedPosition(node.sfen);
     if (!indexed) continue;
     positions.push({
@@ -161,5 +165,5 @@ export async function parseAndIndexFile(
     });
   }
 
-  return { metadata, positions };
+  return positions;
 }

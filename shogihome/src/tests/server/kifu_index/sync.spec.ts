@@ -23,16 +23,18 @@ vi.mock("@/server/kifu_index/engine", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/server/kifu_index/engine")>();
   return {
     ...actual,
-    parseAndIndexFile: vi.fn(async (kifuDir: string, relPath: string) => {
+    buildKifuPositions: vi.fn(actual.buildKifuPositions),
+    parseKifuFile: vi.fn(async (kifuDir: string, relPath: string) => {
       if (engineGate.path === relPath && engineGate.promise) {
         await engineGate.promise;
       }
-      return actual.parseAndIndexFile(kifuDir, relPath);
+      return actual.parseKifuFile(kifuDir, relPath);
     }),
   };
 });
 
-import { parseAndIndexFile } from "@/server/kifu_index/engine";
+import { buildKifuPositions, parseKifuFile } from "@/server/kifu_index/engine";
+import { normalizeKifuSearchQuery } from "@/server/kifu_index/query";
 
 describe("server/kifu_index/sync", () => {
   let tempDir: string;
@@ -52,24 +54,6 @@ describe("server/kifu_index/sync", () => {
     engineGate.path = undefined;
     engineGate.promise = undefined;
   });
-
-  function insertLegacyOrphan(sfen: string): void {
-    const testDb = new DatabaseSync(path.join(dbDir, "kifu_index.db"));
-    try {
-      testDb.prepare("INSERT INTO positions (sfen_hash, sfen) VALUES (?, ?)").run(999, sfen);
-    } finally {
-      testDb.close();
-    }
-  }
-
-  function hasPosition(sfen: string): boolean {
-    const testDb = new DatabaseSync(path.join(dbDir, "kifu_index.db"));
-    try {
-      return testDb.prepare("SELECT 1 FROM positions WHERE sfen = ?").get(sfen) !== undefined;
-    } finally {
-      testDb.close();
-    }
-  }
 
   it("should sync directory correctly", async () => {
     // Create some kifu files
@@ -150,7 +134,7 @@ describe("server/kifu_index/sync", () => {
     );
     fs.writeFileSync(path.join(tempDir, "kept.kif"), "先手：Old\n手数----指手----\n1 ７六歩(77)\n");
     await syncKifuDirectory(tempDir);
-    const callsBeforeBatch = vi.mocked(parseAndIndexFile).mock.calls.length;
+    const callsBeforeBatch = vi.mocked(parseKifuFile).mock.calls.length;
 
     // Hold the first batch on a slow parse so it outlives the next batch's debounce.
     let release!: () => void;
@@ -164,10 +148,9 @@ describe("server/kifu_index/sync", () => {
       onKifuFileEvent("unlinkDir", tempDir, "games");
       onKifuFileEvent("change", tempDir, "kept.kif");
       // Batch A started when its slow parse call appears.
-      await vi.waitFor(
-        () => expect(parseAndIndexFile).toHaveBeenCalledTimes(callsBeforeBatch + 1),
-        { timeout: 3000 },
-      );
+      await vi.waitFor(() => expect(parseKifuFile).toHaveBeenCalledTimes(callsBeforeBatch + 1), {
+        timeout: 3000,
+      });
 
       // Re-add the removed file while batch A is still processing.
       fs.mkdirSync(directory);
@@ -179,7 +162,7 @@ describe("server/kifu_index/sync", () => {
       await new Promise((resolve) => setTimeout(resolve, 600));
 
       // The next batch must not run concurrently with the unfinished one.
-      expect(parseAndIndexFile).toHaveBeenCalledTimes(callsBeforeBatch + 1);
+      expect(parseKifuFile).toHaveBeenCalledTimes(callsBeforeBatch + 1);
 
       release();
       await vi.waitFor(() => expect(getKifuFileByPath(removedPath)?.black_name).toBe("New"), {
@@ -269,25 +252,6 @@ describe("server/kifu_index/sync", () => {
     }
   });
 
-  it("defers legacy orphan repair from live events to full sync", async () => {
-    const orphanSfen = "legacy-orphan";
-    const kifPath = "event_test.kif";
-    insertLegacyOrphan(orphanSfen);
-    fs.writeFileSync(
-      path.join(tempDir, kifPath),
-      "先手：A\n後手：B\n手数----指手----\n1 ７六歩(77)\n",
-    );
-
-    onKifuFileEvent("add", tempDir, kifPath);
-    await new Promise((resolve) => setTimeout(resolve, 600));
-
-    expect(hasPosition(orphanSfen)).toBe(true);
-
-    await syncKifuDirectory(tempDir);
-
-    expect(hasPosition(orphanSfen)).toBe(false);
-  });
-
   it("should only index changed files during full sync", async () => {
     const kifPath = "sync_test.kif";
     const fullPath = path.join(tempDir, kifPath);
@@ -337,15 +301,42 @@ describe("server/kifu_index/sync", () => {
       testDb.close();
     }
 
+    vi.mocked(buildKifuPositions).mockClear();
     await syncKifuDirectory(tempDir);
+    expect(buildKifuPositions).not.toHaveBeenCalled();
     const after = getKifuFileByPath(kifPath);
     expect(after?.strategy).toBe("角換わり");
     expect(after?.strategy_index_version).toBe(STRATEGY_INDEX_VERSION);
     expect(after?.indexed_at).toBeGreaterThanOrEqual(before!.indexed_at);
   });
 
+  it("rebuilds positions if a file changes between the scan and strategy backfill", async () => {
+    const name = "changed.kifu";
+    const fullPath = path.join(tempDir, name);
+    fs.writeFileSync(fullPath, "戦型：角換わり\n手数----指手----\n1 ７六歩(77)\n");
+    await syncKifuDirectory(tempDir);
+    const testDb = new DatabaseSync(path.join(dbDir, "kifu_index.db"));
+    try {
+      testDb.exec("UPDATE kifu_files SET strategy_index_version = 0");
+    } finally {
+      testDb.close();
+    }
+    const original = await vi.importActual<typeof import("@/server/kifu_index/engine")>(
+      "@/server/kifu_index/engine",
+    );
+    vi.mocked(parseKifuFile).mockImplementationOnce((dir, relPath) => {
+      fs.writeFileSync(fullPath, "先手：New\n戦型：矢倉\n手数----指手----\n1 ２六歩(27)\n");
+      return original.parseKifuFile(dir, relPath);
+    });
+    await syncKifuDirectory(tempDir);
+    expect(getKifuFileByPath(name)?.black_name).toBe("New");
+    const search = (sfen: string) => kifuIndexDB.searchKifu(normalizeKifuSearchQuery({ sfen }));
+    expect(search("startpos")[0]?.next_move).toBe("☗２六歩");
+    expect(search("startpos moves 7g7f")).toHaveLength(0);
+    expect(search("startpos moves 2g2f")).toHaveLength(1);
+  });
+
   it("should sync many files without blocking (non-blocking loop check)", async () => {
-    // Create 110 dummy files to exceed the 100-item yield threshold
     for (let i = 0; i < 110; i++) {
       fs.writeFileSync(path.join(tempDir, `test_${i}.kif`), `手数----指手----\n1 ７六歩(77)\n`);
     }

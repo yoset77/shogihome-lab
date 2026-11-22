@@ -640,6 +640,34 @@ describe("server/database/kifu_index", () => {
     ).toBe("");
   });
 
+  it("reopens a version two index without rebuilding it or sweeping legacy orphans", () => {
+    upsertKifuFile(
+      { ...makeMetadata("kept.kif"), strategy_index_version: 1, position_index_version: 1 },
+      [{ sfen_hash: 100n, sfen: "linked", ply: 2, next_move: "☗７六歩" }],
+    );
+    const before = getKifuFileByPath("kept.kif");
+    closeDatabase();
+    const legacy = new DatabaseSync(path.join(testDataDir, "kifu_index.db"));
+    try {
+      legacy.exec(`
+        INSERT INTO positions (sfen_hash, sfen) VALUES (999, 'orphan');
+        PRAGMA user_version = 2;
+      `);
+      initDatabase(testDataDir);
+      expect(legacy.prepare("PRAGMA user_version").get()).toEqual({ user_version: 2 });
+    } finally {
+      legacy.close();
+    }
+    expect(getPositionCount()).toBe(2);
+    expect(getKifuFileByPath("kept.kif")).toEqual(before);
+    expect(searchKifu({ sfenHash: 100n, sfen: "linked" })[0]?.next_move).toBe("☗７六歩");
+
+    const orphanQuery = { sfenHash: 999n, sfen: "orphan" };
+    expect(searchKifu(orphanQuery)).toEqual([]);
+    expect(getKifuSearchCount(orphanQuery)).toBe(0);
+    expect(getKifuSearchStatistics(orphanQuery)).toMatchObject({ total: 0, nextMoves: [] });
+  });
+
   it("removes only positions orphaned by an upsert", () => {
     const sharedPosition = { sfen_hash: 100n, sfen: "shared", ply: 0 };
     upsertKifuFile(makeMetadata("test1.kif"), [

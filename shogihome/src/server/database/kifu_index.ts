@@ -668,21 +668,3 @@ export function getKifuCount(): number {
   const result = getKifuCountStmt?.get() as { count: number } | undefined;
   return result?.count ?? 0;
 }
-
-export function cleanupOrphanedPositions() {
-  if (!db) return;
-  try {
-    db.exec("BEGIN IMMEDIATE");
-    db.exec(
-      "DELETE FROM positions WHERE NOT EXISTS (SELECT 1 FROM kifu_positions WHERE kifu_positions.position_id = positions.id)",
-    );
-    db.exec("COMMIT");
-  } catch (e) {
-    try {
-      db.exec("ROLLBACK");
-    } catch {
-      // ignore rollback errors to preserve original error
-    }
-    console.error("Failed to cleanup orphaned positions:", e);
-  }
-}

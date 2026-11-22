@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { parseAndIndexFile } from "@/server/kifu_index/engine";
+import { buildKifuPositions, parseKifuFile } from "@/server/kifu_index/engine";
 import { normalizeKifuSearchQuery } from "@/server/kifu_index/query";
 import { onKifuFileEvent, syncKifuDirectory } from "@/server/kifu_index/sync";
 import { STRATEGY_INDEX_VERSION } from "@/server/kifu_index/strategy";
@@ -15,6 +15,11 @@ import { encodeText } from "@/common/helpers/encode";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+
+async function parseAndIndexFile(baseDir: string, relPath: string) {
+  const parsed = await parseKifuFile(baseDir, relPath);
+  return parsed && { metadata: parsed.metadata, positions: buildKifuPositions(parsed.first) };
+}
 
 describe("server/kifu_index/engine", () => {
   let tempDir: string;
