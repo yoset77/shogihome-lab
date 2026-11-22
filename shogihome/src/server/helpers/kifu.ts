@@ -17,6 +17,7 @@ export const BOOK_EXTENSIONS = BOOK_UPLOAD_EXTENSIONS;
 export const POSITION_EXTENSIONS = POSITION_UPLOAD_EXTENSIONS;
 const MAX_DEPTH = 10;
 const MAX_FILES = 100000;
+const POLLING_INTERVAL_MS = 3000;
 
 export { getServerFileKind, type ServerFileKind };
 
@@ -248,7 +249,8 @@ export const setupKifuWatcher = (
       persistent: true,
       ignoreInitial: true,
       backend: usePolling ? "polling" : "auto",
-      pollingInterval: 1000,
+      pollingInterval: POLLING_INTERVAL_MS,
+      pollingBinaryInterval: POLLING_INTERVAL_MS,
       awaitWriteFinish: {
         stabilityThreshold: 1000,
         pollInterval: 100,
