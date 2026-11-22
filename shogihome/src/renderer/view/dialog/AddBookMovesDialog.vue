@@ -22,7 +22,12 @@
               <span v-if="move.score !== undefined">{{ t.score }} {{ move.score }}</span>
             </td>
             <td v-if="move.type === 'move'">
-              <button v-if="canRegisterMove(move)" class="thin" @click="registerMove(move)">
+              <button
+                v-if="canRegisterMove(move)"
+                :disabled="busyState.isBusy"
+                class="thin"
+                @click="registerMove(move)"
+              >
                 {{ move.exists ? t.update : t.register }}
               </button>
             </td>
@@ -114,7 +119,9 @@
       <div class="form-item">
         <ToggleButton v-model:value="importScoreDepth" :label="t.importScoreDepth" />
       </div>
-      <button class="register-all" @click="registerAllMoves">{{ t.importAll }}</button>
+      <button class="register-all" :disabled="busyState.isBusy" @click="registerAllMoves">
+        {{ t.importAll }}
+      </button>
     </div>
     <div v-show="activeTab === 'directory' || activeTab === 'file'">
       <button class="import" @click="importMoves">{{ t.import }}</button>
@@ -325,47 +332,42 @@ const canRegisterMove = (move: InMemoryMove): boolean => {
   return !move.exists || (importScoreDepth.value && move.scoreUpdatable);
 };
 
+const toBookMove = (move: InMemoryMove): BookMove =>
+  importScoreDepth.value
+    ? { ...move.book, score: move.score, depth: move.depth }
+    : { usi: move.book.usi, comment: move.book.comment };
+
+const markRegistered = (move: InMemoryMove) => {
+  move.exists = true;
+  move.scoreUpdatable = false;
+};
+
 const registerAllMoves = () => {
   useConfirmationStore().show({
     message: t.doYouWantToImportAllMoves,
     onOk: async () => {
-      let added = 0;
-      for (const item of inMemoryList.value) {
-        if (item.type !== "move") continue;
-        if (canRegisterMove(item)) {
-          await registerMove(item);
-          added++;
-        }
+      if (busyState.isBusy) return;
+      const moves = inMemoryList.value.filter(
+        (item): item is InMemoryMove => item.type === "move" && canRegisterMove(item),
+      );
+      try {
+        await bookStore.updateMoves(
+          moves.map((move) => ({ sfen: move.sfen, move: toBookMove(move) })),
+          bookSessionId,
+        );
+        moves.forEach(markRegistered);
+        useToastStore().success(t.importedMoves(moves.length));
+      } catch (e) {
+        errorStore.add(e);
       }
-      useToastStore().success(t.importedMoves(added));
     },
   });
 };
 
 const registerMove = async (move: InMemoryMove) => {
   try {
-    if (importScoreDepth.value) {
-      await bookStore.updateMove(
-        move.sfen,
-        {
-          ...move.book,
-          score: move.score,
-          depth: move.depth,
-        },
-        bookSessionId,
-      );
-    } else {
-      await bookStore.updateMove(
-        move.sfen,
-        {
-          usi: move.book.usi,
-          comment: move.book.comment,
-        },
-        bookSessionId,
-      );
-    }
-    move.exists = true;
-    move.scoreUpdatable = false;
+    await bookStore.updateMove(move.sfen, toBookMove(move), bookSessionId);
+    markRegistered(move);
   } catch (e) {
     errorStore.add(e);
   }

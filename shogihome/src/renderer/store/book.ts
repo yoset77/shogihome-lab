@@ -1,4 +1,4 @@
-import { BookFormat, BookMove, BookMoveEx } from "@/common/book";
+import { BookFormat, BookMove, BookMoveEx, type BookMoveUpdate } from "@/common/book";
 import { BookImportSettings } from "@/common/settings/book";
 import { t } from "@/common/i18n/index";
 import { flippedSFEN, flippedUSIMove } from "@/common/helpers/sfen";
@@ -185,6 +185,14 @@ export class BookSessionStore {
     this.ensureUsable();
     await this.ensureBookFormat();
     await api.updateBookMove(sfen, move, this.sessionId);
+    this.dirty = true;
+  }
+
+  async updateMoves(updates: readonly BookMoveUpdate[]): Promise<void> {
+    if (updates.length === 0) return;
+    this.ensureUsable();
+    await this.ensureBookFormat();
+    await api.updateBookMoves(updates, this.sessionId);
     this.dirty = true;
   }
 
@@ -577,6 +585,21 @@ export class BookStore {
     useBusyState().retain();
     try {
       await book.updateMove(sfen, move);
+      await this.reloadEdited(book);
+    } finally {
+      useBusyState().release();
+    }
+  }
+
+  async updateMoves(
+    updates: readonly BookMoveUpdate[],
+    sessionId: string | undefined,
+  ): Promise<void> {
+    if (updates.length === 0) return;
+    const book = this.resolveBook(sessionId);
+    useBusyState().retain();
+    try {
+      await book.updateMoves(updates);
       await this.reloadEdited(book);
     } finally {
       useBusyState().release();

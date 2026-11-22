@@ -65,6 +65,23 @@ describe("renderer/ipc/api", () => {
     expect((callArgs[1]?.headers as Headers).get("Content-Type")).toBe("text/plain");
   });
 
+  it("sends all book edits in one request with the selected session", async () => {
+    const { default: api } = await import("@/renderer/ipc/api.js");
+    const updates = [
+      { sfen: "startpos", move: { usi: "7g7f", comment: "" } },
+      { sfen: "startpos", move: { usi: "2g2f", comment: "", depth: 20 } },
+    ];
+    await api.updateBookMoves(updates, "session-2");
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = vi.mocked(globalThis.fetch).mock.calls[0];
+    expect(new URL(String(url)).pathname).toBe("/api/book/update/batch");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ updates });
+    expect(new Headers(init?.headers).get("Content-Type")).toBe("application/json");
+    expect(new Headers(init?.headers).get("X-Book-Session-Id")).toBe("session-2");
+  });
+
   it("uploads a server file as an unmodified request body", async () => {
     const { default: api } = await import("@/renderer/ipc/api.js");
     const file = new File([new Uint8Array([0, 1, 255])], "book.db");

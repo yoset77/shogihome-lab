@@ -1,6 +1,11 @@
 import fs, { ReadStream } from "node:fs";
 import path from "node:path";
-import { BookImportSummary, BookLoadingOptions, BookMove as CommonBookMove } from "@/common/book";
+import {
+  BookImportSummary,
+  BookLoadingOptions,
+  BookMove as CommonBookMove,
+  type BookMoveUpdate,
+} from "@/common/book";
 import { getAppLogger } from "@/node/log";
 import { Book, BookEntry, BookFormat, BookMove, mergeBookEntries, type SbkBook } from "./types.js";
 import {
@@ -59,6 +64,7 @@ import {
 } from "./ybb.js";
 import { BOOK_IMPORT_LIMITS } from "./import_limits.js";
 
+const BOOK_UPDATE_YIELD_INTERVAL = 100;
 const BOOK_IMPORT_YIELD_INTERVAL = 100;
 
 type BookHandle = InMemoryBook | OnTheFlyBook;
@@ -738,8 +744,9 @@ function commonBookMoveToInternal(move: CommonBookMove): BookMove {
   return bookMove;
 }
 
-function updateBookEntry(entry: BookEntry, move: CommonBookMove): void {
-  const bookMove = commonBookMoveToInternal(move);
+function applyBookMove(entry: BookEntry, move: CommonBookMove, format: BookFormat): void {
+  const bookMove =
+    format === "apery" ? sanitizedAperyBookMove(move) : commonBookMoveToInternal(move);
   for (let i = 0; i < entry.moves.length; i++) {
     if (entry.moves[i].usi === move.usi) {
       entry.moves[i] = bookMove;
@@ -752,7 +759,7 @@ function updateBookEntry(entry: BookEntry, move: CommonBookMove): void {
 function sanitizedAperyBookMove(move: CommonBookMove): BookMove {
   const bookMove: BookMove = {
     usi: move.usi,
-    comment: move.comment,
+    comment: "",
     score: 0,
     count: 0,
   };
@@ -765,38 +772,61 @@ function sanitizedAperyBookMove(move: CommonBookMove): BookMove {
   return bookMove;
 }
 
+function copyBookEntry(original: BookEntry | undefined): BookEntry {
+  return original
+    ? { ...original, moves: [...original.moves] }
+    : { type: "normal", comment: "", moves: [], minPly: 0 };
+}
+
 export async function updateBookMove(session: number, sfen: string, move: CommonBookMove) {
   const book = getBook(session);
   if (book.busy) {
     throw new HttpError(409, t.processingPleaseWait);
   }
-  const original = await retrieveMergedEntry(book, sfen);
-  const entry = original ? { ...original, moves: [...original.moves] } : undefined;
-  if (book.format === "yane2016" || book.format === "sbk" || book.format === "ybb") {
-    if (entry) {
-      updateBookEntry(entry, move);
-      storeEntry(book, sfen, entry);
-    } else {
-      storeEntry(book, sfen, {
-        type: "normal",
-        comment: "",
-        moves: [commonBookMoveToInternal(move)],
-        minPly: 0,
-      });
+  const entry = copyBookEntry(await retrieveMergedEntry(book, sfen));
+  applyBookMove(entry, move, book.format);
+  storeEntry(book, sfen, entry);
+}
+
+async function applyBookMoveUpdates<Key>(
+  book: BookHandle,
+  entries: Map<Key, BookEntry>,
+  keyOf: (sfen: string) => Key,
+  updates: readonly BookMoveUpdate[],
+): Promise<void> {
+  const staged = new Map<Key, BookEntry>();
+  for (const [index, { sfen, move }] of updates.entries()) {
+    const key = keyOf(sfen);
+    let entry = staged.get(key);
+    if (!entry) {
+      entry = copyBookEntry(await retrieveMergedEntry(book, sfen));
+      staged.set(key, entry);
     }
-  } else {
-    const sanitizedMove = sanitizedAperyBookMove({ ...move, comment: "" });
-    if (entry) {
-      updateBookEntry(entry, sanitizedMove);
-      storeEntry(book, sfen, entry);
-    } else {
-      storeEntry(book, sfen, {
-        type: "normal",
-        comment: "",
-        moves: [sanitizedMove],
-        minPly: 0,
-      });
+    applyBookMove(entry, move, book.format);
+    if ((index + 1) % BOOK_UPDATE_YIELD_INTERVAL === 0) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
     }
+  }
+  // Publish only after every base entry has been read and every edit has been staged.
+  for (const [key, entry] of staged) entries.set(key, entry);
+  book.saved = false;
+}
+
+export async function updateBookMoves(session: number, updates: readonly BookMoveUpdate[]) {
+  const book = getBook(session);
+  if (book.busy) {
+    throw new HttpError(409, t.processingPleaseWait);
+  }
+  if (updates.length === 0) return;
+  book.busy = true;
+  try {
+    if (book.format === "apery") {
+      await applyBookMoveUpdates(book, book.entries, aperyHash, updates);
+    } else {
+      await applyBookMoveUpdates(book, book.entries, (sfen) => sfen, updates);
+    }
+  } finally {
+    book.busy = false;
   }
 }
 

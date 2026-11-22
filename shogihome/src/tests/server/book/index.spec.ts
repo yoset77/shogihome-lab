@@ -12,6 +12,7 @@ import {
   saveBook,
   searchBookMoves,
   updateBookMove,
+  updateBookMoves,
   updateBookMoveOrder,
   initBookSession,
   isBookUnsaved,
@@ -87,6 +88,87 @@ describe("server/book", () => {
       await saveBook(defaultBookSession, tempFilePath);
       expect(fs.existsSync(tempFilePath)).toBe(true);
       fs.rmSync(tempFilePath, { force: true });
+    }
+  });
+
+  it.each(bookFormats)(
+    "applies batch updates in the same order as single edits (%s)",
+    async (format) => {
+      clearBook(defaultBookSession, format);
+      const sfen = new Position().sfen;
+      const afterMove = new Position();
+      afterMove.doMove(afterMove.createMoveByUSI("7g7f")!);
+      const otherSfen = afterMove.sfen;
+      const updates = [
+        { sfen, move: { usi: "7g7f", score: 30, comment: "first" } },
+        { sfen: otherSfen, move: { usi: "3c3d", count: 5, comment: "" } },
+        { sfen, move: { usi: "2g2f", comment: "" } },
+        { sfen, move: { usi: "7g7f", score: 40, depth: 12, comment: "last" } },
+      ];
+      const existing = { usi: "5g5f", comment: "keep" };
+      await updateBookMoves(defaultBookSession, []);
+      expect(isBookUnsaved(defaultBookSession)).toBe(false);
+      await updateBookMove(defaultBookSession, sfen, existing);
+      await updateBookMoves(defaultBookSession, updates);
+      expect(isBookUnsaved(defaultBookSession)).toBe(true);
+      const actual = await Promise.all(
+        [sfen, otherSfen].map((key) => searchBookMoves(defaultBookSession, key)),
+      );
+      expect(actual[0].map((move) => move.usi)).toEqual(["5g5f", "7g7f", "2g2f"]);
+      expect(actual[0][1].score).toBe(40);
+
+      clearBook(defaultBookSession, format);
+      await updateBookMove(defaultBookSession, sfen, existing);
+      for (const { sfen, move } of updates) await updateBookMove(defaultBookSession, sfen, move);
+      expect(actual).toEqual(
+        await Promise.all([sfen, otherSfen].map((key) => searchBookMoves(defaultBookSession, key))),
+      );
+    },
+  );
+
+  it("does not apply staged edits if a later on-the-fly lookup fails", async () => {
+    const file = path.join(tmpdir, "batch-lookup.db");
+    const position = new Position();
+    const sfen = position.sfen;
+    const bookText = `#YANEURAOU-DB2016 1.00\nsfen ${sfen}\n7g7f none 10 5 1\n`;
+    await fs.promises.writeFile(file, bookText);
+    try {
+      await openBook(defaultBookSession, file, { onTheFlyThresholdMB: 0 });
+      await updateBookMove(defaultBookSession, sfen, { usi: "2g2f", comment: "unsaved" });
+      const before = await searchBookMoves(defaultBookSession, sfen);
+      position.doMove(position.createMoveByUSI("7g7f")!);
+      const nextSfen = position.sfen;
+      const failure = new Error("lookup failed");
+      const search = vi
+        .spyOn(yaneuraou, "searchYaneuraOuBookMovesOnTheFly")
+        .mockRejectedValueOnce(failure);
+      try {
+        await expect(
+          updateBookMoves(defaultBookSession, [
+            { sfen, move: { usi: "2g2f", comment: "replacement" } },
+            { sfen: nextSfen, move: { usi: "3c3d", comment: "" } },
+          ]),
+        ).rejects.toThrow(failure);
+        expect(search).toHaveBeenCalledExactlyOnceWith(
+          nextSfen,
+          expect.anything(),
+          expect.any(Number),
+        );
+      } finally {
+        search.mockRestore();
+      }
+      expect(await searchBookMoves(defaultBookSession, sfen)).toEqual(before);
+      expect(isBookUnsaved(defaultBookSession)).toBe(true);
+      await updateBookMoves(defaultBookSession, [
+        { sfen: nextSfen, move: { usi: "3c3d", comment: "" } },
+        { sfen: nextSfen, move: { usi: "8c8d", comment: "" } },
+      ]);
+      expect((await searchBookMoves(defaultBookSession, nextSfen)).map((move) => move.usi)).toEqual(
+        ["3c3d", "8c8d"],
+      );
+    } finally {
+      closeBookSession(defaultBookSession);
+      await fs.promises.unlink(file);
     }
   });
 

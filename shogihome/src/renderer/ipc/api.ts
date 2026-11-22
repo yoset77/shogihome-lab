@@ -26,6 +26,7 @@ import {
   BookLoadingMode,
   BookLoadingOptions,
   BookMove,
+  BookMoveUpdate,
 } from "@/common/book";
 import { BookImportSettings } from "@/common/settings/book";
 
@@ -75,6 +76,7 @@ export interface API {
     sessionId?: string,
   ): Promise<{ sfen: string; moves: BookMove[] }[]>;
   updateBookMove(sfen: string, move: BookMove, sessionId?: string): Promise<void>;
+  updateBookMoves(updates: readonly BookMoveUpdate[], sessionId?: string): Promise<void>;
   removeBookMove(sfen: string, usi: string, sessionId?: string): Promise<void>;
   updateBookMoveOrder(sfen: string, usi: string, order: number, sessionId?: string): Promise<void>;
   importBookMoves(settings: BookImportSettings, sessionId?: string): Promise<BookImportSummary>;
@@ -213,6 +215,9 @@ const api: API = {
   },
   updateBookMove(sfen: string, move: BookMove, sessionId?: string): Promise<void> {
     return bridge.updateBookMove(sfen, JSON.stringify(move), sessionId);
+  },
+  updateBookMoves(updates: readonly BookMoveUpdate[], sessionId?: string): Promise<void> {
+    return bridge.updateBookMoves(JSON.stringify({ updates }), sessionId);
   },
   async removeBookMove(sfen: string, usi: string, sessionId?: string): Promise<void> {
     return bridge.removeBookMove(sfen, usi, sessionId);
