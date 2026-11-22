@@ -10,7 +10,8 @@ import {
   getWhitePlayerName,
 } from "tsshogi";
 import { importRecordFromBuffer, detectRecordFileFormatByPath } from "@/common/file/record";
-import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
+import { normalizeSfen } from "@/common/usi/sfen";
+import { hashPosition } from "@/server/book/apery_zobrist";
 import {
   KifuFileMetadata,
   KifuPositionData,
@@ -42,6 +43,24 @@ function normalizeDate(dateStr?: string): string | undefined {
     return m3[1];
   }
   return undefined;
+}
+
+function parseIndexedPosition(sfen: string) {
+  try {
+    const position = Position.newBySFEN(sfen);
+    if (!position) {
+      console.warn("Invalid SFEN string:", sfen);
+      return null;
+    }
+    return {
+      position,
+      sfen: normalizeSfen(position.sfen),
+      hash: BigInt.asIntN(64, hashPosition(position)),
+    };
+  } catch (error) {
+    console.warn("Failed to parse kifu index position:", error);
+    return null;
+  }
 }
 
 export async function parseAndIndexFile(
@@ -127,20 +146,19 @@ export async function parseAndIndexFile(
 
   const positions: KifuPositionData[] = [];
   for (const { node, isVariation } of iterateKifuNodes(record.first)) {
-    const normalized = getNormalizedSfenAndHash(node.sfen);
-    if (normalized) {
-      positions.push({
-        sfen: normalized.sfen,
-        sfen_hash: normalized.hash,
-        ply: node.ply,
-        next_move: !node.next
-          ? ""
-          : node.next.move instanceof Move
-            ? formatMove(Position.newBySFEN(node.sfen)!, node.next.move)
-            : formatSpecialMove(node.next.move, node.nextColor),
-        is_variation: isVariation,
-      });
-    }
+    const indexed = parseIndexedPosition(node.sfen);
+    if (!indexed) continue;
+    positions.push({
+      sfen: indexed.sfen,
+      sfen_hash: indexed.hash,
+      ply: node.ply,
+      next_move: !node.next
+        ? ""
+        : node.next.move instanceof Move
+          ? formatMove(indexed.position, node.next.move)
+          : formatSpecialMove(node.next.move, node.nextColor),
+      is_variation: isVariation,
+    });
   }
 
   return { metadata, positions };
