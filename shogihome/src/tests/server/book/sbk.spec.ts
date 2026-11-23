@@ -471,6 +471,34 @@ describe("server/book/sbk", () => {
     }
   });
 
+  it("skips interleaved top-level fields when saving states in file order", async () => {
+    const first = SBookState.create({ Id: 19, Comment: "first" });
+    const second = SBookState.create({ Id: 3, Comment: "second" });
+    const firstPart = SBook.encode({
+      Author: "old",
+      Description: "",
+      BookStates: [first],
+    }).finish();
+    const secondPart = SBook.encode({
+      Author: "new",
+      Description: "description",
+      BookStates: [second],
+    }).finish();
+    // Unknown length-delimited field containing bytes that look like an empty state.
+    const extraField = Uint8Array.of(0x22, 2, 0x1a, 0);
+    const book = await loadOnTheFlyFromData(Buffer.concat([firstPart, extraField, secondPart]));
+
+    expect(await storeToData(book)).toEqual(
+      Buffer.from(
+        SBook.encode({
+          Author: "new",
+          Description: "description",
+          BookStates: [first, second],
+        }).finish(),
+      ),
+    );
+  });
+
   it.each([
     { type: "normal" as const, weights: [7, 7] },
     { type: "patch" as const, weights: [9, 10] },

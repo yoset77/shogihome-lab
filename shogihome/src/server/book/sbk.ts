@@ -669,7 +669,10 @@ function readSfenAtRow(table: Uint32Array, row: number): string | undefined {
   }
 }
 
-function getEditedSfensByRow(sfens: Iterable<string>, index: SbkOnTheFlyLUT): Map<number, string> {
+function getEditedSfensByOffset(
+  sfens: Iterable<string>,
+  index: SbkOnTheFlyLUT,
+): Map<number, string> {
   const { table, rowCount } = index;
   const editedSfens = new Map<number, string>();
   for (const sfen of sfens) {
@@ -682,23 +685,10 @@ function getEditedSfensByRow(sfens: Iterable<string>, index: SbkOnTheFlyLUT): Ma
     const packed = table.subarray(start, start + 8);
     // Equal positions are contiguous in the index, even with distinct state IDs.
     for (let row = firstRow; row < rowCount && compareRowPacked(table, row, packed) === 0; row++) {
-      editedSfens.set(row, sfen);
+      editedSfens.set(readRowOffset(table, row), sfen);
     }
   }
   return editedSfens;
-}
-
-function getRowsByOffset(table: Uint32Array, rowCount: number): number[] {
-  // Extract file offsets once so the comparator avoids a function call and
-  // index arithmetic per comparison. The save path calls this for every row
-  // of a large book, so the constant-factor saving is significant.
-  const offsets = new Uint32Array(rowCount);
-  for (let row = 0; row < rowCount; row++) {
-    offsets[row] = table[row * SBK_ON_THE_FLY_ROW_SIZE + 8];
-  }
-  const rows = Array.from({ length: rowCount }, (_, row) => row);
-  rows.sort((a, b) => offsets[a] - offsets[b]);
-  return rows;
 }
 
 function getNextSbkStateId(index: SbkOnTheFlyLUT, newStateCount: number): number {
@@ -938,7 +928,8 @@ async function storeSbkBookOnTheFly(
     sfenAndUsiToNextId.set(sfen, usiToNextId);
   }
 
-  const editedSfensByRow = getEditedSfensByRow(book.entries.keys(), book.sbkIndex);
+  const { rawData, sbkIndex } = book;
+  const editedSfensByOffset = getEditedSfensByOffset(book.entries.keys(), sbkIndex);
   await writeBytes(
     SBook.encode({
       Author: book.sbkAuthor ?? "",
@@ -947,10 +938,19 @@ async function storeSbkBookOnTheFly(
     }).finish(),
   );
 
-  for (const row of getRowsByOffset(book.sbkIndex.table, book.sbkIndex.rowCount)) {
-    const offset = readRowOffset(book.sbkIndex.table, row);
-    const sourceState = decodeStateAt(book.rawData, offset);
-    const sfen = editedSfensByRow.get(row);
+  // Walk the original states in file order without reordering the search index.
+  let offset = 0;
+  while (offset < rawData.length) {
+    const tagOffset = offset;
+    const [tag, valueOffset] = readTag(rawData, offset, rawData.length);
+    if (tag !== 26) {
+      offset = skipField(rawData, valueOffset, tag & 7);
+      continue;
+    }
+    const [payloadStart, payloadEnd] = readMessageBounds(rawData, valueOffset, rawData.length);
+    offset = payloadEnd;
+    const sourceState = SBookState.decode(rawData.subarray(payloadStart, payloadEnd));
+    const sfen = editedSfensByOffset.get(tagOffset);
     const patch = sfen ? book.entries.get(sfen) : undefined;
     let state: SBookState | undefined;
 
