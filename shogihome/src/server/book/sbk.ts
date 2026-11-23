@@ -463,6 +463,24 @@ function toBookMoveEvaluation(value: SBookMoveEvaluation): SbkMoveEvaluation | u
   }
 }
 
+function bookMovesFromState(state: SBookState, pos: ImmutablePosition): BookMove[] {
+  return state.Moves.flatMap((m) => {
+    const move = fromSbkMove(pos, m.Move);
+    if (!move) {
+      return [];
+    }
+    return [
+      {
+        usi: move.usi,
+        count: m.Weight || undefined,
+        comment: "",
+        evaluation: toBookMoveEvaluation(m.Evaluation),
+        sbkId: m.NextStateId,
+      },
+    ];
+  });
+}
+
 function buildBookEntryFromState(state: SBookState, sfen: string): BookEntry | undefined {
   if (
     state.Moves.length === 0 &&
@@ -478,22 +496,6 @@ function buildBookEntryFromState(state: SBookState, sfen: string): BookEntry | u
   if (!pos) {
     return;
   }
-  const bookMoves: BookMove[] = state.Moves.flatMap((m) => {
-    const move = fromSbkMove(pos, m.Move);
-    if (!move) {
-      return [];
-    }
-    return [
-      {
-        usi: move.usi,
-        count: m.Weight || undefined,
-        comment: "",
-        evaluation: toBookMoveEvaluation(m.Evaluation),
-        sbkId: m.NextStateId,
-      },
-    ];
-  });
-
   const sbkEvals: SbkEval[] = state.Evals.map((e) => ({
     EvaluationValue: e.EvaluationValue,
     Depth: e.Depth,
@@ -506,7 +508,7 @@ function buildBookEntryFromState(state: SBookState, sfen: string): BookEntry | u
   const bookEntry: BookEntry = {
     type: "normal",
     comment: state.Comment || "",
-    moves: bookMoves,
+    moves: bookMovesFromState(state, pos),
     minPly: 0,
   };
   if (state.Games) {
@@ -759,24 +761,18 @@ function readSfenAtRow(table: Uint32Array, row: number): string | undefined {
   }
 }
 
-function addExistingSfensByOffset(
-  sfensByOffset: Map<number, string>,
-  sfens: Iterable<string>,
-  index: SbkOnTheFlyLUT,
-): void {
+function* existingStateOffsets(sfen: string, index: SbkOnTheFlyLUT): Generator<number> {
   const { table, rowCount } = index;
-  for (const sfen of sfens) {
-    const firstRow = searchOnTheFlyRow(sfen, index);
-    // Packing ignores the move number and formatting. Keep exact SFEN key matching.
-    if (firstRow === undefined || readSfenAtRow(table, firstRow) !== sfen) {
-      continue;
-    }
-    const start = firstRow * SBK_ON_THE_FLY_ROW_SIZE;
-    const packed = table.subarray(start, start + 8);
-    // Equal positions are contiguous in the index, even with distinct state IDs.
-    for (let row = firstRow; row < rowCount && compareRowPacked(table, row, packed) === 0; row++) {
-      sfensByOffset.set(readRowOffset(table, row), sfen);
-    }
+  const firstRow = searchOnTheFlyRow(sfen, index);
+  // Packing ignores the move number and formatting. Keep exact SFEN key matching.
+  if (firstRow === undefined || readSfenAtRow(table, firstRow) !== sfen) {
+    return;
+  }
+  const start = firstRow * SBK_ON_THE_FLY_ROW_SIZE;
+  const packed = table.subarray(start, start + 8);
+  // Equal positions are contiguous in the index, even with distinct state IDs.
+  for (let row = firstRow; row < rowCount && compareRowPacked(table, row, packed) === 0; row++) {
+    yield readRowOffset(table, row);
   }
 }
 
@@ -914,6 +910,8 @@ async function storeSbkBookOnTheFly(
   const inMemoryRef = new Set<string>();
   const newSfens = new Set<string>();
   const rootSfens = new Set<string>();
+  const { rawData, sbkIndex } = book;
+  const sfensByOffset = new Map<number, string>();
   const baseEntryCache = new Map<string, BookEntry | undefined>();
 
   async function getBaseEntry(sfen: string): Promise<BookEntry | undefined> {
@@ -931,7 +929,9 @@ async function storeSbkBookOnTheFly(
       continue;
     }
 
+    const retainedMoves = new Set<string>();
     for (const bookMove of entry.moves) {
+      retainedMoves.add(bookMove.usi);
       const move = pos.createMoveByUSI(bookMove.usi);
       if (!move || !pos.doMove(move, { ignoreValidation: true })) {
         continue;
@@ -943,30 +943,31 @@ async function storeSbkBookOnTheFly(
     const sbkEntry = await getBaseEntry(sfen);
     if (!sbkEntry) {
       newSfens.add(sfen);
-      continue;
     }
 
-    // Additive patches never remove moves from the original book.
-    if (entry.type !== "normal") {
-      continue;
-    }
-    const removedMoves = sbkEntry.moves.filter(
-      (move) => !entry.moves.some((bookMove) => bookMove.usi === move.usi),
-    );
-    for (const bookMove of removedMoves) {
-      const move = pos.createMoveByUSI(bookMove.usi);
-      if (!move || !pos.doMove(move, { ignoreValidation: true })) {
-        continue;
+    let first = true;
+    for (const offset of existingStateOffsets(sfen, sbkIndex)) {
+      sfensByOffset.set(offset, sfen);
+      if (entry.type !== "normal") continue;
+      // A replacement applies to every matching row, whose outgoing moves can differ.
+      const originalMoves = first
+        ? (sbkEntry?.moves ?? [])
+        : bookMovesFromState(decodeStateAt(rawData, offset), pos);
+      first = false;
+      for (const { usi } of originalMoves) {
+        if (retainedMoves.has(usi)) continue;
+        const move = pos.createMoveByUSI(usi);
+        if (!move || !pos.doMove(move, { ignoreValidation: true })) continue;
+        rootSfens.add(pos.sfen);
+        pos.undoMove(move);
       }
-      rootSfens.add(pos.sfen);
-      pos.undoMove(move);
     }
   }
 
-  const { rawData, sbkIndex } = book;
-  const sfensByOffset = new Map<number, string>();
   // A removed move's destination may need an explicit Position even if it was not edited.
-  addExistingSfensByOffset(sfensByOffset, rootSfens, sbkIndex);
+  for (const sfen of rootSfens) {
+    for (const offset of existingStateOffsets(sfen, sbkIndex)) sfensByOffset.set(offset, sfen);
+  }
 
   for (const sfen of inMemoryRef) {
     if (!newSfens.has(sfen) && searchOnTheFlyRow(sfen, book.sbkIndex) === undefined) {
@@ -1026,7 +1027,6 @@ async function storeSbkBookOnTheFly(
     sfenAndUsiToNextId.set(sfen, usiToNextId);
   }
 
-  addExistingSfensByOffset(sfensByOffset, book.entries.keys(), sbkIndex);
   await writeBytes(
     SBook.encode({
       Author: book.sbkAuthor ?? "",
