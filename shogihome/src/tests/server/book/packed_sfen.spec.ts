@@ -59,12 +59,22 @@ describe("server/book/packed_sfen", () => {
         sfen: "4k4/9/9/9/9/9/9/9/4K4 b 2R2B4G4S4N4L18P 1",
         expected: "582400000000000000000000000000000000104208a59432c618e79cf3787c3e",
       },
+      {
+        // King squares in different file-major and rank-major positions.
+        sfen: "9/8k/9/2+R+p+B4/9/2+l+N+s4/9/K8/9 w 2Pbp 17",
+        expected: "9f0100000000e0cb0db40df833030000c0a7244992244929a5d6da5a6befbd7f",
+      },
     ];
     for (const { sfen, expected } of testCases) {
-      const packed = sfenToPackedSfen(sfen);
-      expect(Buffer.from(packed.buffer, packed.byteOffset, packed.byteLength).toString("hex")).toBe(
-        expected,
-      );
+      const position = Position.newBySFEN(sfen);
+      if (!position) {
+        throw new Error(`Invalid test SFEN: ${sfen}`);
+      }
+      for (const packed of [sfenToPackedSfen(sfen), positionToPackedSfen(position)]) {
+        expect(
+          Buffer.from(packed.buffer, packed.byteOffset, packed.byteLength).toString("hex"),
+        ).toBe(expected);
+      }
     }
   });
 
@@ -90,6 +100,14 @@ describe("server/book/packed_sfen", () => {
     }
     expect(() => sfenToPackedSfen(sfen)).toThrow("Packed SFEN overflow");
     expect(() => positionToPackedSfen(position)).toThrow("Packed SFEN overflow");
+  });
+
+  it("rejects duplicate kings when packing a Position", () => {
+    const position = Position.newBySFEN("4k4/9/9/9/9/9/9/9/3KK4 b - 1");
+    if (!position) {
+      throw new Error("Invalid test SFEN");
+    }
+    expect(() => positionToPackedSfen(position)).toThrow("Invalid packed sfen bit length: 255");
   });
 
   it("rejects a hand piece that extends past 256 bits", () => {
