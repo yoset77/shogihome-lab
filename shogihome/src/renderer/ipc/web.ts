@@ -13,7 +13,7 @@ import type {
 } from "@/common/file/sfen_export";
 import { defaultBookImportSettings, normalizeBookImportSettings } from "@/common/settings/book";
 import { getEmptyHistory } from "@/common/file/history";
-import { BookLoadingMode } from "@/common/book";
+import { type BookFilterCapabilities, BookLoadingMode } from "@/common/book";
 import * as uri from "@/common/uri";
 import { normalizePath, trimTrailingPathSeparators } from "@/common/helpers/path";
 import {
@@ -424,6 +424,14 @@ export const webAPI: Bridge = {
     }
     const json = await response.json();
     return json.mode;
+  },
+  async getBookFilterCapabilities(path: string): Promise<BookFilterCapabilities> {
+    if (!path.startsWith("server://")) {
+      throw new Error("Only server-side books are supported");
+    }
+    return await parseJsonResponse(
+      await apiClient.api.book["filter-capabilities"].$get({ query: { path: path.substring(9) } }),
+    );
   },
   async saveBook(path: string, sessionId?: string, overwriteCurrent = false): Promise<boolean> {
     if (!path.startsWith("server://")) {

@@ -1,14 +1,23 @@
 import { type ImmutablePosition, type Move } from "tsshogi";
+import type { BookFilterCapabilities } from "@/common/book";
 import { filterBookMoves, selectBookMove } from "@/common/game/book";
 import { flippedSFEN, flippedUSIMove } from "@/common/helpers/sfen";
 import type { USIEngineExtraBookConfig } from "@/common/settings/usi";
 import type { USIInfoCommand } from "@/common/game/usi";
-import { closeBookSession, openBookAsNewSession, searchBookMoves } from "@/server/book";
+import {
+  closeBookSession,
+  getBookFilterCapabilities,
+  openBookAsNewSession,
+  searchBookMoves,
+} from "@/server/book";
 import { KIFU_DIR, ONTHEFLY_THRESHOLD_MB, SBK_ONTHEFLY_THRESHOLD_MB } from "@/server/config";
 import { resolveKifuPath, getServerFileKind } from "@/server/helpers/kifu";
 
 export class GameBook {
-  private constructor(private readonly session: number) {}
+  private constructor(
+    private readonly session: number,
+    readonly filterCapabilities: BookFilterCapabilities,
+  ) {}
   static async open(config: USIEngineExtraBookConfig): Promise<GameBook> {
     const relative = config.filePath.substring(9);
     const path =
@@ -21,7 +30,7 @@ export class GameBook {
       onTheFlyThresholdMB: ONTHEFLY_THRESHOLD_MB,
       sbkOnTheFlyThresholdMB: SBK_ONTHEFLY_THRESHOLD_MB,
     });
-    return new GameBook(result.session);
+    return new GameBook(result.session, getBookFilterCapabilities(result.session));
   }
   search(sfen: string) {
     return searchBookMoves(this.session, sfen);

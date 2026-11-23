@@ -21,6 +21,7 @@ import type {
 import { RecordFileFormat, KifuSearchResult, KifuListEntry } from "@/common/file/record";
 import { Bridge } from "./bridge.js";
 import {
+  type BookFilterCapabilities,
   BookFormat,
   BookImportSummary,
   BookLoadingMode,
@@ -67,6 +68,7 @@ export interface API {
   showSaveBookDialog(defaultPath: string): Promise<string>;
   openBook(path: string, options: BookLoadingOptions): Promise<BookLoadingMode>;
   openBookAsNewSession(path: string, options: BookLoadingOptions): Promise<string>;
+  getBookFilterCapabilities(path: string): Promise<BookFilterCapabilities>;
   saveBook(path: string, sessionId?: string, overwriteCurrent?: boolean): Promise<boolean>;
   closeBook(sessionId: string): Promise<void>;
   clearBook(sessionId?: string, format?: BookFormat): Promise<void>;

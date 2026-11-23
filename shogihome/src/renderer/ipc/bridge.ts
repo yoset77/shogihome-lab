@@ -1,4 +1,4 @@
-import { BookLoadingMode } from "@/common/book";
+import { type BookFilterCapabilities, BookLoadingMode } from "@/common/book";
 import { RecordFileFormat, KifuSearchResult, KifuListEntry } from "@/common/file/record";
 import type { KifuSearchStatistics } from "@/common/file/kifu_statistics";
 import { LogLevel } from "@/common/log";
@@ -45,6 +45,7 @@ export interface Bridge {
   showOpenBookDialog(): Promise<string>;
   showSaveBookDialog(defaultPath: string): Promise<string>;
   openBook(path: string, json: string, sessionId?: string): Promise<BookLoadingMode>;
+  getBookFilterCapabilities(path: string): Promise<BookFilterCapabilities>;
   saveBook(path: string, sessionId?: string, overwriteCurrent?: boolean): Promise<boolean>;
   closeBookSession(sessionId: string): Promise<void>;
   clearBook(sessionId?: string, format?: string): Promise<void>;

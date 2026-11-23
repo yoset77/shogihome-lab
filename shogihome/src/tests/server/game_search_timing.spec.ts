@@ -38,6 +38,7 @@ async function setup(
   };
   let finishBook!: (moves: Awaited<ReturnType<GameBook["search"]>>) => void;
   const book = {
+    filterCapabilities: { score: true, depth: true },
     search: vi.fn().mockResolvedValue([]),
     close: vi.fn(),
   };

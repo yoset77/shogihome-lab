@@ -52,8 +52,12 @@ async function readExact(
   }
 }
 
+export function ybbHasDepth(flags: bigint): boolean {
+  return (flags & 1n) === 1n;
+}
+
 function moveEntrySize(flags: bigint): number {
-  return (flags & 1n) === 1n ? MOVE_ENTRY_SIZE_V1 : MOVE_ENTRY_SIZE_V0;
+  return ybbHasDepth(flags) ? MOVE_ENTRY_SIZE_V1 : MOVE_ENTRY_SIZE_V0;
 }
 
 function safeNumber(value: bigint, label: string): number {
@@ -187,7 +191,7 @@ export async function loadYbbBook(path: string): Promise<YbbBook> {
     entries.set(sfen, { type: "normal", comment: "", moves, minPly: ply });
   }
 
-  return { format: "ybb", entries };
+  return { format: "ybb", entries, flags };
 }
 
 export type YbbOnTheFly = {

@@ -34,17 +34,29 @@ export class GamePlayer implements Player {
   private search?: ResearchSearch;
   private starting?: Promise<void>;
   private closing?: Promise<void>;
+  private readonly extraBook?: USIEngineExtraBookConfig;
 
   constructor(
     private readonly engine: GameEngine = new InternalEngine(),
     private readonly book?: GameBook,
-    private readonly extraBook?: USIEngineExtraBookConfig,
+    extraBook?: USIEngineExtraBookConfig,
     private readonly onInfo: (info: SearchInfo) => void = () => {},
     private readonly onLiveInfo: (
       position: string,
       info: ReturnType<typeof parseAnalysisInfo>,
     ) => void = () => {},
-  ) {}
+  ) {
+    if (extraBook && book) {
+      const { score, depth } = book.filterCapabilities;
+      this.extraBook = {
+        ...extraBook,
+        minEvalBlack: score ? extraBook.minEvalBlack : undefined,
+        minEvalWhite: score ? extraBook.minEvalWhite : undefined,
+        maxEvalDiff: score ? extraBook.maxEvalDiff : undefined,
+        bookDepthLimit: depth ? extraBook.bookDepthLimit : 0,
+      };
+    }
+  }
   async launch(
     config: EngineConfig,
     timeout: number,

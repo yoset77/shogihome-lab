@@ -2,13 +2,19 @@ import { Hono, type Context } from "hono";
 import { validator } from "hono/validator";
 import type { BookImportSettings } from "@/common/settings/book";
 import { isBookFormat, type BookMoveUpdate } from "@/common/book";
-import { getBookList, resolveKifuPath, resolveWritableKifuPath } from "@/server/helpers/kifu";
+import {
+  getBookList,
+  getServerFileKind,
+  resolveKifuPath,
+  resolveWritableKifuPath,
+} from "@/server/helpers/kifu";
 import {
   clearBook,
   getBookFormat,
   importBookMoves,
   isBookOnTheFly,
   openBook,
+  readBookFilterCapabilities,
   removeBookMove,
   saveBook,
   searchBookMoves,
@@ -102,6 +108,24 @@ export const bookRoutes = new Hono<AppEnv>()
     const list = await getBookList(KIFU_DIR);
     return c.json(list);
   })
+
+  .get(
+    "/filter-capabilities",
+    validator("query", (value) => ({ path: getString(value.path) })),
+    async (c) => {
+      if (!KIFU_DIR) return sendError(c, 404, "KIFU_DIR is not configured");
+      const { path } = c.req.valid("query");
+      if (!path) return sendError(c, 400, "path is required");
+      const fullPath = getServerFileKind(path) === "book" && resolveKifuPath(KIFU_DIR, path);
+      if (!fullPath) return sendError(c, 403, "forbidden");
+      try {
+        return c.json(await readBookFilterCapabilities(fullPath));
+      } catch (error) {
+        if (isMissingFile(error)) return sendError(c, 404, t.serverFileNotFound);
+        throw error;
+      }
+    },
+  )
 
   .post(
     "/save",
