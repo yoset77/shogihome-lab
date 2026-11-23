@@ -543,6 +543,33 @@ describe("server/book/sbk", () => {
     );
   });
 
+  it("copies canonical unedited states and re-encodes the others", async () => {
+    const first = SBookState.create({ Id: 19, BoardKey: 123n, HandKey: 456, Comment: "first" });
+    const second = SBookState.create({ Id: 3, Comment: "old" });
+    const writer = SBook.encode({ Author: "", Description: "", BookStates: [first] });
+    SBookState.encode(second, writer.uint32(26).fork()).uint32(66).string("new").join();
+    const book = await loadOnTheFlyFromData(writer.finish());
+    const decode = vi.spyOn(SBookState, "decode");
+    try {
+      const output = await storeToData(book);
+      expect(decode).toHaveBeenCalledOnce();
+      expect(output).toEqual(
+        Buffer.from(
+          SBook.encode({
+            Author: "",
+            Description: "",
+            BookStates: [
+              { ...first, BoardKey: 0n, HandKey: 0 },
+              { ...second, Comment: "new" },
+            ],
+          }).finish(),
+        ),
+      );
+    } finally {
+      decode.mockRestore();
+    }
+  });
+
   it.each([
     { type: "normal" as const, weights: [7, 7] },
     { type: "patch" as const, weights: [9, 10] },
