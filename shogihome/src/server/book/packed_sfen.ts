@@ -93,6 +93,9 @@ for (const piece of PIECE_ORDER) {
 
 const YANE_TO_TS_INDEX = Array.from({ length: 81 }, (_, yane) => yaneIndexToTsIndex(yane));
 const TS_TO_YANE_INDEX = Array.from({ length: 81 }, (_, ts) => tsIndexToYaneIndex(ts));
+const YANE_SQUARES = YANE_TO_TS_INDEX.map((index) => Square.all[index]);
+const NO_KING_SQUARE = 81;
+const POSITION_HEADER_BITS = 15;
 
 class BitWriter {
   private cursor = 0;
@@ -311,68 +314,70 @@ function computePieceBoxCounts(
   return result;
 }
 
+type BoardWriteCode = { black: number; white: number; bits: number };
+
+function boardWriteCode(type: NonKingPieceType, promoted: boolean): BoardWriteCode {
+  const huffman = BOARD_HUFFMAN[type];
+  const hasPromotion = type !== "G";
+  const colorOffset = huffman.bits + Number(hasPromotion);
+  const black = huffman.code | (Number(hasPromotion && promoted) << huffman.bits);
+  return { black, white: black | (1 << colorOffset), bits: colorOffset + 1 };
+}
+
+function boardWriteCodes(type: NonKingPieceType) {
+  return [boardWriteCode(type, false), boardWriteCode(type, true)] as const;
+}
+
+const BOARD_WRITE_CODES: Record<NonKingPieceType, ReturnType<typeof boardWriteCodes>> = {
+  P: boardWriteCodes("P"),
+  L: boardWriteCodes("L"),
+  N: boardWriteCodes("N"),
+  S: boardWriteCodes("S"),
+  G: boardWriteCodes("G"),
+  B: boardWriteCodes("B"),
+  R: boardWriteCodes("R"),
+};
+
 function writeBoardPiece(writer: BitWriter, piece: ParsedPiece | undefined): void {
   if (!piece) {
-    writeEmptySquare(writer);
-    return;
+    writer.writeBit(0);
+  } else if (piece.type !== "K") {
+    const code = BOARD_WRITE_CODES[piece.type][piece.promoted ? 1 : 0];
+    writer.writeBits(piece.color === "b" ? code.black : code.white, code.bits);
   }
-  if (piece.type === "K") {
-    return;
-  }
-  writeNonKingBoardPiece(writer, piece.type, piece.promoted, piece.color === "b" ? 0 : 1);
-}
-
-function writeEmptySquare(writer: BitWriter): void {
-  const emptyCode = BOARD_HUFFMAN.E;
-  writer.writeBits(emptyCode.code, emptyCode.bits);
-}
-
-function writeNonKingBoardPiece(
-  writer: BitWriter,
-  type: NonKingPieceType,
-  promoted: boolean,
-  colorBit: number,
-): void {
-  const code = BOARD_HUFFMAN[type];
-  writer.writeBits(code.code, code.bits);
-  if (type !== "G") {
-    writer.writeBit(promoted ? 1 : 0);
-  }
-  writer.writeBit(colorBit);
 }
 
 function writeHandPiece(writer: BitWriter, type: NonKingPieceType, color: Color): void {
   const code = BOARD_HUFFMAN[type];
-  writer.writeBits(code.code >> 1, code.bits - 1);
-  if (type !== "G") {
-    writer.writeBit(0); // hand piece uses non-promoted marker
-  }
-  writer.writeBit(color === "b" ? 0 : 1);
+  // The first flag for non-gold pieces is the zero promotion bit.
+  const colorOffset = code.bits - Number(type === "G");
+  writer.writeBits((code.code >> 1) | (Number(color === "w") << colorOffset), colorOffset + 1);
 }
 
 function writePieceBoxPiece(writer: BitWriter, type: NonKingPieceType): void {
   const code = PIECEBOX_HUFFMAN[type];
-  writer.writeBits(code.code, code.bits);
-  if (type !== "G") {
-    writer.writeBit(0);
-  }
+  writer.writeBits(code.code, code.bits + Number(type !== "G"));
 }
 
-const TS_PIECE_TYPE_TO_PACKED: Record<TsPieceType, { type: PieceType; promoted: boolean }> = {
-  [TsPieceType.PAWN]: { type: "P", promoted: false },
-  [TsPieceType.PROM_PAWN]: { type: "P", promoted: true },
-  [TsPieceType.LANCE]: { type: "L", promoted: false },
-  [TsPieceType.PROM_LANCE]: { type: "L", promoted: true },
-  [TsPieceType.KNIGHT]: { type: "N", promoted: false },
-  [TsPieceType.PROM_KNIGHT]: { type: "N", promoted: true },
-  [TsPieceType.SILVER]: { type: "S", promoted: false },
-  [TsPieceType.PROM_SILVER]: { type: "S", promoted: true },
-  [TsPieceType.GOLD]: { type: "G", promoted: false },
-  [TsPieceType.BISHOP]: { type: "B", promoted: false },
-  [TsPieceType.HORSE]: { type: "B", promoted: true },
-  [TsPieceType.ROOK]: { type: "R", promoted: false },
-  [TsPieceType.DRAGON]: { type: "R", promoted: true },
-  [TsPieceType.KING]: { type: "K", promoted: false },
+function tsBoardWriteCode(type: NonKingPieceType, promoted = false) {
+  return { type, ...BOARD_WRITE_CODES[type][promoted ? 1 : 0] };
+}
+
+const TS_BOARD_WRITE_CODES: Record<TsPieceType, ReturnType<typeof tsBoardWriteCode> | null> = {
+  [TsPieceType.PAWN]: tsBoardWriteCode("P"),
+  [TsPieceType.PROM_PAWN]: tsBoardWriteCode("P", true),
+  [TsPieceType.LANCE]: tsBoardWriteCode("L"),
+  [TsPieceType.PROM_LANCE]: tsBoardWriteCode("L", true),
+  [TsPieceType.KNIGHT]: tsBoardWriteCode("N"),
+  [TsPieceType.PROM_KNIGHT]: tsBoardWriteCode("N", true),
+  [TsPieceType.SILVER]: tsBoardWriteCode("S"),
+  [TsPieceType.PROM_SILVER]: tsBoardWriteCode("S", true),
+  [TsPieceType.GOLD]: tsBoardWriteCode("G"),
+  [TsPieceType.BISHOP]: tsBoardWriteCode("B"),
+  [TsPieceType.HORSE]: tsBoardWriteCode("B", true),
+  [TsPieceType.ROOK]: tsBoardWriteCode("R"),
+  [TsPieceType.DRAGON]: tsBoardWriteCode("R", true),
+  [TsPieceType.KING]: null,
 };
 
 function getHandsFromPosition(
@@ -537,30 +542,36 @@ export function positionToPackedSfen(position: ImmutablePosition): Uint32Array {
   const boardCounts = createNonKingCountMap();
   const hands = getHandsFromPosition(position);
 
-  writer.writeBit(position.color === TsColor.BLACK ? 0 : 1);
-  const blackKing = position.board.findKing(TsColor.BLACK);
-  const whiteKing = position.board.findKing(TsColor.WHITE);
-  writer.writeBits(blackKing ? TS_TO_YANE_INDEX[blackKing.index] : 81, 7);
-  writer.writeBits(whiteKing ? TS_TO_YANE_INDEX[whiteKing.index] : 81, 7);
+  // Reserve the header so the king squares can be found during board encoding.
+  writer.writeBits(0, POSITION_HEADER_BITS);
+  let blackKing = NO_KING_SQUARE;
+  let whiteKing = NO_KING_SQUARE;
+  const board = position.board;
 
-  for (let yane = 0; yane < 81; yane++) {
-    const piece = position.board.at(Square.all[YANE_TO_TS_INDEX[yane]]);
+  for (let yane = 0; yane < YANE_SQUARES.length; yane++) {
+    const piece = board.at(YANE_SQUARES[yane]);
     if (!piece) {
-      writeEmptySquare(writer);
+      writer.writeBit(0);
       continue;
     }
-    const converted = TS_PIECE_TYPE_TO_PACKED[piece.type];
-    if (converted.type === "K") {
+    const code = TS_BOARD_WRITE_CODES[piece.type];
+    if (code === null) {
+      // Keep the same rank-major order as findKing on malformed boards.
+      const tsIndex = YANE_TO_TS_INDEX[yane];
+      if (piece.color === TsColor.BLACK) {
+        blackKing = Math.min(blackKing, tsIndex);
+      } else if (piece.color === TsColor.WHITE) {
+        whiteKing = Math.min(whiteKing, tsIndex);
+      }
       continue;
     }
-    boardCounts[converted.type]++;
-    writeNonKingBoardPiece(
-      writer,
-      converted.type,
-      converted.promoted,
-      piece.color === TsColor.BLACK ? 0 : 1,
-    );
+    boardCounts[code.type]++;
+    writer.writeBits(piece.color === TsColor.BLACK ? code.black : code.white, code.bits);
   }
+  writer.words[0] |=
+    (position.color === TsColor.BLACK ? 0 : 1) |
+    ((TS_TO_YANE_INDEX[blackKing] ?? NO_KING_SQUARE) << 1) |
+    ((TS_TO_YANE_INDEX[whiteKing] ?? NO_KING_SQUARE) << 8);
 
   for (const color of ["b", "w"] as const) {
     for (const type of PIECE_ORDER) {
