@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough, Writable } from "node:stream";
+import { BinaryWriter } from "@bufbuild/protobuf/wire";
 import {
   estimateSbkIndexConstructionBytes,
   validateSbkIndexConstructionMemory,
@@ -196,6 +197,7 @@ describe("server/book/sbk", () => {
       [0x1a, 3, 0x52, 1, 0x08, 1], // Scalar value is outside its leaf.
       [0x1a, 4, 0x52, 2, 0x2a, 4, 0, 0, 0, 0], // String crosses the leaf boundary.
       [0x1a, 1, 0x80, 1], // Tag varint crosses the state boundary.
+      [0x1a, 2, 0x08, 0x80, 0], // State ID varint crosses the state boundary.
       [0x9a, 0x80, 0x80, 0x80, 0x10, 0], // Tag exceeds uint32.
       [0x1a, 0x80, 0x80, 0x80, 0x80, 0x10], // Length exceeds uint32.
     ].map((bytes) => ({ bytes })),
@@ -303,6 +305,48 @@ describe("server/book/sbk", () => {
       expect(stored.BookStates.at(-1)?.Id).toBe(expectedNewStateId);
     },
   );
+
+  it.each([42, -2147483648])("uses the last signed ID %i to resolve a transition", async (id) => {
+    const pos = new Position();
+    const rootSfen = pos.sfen;
+    const move = pos.createMoveByUSI("7g7f");
+    if (!move || !pos.doMove(move)) {
+      throw new Error("Invalid test move");
+    }
+    const root = SBookState.create({
+      Id: 10,
+      Position: rootSfen,
+      Moves: [{ Move: toSbkMove(move), NextStateId: id }],
+    });
+    const child = SBookState.create({ Id: root.Id, Comment: "child" });
+    const writer = SBook.encode({ Author: "", Description: "", BookStates: [root] });
+    SBookState.encode(child, writer.uint32(26).fork())
+      .uint32(8)
+      .int32(id)
+      .uint32(10)
+      .bytes(Uint8Array.of(8, 10))
+      .join();
+
+    const book = await loadOnTheFlyFromData(writer.finish());
+    const { rawData, sbkIndex } = book;
+    if (!rawData || !sbkIndex) {
+      throw new Error("test book was not loaded on-the-fly");
+    }
+    expect(sbkIndex.maxStateId).toBe(Math.max(root.Id, id));
+    expect(await searchSbkBookEntryOnTheFly(pos.sfen, rawData, sbkIndex)).toMatchObject({
+      comment: "child",
+    });
+  });
+
+  it.each([0, -2147483648, 42])("rejects duplicate on-the-fly state ID %i", async (id) => {
+    const writer = new BinaryWriter();
+    SBookState.encode(SBookState.create({ Id: id }), writer.uint32(26).fork()).join();
+    writer.uint32(26).fork().uint32(8).int32(id).join();
+
+    await expect(loadOnTheFlyFromData(writer.finish())).rejects.toThrow(
+      `Invalid SBK: duplicated state ID ${id}`,
+    );
+  });
 
   it("rejects extending an on-the-fly book beyond the int32 state ID range", async () => {
     const rawData = SBook.encode({
