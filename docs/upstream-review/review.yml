@@ -120,6 +120,25 @@ candidates:
       読み込みモード・構築予算・protobufの処理は維持する。
 
   - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1919
+    summary: On-the-fly SBK保存時の未編集局面のバイトコピー
+    status: closed
+    assessed_lab_sha: 5e139b5cbcf3a64bc6bee2416510553256d66919
+    targets:
+      - shogihome/src/server/book/sbk.ts
+      - shogihome/src/server/book/sbk_state_copy.ts
+      - shogihome/src/tests/server/book/sbk_state_copy.spec.ts
+    evidence: >-
+      upstream #1921のベンチマーク用データ（入力20万局面）を使ったLabの移植前後の計測では、
+      別名保存は349 msから58 ms、索引再構築を含む上書きは1133 msから880 ms
+      （ウォームアップ後にそれぞれ12回、8回の中央値）。ShogiGUI風に既定値とハッシュを追加した
+      合成データの別名保存は400 msから225 ms。保存バイトと編集の再読込結果は従来処理と一致した。
+    resolution: >-
+      検証済みの未編集局面に限り、ハッシュと既定値を除いてコピーする。再エンコードとの一致を
+      判断できない場合は従来処理に戻す。ShogiGUI・ShogiHomeの既存フィクスチャと合成データで
+      比較した。バイトコピーの移植単体では、WASM・索引再構築・保存時のアトミックな公開は変更しない。
+
+  - sources:
       - https://github.com/sunfish-shogi/shogihome/blob/59a2b75b1fe50afc8bb0852a9697318ebe6c6e87/src/background/usi/engine.ts#L404-L428
     summary: 再利用エンジンの各局開始前の準備完了確認
     status: closed

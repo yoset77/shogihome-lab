@@ -19,6 +19,7 @@ import {
   SbkOnTheFlyLUT,
 } from "./types.js";
 import { fromSbkMove, toSbkMove } from "./sbk_move.js";
+import { copySbkStateWithoutHashKeys } from "./sbk_state_copy.js";
 import { SbkMoveEvaluation } from "@/common/book.js";
 import { packedSfenToSfen, positionToPackedSfen, sfenToPackedSfen } from "./packed_sfen.js";
 
@@ -959,9 +960,17 @@ async function storeSbkBookOnTheFly(
     }
     const [payloadStart, payloadEnd] = readMessageBounds(rawData, valueOffset, rawData.length);
     offset = payloadEnd;
-    const sourceState = SBookState.decode(rawData.subarray(payloadStart, payloadEnd));
     const sfen = editedSfensByOffset.get(tagOffset);
     const patch = sfen ? book.entries.get(sfen) : undefined;
+    if (!patch) {
+      const copied = copySbkStateWithoutHashKeys(rawData, tagOffset, payloadStart, payloadEnd);
+      if (copied) {
+        await writeBytes(copied);
+        continue;
+      }
+    }
+
+    const sourceState = SBookState.decode(rawData.subarray(payloadStart, payloadEnd));
     let state: SBookState | undefined;
 
     if (!sfen || !patch) {
