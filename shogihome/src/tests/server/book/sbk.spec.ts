@@ -663,6 +663,44 @@ describe("server/book/sbk", () => {
       }
     });
 
+    it("preserves destinations from every replaced row of a duplicate position", async () => {
+      const rootSfen = new Position().sfen;
+      const branches = ["7g7f", "2g2f"].map((usi, i) => {
+        const pos = new Position();
+        const move = pos.createMoveByUSI(usi);
+        if (!move || !pos.doMove(move)) throw new Error("Invalid test move");
+        const childId = i * 2 + 1;
+        return {
+          usi,
+          childSfen: pos.sfen,
+          parent: SBookState.create({
+            Id: i * 2,
+            Position: rootSfen,
+            Moves: [{ Move: toSbkMove(move), NextStateId: childId }],
+          }),
+          child: SBookState.create({ Id: childId, Comment: usi }),
+        };
+      });
+      const book = await loadOnTheFlyFromData(
+        SBook.encode({
+          Author: "",
+          Description: "",
+          BookStates: branches.flatMap(({ parent, child }) => [parent, child]),
+        }).finish(),
+      );
+      book.entries.set(rootSfen, { type: "normal", moves: [], minPly: 0, comment: "" });
+
+      const data = await storeToData(book);
+      const reloaded = await loadOnTheFlyFromData(data);
+      const inMemory = loadSbkBook(data);
+      expect(await lookup(reloaded, rootSfen)).toBeUndefined();
+      expect(inMemory.entries.has(rootSfen)).toBe(false);
+      for (const { childSfen, usi } of branches) {
+        expect((await lookup(reloaded, childSfen))?.comment).toBe(usi);
+        expect(inMemory.entries.get(childSfen)?.comment).toBe(usi);
+      }
+    });
+
     it("does not promote an edited destination to a root when an additive patch omits its move", async () => {
       const { book, rootSfen, childSfen, descendantSfen } = await loadBranch();
       book.entries.set(rootSfen, {
