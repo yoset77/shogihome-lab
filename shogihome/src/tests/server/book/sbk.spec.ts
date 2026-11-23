@@ -515,6 +515,109 @@ describe("server/book/sbk", () => {
     }
   });
 
+  describe("on-the-fly move removal", () => {
+    async function loadBranch() {
+      const pos = new Position();
+      const rootSfen = pos.sfen;
+      const first = pos.createMoveByUSI("7g7f");
+      if (!first || !pos.doMove(first)) {
+        throw new Error("Invalid test move");
+      }
+      const childSfen = pos.sfen;
+      const second = pos.createMoveByUSI("3c3d");
+      if (!second || !pos.doMove(second)) {
+        throw new Error("Invalid test move");
+      }
+      const descendantSfen = pos.sfen;
+      const source = {
+        Author: "",
+        Description: "",
+        BookStates: [
+          SBookState.create({
+            Id: 19,
+            Position: rootSfen,
+            Moves: [{ Move: toSbkMove(first), NextStateId: 7, Weight: 1 }],
+          }),
+          SBookState.create({
+            Id: 7,
+            Comment: "child",
+            Moves: [{ Move: toSbkMove(second), NextStateId: 33, Weight: 1 }],
+          }),
+          SBookState.create({ Id: 33, Comment: "descendant" }),
+        ],
+      };
+      const book = await loadOnTheFlyFromData(SBook.encode(source).finish());
+      return { book, source, rootSfen, childSfen, descendantSfen };
+    }
+
+    function lookup(book: SbkBook, sfen: string) {
+      if (!book.rawData || !book.sbkIndex) {
+        throw new Error("Test book was not loaded on-the-fly");
+      }
+      return searchSbkBookEntryOnTheFly(sfen, book.rawData, book.sbkIndex);
+    }
+
+    it("preserves an unedited destination and its descendants after removing an incoming move", async () => {
+      const { book, source, rootSfen, childSfen, descendantSfen } = await loadBranch();
+      const root = await lookup(book, rootSfen);
+      if (!root) {
+        throw new Error("Missing test root");
+      }
+      book.entries.set(rootSfen, { ...root, moves: [] });
+
+      const data = await storeToData(book);
+      const [rootState, childState, descendantState] = source.BookStates;
+      expect(SBook.decode(data)).toEqual({
+        ...source,
+        BookStates: [
+          { ...rootState, Moves: [] },
+          { ...childState, Position: childSfen },
+          descendantState,
+        ],
+      });
+      const onTheFly = await loadOnTheFlyFromData(data);
+      const inMemory = loadSbkBook(data);
+      expect(await lookup(onTheFly, rootSfen)).toBeUndefined();
+      expect(inMemory.entries.has(rootSfen)).toBe(false);
+      for (const [sfen, comment, moves] of [
+        [childSfen, "child", ["3c3d"]],
+        [descendantSfen, "descendant", []],
+      ] as const) {
+        for (const entry of [await lookup(onTheFly, sfen), inMemory.entries.get(sfen)]) {
+          expect(entry?.comment).toBe(comment);
+          expect(entry?.moves.map((move) => move.usi)).toEqual(moves);
+        }
+      }
+    });
+
+    it("does not promote an edited destination to a root when an additive patch omits its move", async () => {
+      const { book, rootSfen, childSfen, descendantSfen } = await loadBranch();
+      book.entries.set(rootSfen, {
+        type: "patch",
+        comment: "",
+        minPly: 0,
+        moves: [{ usi: "2g2f", count: 1, comment: "" }],
+      });
+      book.entries.set(childSfen, {
+        type: "patch",
+        comment: "",
+        minPly: 0,
+        moves: [{ usi: "3c3d", count: 2, comment: "" }],
+      });
+
+      const data = await storeToData(book);
+      const childState = SBook.decode(data).BookStates.find((state) => state.Id === 7);
+      expect(childState?.Position).toBe("");
+      const reloaded = await loadOnTheFlyFromData(data);
+      const root = await lookup(reloaded, rootSfen);
+      expect(root?.moves.map((move) => move.usi).sort()).toEqual(["2g2f", "7g7f"]);
+      expect((await lookup(reloaded, childSfen))?.moves).toMatchObject([
+        { usi: "3c3d", count: 3, sbkId: 33 },
+      ]);
+      expect((await lookup(reloaded, descendantSfen))?.comment).toBe("descendant");
+    });
+  });
+
   it("skips interleaved top-level fields when saving states in file order", async () => {
     const first = SBookState.create({ Id: 19, Comment: "first" });
     const second = SBookState.create({ Id: 3, Comment: "second" });
