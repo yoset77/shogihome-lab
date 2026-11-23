@@ -105,11 +105,11 @@ Uploadはraw bodyをtemporary fileへstreamingし、完成したfileだけをato
 
 - 同じsessionの検索、編集、保存、close、cleanupは同じFIFO lockで直列化します。
 - 異なるsessionは並行動作できます。
-- Session数とidle期限にはserver側の上限を適用します。保持・構築データや編集差分に対する全sessionの推定メモリ会計は行いません。
+- Session数とidle期限にはserver側の上限を適用します。保持・構築データや編集差分を形式や読み込み方式を横断して一律に会計する予算は設けません。
 - Session作成は明示的なopen／clearだけが行います。検索・保存・変更で失効・未知のIDを空sessionとして再生成せず、Rendererも自動clearで回復しません。
 - Book openは新しい定跡を構築してからsessionを切り替えます。読み込みや形式別の検証に失敗した場合は、旧sessionと未保存変更を保持します。
 - In-memory / On-the-fly は形式別のファイルサイズ閾値で選びます。閾値は展開後のメモリ使用量や複数sessionの合計を制限するものではありません。
-- SBKは両modeともprotobufのmessage境界と件数を展開前に走査し、同じ局所的な構築予算を適用します。正本は [`sbk.ts`](../../shogihome/src/server/book/sbk.ts) と[回帰テスト](../../shogihome/src/tests/server/book/sbk.spec.ts)です。
+- SBKは両modeともprotobufのmessage境界と件数を展開前に走査します。In-memoryは全展開を、On-the-flyは生データ・索引・探索作業領域と単一局面の展開を制限します。正本は [`sbk.ts`](../../shogihome/src/server/book/sbk.ts) と[回帰テスト](../../shogihome/src/tests/server/book/sbk.spec.ts)です。
 - YBBのIn-memory読み込みは、全索引の参照範囲と総参照量を展開前に検証し、指し手領域の共有による入力サイズを超える参照量を拒否します。判定の正本は [`ybb.ts`](../../shogihome/src/server/book/ybb.ts)、互換性の判断理由は [Book Loading](../features/book-loading.md) を参照してください。
 - Importはresource制限と事前検証を終えてから一括反映し、途中失敗で既存entryや未保存変更を失いません。処理上限は [`import_limits.ts`](../../shogihome/src/server/book/import_limits.ts) を正本とします。
 - 現在の棋譜からの一括登録も、同じsession内で形式別の検証と編集の準備を済ませてからまとめて反映します。入力順で同一局面の編集を適用し、失敗時は既存entryと未保存変更を保持します。
@@ -118,7 +118,7 @@ Uploadはraw bodyをtemporary fileへstreamingし、完成したfileだけをato
 - Session IDはresourceを選択する識別子であり、認証credentialではありません。
 - 同じfileを複数sessionが開く場合、file publicationの排他と編集競合の解決は別の問題です。暗黙の共同編集を仮定しません。
 
-YBB／DBのOn-the-flyはfile handleを中心とし、SBKはraw dataと局面indexを保持します。SBKの構築予算はこの局所的な構築に対する制約であり、process全体のメモリ上限ではありません。設定の既定値・範囲は [`config.ts`](../../shogihome/src/server/config.ts)、運用上の説明は [`.env.example`](../../shogihome/.env.example)、形式別の判断理由は [Book Loading](../features/book-loading.md) を参照してください。
+YBB／DBのOn-the-flyはfile handleを中心とし、SBKは生データ・局面index・著者名と説明文を保持します。SBKのopenと上書き時の再構築はセッション間で直列化し、On-the-flyの構築予算には既存のOn-the-fly SBK全sessionのこれらの保持分も含めます。In-memoryの予算は読み込みごとに適用し、どちらもprocess全体のメモリ上限は保証しません。設定の既定値・範囲は [`config.ts`](../../shogihome/src/server/config.ts)、形式別の判断理由は [Book Loading](../features/book-loading.md) を参照してください。
 
 YBBの検索用index cacheは開いたfile handleごとに上限付きで保持し、同じblockへの並行読み込みを共有します。再open・上書き保存で新しいhandleに切り替わり、古いcacheは引き継ぎません。On-the-flyで開いているfileを外部から直接書き換えた場合は再openが必要です。DBは検索ごとのbuffer内で読み込んだ範囲を再利用し、sessionをまたいで保持しません。
 

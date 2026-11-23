@@ -178,7 +178,7 @@ describe("server/book", () => {
       { source: "yaneuraou.db", threshold: 128 },
       { source: "yaneuraou.ybb", threshold: 64 },
       { source: "yaneuraou.ybb", threshold: 128 },
-      { source: "shogihome01.sbk", threshold: 32 },
+      { source: "shogihome01.sbk", threshold: 16 },
       { source: "shogihome01.sbk", threshold: 64 },
     ])(
       "switches modes above the $threshold MB boundary for $source",
@@ -257,6 +257,54 @@ describe("server/book", () => {
         }
       },
     );
+
+    it("counts an SBK published by another session before allocating a concurrent replacement", async () => {
+      const firstPath = "src/tests/testdata/book/shogihome01.sbk";
+      const secondPath = "src/tests/testdata/book/shogihome02.sbk";
+      const options = { sbkOnTheFlyThresholdMB: 0 };
+      const secondSession = defaultBookSession + 1;
+      initBookSession(secondSession);
+      const sfen = new Position().sfen;
+      await updateBookMove(secondSession, sfen, { usi: "7g7f", comment: "unsaved" });
+      const before = await searchBookMoves(secondSession, sfen);
+      const originalOpen = fs.promises.open.bind(fs.promises);
+      const firstStarted = Promise.withResolvers<void>();
+      const allowFirst = Promise.withResolvers<void>();
+      const open = vi.spyOn(fs.promises, "open").mockImplementation(async (...args) => {
+        if (args[0] === firstPath) {
+          firstStarted.resolve();
+          await allowFirst.promise;
+        }
+        const file = await originalOpen(...args);
+        if (args[0] === secondPath) {
+          const stat = await file.stat();
+          // Raw allocation would exactly fit with no other SBK resident.
+          stat.size = 480 * 1024 * 1024;
+          vi.spyOn(file, "stat").mockResolvedValue(stat);
+          vi.spyOn(file, "read").mockImplementation(() => {
+            throw new Error("The second SBK must be rejected before a read");
+          });
+        }
+        return file;
+      });
+      try {
+        const first = openBook(defaultBookSession, firstPath, options);
+        await firstStarted.promise;
+        const second = expect(openBook(secondSession, secondPath, options)).rejects.toMatchObject({
+          status: 413,
+          message: t.serverSbkExpansionLimit,
+        });
+        allowFirst.resolve();
+        await expect(first).resolves.toBe("on-the-fly");
+        await second;
+        expect(isBookUnsaved(secondSession)).toBe(true);
+        expect(await searchBookMoves(secondSession, sfen)).toEqual(before);
+      } finally {
+        allowFirst.resolve();
+        open.mockRestore();
+        closeBookSession(secondSession);
+      }
+    });
 
     it.each(["in-memory", "on-the-fly"])(
       "keeps the existing %s book and unsaved edits when parsing a replacement fails",
@@ -458,7 +506,7 @@ describe("server/book", () => {
         ).resolves.toBe("on-the-fly");
       });
 
-      it("opens a 20MB SBK below the default threshold in-memory", async () => {
+      it("opens a 20MB SBK on-the-fly with a 16MB threshold", async () => {
         const source = "src/tests/testdata/book/shogihome01.sbk";
         const originalLstat = fs.promises.lstat.bind(fs.promises);
         const lstat = vi.spyOn(fs.promises, "lstat").mockImplementation(async (...args) => {
@@ -468,8 +516,8 @@ describe("server/book", () => {
         });
         try {
           await expect(
-            openBook(defaultBookSession, source, { sbkOnTheFlyThresholdMB: 32 }),
-          ).resolves.toBe("in-memory");
+            openBook(defaultBookSession, source, { sbkOnTheFlyThresholdMB: 16 }),
+          ).resolves.toBe("on-the-fly");
         } finally {
           lstat.mockRestore();
         }
@@ -1577,7 +1625,7 @@ sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
             // New raw data alone fits the 512 MiB construction budget;
             // retaining the old raw data and index must put it over the limit.
             const stat = await file.stat();
-            stat.size = 128 * 1024 * 1024;
+            stat.size = 480 * 1024 * 1024;
             vi.spyOn(file, "stat").mockResolvedValue(stat);
           }
           return file;

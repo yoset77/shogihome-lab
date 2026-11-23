@@ -26,10 +26,24 @@ import { packedSfenToSfen, positionToPackedSfen, sfenToPackedSfen } from "./pack
 const INITIAL_POSITION_SFEN = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
 const SBK_ON_THE_FLY_ROW_SIZE = 9;
 const SBK_INDEX_CONSTRUCTION_BUDGET_BYTES = 512 * 1024 * 1024;
+const SBK_ON_THE_FLY_WORKSPACE_BYTES = 32 * 1024 * 1024;
+const SBK_ON_THE_FLY_STATE_BUDGET_BYTES = 16 * 1024 * 1024;
+const SBK_ON_THE_FLY_HEADER_FIELD_BYTES = 2 * 1024 * 1024;
+// Allow for V8's Map backing store, including growth, and live DFS frames and moves.
+const SBK_ON_THE_FLY_ID_BYTES = 96;
+const SBK_ON_THE_FLY_FRAME_BYTES = 256;
 const MAX_SBK_STATE_ID = 2147483647;
 export const MAX_SBK_BOOK_SIZE_BYTES = 512 * 1024 * 1024;
 
 export class SbkMemoryLimitError extends Error {}
+
+function validateSbkBudget(estimatedBytes: number, budgetBytes: number): void {
+  if (estimatedBytes > budgetBytes) {
+    throw new SbkMemoryLimitError(
+      `SBK index construction exceeds memory budget: ${estimatedBytes} bytes`,
+    );
+  }
+}
 
 export function estimateSbkIndexConstructionBytes(
   rawBytes: number,
@@ -54,12 +68,7 @@ export function validateSbkIndexConstructionMemory(
     moveCount,
     evalCount,
   );
-  const totalBytes = estimatedBytes + reservedBytes;
-  if (totalBytes > budgetBytes) {
-    throw new SbkMemoryLimitError(
-      `SBK index construction exceeds memory budget: ${totalBytes} bytes`,
-    );
-  }
+  validateSbkBudget(estimatedBytes + reservedBytes, budgetBytes);
   return estimatedBytes;
 }
 
@@ -136,12 +145,12 @@ type SBookScanResult = {
   sbkDescription?: string;
 };
 
-function scanSBookTopLevel(data: Uint8Array): SBookScanResult {
+function scanSBookTopLevel(data: Uint8Array, onTheFly = false): SBookScanResult {
   let stateCount = 0;
   let moveCount = 0;
   let evalCount = 0;
-  let sbkAuthor: string | undefined;
-  let sbkDescription: string | undefined;
+  let authorBounds: [number, number] | undefined;
+  let descriptionBounds: [number, number] | undefined;
   let offset = 0;
   while (offset < data.length) {
     const [tag, next] = readTag(data, offset, data.length);
@@ -150,12 +159,15 @@ function scanSBookTopLevel(data: Uint8Array): SBookScanResult {
     const wireType = tag & 0x7;
 
     if ((field === 1 || field === 2) && wireType === 2) {
-      const [textOffset, end] = readMessageBounds(data, offset, data.length);
-      const text = Buffer.from(data.subarray(textOffset, end)).toString("utf-8");
-      if (field === 1) {
-        sbkAuthor = text;
-      } else {
-        sbkDescription = text;
+      const bounds = readMessageBounds(data, offset, data.length);
+      const [textOffset, end] = bounds;
+      if (onTheFly) {
+        validateSbkBudget(end - textOffset, SBK_ON_THE_FLY_HEADER_FIELD_BYTES);
+        if (field === 1) {
+          authorBounds = bounds;
+        } else {
+          descriptionBounds = bounds;
+        }
       }
       offset = end;
       continue;
@@ -163,6 +175,18 @@ function scanSBookTopLevel(data: Uint8Array): SBookScanResult {
     if (field === 3 && wireType === 2) {
       const [stateOffset, stateEnd] = readMessageBounds(data, offset, data.length);
       const nestedCounts = countSBookStateEntries(data, stateOffset, stateEnd);
+      if (onTheFly) {
+        // Search and save still decode individual states in full.
+        validateSbkBudget(
+          estimateSbkIndexConstructionBytes(
+            stateEnd - stateOffset,
+            1,
+            nestedCounts.moveCount,
+            nestedCounts.evalCount,
+          ),
+          SBK_ON_THE_FLY_STATE_BUDGET_BYTES,
+        );
+      }
       moveCount += nestedCounts.moveCount;
       evalCount += nestedCounts.evalCount;
       offset = stateEnd;
@@ -171,7 +195,18 @@ function scanSBookTopLevel(data: Uint8Array): SBookScanResult {
     }
     offset = skipField(data, offset, wireType);
   }
-  return { stateCount, moveCount, evalCount, sbkAuthor, sbkDescription };
+  function readText(bounds: [number, number] | undefined): string | undefined {
+    if (bounds) {
+      return Buffer.from(data.subarray(...bounds)).toString("utf-8");
+    }
+  }
+  return {
+    stateCount,
+    moveCount,
+    evalCount,
+    sbkAuthor: readText(authorBounds),
+    sbkDescription: readText(descriptionBounds),
+  };
 }
 
 function countSBookStateEntries(
@@ -317,16 +352,16 @@ function setVisited(visitedBits: Uint8Array, stateIndex: number): void {
   visitedBits[stateIndex >> 3] |= 1 << (stateIndex & 7);
 }
 
-function decodeStateAt(data: Uint8Array, stateTagOffset: number): SBookState {
-  const [tag, afterTag] = readVarint(data, stateTagOffset);
+function readStateBounds(data: Uint8Array, stateTagOffset: number): [number, number] {
+  const [tag, afterTag] = readTag(data, stateTagOffset, data.length);
   if (tag !== 26) {
     throw new Error(`Invalid SBookState tag: ${tag}`);
   }
-  const [payloadLength, payloadOffset] = readVarint(data, afterTag);
-  const end = payloadOffset + payloadLength;
-  if (end > data.length) {
-    throw new Error("Invalid SBK: truncated SBookState payload");
-  }
+  return readMessageBounds(data, afterTag, data.length);
+}
+
+function decodeStateAt(data: Uint8Array, stateTagOffset: number): SBookState {
+  const [payloadOffset, end] = readStateBounds(data, stateTagOffset);
   return SBookState.decode(data.subarray(payloadOffset, end));
 }
 
@@ -406,12 +441,14 @@ function normalizeSfen(position: string): string | undefined {
   } else if (s.startsWith("sfen ")) {
     s = s.slice("sfen ".length);
   }
-  // SFEN format: "board color hand moveCount" — normalize moveCount to 1
-  const parts = s.split(" ");
-  if (parts.length < 3) {
+  // Read only board, color, and hand; ignore the original move number and suffix.
+  const boardEnd = s.indexOf(" ");
+  const colorEnd = boardEnd < 0 ? -1 : s.indexOf(" ", boardEnd + 1);
+  if (colorEnd < 0) {
     return undefined;
   }
-  return parts.slice(0, 3).join(" ") + " 1";
+  const handEnd = s.indexOf(" ", colorEnd + 1);
+  return (handEnd < 0 ? s : s.slice(0, handEnd)) + " 1";
 }
 
 function toBookMoveEvaluation(value: SBookMoveEvaluation): SbkMoveEvaluation | undefined {
@@ -487,27 +524,52 @@ function buildBookEntryFromState(state: SBookState, sfen: string): BookEntry | u
   return bookEntry;
 }
 
+function readRootPosition(
+  data: Uint8Array,
+  start: number,
+  end: number,
+  reader: BinaryReader,
+): string {
+  let position = "";
+  let offset = start;
+  while (offset < end) {
+    const [tag, next] = readTag(data, offset, end);
+    if (tag === 58) {
+      // Match the generated decoder: the last Position field wins.
+      reader.pos = next;
+      position = reader.string();
+      offset = reader.pos;
+    } else {
+      offset = skipField(data, next, tag & 7, end);
+    }
+  }
+  return position;
+}
+
 function fillPackedSfenByTraversal(
   data: Uint8Array,
   table: Uint32Array,
   stateCount: number,
   idToRow: Map<number, number>,
+  maxDepth: number,
 ): void {
   const visitedBits = new Uint8Array(Math.ceil(stateCount / 8));
+  const reader = new BinaryReader(data);
 
   for (let rootIndex = 0; rootIndex < stateCount; rootIndex++) {
     if (isVisited(visitedBits, rootIndex)) {
       continue;
     }
-    const rootState = decodeStateAt(data, readRowOffset(table, rootIndex));
-    if (!rootState.Position) {
+    const [start, end] = readStateBounds(data, readRowOffset(table, rootIndex));
+    let position = readRootPosition(data, start, end, reader);
+    if (!position) {
       if (rootIndex !== 0) {
         continue;
       }
-      rootState.Position = INITIAL_POSITION_SFEN;
+      position = INITIAL_POSITION_SFEN;
     }
 
-    const rootSfen = normalizeSfen(rootState.Position);
+    const rootSfen = normalizeSfen(position);
     if (!rootSfen) {
       continue;
     }
@@ -516,43 +578,47 @@ function fillPackedSfenByTraversal(
       continue;
     }
 
-    const rootMoves = rootState.Moves.map((m) => fromSbkMove(pos, m.Move));
+    // Keep only traversal cursors and undo moves on the stack, not full states.
     const stack: {
-      state: SBookState;
-      moves: (Move | undefined)[];
-      index: number;
+      cursor: number;
+      end: number;
       lastMove?: Move;
-    }[] = [{ state: rootState, moves: rootMoves, index: 0 }];
+    }[] = [{ cursor: start, end }];
     setPackedSfenForRow(table, rootIndex, pos);
     setVisited(visitedBits, rootIndex);
 
     while (stack.length > 0) {
       const frame = stack[stack.length - 1];
-      if (frame.index >= frame.moves.length) {
+      if (frame.cursor >= frame.end) {
         stack.pop();
         if (frame.lastMove) {
           pos.undoMove(frame.lastMove);
         }
         continue;
       }
-      const sbkMove = frame.state.Moves[frame.index];
-      const move = frame.moves[frame.index];
-      frame.index++;
-      if (!move) {
+      const [tag, next] = readTag(data, frame.cursor, frame.end);
+      if (tag !== 74) {
+        frame.cursor = skipField(data, next, tag & 7, frame.end);
         continue;
       }
-
+      const [moveStart, moveEnd] = readMessageBounds(data, next, frame.end);
+      frame.cursor = moveEnd;
+      reader.pos = moveStart;
+      const sbkMove = SBookMoveProto.decode(reader, moveEnd - moveStart);
       const nextRow = idToRow.get(sbkMove.NextStateId);
       if (nextRow === undefined || isVisited(visitedBits, nextRow)) {
         continue;
       }
-      if (!pos.doMove(move, { ignoreValidation: true })) {
+      const move = fromSbkMove(pos, sbkMove.Move);
+      if (!move || !pos.doMove(move, { ignoreValidation: true })) {
         continue;
       }
-      const nextState = decodeStateAt(data, readRowOffset(table, nextRow));
+      if (stack.length >= maxDepth) {
+        throw new SbkMemoryLimitError("SBK traversal exceeds memory budget");
+      }
+      const [childStart, childEnd] = readStateBounds(data, readRowOffset(table, nextRow));
       setPackedSfenForRow(table, nextRow, pos);
-      const nextMoves = nextState.Moves.map((m) => fromSbkMove(pos, m.Move));
-      stack.push({ state: nextState, moves: nextMoves, index: 0, lastMove: move });
+      stack.push({ cursor: childStart, end: childEnd, lastMove: move });
       setVisited(visitedBits, nextRow);
     }
   }
@@ -560,22 +626,26 @@ function fillPackedSfenByTraversal(
 
 function buildSbkOnTheFlyIndex(
   rawData: Uint8Array,
-  { stateCount, moveCount, evalCount }: SBookScanResult,
+  stateCount: number,
   reservedBytes: number,
   budgetBytes: number,
 ): SbkOnTheFlyLUT {
-  validateSbkIndexConstructionMemory(
-    rawData.byteLength,
-    stateCount,
-    moveCount,
-    evalCount,
-    reservedBytes,
-    budgetBytes,
-  );
+  const indexBytes =
+    stateCount * SBK_ON_THE_FLY_ROW_SIZE * Uint32Array.BYTES_PER_ELEMENT +
+    Math.ceil(stateCount / 8);
+  const fixedBytes =
+    reservedBytes +
+    rawData.byteLength +
+    indexBytes +
+    SBK_ON_THE_FLY_WORKSPACE_BYTES +
+    stateCount * SBK_ON_THE_FLY_ID_BYTES;
+  const firstFrameBytes = stateCount ? SBK_ON_THE_FLY_FRAME_BYTES : 0;
+  validateSbkBudget(fixedBytes + firstFrameBytes, budgetBytes);
+  const maxDepth = Math.floor((budgetBytes - fixedBytes) / SBK_ON_THE_FLY_FRAME_BYTES);
   const table = new Uint32Array(stateCount * SBK_ON_THE_FLY_ROW_SIZE);
 
   const { idToRow, maxStateId } = buildStateLookup(rawData, table, stateCount);
-  fillPackedSfenByTraversal(rawData, table, stateCount, idToRow);
+  fillPackedSfenByTraversal(rawData, table, stateCount, idToRow, maxDepth);
   sortRowsByPackedSfen(table, stateCount);
 
   let firstNonZeroRow = 0;
@@ -602,6 +672,17 @@ async function readFileWithValidatedSize(file: FileHandle, size: number): Promis
     throw new Error("SBK file changed while being read");
   }
   return data;
+}
+
+export async function loadSbkBookInMemory(path: string): Promise<SbkBook> {
+  const file = await fs.promises.open(path, "r");
+  try {
+    const { size } = await file.stat();
+    validateSbkIndexConstructionMemory(size, 0, 0, 0);
+    return loadSbkBook(await readFileWithValidatedSize(file, size));
+  } finally {
+    await file.close();
+  }
 }
 
 function searchOnTheFlyRow(sfen: string, index: SbkOnTheFlyLUT): number | undefined {
@@ -639,18 +720,16 @@ export async function loadSbkBookOnTheFly(
     if (stat.size > maxSizeBytes) {
       throw new Error(`SBK file too large: ${stat.size} bytes`);
     }
-    // reservedBytes accounts for data that stays alive while this book is
-    // constructed (e.g. the previous on-the-fly book being replaced).
-    validateSbkIndexConstructionMemory(stat.size, 0, 0, 0, reservedBytes, budgetBytes);
+    // Check before allocating the file buffer, then include the index after preflight.
+    validateSbkBudget(stat.size + reservedBytes + SBK_ON_THE_FLY_WORKSPACE_BYTES, budgetBytes);
     const rawData = await readFileWithValidatedSize(file, stat.size);
-    const scanResult = scanSBookTopLevel(rawData);
-    const { sbkAuthor, sbkDescription } = scanResult;
+    const { sbkAuthor, sbkDescription, stateCount } = scanSBookTopLevel(rawData, true);
     return {
       format: "sbk",
       entries: new Map<string, BookEntry>(),
       sbkAuthor,
       sbkDescription,
-      sbkIndex: buildSbkOnTheFlyIndex(rawData, scanResult, reservedBytes, budgetBytes),
+      sbkIndex: buildSbkOnTheFlyIndex(rawData, stateCount, reservedBytes, budgetBytes),
       rawData,
     };
   } finally {
