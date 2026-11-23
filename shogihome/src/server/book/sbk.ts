@@ -680,12 +680,12 @@ function readSfenAtRow(table: Uint32Array, row: number): string | undefined {
   }
 }
 
-function getEditedSfensByOffset(
+function addExistingSfensByOffset(
+  sfensByOffset: Map<number, string>,
   sfens: Iterable<string>,
   index: SbkOnTheFlyLUT,
-): Map<number, string> {
+): void {
   const { table, rowCount } = index;
-  const editedSfens = new Map<number, string>();
   for (const sfen of sfens) {
     const firstRow = searchOnTheFlyRow(sfen, index);
     // Packing ignores the move number and formatting. Keep exact SFEN key matching.
@@ -696,10 +696,9 @@ function getEditedSfensByOffset(
     const packed = table.subarray(start, start + 8);
     // Equal positions are contiguous in the index, even with distinct state IDs.
     for (let row = firstRow; row < rowCount && compareRowPacked(table, row, packed) === 0; row++) {
-      editedSfens.set(readRowOffset(table, row), sfen);
+      sfensByOffset.set(readRowOffset(table, row), sfen);
     }
   }
-  return editedSfens;
 }
 
 function getNextSbkStateId(index: SbkOnTheFlyLUT, newStateCount: number): number {
@@ -868,6 +867,10 @@ async function storeSbkBookOnTheFly(
       continue;
     }
 
+    // Additive patches never remove moves from the original book.
+    if (entry.type !== "normal") {
+      continue;
+    }
     const removedMoves = sbkEntry.moves.filter(
       (move) => !entry.moves.some((bookMove) => bookMove.usi === move.usi),
     );
@@ -880,6 +883,11 @@ async function storeSbkBookOnTheFly(
       pos.undoMove(move);
     }
   }
+
+  const { rawData, sbkIndex } = book;
+  const sfensByOffset = new Map<number, string>();
+  // A removed move's destination may need an explicit Position even if it was not edited.
+  addExistingSfensByOffset(sfensByOffset, rootSfens, sbkIndex);
 
   for (const sfen of inMemoryRef) {
     if (!newSfens.has(sfen) && searchOnTheFlyRow(sfen, book.sbkIndex) === undefined) {
@@ -939,8 +947,7 @@ async function storeSbkBookOnTheFly(
     sfenAndUsiToNextId.set(sfen, usiToNextId);
   }
 
-  const { rawData, sbkIndex } = book;
-  const editedSfensByOffset = getEditedSfensByOffset(book.entries.keys(), sbkIndex);
+  addExistingSfensByOffset(sfensByOffset, book.entries.keys(), sbkIndex);
   await writeBytes(
     SBook.encode({
       Author: book.sbkAuthor ?? "",
@@ -960,9 +967,9 @@ async function storeSbkBookOnTheFly(
     }
     const [payloadStart, payloadEnd] = readMessageBounds(rawData, valueOffset, rawData.length);
     offset = payloadEnd;
-    const sfen = editedSfensByOffset.get(tagOffset);
+    const sfen = sfensByOffset.get(tagOffset);
     const patch = sfen ? book.entries.get(sfen) : undefined;
-    if (!patch) {
+    if (sfen === undefined) {
       const copied = copySbkStateWithoutHashKeys(rawData, tagOffset, payloadStart, payloadEnd);
       if (copied) {
         await writeBytes(copied);
@@ -977,6 +984,9 @@ async function storeSbkBookOnTheFly(
       state = sourceState;
       state.BoardKey = 0n;
       state.HandKey = 0;
+      if (sfen && rootSfens.has(sfen) && !state.Position) {
+        state.Position = sfen;
+      }
     } else if (patch.type === "normal") {
       const usiToNextId = sfenAndUsiToNextId.get(sfen) ?? new Map<string, number>();
       state = entryToSbkState(

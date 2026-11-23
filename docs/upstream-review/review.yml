@@ -139,6 +139,22 @@ candidates:
       比較した。バイトコピーの移植単体では、WASM・索引再構築・保存時のアトミックな公開は変更しない。
 
   - sources:
+      - https://github.com/sunfish-shogi/shogihome/pull/1925
+      - https://github.com/sunfish-shogi/shogihome/pull/1926
+    summary: On-the-fly SBKで指し手を削除した後の遷移先の保持
+    status: closed
+    assessed_lab_sha: 6714fe636f9241d9972bf0929baba3d74ab69f4c
+    targets:
+      - shogihome/src/server/book/sbk.ts
+      - shogihome/src/tests/server/book/sbk.spec.ts
+    evidence: >-
+      唯一の遷移元を削除すると、未編集の遷移先とその配下が再読込後に参照できなかった。
+      追加パッチに元の指し手がない場合も削除と誤認していた。回帰確認はsbk.spec.tsを参照。
+    resolution: >-
+      完全置換の編集だけを削除検出の対象にし、遷移先の既存行に必要なPositionを付与する。
+      新たにルートになる行以外は未編集局面のバイトコピーを維持する。
+
+  - sources:
       - https://github.com/sunfish-shogi/shogihome/blob/59a2b75b1fe50afc8bb0852a9697318ebe6c6e87/src/background/usi/engine.ts#L404-L428
     summary: 再利用エンジンの各局開始前の準備完了確認
     status: closed
