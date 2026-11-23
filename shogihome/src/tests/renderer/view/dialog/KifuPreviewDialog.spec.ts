@@ -62,17 +62,21 @@ vi.mock("@/renderer/store/busy", () => ({
 }));
 vi.mock("@github/hotkey", () => ({ install: installHotKey, uninstall: uninstallHotKey }));
 
-const mountDialog = (props?: {
-  matchedPly?: number;
-  matchedSfen?: string;
-  targets?: { path: string; matchedPly?: number; matchedSfen?: string }[];
-  targetIndex?: number;
-}) =>
+const mountDialog = (
+  props?: {
+    matchedPly?: number;
+    matchedSfen?: string;
+    targets?: { path: string; matchedPly?: number; matchedSfen?: string }[];
+    targetIndex?: number;
+  },
+  options?: { attachTo?: Element },
+) =>
   shallowMount(KifuPreviewDialog, {
     props: {
       path: "games/example.kif",
       ...props,
     },
+    ...options,
     global: {
       stubs: {
         DialogFrame: { template: "<div><slot /></div>" },
@@ -347,7 +351,8 @@ describe("KifuPreviewDialog", () => {
 
   it("reserves mobile controls, gaps, and the record minimum before sizing the board", async () => {
     isMobileWebApp.mockReturnValue(true);
-    const wrapper = mountDialog();
+    // jsdom only reports computed styles for connected elements.
+    const wrapper = mountDialog(undefined, { attachTo: document.body });
     await flushPromises();
     const board = wrapper.findComponent({ name: "BoardView" });
     const preferredHeight = board.props("maxSize").height;

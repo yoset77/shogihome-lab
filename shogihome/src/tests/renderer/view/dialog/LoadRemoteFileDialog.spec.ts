@@ -40,6 +40,8 @@ describe("LoadRemoteFileDialog", () => {
 
   async function dialog() {
     const wrapper = mount(LoadRemoteFileDialog, {
+      // jsdom only reports computed styles (used by isVisible) for connected elements.
+      attachTo: document.body,
       global: { stubs: { DialogFrame: { template: "<div><slot /></div>" } } },
     });
     wrappers.push(wrapper);

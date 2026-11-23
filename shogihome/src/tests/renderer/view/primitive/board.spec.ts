@@ -143,7 +143,12 @@ describe("BoardView", () => {
       const width = parseFloat(style.width);
       const height = parseFloat(style.height);
       expect(arrow.element.namespaceURI).toBe("http://www.w3.org/2000/svg");
-      expect(arrow.attributes("viewBox")?.split(" ").map(Number)).toEqual([0, 0, width, height]);
+      // jsdom serializes CSS numbers to six significant digits.
+      const viewBox = arrow.attributes("viewBox")?.split(" ").map(Number) ?? [];
+      expect(viewBox[0]).toBe(0);
+      expect(viewBox[1]).toBe(0);
+      expect(viewBox[2]).toBeCloseTo(width, 2);
+      expect(viewBox[3]).toBeCloseTo(height, 2);
       expect(style.objectFit).toBe("");
       expect(style.objectPosition).toBe("");
 
@@ -154,7 +159,7 @@ describe("BoardView", () => {
         ?.split(" ")
         .map((point) => point.split(",").map(Number));
       const headLength = Math.min(height * 0.79, width);
-      expect(points).toEqual([
+      const expectedPoints = [
         [0, height / 2],
         [headLength, 0],
         [headLength, height * 0.31],
@@ -162,7 +167,12 @@ describe("BoardView", () => {
         [width, height * 0.665],
         [headLength, height * 0.665],
         [headLength, height],
-      ]);
+      ];
+      expect(points).toHaveLength(expectedPoints.length);
+      for (const [index, point] of points!.entries()) {
+        expect(point[0]).toBeCloseTo(expectedPoints[index][0], 2);
+        expect(point[1]).toBeCloseTo(expectedPoints[index][1], 2);
+      }
 
       const board = wrapper.get(".board.operation");
       const squares = board.findAll("div");
@@ -181,18 +191,18 @@ describe("BoardView", () => {
         start = centerInFrame(hand.element, hand.findAll("div")[index + 1].element);
       }
       const distance = Math.hypot(end.x - start.x, end.y - start.y);
-      expect(width).toBeCloseTo(distance, 6);
+      expect(width).toBeCloseTo(distance, 2);
       const squareWidth = parseFloat((squares[0].element as HTMLElement).style.width);
-      expect(height).toBeCloseTo((30 * squareWidth) / boardParams.squareWidth, 6);
+      expect(height).toBeCloseTo((30 * squareWidth) / boardParams.squareWidth, 2);
 
       // CSS rotates around the SVG center; its left tip must land on the destination.
       const angle = Number(style.transform.match(/^rotate\((.*)rad\)$/)?.[1]);
       const centerX = parseFloat(style.left) + width / 2;
       const centerY = parseFloat(style.top) + height / 2;
-      expect(centerX - (width / 2) * Math.cos(angle)).toBeCloseTo(end.x, 6);
-      expect(centerY - (width / 2) * Math.sin(angle)).toBeCloseTo(end.y, 6);
-      expect(centerX + (width / 2) * Math.cos(angle)).toBeCloseTo(start.x, 6);
-      expect(centerY + (width / 2) * Math.sin(angle)).toBeCloseTo(start.y, 6);
+      expect(centerX - (width / 2) * Math.cos(angle)).toBeCloseTo(end.x, 2);
+      expect(centerY - (width / 2) * Math.sin(angle)).toBeCloseTo(end.y, 2);
+      expect(centerX + (width / 2) * Math.cos(angle)).toBeCloseTo(start.x, 2);
+      expect(centerY + (width / 2) * Math.sin(angle)).toBeCloseTo(start.y, 2);
     };
 
     describe.each(Object.values(BoardLayoutType))("%s layout", (layoutType) => {

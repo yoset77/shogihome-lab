@@ -8,6 +8,15 @@ import PieceBox from "@/renderer/view/primitive/PieceBox.vue";
 import { pieceBoxSize } from "@/renderer/view/primitive/pieceBoxLayout";
 import { BoardLayoutType } from "@/common/settings/layout";
 
+// jsdom serializes CSS numbers to six significant digits.
+const expectAspectRatio = (style: CSSStyleDeclaration, width: number, height: number) => {
+  const [actualWidth, actualHeight] = style.aspectRatio
+    .split("/")
+    .map((value) => parseFloat(value));
+  expect(actualWidth).toBeCloseTo(width, 2);
+  expect(actualHeight).toBeCloseTo(height, 2);
+};
+
 vi.mock("@/renderer/store/settings", () => ({
   useAppSettings: () => ({
     boardImage: "default",
@@ -149,7 +158,7 @@ describe("PositionEditorCore", () => {
       const baseWidth = Math.max(baseBoardSize.width, pieceBoxSize.width);
       const baseHeight = baseBoardSize.height + 8 + pieceBoxSize.height;
       const area = wrapper.find(".editor-area").element as HTMLElement;
-      expect(area.style.aspectRatio).toBe(`${baseWidth} / ${baseHeight}`);
+      expectAspectRatio(area.style, baseWidth, baseHeight);
 
       // Cover width/height limits, rotation, and scales outside the former clamps.
       for (const [width, height] of [
@@ -169,7 +178,7 @@ describe("PositionEditorCore", () => {
         expect(wrapper.findComponent(PieceBox).props("scale")).toBeCloseTo(scale);
         expect(boardSize.width).toBeCloseTo(baseBoardSize.width * scale);
         expect(boardSize.height).toBeCloseTo(baseBoardSize.height * scale);
-        expect(area.style.aspectRatio).toBe(`${baseWidth} / ${baseHeight}`);
+        expectAspectRatio(area.style, baseWidth, baseHeight);
         const layout = wrapper.find(".editor-layout").element as HTMLElement;
         expect(parseFloat(layout.style.width)).toBeCloseTo(baseWidth * scale);
         expect(parseFloat(layout.style.height)).toBeCloseTo(baseHeight * scale);
