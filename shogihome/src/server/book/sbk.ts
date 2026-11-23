@@ -3,7 +3,7 @@ import type { FileHandle } from "node:fs/promises";
 import { Writable } from "node:stream";
 import { finished } from "node:stream/promises";
 import { ImmutablePosition, Move, Position } from "tsshogi";
-import { BinaryWriter } from "@bufbuild/protobuf/wire";
+import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
 import {
   SBookMove as SBookMoveProto,
   SBookMoveEvaluation,
@@ -329,52 +329,63 @@ function decodeStateAt(data: Uint8Array, stateTagOffset: number): SBookState {
   return SBookState.decode(data.subarray(payloadOffset, end));
 }
 
-function buildStateOffsetTable(data: Uint8Array, table: Uint32Array, rowCount: number): void {
-  let offset = 0;
-  let row = 0;
-  while (offset < data.length) {
-    const tagOffset = offset;
-    const [tag, next] = readVarint(data, offset);
-    offset = next;
-    if (tag === 0) {
-      break;
-    }
-    const field = tag >>> 3;
-    const wireType = tag & 0x7;
-    if (field === 3 && wireType === 2) {
-      const [stateLength, payloadOffset] = readVarint(data, offset);
-      if (row >= rowCount) {
-        throw new Error("Invalid SBK: state count mismatch");
+function readSBookStateId(
+  data: Uint8Array,
+  offset: number,
+  end: number,
+  reader: BinaryReader,
+): number {
+  // Match SBookState.decode: an absent ID defaults to zero and the last ID wins.
+  let id = 0;
+  while (offset < end) {
+    const [tag, next] = readTag(data, offset, end);
+    if (tag === 8) {
+      reader.pos = next;
+      id = reader.int32();
+      offset = reader.pos;
+      if (offset > end) {
+        throw new Error("Invalid SBK: truncated SBookState ID");
       }
-      writeRowMetadata(table, row * SBK_ON_THE_FLY_ROW_SIZE, tagOffset);
-      offset = payloadOffset + stateLength;
-      if (offset > data.length) {
-        throw new Error("Invalid SBK: truncated SBookState payload");
-      }
-      row++;
-      continue;
+    } else {
+      offset = skipField(data, next, tag & 7, end);
     }
-    offset = skipField(data, offset, wireType);
   }
-  if (row !== rowCount) {
-    throw new Error("Invalid SBK: failed to build state offset table");
-  }
+  return id;
 }
 
-function buildStateIdToRow(
+function buildStateLookup(
   data: Uint8Array,
   table: Uint32Array,
   rowCount: number,
 ): { idToRow: Map<number, number>; maxStateId: number } {
   const idToRow = new Map<number, number>();
+  const reader = new BinaryReader(data);
   let maxStateId = -1;
-  for (let row = 0; row < rowCount; row++) {
-    const state = decodeStateAt(data, readRowOffset(table, row));
-    if (idToRow.has(state.Id)) {
-      throw new Error(`Invalid SBK: duplicated state ID ${state.Id}`);
+  let offset = 0;
+  let row = 0;
+  while (offset < data.length) {
+    const tagOffset = offset;
+    const [tag, next] = readTag(data, offset, data.length);
+    if (tag === 26) {
+      if (row >= rowCount) {
+        throw new Error("Invalid SBK: state count mismatch");
+      }
+      const [payloadStart, payloadEnd] = readMessageBounds(data, next, data.length);
+      const id = readSBookStateId(data, payloadStart, payloadEnd, reader);
+      if (idToRow.has(id)) {
+        throw new Error(`Invalid SBK: duplicated state ID ${id}`);
+      }
+      idToRow.set(id, row);
+      maxStateId = Math.max(maxStateId, id);
+      writeRowMetadata(table, row * SBK_ON_THE_FLY_ROW_SIZE, tagOffset);
+      offset = payloadEnd;
+      row++;
+    } else {
+      offset = skipField(data, next, tag & 7);
     }
-    idToRow.set(state.Id, row);
-    maxStateId = Math.max(maxStateId, state.Id);
+  }
+  if (row !== rowCount) {
+    throw new Error("Invalid SBK: failed to build state offset table");
   }
   return { idToRow, maxStateId };
 }
@@ -562,8 +573,7 @@ function buildSbkOnTheFlyIndex(
   );
   const table = new Uint32Array(stateCount * SBK_ON_THE_FLY_ROW_SIZE);
 
-  buildStateOffsetTable(rawData, table, stateCount);
-  const { idToRow, maxStateId } = buildStateIdToRow(rawData, table, stateCount);
+  const { idToRow, maxStateId } = buildStateLookup(rawData, table, stateCount);
   fillPackedSfenByTraversal(rawData, table, stateCount, idToRow);
   sortRowsByPackedSfen(table, stateCount);
 
