@@ -8,12 +8,16 @@ import { GamePlayer } from "@/server/game/player";
 import { emptyUSIEngineExtraBookConfig, BookMoveSelectionRule } from "@/common/settings/usi";
 import type { GameEngine } from "@/server/engine/internal";
 import type { SearchHandler } from "@/common/game/player";
+import { createYbbWithReferences } from "@/tests/helpers/ybb";
 
-const config = vi.hoisted(() => ({ directory: "" }));
+const config = vi.hoisted(() => ({ directory: "", threshold: 64 }));
 vi.mock("@/server/config", async (original) => ({
   ...(await original<typeof import("@/server/config")>()),
   get KIFU_DIR() {
     return config.directory;
+  },
+  get ONTHEFLY_THRESHOLD_MB() {
+    return config.threshold;
   },
 }));
 
@@ -40,6 +44,7 @@ describe("server game books", () => {
     vi.restoreAllMocks();
     if (config.directory) await fs.rm(config.directory, { recursive: true, force: true });
     config.directory = "";
+    config.threshold = 64;
   });
   const search = (settings = options, position = new Position()) =>
     searchGameBook(
@@ -141,6 +146,53 @@ describe("server game books", () => {
       );
     return { player, engine, handler, start };
   };
+  it.each([
+    { file: "shogihome01.sbk", minEvalBlack: 1_000_000, bookUsed: true },
+    { file: "apery.bin", minEvalBlack: undefined, bookUsed: true },
+    { file: "apery.bin", minEvalBlack: 1_000_000, bookUsed: false },
+  ])("applies only limits supported by $file (minEvalBlack=$minEvalBlack)", async (testCase) => {
+    book.close();
+    await fs.copyFile(
+      `src/tests/testdata/book/${testCase.file}`,
+      path.join(config.directory, testCase.file),
+    );
+    const settings = {
+      ...options,
+      filePath: `server://${testCase.file}`,
+      bookDepthLimit: 10,
+      minEvalBlack: testCase.minEvalBlack,
+      minEvalWhite: 1_000_000,
+      maxEvalDiff: 0,
+    };
+    const saved = { ...settings };
+    book = await GameBook.open(settings);
+    const { player, engine, handler, start } = fixture(settings);
+    await start();
+    expect(handler.onMove).toHaveBeenCalledTimes(testCase.bookUsed ? 1 : 0);
+    expect(engine.startSearch).toHaveBeenCalledTimes(testCase.bookUsed ? 0 : 1);
+    expect(settings).toEqual(saved);
+    await player.close();
+  });
+  it.each([
+    { hasDepth: false, threshold: 64 },
+    { hasDepth: false, threshold: 0 },
+    { hasDepth: true, threshold: 64 },
+    { hasDepth: true, threshold: 0 },
+  ])("uses the YBB header to apply depth limits (%j)", async ({ hasDepth, threshold }) => {
+    book.close();
+    config.threshold = threshold;
+    await fs.writeFile(
+      path.join(config.directory, "book.ybb"),
+      createYbbWithReferences([{ moveCount: 1 }], 1, hasDepth),
+    );
+    const settings = { ...options, filePath: "server://book.ybb", bookDepthLimit: 10 };
+    book = await GameBook.open(settings);
+    const { player, engine, handler, start } = fixture(settings);
+    await start();
+    expect(handler.onMove).toHaveBeenCalledTimes(hasDepth ? 0 : 1);
+    expect(engine.startSearch).toHaveBeenCalledTimes(hasDepth ? 1 : 0);
+    await player.close();
+  });
   it("falls back to engine search when the highest-scored legal book move is shallow", async () => {
     const { player, engine, handler, start } = fixture({ ...options, bookDepthLimit: 10 });
     await start();

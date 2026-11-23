@@ -396,7 +396,6 @@ export type Texts = {
   bookMaxEvalDiff: string;
   bookIgnoreRate: string;
   bookDepthLimit: string;
-  unlimited: string;
   noLimit: string;
   invoke: string;
   defaultValue: string;

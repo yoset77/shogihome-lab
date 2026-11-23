@@ -1,6 +1,7 @@
 import fs, { ReadStream } from "node:fs";
 import path from "node:path";
 import {
+  type BookFilterCapabilities,
   BookImportSummary,
   BookLoadingOptions,
   BookMove as CommonBookMove,
@@ -60,6 +61,7 @@ import {
   searchYbbBookMovesOnTheFly,
   storeYbbBook,
   YbbExpansionLimitError,
+  ybbHasDepth,
 } from "./ybb.js";
 import { BOOK_IMPORT_LIMITS } from "./import_limits.js";
 
@@ -319,6 +321,33 @@ function getFormatByPath(path: string): BookFormat {
     return "ybb";
   }
   return "apery";
+}
+
+function bookFilterCapabilities(format: BookFormat, flags = 0n): BookFilterCapabilities {
+  return {
+    score: format !== "sbk",
+    depth: format === "yane2016" || (format === "ybb" && ybbHasDepth(flags)),
+  };
+}
+
+export function getBookFilterCapabilities(session: number): BookFilterCapabilities {
+  const book = getBook(session);
+  return bookFilterCapabilities(book.format, book.format === "ybb" ? book.flags : undefined);
+}
+
+export async function readBookFilterCapabilities(path: string): Promise<BookFilterCapabilities> {
+  if (!(await fs.promises.lstat(path)).isFile()) {
+    throw new HttpError(404, t.serverFileNotFound);
+  }
+  const format = getFormatByPath(path);
+  if (format !== "ybb") return bookFilterCapabilities(format);
+
+  const book = await openYbbBookOnTheFly(path);
+  try {
+    return bookFilterCapabilities(format, book.flags);
+  } finally {
+    await book.file.close();
+  }
 }
 
 function closeWriteStream(stream: fs.WriteStream): Promise<void> {

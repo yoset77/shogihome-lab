@@ -32,16 +32,17 @@
           </div>
         </div>
         <div class="form-item">
-          <div class="form-item-label">{{ t.bookMaxMoves }}</div>
+          <label :for="maxMovesId" class="form-item-label with-note">{{ t.bookMaxMoves }}</label>
           <div class="form-item-value">
             <input
+              :id="maxMovesId"
               v-model.number="localConfig.maxMoves"
               class="number"
               type="number"
               min="0"
               max="100"
               step="1"
-              :placeholder="t.unlimited"
+              :placeholder="t.noLimit"
             />
           </div>
         </div>
@@ -50,6 +51,7 @@
           <div class="form-item-value">
             <input
               v-model.number="localConfig.minEvalBlack"
+              :disabled="filterCapabilities?.score === false"
               class="number"
               type="number"
               step="1"
@@ -62,6 +64,7 @@
           <div class="form-item-value">
             <input
               v-model.number="localConfig.minEvalWhite"
+              :disabled="filterCapabilities?.score === false"
               class="number"
               type="number"
               step="1"
@@ -74,6 +77,7 @@
           <div class="form-item-value">
             <input
               v-model.number="localConfig.maxEvalDiff"
+              :disabled="filterCapabilities?.score === false"
               class="number"
               type="number"
               min="0"
@@ -83,15 +87,19 @@
           </div>
         </div>
         <div class="form-item">
-          <div class="form-item-label">{{ t.bookDepthLimit }}</div>
+          <label :for="bookDepthLimitId" class="form-item-label with-note">
+            {{ t.bookDepthLimit }}
+          </label>
           <div class="form-item-value">
             <input
+              :id="bookDepthLimitId"
               v-model.number="localConfig.bookDepthLimit"
+              :disabled="filterCapabilities?.depth === false"
               class="number"
               type="number"
               min="0"
               step="1"
-              :placeholder="t.unlimited"
+              :placeholder="t.noLimit"
             />
           </div>
         </div>
@@ -123,14 +131,16 @@
 </template>
 
 <script setup lang="ts">
+import type { BookFilterCapabilities } from "@/common/book";
 import { t } from "@/common/i18n";
-import { ref } from "vue";
+import { onMounted, ref, useId } from "vue";
 import {
   BookMoveSelectionRule,
   DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE,
   normalizeUSIEngineExtraBookConfig,
   USIEngineExtraBookConfig,
 } from "@/common/settings/usi";
+import api from "@/renderer/ipc/api";
 import DialogFrame from "./DialogFrame.vue";
 import HorizontalSelector from "@/renderer/view/primitive/HorizontalSelector.vue";
 
@@ -143,7 +153,24 @@ const emit = defineEmits<{
   cancel: [];
 }>();
 
-const localConfig = ref<USIEngineExtraBookConfig>(normalizeUSIEngineExtraBookConfig(props.config));
+const maxMovesId = useId();
+const bookDepthLimitId = useId();
+const initialConfig = normalizeUSIEngineExtraBookConfig(props.config);
+const localConfig = ref<USIEngineExtraBookConfig>({
+  ...initialConfig,
+  maxMoves: initialConfig.maxMoves ?? 0,
+  bookDepthLimit: initialConfig.bookDepthLimit ?? 0,
+});
+const filterCapabilities = ref<BookFilterCapabilities>();
+
+onMounted(async () => {
+  if (!initialConfig.filePath.startsWith("server://")) return;
+  try {
+    filterCapabilities.value = await api.getBookFilterCapabilities(initialConfig.filePath);
+  } catch {
+    // Keep settings editable when the file's capabilities are unknown.
+  }
+});
 
 const onOk = () => {
   const config = { ...localConfig.value };
@@ -185,6 +212,9 @@ const onCancel = () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.form-item-label.with-note {
+  white-space: normal;
 }
 .form-item-value {
   display: flex;
