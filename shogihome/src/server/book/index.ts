@@ -46,13 +46,12 @@ import { writeStreamAtomic } from "@/server/file/atomic_stream";
 import { HttpError } from "@/server/errors";
 import { isReservedServerEntryName } from "@/common/file/upload";
 import {
-  loadSbkBook,
+  loadSbkBookInMemory,
   loadSbkBookOnTheFly,
   MAX_SBK_BOOK_SIZE_BYTES,
   SbkMemoryLimitError,
   searchSbkBookEntryOnTheFly,
   storeSbkBook,
-  validateSbkIndexConstructionMemory,
 } from "./sbk.js";
 import {
   loadYbbBook,
@@ -256,6 +255,31 @@ function emptyBook(format: BookFormat = "yane2016"): BookHandle {
 const bookFiles = new Map<number, BookHandle>();
 let nextBookSession = 100;
 
+// Keep prepared SBK candidates exclusive until publication so other sessions
+// cannot allocate against the same budget while file I/O is in flight.
+let sbkBuildTail = Promise.resolve();
+function runSbkBuild<T>(operation: () => Promise<T>): Promise<T> {
+  const result = sbkBuildTail.then(operation);
+  sbkBuildTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+function retainedSbkOnTheFlyBytes(): number {
+  let bytes = 0;
+  for (const book of bookFiles.values()) {
+    if (book.type === "on-the-fly" && book.format === "sbk" && book.rawData && book.sbkIndex) {
+      bytes +=
+        book.rawData.byteLength +
+        book.sbkIndex.table.byteLength +
+        2 * ((book.sbkAuthor?.length ?? 0) + (book.sbkDescription?.length ?? 0));
+    }
+  }
+  return bytes;
+}
+
 export function allocateBookSessionId(): number {
   return nextBookSession++;
 }
@@ -315,12 +339,15 @@ async function buildOnTheFlyBook(
   format: BookFormat,
   readPath: string,
   sessionPath: string,
-  reservedMemoryBytes = 0,
 ): Promise<OnTheFlyBook> {
   if (format === "sbk") {
     let book: SbkBook;
     try {
-      book = await loadSbkBookOnTheFly(readPath, MAX_SBK_BOOK_SIZE_BYTES, reservedMemoryBytes);
+      book = await loadSbkBookOnTheFly(
+        readPath,
+        MAX_SBK_BOOK_SIZE_BYTES,
+        retainedSbkOnTheFlyBytes(),
+      );
     } catch (error) {
       if (error instanceof SbkMemoryLimitError) throw new HttpError(413, t.serverSbkExpansionLimit);
       throw error;
@@ -412,9 +439,7 @@ async function openBookInMemory(path: string, size: number): Promise<BookHandle>
         if (size > MAX_SBK_BOOK_SIZE_BYTES) {
           throw new HttpError(413, t.serverBookTooLarge);
         }
-        validateSbkIndexConstructionMemory(size, 0, 0, 0);
-        const data = await fs.promises.readFile(path);
-        book = loadSbkBook(data);
+        book = await loadSbkBookInMemory(path);
         break;
       }
       case "ybb":
@@ -460,11 +485,14 @@ export async function openBook(
     throw new HttpError(413, t.serverBookTooLarge);
   }
   const onTheFly = thresholdMB !== undefined && size > thresholdMB * 1024 * 1024;
-  const candidate = onTheFly
-    ? await openBookOnTheFly(path, size)
-    : await openBookInMemory(path, size);
-  replaceBook(session, candidate);
-  return onTheFly ? "on-the-fly" : "in-memory";
+  async function openAndReplace() {
+    const candidate = onTheFly
+      ? await openBookOnTheFly(path, size)
+      : await openBookInMemory(path, size);
+    replaceBook(session, candidate);
+    return onTheFly ? ("on-the-fly" as const) : ("in-memory" as const);
+  }
+  return format === "sbk" ? runSbkBuild(openAndReplace) : openAndReplace();
 }
 
 export async function openBookAsNewSession(
@@ -592,22 +620,10 @@ async function saveBookOverwriteOnTheFly(
           filePath,
           Date.now() - saveStartedAt,
         );
-        // The old book stays alive (including its raw data) until the new
-        // book is published, so include its footprint in the SBK index
-        // construction budget.
-        const reservedMemoryBytes =
-          book.format === "sbk" && book.sbkIndex && book.rawData
-            ? book.rawData.byteLength + book.sbkIndex.table.byteLength
-            : 0;
         const rebuildStartedAt = Date.now();
         // Validate before publishing: normalizing SFEN ply during a merge
         // can produce duplicate keys even when the original lines were ordered.
-        prepared = await buildOnTheFlyBook(
-          book.format,
-          tempFilePath,
-          filePath,
-          reservedMemoryBytes,
-        );
+        prepared = await buildOnTheFlyBook(book.format, tempFilePath, filePath);
         getAppLogger().info(
           "On-the-fly book rebuild completed: path=%s elapsedMs=%d totalElapsedMs=%d",
           filePath,
@@ -658,7 +674,9 @@ export async function saveBook(
   book.busy = true;
   try {
     if (overwriteOnTheFly) {
-      await saveBookOverwriteOnTheFly(session, book, filePath, options?.validateDestination);
+      const overwrite = () =>
+        saveBookOverwriteOnTheFly(session, book, filePath, options?.validateDestination);
+      await (book.format === "sbk" ? runSbkBuild(overwrite) : overwrite());
     } else {
       await writeStreamAtomic(filePath, (file) => writeBook(book, filePath, file), {
         encoding: "utf-8",

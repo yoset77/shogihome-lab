@@ -43,7 +43,7 @@ describe("server config parsing", () => {
 describe("book resource configuration", () => {
   const settings = [
     { name: "ONTHEFLY_THRESHOLD_MB", defaultValue: 64, min: 1, max: 128 },
-    { name: "SBK_ONTHEFLY_THRESHOLD_MB", defaultValue: 32, min: 1, max: 64 },
+    { name: "SBK_ONTHEFLY_THRESHOLD_MB", defaultValue: 16, min: 1, max: 64 },
   ] as const;
 
   beforeEach(() => {

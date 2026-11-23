@@ -9,6 +9,7 @@ import {
   loadSbkBook,
   loadSbkBookOnTheFly,
   MAX_SBK_BOOK_SIZE_BYTES,
+  SbkMemoryLimitError,
   searchSbkBookEntryOnTheFly,
   storeSbkBook,
 } from "@/server/book/sbk";
@@ -19,12 +20,12 @@ import { SbkBook } from "@/server/book/types";
 import { Position } from "tsshogi";
 
 describe("server/book/sbk", () => {
-  async function loadOnTheFlyFromData(data: Uint8Array): Promise<SbkBook> {
+  async function loadOnTheFlyFromData(data: Uint8Array, budgetBytes?: number): Promise<SbkBook> {
     const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "shogihome-sbk-"));
     const filePath = path.join(directory, "book.sbk");
     try {
       await fs.promises.writeFile(filePath, data);
-      return await loadSbkBookOnTheFly(filePath);
+      return await loadSbkBookOnTheFly(filePath, undefined, 0, budgetBytes);
     } finally {
       await fs.promises.rm(directory, { recursive: true, force: true });
     }
@@ -236,14 +237,76 @@ describe("server/book/sbk", () => {
   it("includes reserved memory in the detailed on-the-fly index budget", async () => {
     const filePath = "src/tests/testdata/book/shogihome01.sbk";
     const rawBytes = fs.statSync(filePath).size;
-    const reserved = 512 * 1024 * 1024 - estimateSbkIndexConstructionBytes(rawBytes, 0);
-    // The preliminary raw-data check fits exactly; the scanned index does not.
-    expect(() => validateSbkIndexConstructionMemory(rawBytes, 0, 0, 0, reserved)).not.toThrow();
+    // The raw buffer and workspace fit exactly; the scanned index does not.
+    const reserved = 480 * 1024 * 1024 - rawBytes;
     await expect(loadSbkBookOnTheFly(filePath)).resolves.toBeDefined();
     await expect(loadSbkBookOnTheFly(filePath, MAX_SBK_BOOK_SIZE_BYTES, reserved)).rejects.toThrow(
       "SBK index construction exceeds memory budget",
     );
   });
+
+  it("indexes evaluation-heavy SBK states without expanding them", async () => {
+    const evals = Array.from({ length: 512 }, () => ({
+      EvaluationValue: 0,
+      Depth: 0,
+      SelDepth: 0,
+      Nodes: 0n,
+      Variation: "",
+    }));
+    const states = Array.from({ length: 256 }, (_, id) =>
+      SBookState.create({ Id: id, Evals: evals }),
+    );
+    const data = SBook.encode({ Author: "", Description: "", BookStates: states }).finish();
+    const budget = 34 * 1024 * 1024;
+    const decode = vi.spyOn(SBookState, "decode");
+    try {
+      expect(() => loadSbkBook(data, 0, budget)).toThrow("memory budget");
+      const book = await loadOnTheFlyFromData(data, budget);
+      expect(book.sbkIndex?.rowCount).toBe(states.length);
+      expect(decode).not.toHaveBeenCalled();
+      expect(
+        (await searchSbkBookEntryOnTheFly(new Position().sfen, book.rawData!, book.sbkIndex!))
+          ?.sbkEvals,
+      ).toHaveLength(evals.length);
+    } finally {
+      decode.mockRestore();
+    }
+  });
+
+  it("limits the estimated expansion of a single on-the-fly state", async () => {
+    const mib = 1024 * 1024;
+    // The estimate is four times the payload size plus 256 bytes for the state.
+    const maxStateBytes = (16 * mib - 256) / 4;
+    // The comment is the only field, with a one-byte tag and a four-byte length.
+    const maxCommentBytes = maxStateBytes - 5;
+    const loadWithComment = (bytes: number) =>
+      loadOnTheFlyFromData(
+        SBook.encode({
+          Author: "",
+          Description: "",
+          BookStates: [SBookState.create({ Comment: "x".repeat(bytes) })],
+        }).finish(),
+      );
+
+    await expect(loadWithComment(maxCommentBytes)).resolves.toBeDefined();
+    await expect(loadWithComment(maxCommentBytes + 1)).rejects.toBeInstanceOf(SbkMemoryLimitError);
+    await expect(loadWithComment(4 * mib + 1)).rejects.toBeInstanceOf(SbkMemoryLimitError);
+  });
+
+  it.each(["Author", "Description"] as const)(
+    "limits the encoded byte length of on-the-fly %s",
+    async (field) => {
+      const loadWithHeader = (text: string) => {
+        const book = SBook.create();
+        book[field] = text;
+        return loadOnTheFlyFromData(SBook.encode(book).finish());
+      };
+      const atLimit = "é".repeat(1024 * 1024);
+
+      await expect(loadWithHeader(atLimit)).resolves.toBeDefined();
+      await expect(loadWithHeader(atLimit + "x")).rejects.toBeInstanceOf(SbkMemoryLimitError);
+    },
+  );
 
   it("rejects an on-the-fly load when reserved memory exceeds the budget", async () => {
     const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "shogihome-sbk-"));
@@ -556,6 +619,16 @@ describe("server/book/sbk", () => {
       }
       return searchSbkBookEntryOnTheFly(sfen, book.rawData, book.sbkIndex);
     }
+
+    it("rejects a traversal deeper than the remaining on-the-fly budget", async () => {
+      const { source } = await loadBranch();
+      const data = SBook.encode(source).finish();
+      const fixedBytes = 32 * 1024 * 1024 + data.byteLength + 3 * (36 + 96) + 1;
+      await expect(loadOnTheFlyFromData(data, fixedBytes + 2 * 256)).rejects.toThrow(
+        "SBK traversal exceeds memory budget",
+      );
+      expect((await loadOnTheFlyFromData(data, fixedBytes + 3 * 256)).sbkIndex?.rowCount).toBe(3);
+    });
 
     it("preserves an unedited destination and its descendants after removing an incoming move", async () => {
       const { book, source, rootSfen, childSfen, descendantSfen } = await loadBranch();
