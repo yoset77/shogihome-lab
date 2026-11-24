@@ -179,6 +179,25 @@ describe("renderer/ipc/web", () => {
     }
   });
 
+  it("returns the selected local record bytes with a temporary path", async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const file = new File([bytes], "local.jkf");
+    Object.defineProperty(file, "arrayBuffer", { value: () => Promise.resolve(bytes.buffer) });
+    const click = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(function (
+      this: HTMLInputElement,
+    ) {
+      Object.defineProperty(this, "files", { value: [file] });
+      this.dispatchEvent(new Event("change"));
+    });
+    try {
+      const selected = await webAPI.showOpenRecordDialog([RecordFileFormat.JKF]);
+      expect(selected?.path).toMatch(/^es:\/\/temp-file\/.+\/local\.jkf$/);
+      expect(selected?.data).toEqual(bytes);
+    } finally {
+      click.mockRestore();
+    }
+  });
+
   it("fetches the latest server record after saving and after another client changes it", async () => {
     let stored = "before-save";
     const request = vi.fn(async (_url: string, init: RequestInit) => {

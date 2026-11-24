@@ -3,7 +3,7 @@ import { defaultAppSettings, normalizeAppSettings } from "@/common/settings/app"
 import { defaultGameSettings, normalizeGameSettings } from "@/common/settings/game";
 import { defaultResearchSettings } from "@/common/settings/research";
 import { LogLevel } from "@/common/log";
-import { Bridge } from "@/renderer/ipc/bridge";
+import type { Bridge, PickedRecordFile } from "@/renderer/ipc/bridge";
 import { t } from "@/common/i18n/index";
 import { defaultMateSearchSettings } from "@/common/settings/mate";
 import type {
@@ -14,7 +14,7 @@ import type {
 import { defaultBookImportSettings, normalizeBookImportSettings } from "@/common/settings/book";
 import { getEmptyHistory } from "@/common/file/history";
 import { type BookFilterCapabilities, BookLoadingMode } from "@/common/book";
-import * as uri from "@/common/uri";
+import { issueTempFileURI } from "@/common/uri";
 import { normalizePath, trimTrailingPathSeparators } from "@/common/helpers/path";
 import {
   getStandardRecordFileFormats,
@@ -32,8 +32,8 @@ import {
   type ServerDirectoryList,
   type ServerFileUploadResult,
 } from "@/common/file/upload";
-import { decodeText } from "@/common/helpers/encode";
 import { saveWithOverwriteConfirmation } from "@/renderer/helpers/server_save";
+import { generateSessionId } from "@/renderer/helpers/unique";
 import { useFileSaveStore } from "@/renderer/store/fileSave";
 import { toJpeg, toPng } from "html-to-image";
 import dayjs from "dayjs";
@@ -71,10 +71,6 @@ function hasGameSaveDirectory(json: string | null): boolean {
     return false;
   }
 }
-
-const tempFileCache = new Map<string, ArrayBuffer>();
-
-import { generateSessionId } from "@/renderer/helpers/unique";
 
 const webBookSessionId = generateSessionId();
 const apiClient = createHonoApiClient({ getBookSessionId: () => webBookSessionId });
@@ -222,22 +218,19 @@ export const webAPI: Bridge = {
   },
 
   // Record File
-  async showOpenRecordDialog(formats: string[]): Promise<string> {
+  async showOpenRecordDialog(formats: string[]): Promise<PickedRecordFile | undefined> {
     const input = document.createElement("input");
     input.setAttribute("type", "file");
     input.setAttribute("accept", formats.join(","));
-    return new Promise<string>((resolve, reject) => {
-      input.click();
+    return new Promise((resolve, reject) => {
       input.onchange = () => {
         const file = input.files?.[0];
         if (file) {
           file
             .arrayBuffer()
-            .then((data) => {
-              const fileURI = uri.issueTempFileURI(file.name);
-              tempFileCache.set(fileURI, data);
-              resolve(fileURI);
-            })
+            .then((data) =>
+              resolve({ path: issueTempFileURI(file.name), data: new Uint8Array(data) }),
+            )
             .catch((error) => {
               reject(error);
             });
@@ -246,8 +239,9 @@ export const webAPI: Bridge = {
         }
       };
       input.oncancel = () => {
-        resolve("");
+        resolve(undefined);
       };
+      input.click();
     });
   },
   async showSaveRecordDialog(defaultPath: string): Promise<string> {
@@ -260,10 +254,6 @@ export const webAPI: Bridge = {
     });
   },
   async openRecord(uri: string): Promise<Uint8Array> {
-    const cached = tempFileCache.get(uri);
-    if (cached) {
-      return new Uint8Array(cached);
-    }
     if (uri.startsWith("server://")) {
       const relPath = uri.substring(9);
       const response = await apiClient.api.kifu.get.$get(
@@ -319,14 +309,6 @@ export const webAPI: Bridge = {
     return JSON.stringify(getEmptyHistory());
   },
   addRecordFileHistory(path: string): void {
-    if (path.startsWith(uri.ES_TEMP_FILE_PREFIX)) {
-      const data = tempFileCache.get(path);
-      if (data) {
-        const kif = decodeText(new Uint8Array(data), { autoDetect: true });
-        this.saveRecordFileBackup(kif);
-      }
-      return;
-    }
     apiClient.api.history.add
       .$post(
         undefined,
