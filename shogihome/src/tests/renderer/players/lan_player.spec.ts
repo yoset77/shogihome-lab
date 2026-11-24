@@ -2,11 +2,8 @@ import { LanPlayer, isActiveLanPlayerSession } from "@/renderer/players/lan_play
 import { LanEngine } from "@/renderer/network/lan_engine";
 import { Record, Position } from "tsshogi";
 import { Mock } from "vitest";
-import api from "@/renderer/ipc/api";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "@/renderer/players/usi_events";
-import { BookMoveSelectionRule } from "@/common/settings/usi";
 import { decodeServerRelayMessage, type ServerRelayMessage } from "@/common/engine/relay_protocol";
-import { flippedSFEN } from "@/common/helpers/sfen";
 import { USI_PV_ENDS } from "@/common/game/usi";
 import { USIPlayerMonitor } from "@/renderer/store/usi";
 import { yaneuraouRepetitionInfos, yaneuraouRepetitionPosition } from "@/tests/helpers/usi";
@@ -14,7 +11,6 @@ import { searchSnapshot } from "@/tests/helpers/engine_relay";
 import { GameResult } from "@/common/game/result";
 
 vi.mock("@/renderer/network/lan_engine");
-vi.mock("@/renderer/ipc/api");
 vi.mock("@/renderer/players/usi_events");
 
 describe("LanPlayer", () => {
@@ -26,11 +22,6 @@ describe("LanPlayer", () => {
     vi.useFakeTimers();
     localStorage.clear();
     messageListeners = [];
-
-    // Mock API
-    (api.searchBookMoves as Mock).mockResolvedValue([]);
-    (api.openBookAsNewSession as Mock).mockResolvedValue("test-book-session");
-    (api.closeBook as Mock).mockResolvedValue(undefined);
 
     // Functional mock for connect
     (LanEngine.prototype.connect as Mock).mockImplementation(function (
@@ -611,208 +602,17 @@ describe("LanPlayer", () => {
   });
 
   it("should cleanup resources when launch fails", async () => {
-    (api.openBookAsNewSession as Mock).mockResolvedValue("failed-book-session");
-    // Mock connect to fail
-    (LanEngine.prototype.connect as Mock).mockRejectedValue(new Error("Connection failed"));
-
-    const player = new LanPlayer(
-      "research_main",
-      "test-engine",
-      "Test Engine",
-      10,
-      undefined,
-      undefined,
-      {
-        enabled: true,
-        filePath: "test.db",
-        moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_COUNT,
-        scoreTemperature: 50,
-      },
-    );
+    const unsubscribe = vi.fn();
+    vi.mocked(LanEngine.prototype.subscribeStatus).mockReturnValueOnce(unsubscribe);
+    vi.mocked(LanEngine.prototype.connect).mockRejectedValueOnce(new Error("Connection failed"));
+    const player = new LanPlayer("research_sub_42", "test-engine", "Test Engine");
 
     await expect(player.launch()).rejects.toThrow("Connection failed");
 
-    // Should stop the engine and disconnect
+    expect(unsubscribe).toHaveBeenCalledOnce();
     expect(LanEngine.prototype.stopEngine).toBeCalled();
     expect(LanEngine.prototype.disconnect).toBeCalled();
-    // Should close the book session
-    expect(api.closeBook).toBeCalledWith("failed-book-session");
-    // Should not be in lanPlayers
-    expect(isActiveLanPlayerSession(200000)).toBe(false);
-  });
-
-  it("should select book moves weighted by count", async () => {
-    (api.searchBookMoves as Mock).mockResolvedValue([
-      { usi: "7g7f", count: 10, score: 100, comment: "" },
-      { usi: "2g2f", count: 90, score: 50, comment: "" },
-    ]);
-
-    const onMove = vi.fn();
-    const player = new LanPlayer(
-      "research_main",
-      "test-engine",
-      "Test Engine",
-      10,
-      undefined,
-      undefined,
-      {
-        enabled: true,
-        filePath: "test.db",
-        moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_COUNT,
-        scoreTemperature: 50,
-      },
-    );
-    await launchPlayer(player);
-
-    const usi = "position startpos";
-    const record = Record.newByUSI(usi) as Record;
-
-    const random = vi.spyOn(Math, "random").mockReturnValue(0.5);
-    await player.startSearch(
-      record.position,
-      usi,
-      {
-        black: { timeMs: 1000, byoyomi: 0, increment: 0 },
-        white: { timeMs: 1000, byoyomi: 0, increment: 0 },
-      },
-      { onMove, onResign: vi.fn(), onWin: vi.fn(), onError: vi.fn() },
-    );
-    await vi.runAllTimersAsync();
-
-    expect(onMove.mock.calls[0][0].usi).toBe("2g2f");
-    random.mockRestore();
-  });
-
-  it("should select book moves uniformly", async () => {
-    (api.searchBookMoves as Mock).mockResolvedValue([
-      { usi: "7g7f", count: 100, score: 50, comment: "" },
-      { usi: "2g2f", count: 10, score: 100, comment: "" },
-    ]);
-
-    const onMove = vi.fn();
-    const player = new LanPlayer(
-      "research_main",
-      "test-engine",
-      "Test Engine",
-      10,
-      undefined,
-      undefined,
-      {
-        enabled: true,
-        filePath: "test.db",
-        moveSelectionRule: BookMoveSelectionRule.UNIFORM,
-        scoreTemperature: 50,
-      },
-    );
-    await launchPlayer(player);
-
-    const usi = "position startpos";
-    const record = Record.newByUSI(usi) as Record;
-
-    await player.startSearch(
-      record.position,
-      usi,
-      {
-        black: { timeMs: 1000, byoyomi: 0, increment: 0 },
-        white: { timeMs: 1000, byoyomi: 0, increment: 0 },
-      },
-      { onMove, onResign: vi.fn(), onWin: vi.fn(), onError: vi.fn() },
-    );
-    await vi.runAllTimersAsync();
-
-    expect(onMove).toBeCalledTimes(1);
-    expect(["7g7f", "2g2f"]).toContain(onMove.mock.calls[0][0].usi);
-  });
-
-  it("should select book moves weighted by score", async () => {
-    (api.searchBookMoves as Mock).mockResolvedValue([
-      { usi: "7g7f", count: 1, score: 100, comment: "" },
-      { usi: "2g2f", count: 100, score: 0, comment: "" },
-    ]);
-    const random = vi.spyOn(Math, "random").mockReturnValue(0.9);
-    const onMove = vi.fn();
-    const player = new LanPlayer(
-      "research_main",
-      "test-engine",
-      "Test Engine",
-      10,
-      undefined,
-      undefined,
-      {
-        enabled: true,
-        filePath: "test.db",
-        moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_SCORE,
-        scoreTemperature: 50,
-      },
-    );
-    await launchPlayer(player);
-
-    const usi = "position startpos";
-    const record = Record.newByUSI(usi) as Record;
-    await player.startSearch(
-      record.position,
-      usi,
-      {
-        black: { timeMs: 1000, byoyomi: 0, increment: 0 },
-        white: { timeMs: 1000, byoyomi: 0, increment: 0 },
-      },
-      { onMove, onResign: vi.fn(), onWin: vi.fn(), onError: vi.fn() },
-    );
-    await vi.runAllTimersAsync();
-
-    expect(onMove.mock.calls[0][0].usi).toBe("2g2f");
-    random.mockRestore();
-  });
-
-  it("should select a flipped book move before starting an engine search", async () => {
-    const sfen = "lnsgk1snl/1r4gb1/ppppppppp/9/7P1/9/PPPPPPP1P/1B5R1/LNSGKGSNL w - 4";
-    const usi = `position sfen ${sfen}`;
-    const record = Record.newByUSI(usi) as Record;
-    (api.searchBookMoves as Mock)
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ usi: "2g2f", score: -66, depth: 80, comment: "" }]);
-
-    const onMove = vi.fn();
-    const player = new LanPlayer(
-      "research_main",
-      "test-engine",
-      "Test Engine",
-      10,
-      undefined,
-      undefined,
-      {
-        enabled: true,
-        filePath: "test.ybb",
-        moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_SCORE,
-        scoreTemperature: 50,
-        maxEvalDiff: 50,
-        bookDepthLimit: 3,
-      },
-    );
-    await launchPlayer(player);
-
-    await player.startSearch(
-      record.position,
-      record.usi,
-      {
-        black: { timeMs: 1000, byoyomi: 0, increment: 0 },
-        white: { timeMs: 1000, byoyomi: 0, increment: 0 },
-      },
-      { onMove, onResign: vi.fn(), onWin: vi.fn(), onError: vi.fn() },
-    );
-
-    expect(api.searchBookMoves).toHaveBeenNthCalledWith(
-      1,
-      record.position.sfen,
-      "test-book-session",
-    );
-    expect(api.searchBookMoves).toHaveBeenNthCalledWith(
-      2,
-      flippedSFEN(record.position.sfen),
-      "test-book-session",
-    );
-    expect(onMove.mock.calls[0][0].usi).toBe("8c8d");
-    expect(LanEngine.prototype.sendSearch).not.toHaveBeenCalled();
+    expect(isActiveLanPlayerSession(player.sessionID)).toBe(false);
   });
 
   it("accepts indefinite mate scores, bounds, and currmove", async () => {

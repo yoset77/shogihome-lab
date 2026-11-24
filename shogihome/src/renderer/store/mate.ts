@@ -70,7 +70,6 @@ export class MateSearchManager {
       appSettings.engineTimeoutSeconds,
       undefined,
       (e) => this.onError(e),
-      settings.usi.extraBook,
     );
     const maxSeconds = settings.enableMaxSeconds ? settings.maxSeconds : undefined;
     try {

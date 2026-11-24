@@ -84,12 +84,15 @@ describe("filterBookMoves", () => {
     expect(filterBookMoves(moves, { ...options, bookDepthLimit: 10 }, isValid)).toEqual([moves[1]]);
   });
 
-  it("filters moves below the turn's minimum evaluation", () => {
+  it.each([
+    { turn: Color.BLACK, minEvalBlack: 0, minEvalWhite: 200 },
+    { turn: Color.WHITE, minEvalBlack: 200, minEvalWhite: 0 },
+  ])("filters moves below the minimum evaluation for $turn", (limits) => {
     const moves: BookMove[] = [
       { usi: "7g7f", score: 100, comment: "" },
       { usi: "2g2f", score: -50, comment: "" },
     ];
-    expect(filterBookMoves(moves, { ...options, minEvalBlack: 0 })).toEqual([moves[0]]);
+    expect(filterBookMoves(moves, { ...options, ...limits })).toEqual([moves[0]]);
   });
 
   it("excludes moves without a finite score only when an evaluation limit applies", () => {
@@ -103,15 +106,18 @@ describe("filterBookMoves", () => {
     expect(filterBookMoves(moves, { ...options, maxEvalDiff: 0 })).toEqual([moves[1]]);
   });
 
-  it("measures maxEvalDiff from the highest score, regardless of count", () => {
-    const moves: BookMove[] = [
-      { usi: "7g7f", count: 100, score: -100, comment: "" },
-      { usi: "2g2f", count: 1, score: 500, comment: "" },
-      { usi: "3g3f", count: 1, score: 450, comment: "" },
-    ];
-    expect(filterBookMoves(moves, { ...options, maxEvalDiff: 0 })).toEqual([moves[1]]);
-    expect(filterBookMoves(moves, { ...options, maxEvalDiff: 50 })).toEqual(moves.slice(1));
-  });
+  it.each([Color.BLACK, Color.WHITE])(
+    "measures maxEvalDiff from the highest score, regardless of count (%s)",
+    (turn) => {
+      const moves: BookMove[] = [
+        { usi: "7g7f", count: 100, score: -100, comment: "" },
+        { usi: "2g2f", count: 1, score: 500, comment: "" },
+        { usi: "3g3f", count: 1, score: 450, comment: "" },
+      ];
+      expect(filterBookMoves(moves, { ...options, turn, maxEvalDiff: 0 })).toEqual([moves[1]]);
+      expect(filterBookMoves(moves, { ...options, turn, maxEvalDiff: 50 })).toEqual(moves.slice(1));
+    },
+  );
 
   it("rejects the entry if the highest-scored move is shallow even with a maxEvalDiff", () => {
     const moves: BookMove[] = [
@@ -174,6 +180,27 @@ describe("selectBookMove", () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     expect(selectBookMove(moves, options)).toBe(moves[1]);
   });
+
+  it.each([
+    { scoreTemperature: 50, selected: 0 },
+    { scoreTemperature: 100, selected: 1 },
+  ])(
+    "uses the configured score temperature ($scoreTemperature)",
+    ({ scoreTemperature, selected }) => {
+      const moves: BookMove[] = [
+        { usi: "7g7f", count: 1, score: 100, comment: "" },
+        { usi: "2g2f", count: 100, score: 0, comment: "" },
+      ];
+      vi.spyOn(Math, "random").mockReturnValue(0.8);
+      expect(
+        selectBookMove(moves, {
+          ...options,
+          moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_SCORE,
+          scoreTemperature,
+        }),
+      ).toBe(moves[selected]);
+    },
+  );
 
   it("excludes moves without a finite score from the score softmax", () => {
     const moves: BookMove[] = [
