@@ -198,6 +198,15 @@ describe("renderer/ipc/web", () => {
     }
   });
 
+  it("rejects unsupported local file extensions before reading", async () => {
+    const file = new File([], "book.bin");
+    const arrayBuffer = vi.fn();
+    Object.defineProperty(file, "arrayBuffer", { value: arrayBuffer });
+
+    await expect(webAPI.readLocalRecordFile(file)).rejects.toThrow(t.unknownFileExtension);
+    expect(arrayBuffer).not.toHaveBeenCalled();
+  });
+
   it("fetches the latest server record after saving and after another client changes it", async () => {
     let stored = "before-save";
     const request = vi.fn(async (_url: string, init: RequestInit) => {

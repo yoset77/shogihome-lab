@@ -152,7 +152,7 @@ import { useMessageStore } from "./store/message";
 import { useErrorStore } from "./store/error";
 import { useConfirmationStore } from "./store/confirm";
 import MobileLayout from "./view/main/MobileLayout.vue";
-import api, { isMobileWebApp } from "./ipc/api";
+import { isMobileWebApp } from "./ipc/api";
 import { openCopyright } from "./helpers/copyright";
 import { installHotKeyForMainWindow } from "./devices/hotkey";
 import ToastMessage from "./view/toast/ToastMessage.vue";
@@ -167,7 +167,6 @@ const messageStore = useMessageStore();
 const errorStore = useErrorStore();
 const busyState = useBusyState();
 const fileSave = useFileSaveStore();
-onBeforeUnmount(() => fileSave.finish());
 
 const themeColors: { [key in Thema]: string } = {
   [Thema.STANDARD]: "#6d8a6d",
@@ -204,19 +203,29 @@ const onPaste = () => {
   store.showPasteDialog();
 };
 
+const onDragOver = (event: DragEvent) => {
+  event.preventDefault();
+};
+
+const onDrop = (event: DragEvent) => {
+  event.preventDefault();
+  if (fileSave.options) return;
+  const file = event.dataTransfer?.files[0];
+  if (file) {
+    void store.openRecord(file);
+  }
+};
+
 onMounted(() => {
   installHotKeyForMainWindow(clipboard.value);
-  const body = document.getElementsByTagName("body")[0];
-  body.addEventListener("dragover", (event: DragEvent) => {
-    event.preventDefault();
-  });
-  body.addEventListener("drop", (event: DragEvent) => {
-    if (event.dataTransfer && event.dataTransfer.files[0]) {
-      const path = api.getPathForFile(event.dataTransfer.files[0]);
-      store.openRecord(path);
-    }
-    event.preventDefault();
-  });
+  document.body.addEventListener("dragover", onDragOver);
+  document.body.addEventListener("drop", onDrop);
+});
+
+onBeforeUnmount(() => {
+  document.body.removeEventListener("dragover", onDragOver);
+  document.body.removeEventListener("drop", onDrop);
+  fileSave.finish();
 });
 
 const dialogPosition = "dialog-position-center";
