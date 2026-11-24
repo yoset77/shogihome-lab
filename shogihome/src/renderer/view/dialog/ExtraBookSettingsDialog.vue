@@ -1,6 +1,6 @@
 <template>
   <DialogFrame @cancel="onCancel">
-    <div class="root">
+    <form class="root" @submit.prevent="onOk">
       <div class="title">{{ t.settings }}</div>
       <div class="form-group">
         <div class="form-item">
@@ -26,8 +26,9 @@
               v-model.number="localConfig.scoreTemperature"
               class="number"
               type="number"
-              min="1"
-              step="1"
+              :min="Number.MIN_VALUE"
+              :max="MAX_BOOK_SETTING_VALUE"
+              step="any"
             />
           </div>
         </div>
@@ -40,7 +41,7 @@
               class="number"
               type="number"
               min="0"
-              max="100"
+              :max="MAX_BOOK_SETTING_VALUE"
               step="1"
               :placeholder="t.noLimit"
             />
@@ -54,7 +55,9 @@
               :disabled="filterCapabilities?.score === false"
               class="number"
               type="number"
-              step="1"
+              :min="-MAX_BOOK_SETTING_VALUE"
+              :max="MAX_BOOK_SETTING_VALUE"
+              step="any"
               :placeholder="t.noLimit"
             />
           </div>
@@ -67,7 +70,9 @@
               :disabled="filterCapabilities?.score === false"
               class="number"
               type="number"
-              step="1"
+              :min="-MAX_BOOK_SETTING_VALUE"
+              :max="MAX_BOOK_SETTING_VALUE"
+              step="any"
               :placeholder="t.noLimit"
             />
           </div>
@@ -81,6 +86,7 @@
               class="number"
               type="number"
               min="0"
+              :max="MAX_BOOK_SETTING_VALUE"
               step="1"
               :placeholder="t.noLimit"
             />
@@ -98,6 +104,7 @@
               class="number"
               type="number"
               min="0"
+              :max="MAX_BOOK_SETTING_VALUE"
               step="1"
               :placeholder="t.noLimit"
             />
@@ -119,14 +126,14 @@
         </div>
       </div>
       <div class="main-buttons">
-        <button data-hotkey="Enter" autofocus @click="onOk">
+        <button type="submit" data-hotkey="Enter" autofocus>
           {{ t.ok }}
         </button>
-        <button data-hotkey="Escape" @click="onCancel">
+        <button type="button" data-hotkey="Escape" @click="onCancel">
           {{ t.cancel }}
         </button>
       </div>
-    </div>
+    </form>
   </DialogFrame>
 </template>
 
@@ -136,7 +143,7 @@ import { t } from "@/common/i18n";
 import { onMounted, ref, useId } from "vue";
 import {
   BookMoveSelectionRule,
-  DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE,
+  MAX_BOOK_SETTING_VALUE,
   normalizeUSIEngineExtraBookConfig,
   USIEngineExtraBookConfig,
 } from "@/common/settings/usi";
@@ -156,11 +163,7 @@ const emit = defineEmits<{
 const maxMovesId = useId();
 const bookDepthLimitId = useId();
 const initialConfig = normalizeUSIEngineExtraBookConfig(props.config);
-const localConfig = ref<USIEngineExtraBookConfig>({
-  ...initialConfig,
-  maxMoves: initialConfig.maxMoves ?? 0,
-  bookDepthLimit: initialConfig.bookDepthLimit ?? 0,
-});
+const localConfig = ref({ ...initialConfig });
 const filterCapabilities = ref<BookFilterCapabilities>();
 
 onMounted(async () => {
@@ -173,19 +176,7 @@ onMounted(async () => {
 });
 
 const onOk = () => {
-  const config = { ...localConfig.value };
-
-  if ((config.minEvalBlack as unknown) === "") config.minEvalBlack = undefined;
-  if ((config.minEvalWhite as unknown) === "") config.minEvalWhite = undefined;
-  if ((config.maxEvalDiff as unknown) === "") config.maxEvalDiff = undefined;
-  if ((config.maxMoves as unknown) === "") config.maxMoves = 0;
-  if ((config.ignoreRate as unknown) === "") config.ignoreRate = 0;
-  if ((config.bookDepthLimit as unknown) === "") config.bookDepthLimit = 0;
-  if ((config.scoreTemperature as unknown) === "") {
-    config.scoreTemperature = DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE;
-  }
-
-  emit("ok", normalizeUSIEngineExtraBookConfig(config));
+  emit("ok", normalizeUSIEngineExtraBookConfig(localConfig.value));
 };
 
 const onCancel = () => {

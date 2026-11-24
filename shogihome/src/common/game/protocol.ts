@@ -20,6 +20,7 @@ import {
 import {
   BookMoveSelectionRule,
   emptyUSIEngine,
+  MAX_BOOK_SETTING_VALUE,
   type USIEngineExtraBookConfig,
 } from "@/common/settings/usi";
 import type { PlayerSettings } from "@/common/settings/player";
@@ -182,13 +183,14 @@ function readBook(value: unknown): USIEngineExtraBookConfig {
     enabled: v.boolean(input.enabled),
     filePath: v.text(input.filePath, 2048),
     moveSelectionRule: v.enumeration(input.moveSelectionRule, Object.values(BookMoveSelectionRule)),
-    scoreTemperature: v.finite(input.scoreTemperature, Number.MIN_VALUE, 1_000_000),
+    scoreTemperature: v.finite(input.scoreTemperature, Number.MIN_VALUE, MAX_BOOK_SETTING_VALUE),
   };
   for (const key of ["minEvalBlack", "minEvalWhite"] as const)
-    if (input[key] !== undefined) result[key] = v.finite(input[key], -1_000_000, 1_000_000);
+    if (input[key] !== undefined)
+      result[key] = v.finite(input[key], -MAX_BOOK_SETTING_VALUE, MAX_BOOK_SETTING_VALUE);
   for (const key of ["maxEvalDiff", "maxMoves", "ignoreRate", "bookDepthLimit"] as const)
     if (input[key] !== undefined)
-      result[key] = v.counter(input[key], key === "ignoreRate" ? 100 : 1_000_000);
+      result[key] = v.counter(input[key], key === "ignoreRate" ? 100 : MAX_BOOK_SETTING_VALUE);
   if (result.enabled && !result.filePath.startsWith("server://"))
     throw new Error("Server book required");
   return result;

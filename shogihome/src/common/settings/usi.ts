@@ -5,6 +5,7 @@ export enum BookMoveSelectionRule {
 }
 
 export const DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE = 50;
+export const MAX_BOOK_SETTING_VALUE = 1_000_000;
 
 export type USIEngineExtraBookConfig = {
   enabled: boolean;
@@ -42,6 +43,16 @@ export function emptyUSIEngineExtraBookConfig(): USIEngineExtraBookConfig {
   };
 }
 
+function bookNumber(value: unknown, min: number, max = MAX_BOOK_SETTING_VALUE): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max
+    ? value
+    : undefined;
+}
+
+function bookCounter(value: unknown, max = MAX_BOOK_SETTING_VALUE): number | undefined {
+  return Number.isSafeInteger(value) ? bookNumber(value, 0, max) : undefined;
+}
+
 export function normalizeUSIEngineExtraBookConfig(
   config?: LegacyUSIEngineExtraBookConfig,
 ): USIEngineExtraBookConfig {
@@ -58,18 +69,18 @@ export function normalizeUSIEngineExtraBookConfig(
     : considerBookMoveCount === false
       ? BookMoveSelectionRule.UNIFORM
       : BookMoveSelectionRule.WEIGHTED_BY_COUNT;
-  const scoreTemperature =
-    typeof currentConfig.scoreTemperature === "number" &&
-    Number.isFinite(currentConfig.scoreTemperature) &&
-    currentConfig.scoreTemperature > 0
-      ? currentConfig.scoreTemperature
-      : DEFAULT_BOOK_MOVE_SCORE_TEMPERATURE;
-
   return {
     ...defaults,
     ...currentConfig,
     moveSelectionRule,
-    scoreTemperature,
+    scoreTemperature:
+      bookNumber(currentConfig.scoreTemperature, Number.MIN_VALUE) ?? defaults.scoreTemperature,
+    maxMoves: bookCounter(currentConfig.maxMoves) ?? defaults.maxMoves,
+    minEvalBlack: bookNumber(currentConfig.minEvalBlack, -MAX_BOOK_SETTING_VALUE),
+    minEvalWhite: bookNumber(currentConfig.minEvalWhite, -MAX_BOOK_SETTING_VALUE),
+    maxEvalDiff: bookCounter(currentConfig.maxEvalDiff),
+    ignoreRate: bookCounter(currentConfig.ignoreRate, 100) ?? defaults.ignoreRate,
+    bookDepthLimit: bookCounter(currentConfig.bookDepthLimit) ?? defaults.bookDepthLimit,
   };
 }
 

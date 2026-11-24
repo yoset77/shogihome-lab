@@ -1,5 +1,6 @@
 import { flushPromises, shallowMount } from "@vue/test-utils";
-import { emptyUSIEngineExtraBookConfig } from "@/common/settings/usi";
+import { BookMoveSelectionRule, emptyUSIEngineExtraBookConfig } from "@/common/settings/usi";
+import { t } from "@/common/i18n";
 import api from "@/renderer/ipc/api";
 import ExtraBookSettingsDialog from "@/renderer/view/dialog/ExtraBookSettingsDialog.vue";
 
@@ -12,6 +13,7 @@ describe("ExtraBookSettingsDialog", () => {
 
   const mountDialog = (config = emptyUSIEngineExtraBookConfig()) =>
     shallowMount(ExtraBookSettingsDialog, {
+      attachTo: document.body,
       props: { config },
       global: { stubs: { DialogFrame: { template: "<div><slot /></div>" } } },
     });
@@ -25,6 +27,31 @@ describe("ExtraBookSettingsDialog", () => {
   const moveLimitLabel = "定跡利用手数（0で制限なし）";
   const depthLimitLabel = "最小定跡深さ（0で制限なし）";
   const evaluationLabels = ["最小評価値（先手）", "最小評価値（後手）", "最大評価値差"];
+
+  it.each([
+    [depthLimitLabel, "-1", "10"],
+    [moveLimitLabel, "2.5", "200"],
+    [evaluationLabels[0], "-1000001", "-0.5"],
+    [evaluationLabels[1], "1000001", "1000000"],
+    [evaluationLabels[2], "0.5", "0"],
+    [t.bookIgnoreRate, "101", "100"],
+    [t.bookMoveScoreTemperature, "0", "0.5"],
+  ])("requires correcting invalid %s before OK", async (label, invalid, valid) => {
+    const wrapper = mountDialog({
+      ...emptyUSIEngineExtraBookConfig(),
+      moveSelectionRule: BookMoveSelectionRule.WEIGHTED_BY_SCORE,
+    });
+    const input = getInput(wrapper, label);
+    const ok = wrapper.get('button[data-hotkey="Enter"]');
+    await input.setValue(invalid);
+    await ok.trigger("click");
+    expect(wrapper.emitted("ok")).toBeUndefined();
+    expect(input.element.value).toBe(invalid);
+    await input.setValue(valid);
+    await ok.trigger("click");
+    expect(wrapper.emitted("ok")).toHaveLength(1);
+    wrapper.unmount();
+  });
 
   it("displays missing move and depth limits as zero and unset evaluation limits as blank", () => {
     const wrapper = mountDialog({
