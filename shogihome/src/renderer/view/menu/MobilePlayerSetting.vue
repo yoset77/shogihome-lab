@@ -156,7 +156,7 @@ const getTimeDescription = () => {
 }
 .list-item {
   display: grid;
-  grid-template-columns: 110px 1fr auto;
+  grid-template-columns: 110px minmax(0, 1fr) auto;
   align-items: center;
   padding: 12px 0;
   border-bottom: 1px solid var(--text-separator-color);

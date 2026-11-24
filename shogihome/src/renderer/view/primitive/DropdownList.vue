@@ -65,6 +65,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .root {
   position: relative;
+  min-width: 0;
   font-size: 0.9em;
 }
 .main {
