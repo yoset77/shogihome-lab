@@ -384,18 +384,20 @@ describe("Book Session API", () => {
   });
 
   it("requires explicit initialization before searching a new book", async () => {
-    const response = await requestApp(app, "GET", "/api/book/search?sfen=startpos", {
-      host,
-      headers: { "X-Book-Session-Id": "new-client" },
-    });
-
-    expect(response.status).toBe(410);
-    expect(bookAPI.searchBookMoves).not.toHaveBeenCalled();
     const headers = { "X-Book-Session-Id": "new-client" };
+    const search = () =>
+      requestApp(app, "GET", "/api/book/search?sfen=startpos", { host, headers });
+
+    const missing = await search();
+    expect(missing.status).toBe(410);
+    expect(missing.textBody).toBe(t.serverBookSessionExpired);
+    expect(missing.headers.get("Cache-Control")).toBe("no-store");
+    expect(bookAPI.searchBookMoves).not.toHaveBeenCalled();
+
     expect((await requestApp(app, "POST", "/api/book/clear", { host, headers })).status).toBe(200);
-    expect(
-      (await requestApp(app, "GET", "/api/book/search?sfen=startpos", { host, headers })).status,
-    ).toBe(200);
+    const initialized = await search();
+    expect(initialized.status).toBe(200);
+    expect(initialized.headers.get("Cache-Control")).toBe("no-store");
   });
 
   it("should preserve the book format when clearing a session", async () => {

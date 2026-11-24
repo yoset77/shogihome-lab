@@ -265,6 +265,31 @@ describe("renderer/ipc/web", () => {
     }
   });
 
+  it("bypasses cached book search responses for the same position across sessions", async () => {
+    const request = vi
+      .fn<(url: string, init: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(new Response(t.serverBookSessionExpired, { status: 410 }))
+      .mockResolvedValueOnce(Response.json([]));
+    vi.stubGlobal("fetch", request);
+    try {
+      await expect(webAPI.searchBookMoves("startpos", "expired-book")).rejects.toThrow(
+        t.serverBookSessionExpired,
+      );
+      await expect(webAPI.searchBookMoves("startpos", "active-book")).resolves.toBe("[]");
+
+      const [[firstURL, firstInit], [secondURL, secondInit]] = request.mock.calls;
+      expect(new URL(firstURL).pathname).toBe("/api/book/search");
+      expect(new URL(firstURL).searchParams.get("sfen")).toBe("startpos");
+      expect(secondURL).toBe(firstURL);
+      expect(new Headers(firstInit.headers).get("X-Book-Session-Id")).toBe("expired-book");
+      expect(new Headers(secondInit.headers).get("X-Book-Session-Id")).toBe("active-book");
+      expect(firstInit.cache).toBe("no-store");
+      expect(secondInit.cache).toBe("no-store");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("overwrites the currently open book without asking again", async () => {
     const request = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
     vi.stubGlobal("fetch", request);

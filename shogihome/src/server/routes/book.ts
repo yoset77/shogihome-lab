@@ -199,6 +199,11 @@ export const bookRoutes = new Hono<AppEnv>()
 
   .get(
     "/search",
+    async (c, next) => {
+      // The same position URL serves different sessions; do not cache even a 410.
+      c.header("Cache-Control", "no-store");
+      await next();
+    },
     validator("query", (value) => ({ sfen: getString(value.sfen) })),
     async (c) => {
       const { sfen } = c.req.valid("query");
