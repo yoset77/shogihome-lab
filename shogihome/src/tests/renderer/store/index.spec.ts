@@ -2126,6 +2126,32 @@ describe("store/index", () => {
     ]);
   });
 
+  it("saveRecord/restores local downloads from history rather than reopening their filename", async () => {
+    mockAPI.showSaveRecordDialog.mockResolvedValueOnce("saved.kifu");
+    mockAPI.saveRecord.mockResolvedValueOnce(undefined);
+    const store = createStore();
+    const usi = "position startpos moves 7g7f";
+    store.pasteRecord(usi);
+
+    await store.saveRecord();
+
+    expect(store.recordFilePath).toBe("saved.kifu");
+    expect(store.isRecordFileUnsaved).toBe(false);
+    expect(mockAPI.addRecordFileHistory).not.toHaveBeenCalled();
+    expect(mockAPI.saveRecordFileBackup).toHaveBeenCalledOnce();
+    const [[kif]] = mockAPI.saveRecordFileBackup.mock.calls;
+
+    store.pasteRecord("position startpos moves 2g2f");
+    store.showRecordFileHistoryDialog();
+    store.restoreFromBackupV2(kif);
+
+    expect(store.record.getUSI({ startpos: true, allMoves: true })).toBe(usi);
+    expect(store.recordFilePath).toBeUndefined();
+    expect(store.appState).toBe(AppState.NORMAL);
+    expect(mockAPI.openRecord).not.toHaveBeenCalled();
+    expect(useErrorStore().hasError).toBe(false);
+  });
+
   it("saveRecord/serverOverwrite", async () => {
     mockAPI.openRecord.mockResolvedValue(
       new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "SJIS" })),
@@ -2225,6 +2251,8 @@ describe("store/index", () => {
       expect.any(Uint8Array),
       false,
     );
+    expect(mockAPI.addRecordFileHistory).toHaveBeenLastCalledWith("server://games/other.kif");
+    expect(mockAPI.saveRecordFileBackup).not.toHaveBeenCalled();
   });
 
   it("saveRecord/failureKeepsRecordUnsavedAndOriginalPath", async () => {
@@ -2291,6 +2319,7 @@ describe("store/index", () => {
     expect(useErrorStore().hasError).toBeFalsy();
     expect(mockAPI.showSaveRecordDialog).toBeCalledTimes(1);
     expect(mockAPI.saveRecord).toBeCalledTimes(0);
+    expect(mockAPI.saveRecordFileBackup).not.toHaveBeenCalled();
   });
 
   it("saveRecord/noOverwrite", async () => {
