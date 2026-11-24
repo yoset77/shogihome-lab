@@ -2099,11 +2099,11 @@ class Store {
     }
     useBusyState().retain();
     try {
+      let data: Uint8Array | undefined;
       if (!path) {
-        path = await api.showOpenRecordDialog(getStandardRecordFileFormats());
-      }
-      if (!path) {
-        return false;
+        const selected = await api.showOpenRecordDialog(getStandardRecordFileFormats());
+        if (!selected) return false;
+        ({ path, data } = selected);
       }
       // Check if it's a book file. Book files are allowed to open even during a game.
       if (path.endsWith(".db") || path.endsWith(".bin")) {
@@ -2112,7 +2112,7 @@ class Store {
       } // Standard record file
       const appSettings = useAppSettings();
       const autoDetect = appSettings.textDecodingRule == TextDecodingRule.AUTO_DETECT;
-      const data = await api.openRecord(path);
+      data ??= await api.openRecord(path);
       const e = this.recordManager.importRecordFromBuffer(data, path, {
         autoDetect,
       });
@@ -2267,10 +2267,7 @@ class Store {
     if (this.appState !== AppState.RECORD_FILE_HISTORY_DIALOG || useBusyState().isBusy) {
       return;
     }
-    const err = this.recordManager.importRecord(kif, {
-      type: RecordFormatType.KIF,
-      markAsSaved: true,
-    });
+    const err = this.recordManager.restoreHistoryBackup(kif);
     if (err) {
       useErrorStore().add(err);
       return;

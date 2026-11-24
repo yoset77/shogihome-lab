@@ -55,6 +55,7 @@ import {
 import type { AnalysisNodeResult } from "@/common/analysis/types";
 import { getRecordDocumentContent } from "@/renderer/helpers/record";
 import { importJKFSafely } from "@/common/file/jkf";
+import { ES_TEMP_FILE_PREFIX } from "@/common/uri";
 
 type replaceRecordOption = {
   path?: string;
@@ -339,21 +340,27 @@ export class RecordManager {
     this._recordFilePath = recordFilePath;
     this._serverKifuPath = serverKifuPath;
     if (changed && path && !skipHistory) {
-      api.addRecordFileHistory(path);
+      if (path.startsWith(ES_TEMP_FILE_PREFIX)) {
+        this.saveBackupOnBackground(true);
+      } else {
+        api.addRecordFileHistory(path);
+      }
     }
   }
 
   async saveBackup(): Promise<void> {
-    if (!this.unsaved) {
-      return;
-    }
+    if (this.unsaved) await this.writeRecordBackup();
+  }
+
+  private async writeRecordBackup(): Promise<void> {
     const opts = this.onBackup();
     const kif = exportKIF(this.record, opts || {});
     await api.saveRecordFileBackup(kif);
   }
 
-  private saveBackupOnBackground(): void {
-    this.saveBackup().catch((e) => {
+  private saveBackupOnBackground(includeSaved = false): void {
+    const backup = includeSaved ? this.writeRecordBackup() : this.saveBackup();
+    backup.catch((e) => {
       api.log(LogLevel.ERROR, `RecordManager#saveBackupOnBackground: failed to save backup: ${e}`);
     });
   }
@@ -463,6 +470,26 @@ export class RecordManager {
       case "mergeIntoCurrent":
         return this.mergeRecordIntoCurrent(recordOrError);
     }
+  }
+
+  restoreHistoryBackup(kif: string): Error | undefined {
+    let record = this.parseRecordData(kif, RecordFormatType.KIF);
+    // Older local-file backups could contain source text instead of KIF.
+    if (
+      (record instanceof Error || record.length === 0) &&
+      !/^手数-+指手-+消費時間-+\r?$/m.test(kif)
+    ) {
+      const format = detectRecordFormat(kif);
+      if (
+        format === RecordFormatType.CSA ||
+        format === RecordFormatType.JKF ||
+        format === RecordFormatType.KI2
+      ) {
+        record = this.parseRecordData(kif, format);
+      }
+    }
+    if (record instanceof Error) return record;
+    this.replaceRecord(record, { markAsSaved: true });
   }
 
   importRecordFromBuffer(

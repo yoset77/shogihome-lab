@@ -19,7 +19,7 @@ import type {
   ServerFileUploadResult,
 } from "@/common/file/upload";
 import { RecordFileFormat, KifuSearchResult, KifuListEntry } from "@/common/file/record";
-import { Bridge } from "./bridge.js";
+import type { Bridge, PickedRecordFile } from "./bridge.js";
 import {
   type BookFilterCapabilities,
   BookFormat,
@@ -51,7 +51,7 @@ export interface API {
   saveBookImportSettings(settings: BookImportSettings): Promise<void>;
 
   // Record File
-  showOpenRecordDialog(formats: RecordFileFormat[]): Promise<string>;
+  showOpenRecordDialog(formats: RecordFileFormat[]): Promise<PickedRecordFile | undefined>;
   showSaveRecordDialog(defaultPath: string): Promise<string>;
   openRecord(path: string): Promise<Uint8Array>;
   saveRecord(path: string, data: Uint8Array): Promise<void>;

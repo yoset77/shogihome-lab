@@ -1,5 +1,7 @@
 import api, { API, isMobileWebApp } from "@/renderer/ipc/api";
 import {
+  exportCSA,
+  exportJKFString,
   exportKI2,
   exportKIF,
   ImmutablePosition,
@@ -48,6 +50,7 @@ import { ApiResponseError } from "@/renderer/api/client";
 import { snapshotRecord } from "@/common/record/snapshot";
 import * as jobStorage from "@/renderer/store/job_storage";
 import { flushRecordForWebApp } from "@/renderer/store/webapp";
+import { issueTempFileURI } from "@/common/uri";
 
 vi.mock("@/renderer/devices/audio.js");
 vi.mock("@/renderer/ipc/api.js");
@@ -1453,13 +1456,12 @@ describe("store/index", () => {
   });
 
   it("resetRecord", async () => {
-    mockAPI.showOpenRecordDialog.mockResolvedValueOnce("/test/sample.kif");
-    mockAPI.openRecord.mockResolvedValueOnce(
-      new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "SJIS" })),
-    );
+    mockAPI.showOpenRecordDialog.mockResolvedValueOnce({
+      path: "/test/sample.kif",
+      data: new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "SJIS" })),
+    });
     const store = createStore();
-    store.openRecord();
-    await new Promise((resolve) => setTimeout(resolve));
+    await store.openRecord();
     expect(store.record.moves.length).not.toBe(1);
     expect(store.recordFilePath).not.toBeUndefined();
     store.resetRecord();
@@ -1742,10 +1744,10 @@ describe("store/index", () => {
   });
 
   it("openRecord/kif/success", async () => {
-    mockAPI.showOpenRecordDialog.mockResolvedValue("/test/sample.kif");
-    mockAPI.openRecord.mockResolvedValue(
-      new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "SJIS" })),
-    );
+    mockAPI.showOpenRecordDialog.mockResolvedValueOnce({
+      path: "/test/sample.kif",
+      data: new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "SJIS" })),
+    });
     const store = createStore();
     const promise = store.openRecord();
     expect(useBusyState().isBusy).toBeTruthy();
@@ -1765,10 +1767,10 @@ describe("store/index", () => {
   });
 
   it("openRecord/kif-utf8/success", async () => {
-    mockAPI.showOpenRecordDialog.mockResolvedValue("/test/sample.kif");
-    mockAPI.openRecord.mockResolvedValue(
-      new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "UTF8" })),
-    );
+    mockAPI.showOpenRecordDialog.mockResolvedValueOnce({
+      path: "/test/sample.kif",
+      data: new TextEncoder().encode(sampleKIF),
+    });
     const store = createStore();
     await store.openRecord();
     expect(useBusyState().isBusy).toBeFalsy();
@@ -1800,10 +1802,10 @@ describe("store/index", () => {
   });
 
   it("openRecord/kifu/success", async () => {
-    mockAPI.showOpenRecordDialog.mockResolvedValue("/test/sample.kifu");
-    mockAPI.openRecord.mockResolvedValue(
-      new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "UTF8" })),
-    );
+    mockAPI.showOpenRecordDialog.mockResolvedValueOnce({
+      path: "/test/sample.kifu",
+      data: new TextEncoder().encode(sampleKIF),
+    });
     const store = createStore();
     await store.openRecord();
     expect(useBusyState().isBusy).toBeFalsy();
@@ -1970,8 +1972,10 @@ describe("store/index", () => {
   });
 
   it("openRecord/csa/success", async () => {
-    mockAPI.showOpenRecordDialog.mockResolvedValue("/test/sample.csa");
-    mockAPI.openRecord.mockResolvedValue(new TextEncoder().encode(sampleCSA));
+    mockAPI.showOpenRecordDialog.mockResolvedValueOnce({
+      path: "/test/sample.csa",
+      data: new TextEncoder().encode(sampleCSA),
+    });
     const store = createStore();
     await store.openRecord();
     expect(useBusyState().isBusy).toBeFalsy();
@@ -1981,8 +1985,7 @@ describe("store/index", () => {
     expect(moves.length).toBe(13);
     expect(useErrorStore().hasError).toBeFalsy();
     expect(mockAPI.showOpenRecordDialog).toBeCalledTimes(1);
-    expect(mockAPI.openRecord).toBeCalledTimes(1);
-    expect(mockAPI.openRecord.mock.calls[0][0]).toBe("/test/sample.csa");
+    expect(mockAPI.openRecord).not.toHaveBeenCalled();
     expect(store.isRecordFileUnsaved).toBeFalsy();
   });
 
@@ -1997,14 +2000,111 @@ describe("store/index", () => {
   });
 
   it("openRecord/cancel", async () => {
-    mockAPI.showOpenRecordDialog.mockResolvedValue("");
+    mockAPI.showOpenRecordDialog.mockResolvedValueOnce(undefined);
     const store = createStore();
-    store.openRecord();
+    const opening = store.openRecord();
     expect(useBusyState().isBusy).toBeTruthy();
-    await new Promise((resolve) => setTimeout(resolve));
+    expect(await opening).toBe(false);
     expect(useBusyState().isBusy).toBeFalsy();
     expect(store.recordFilePath).toBeUndefined();
     expect(useErrorStore().hasError).toBeFalsy();
+  });
+
+  describe("local record history", () => {
+    const formats = [
+      { extension: ".csa", exportText: exportCSA },
+      { extension: ".jkf", exportText: exportJKFString },
+      { extension: ".ki2", exportText: exportKI2 },
+    ];
+    const usi = "position startpos moves 7g7f";
+    const sourceRecord = () => {
+      const record = Record.newByUSI(usi);
+      if (record instanceof Error) throw record;
+      return record;
+    };
+
+    it.each(formats)(
+      "registers a picked $extension file as a restorable KIF",
+      async ({ extension, exportText }) => {
+        const text = exportText(sourceRecord());
+        const path = issueTempFileURI("local" + extension);
+        const data =
+          extension === ".ki2"
+            ? new Uint8Array(convert(text, { type: "arraybuffer", to: "SJIS" }))
+            : new TextEncoder().encode(text);
+        mockAPI.showOpenRecordDialog.mockResolvedValueOnce({ path, data });
+        const store = createStore();
+
+        expect(await store.openRecord()).toBe(true);
+        expect(store.recordFilePath).toBe(path);
+        expect(store.isRecordFileUnsaved).toBe(false);
+        expect(store.record.getUSI({ startpos: true, allMoves: true })).toBe(usi);
+        expect(mockAPI.openRecord).not.toHaveBeenCalled();
+        expect(mockAPI.addRecordFileHistory).not.toHaveBeenCalled();
+        expect(mockAPI.saveRecordFileBackup).toHaveBeenCalledOnce();
+        const [[kif]] = mockAPI.saveRecordFileBackup.mock.calls;
+        expect(kif).toContain("手数----指手---------消費時間--");
+
+        store.showRecordFileHistoryDialog();
+        store.restoreFromBackupV2(kif);
+        expect(store.record.getUSI({ startpos: true, allMoves: true })).toBe(usi);
+        expect(store.recordFilePath).toBeUndefined();
+        expect(store.appState).toBe(AppState.NORMAL);
+        expect(useErrorStore().hasError).toBe(false);
+      },
+    );
+
+    it.each(formats)(
+      "restores a legacy backup containing raw $extension text",
+      ({ exportText }) => {
+        const store = createStore();
+        store.showRecordFileHistoryDialog();
+        store.restoreFromBackupV2(exportText(sourceRecord()));
+
+        expect(store.record.getUSI({ startpos: true, allMoves: true })).toBe(usi);
+        expect(store.appState).toBe(AppState.NORMAL);
+        expect(useErrorStore().hasError).toBe(false);
+      },
+    );
+
+    it("restores a KIF backup with zero moves", () => {
+      const store = createStore();
+      store.pasteRecord(usi);
+      const empty = new Record();
+      empty.first.comment = "初期局面のコメント";
+      store.showRecordFileHistoryDialog();
+      store.restoreFromBackupV2(exportKIF(empty));
+
+      expect(store.record.length).toBe(0);
+      expect(store.record.first.comment).toBe("初期局面のコメント\n");
+      expect(store.appState).toBe(AppState.NORMAL);
+      expect(useErrorStore().hasError).toBe(false);
+    });
+
+    it("leaves the current record intact when a legacy JKF backup is invalid", () => {
+      const store = createStore();
+      store.pasteRecord(usi);
+      store.showRecordFileHistoryDialog();
+      store.restoreFromBackupV2('{"moves":[]}');
+
+      expect(store.record.getUSI({ startpos: true, allMoves: true })).toBe(usi);
+      expect(store.appState).toBe(AppState.RECORD_FILE_HISTORY_DIALOG);
+      expect(useErrorStore().hasError).toBe(true);
+    });
+
+    it("does not register an invalid local file", async () => {
+      mockAPI.showOpenRecordDialog.mockResolvedValueOnce({
+        path: issueTempFileURI("bad.jkf"),
+        data: new TextEncoder().encode("{}"),
+      });
+      const store = createStore();
+
+      expect(await store.openRecord()).toBe(false);
+      expect(store.recordFilePath).toBeUndefined();
+      expect(mockAPI.saveRecordFileBackup).not.toHaveBeenCalled();
+      expect(mockAPI.addRecordFileHistory).not.toHaveBeenCalled();
+      expect(useErrorStore().hasError).toBe(true);
+    });
   });
 
   it("saveRecord/success", async () => {
