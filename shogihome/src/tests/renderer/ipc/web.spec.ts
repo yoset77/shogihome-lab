@@ -10,6 +10,8 @@ import {
   validateAppSettings,
 } from "@/common/settings/app";
 import { RecordFileFormat } from "@/common/file/record";
+import { readGameSettings } from "@/common/game/protocol";
+import { emptyUSIEngineExtraBookConfig } from "@/common/settings/usi";
 import {
   defaultGameSettings,
   validateGameSettings,
@@ -102,6 +104,34 @@ describe("renderer/ipc/web", () => {
     document.body.innerHTML = "";
     localStorage.removeItem("appSetting");
     localStorage.removeItem("gameSetting");
+  });
+
+  it("loads invalid saved book limits as defaults before game request validation", async () => {
+    const engine = { name: "Test", uri: "lan-engine:test" };
+    const extraBook = {
+      ...emptyUSIEngineExtraBookConfig(),
+      enabled: true,
+      filePath: "server://book.bin",
+      bookDepthLimit: -1,
+      ignoreRate: 101,
+      scoreTemperature: 1_000_001,
+      minEvalBlack: "0",
+      minEvalWhite: -12.5,
+      maxEvalDiff: 1.5,
+      maxMoves: 120,
+    };
+    const saved = { ...defaultGameSettings(), black: { ...engine, usi: { ...engine, extraBook } } };
+    localStorage.setItem("gameSetting", JSON.stringify(saved));
+    expect(() => readGameSettings(saved)).toThrow();
+
+    const loaded = readGameSettings(JSON.parse(await webAPI.loadGameSettings()));
+    expect(loaded.black.usi?.extraBook).toEqual({
+      ...emptyUSIEngineExtraBookConfig(),
+      enabled: true,
+      filePath: "server://book.bin",
+      minEvalWhite: -12.5,
+      maxMoves: 120,
+    });
   });
 
   it("retries a conflicting record save only after confirming the destination", async () => {
