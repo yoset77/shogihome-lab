@@ -2049,6 +2049,67 @@ describe("store/index", () => {
     ]);
   });
 
+  it("saveRecord/does not treat the previous server path as current after a paste", async () => {
+    mockAPI.openRecord.mockResolvedValue(new TextEncoder().encode(sampleKIF));
+    mockAPI.showSaveRecordDialog.mockResolvedValue("");
+    mockAPI.saveServerKifu.mockResolvedValue(false);
+    const store = createStore();
+    const original = "server://games/original.kifu";
+    await store.openRecord(original);
+
+    store.pasteRecord("position startpos moves 7g7f");
+
+    expect(store.recordFilePath).toBeUndefined();
+    expect(store.serverKifuPath).toBeUndefined();
+    expect(store.isRecordFileUnsaved).toBe(true);
+    await store.saveRecord({ overwrite: true });
+    expect(mockAPI.showSaveRecordDialog).toHaveBeenCalledOnce();
+    expect(mockAPI.showSaveRecordDialog).not.toHaveBeenCalledWith(original);
+    expect(mockAPI.saveServerKifu).not.toHaveBeenCalled();
+
+    await store.saveRecord({ path: original });
+    expect(mockAPI.saveServerKifu).toHaveBeenCalledOnce();
+    const [path, data, overwrite] = mockAPI.saveServerKifu.mock.calls[0];
+    expect(path).toBe("games/original.kifu");
+    expect(new TextDecoder().decode(data)).toContain("７六歩");
+    expect(overwrite).toBe(false);
+    expect(store.serverKifuPath).toBeUndefined();
+    expect(store.isRecordFileUnsaved).toBe(true);
+  });
+
+  it("saveRecord/does not mark a replacement as saved when a previous save completes", async () => {
+    mockAPI.openRecord.mockResolvedValue(new TextEncoder().encode(sampleKIF));
+    const write = Promise.withResolvers<boolean>();
+    mockAPI.saveServerKifu.mockReturnValue(write.promise);
+    const store = createStore();
+    await store.openRecord("server://games/original.kifu");
+
+    const saving = store.saveRecord({ overwrite: true });
+    store.pasteRecord("position startpos moves 7g7f");
+    write.resolve(true);
+    await saving;
+
+    expect(store.record.length).toBe(1);
+    expect(store.serverKifuPath).toBeUndefined();
+    expect(store.isRecordFileUnsaved).toBe(true);
+    expect(useToastStore().toasts).toHaveLength(0);
+  });
+
+  it.each(["mergeIntoRoot", "mergeIntoCurrent"] as const)(
+    "pasteRecord/%s keeps the current server path",
+    async (mode) => {
+      mockAPI.openRecord.mockResolvedValue(new TextEncoder().encode(sampleKIF));
+      const store = createStore();
+      await store.openRecord("server://games/original.kifu");
+
+      store.pasteRecord("position startpos moves 7g7f", mode);
+
+      expect(store.serverKifuPath).toBe("games/original.kifu");
+      expect(store.isRecordFileUnsaved).toBe(true);
+      expect(useErrorStore().hasError).toBe(false);
+    },
+  );
+
   it("saveRecord/serverSaveAs does not silently overwrite another destination", async () => {
     mockAPI.openRecord.mockResolvedValue(
       new Uint8Array(convert(sampleKIF, { type: "arraybuffer", to: "SJIS" })),
