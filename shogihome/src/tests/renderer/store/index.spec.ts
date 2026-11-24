@@ -2485,5 +2485,36 @@ describe("store/index", () => {
       expect(store.kifuPreview).toMatchObject({ path: "games/second.kif", targetIndex: 1 });
       expect(store.record.position.sfen).toBe(originalSfen);
     });
+
+    it("opens the preview target at the matched ply and closes the dialogs on success", async () => {
+      mockAPI.openRecord.mockResolvedValueOnce(new TextEncoder().encode(sampleKIF));
+      const store = createStore();
+      store.showServerKifuDialog();
+      store.showKifuPreviewDialog({ path: "games/example.kifu", matchedPly: 4 });
+
+      await store.openKifuPreviewRecord();
+
+      expect(mockAPI.openRecord).toHaveBeenCalledExactlyOnceWith("server://games/example.kifu");
+      expect(store.serverKifuPath).toBe("games/example.kifu");
+      expect(store.record.current.ply).toBe(4);
+      expect(store.kifuPreview).toBeUndefined();
+      expect(store.appState).toBe(AppState.NORMAL);
+    });
+
+    it("keeps the preview and the current record if opening the target fails", async () => {
+      mockAPI.openRecord.mockRejectedValueOnce(new Error("file not found"));
+      const store = createStore();
+      const request = { path: "games/missing.kifu" };
+      store.showServerKifuDialog();
+      store.showKifuPreviewDialog(request);
+
+      await store.openKifuPreviewRecord();
+
+      expect(store.kifuPreview).toEqual(request);
+      expect(store.appState).toBe(AppState.SERVER_KIFU_DIALOG);
+      expect(store.serverKifuPath).toBeUndefined();
+      expect(store.record.length).toBe(0);
+      expect(useErrorStore().hasError).toBe(true);
+    });
   });
 });

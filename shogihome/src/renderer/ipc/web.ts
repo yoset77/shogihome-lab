@@ -72,7 +72,7 @@ function hasGameSaveDirectory(json: string | null): boolean {
   }
 }
 
-const fileCache = new Map<string, ArrayBuffer>();
+const tempFileCache = new Map<string, ArrayBuffer>();
 
 import { generateSessionId } from "@/renderer/helpers/unique";
 
@@ -235,7 +235,7 @@ export const webAPI: Bridge = {
             .arrayBuffer()
             .then((data) => {
               const fileURI = uri.issueTempFileURI(file.name);
-              fileCache.set(fileURI, data);
+              tempFileCache.set(fileURI, data);
               resolve(fileURI);
             })
             .catch((error) => {
@@ -260,13 +260,16 @@ export const webAPI: Bridge = {
     });
   },
   async openRecord(uri: string): Promise<Uint8Array> {
-    const cached = fileCache.get(uri);
+    const cached = tempFileCache.get(uri);
     if (cached) {
       return new Uint8Array(cached);
     }
     if (uri.startsWith("server://")) {
       const relPath = uri.substring(9);
-      const response = await apiClient.api.kifu.get.$get({ query: { path: relPath } });
+      const response = await apiClient.api.kifu.get.$get(
+        { query: { path: relPath } },
+        { init: { cache: "no-store" } },
+      );
       if (!response.ok) {
         throw new Error(await response.text());
       }
@@ -317,7 +320,7 @@ export const webAPI: Bridge = {
   },
   addRecordFileHistory(path: string): void {
     if (path.startsWith(uri.ES_TEMP_FILE_PREFIX)) {
-      const data = fileCache.get(path);
+      const data = tempFileCache.get(path);
       if (data) {
         const kif = decodeText(new Uint8Array(data), { autoDetect: true });
         this.saveRecordFileBackup(kif);
@@ -709,16 +712,6 @@ export const webAPI: Bridge = {
   },
   async listServerPosition(): Promise<string[]> {
     return await parseJsonResponse(await apiClient.api.sfen.list.$get());
-  },
-  async loadServerKifu(path: string): Promise<string> {
-    const response = await apiClient.api.kifu.get.$get({ query: { path } });
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-    const data = await response.arrayBuffer();
-    const fileURI = "server://" + path;
-    fileCache.set(fileURI, data);
-    return fileURI;
   },
   async saveServerKifu(path: string, data: Uint8Array, overwriteCurrent = false): Promise<boolean> {
     const send = (overwrite: boolean) =>

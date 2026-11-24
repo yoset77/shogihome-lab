@@ -89,6 +89,5 @@ export interface Bridge {
   }>;
   listServerBook(): Promise<string[]>;
   listServerPosition(): Promise<string[]>;
-  loadServerKifu(path: string): Promise<string>;
   saveServerKifu(path: string, data: Uint8Array, overwriteCurrent?: boolean): Promise<boolean>;
 }

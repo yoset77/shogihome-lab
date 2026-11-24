@@ -630,27 +630,8 @@ function previewSearchResult(index: number) {
 }
 
 async function open(relPath: string, ply?: number, sfen?: string) {
-  let fileURI: string;
-  try {
-    busyState.retain();
-    fileURI = await api.loadServerKifu(relPath);
-  } catch (e) {
-    busyState.release();
-    useErrorStore().add(e);
-    return;
-  }
-  busyState.release();
-  store.closeModalDialog();
-  try {
-    if (sfen != null && ply != null) {
-      store.openRecord(fileURI, { ply, sfen });
-    } else if (ply != null) {
-      store.openRecord(fileURI, { ply });
-    } else {
-      store.openRecord(fileURI);
-    }
-  } catch (e) {
-    useErrorStore().add(e);
+  if (await store.openRecord("server://" + relPath, { ply, sfen })) {
+    store.closeModalDialog();
   }
 }
 

@@ -123,7 +123,6 @@ export interface API {
   }>;
   listServerBook(): Promise<string[]>;
   listServerPosition(): Promise<string[]>;
-  loadServerKifu(path: string): Promise<string>;
   saveServerKifu(path: string, data: Uint8Array, overwriteCurrent?: boolean): Promise<boolean>;
 }
 
@@ -295,9 +294,6 @@ const api: API = {
   },
   async listServerPosition(): Promise<string[]> {
     return await bridge.listServerPosition();
-  },
-  loadServerKifu(path: string): Promise<string> {
-    return bridge.loadServerKifu(path);
   },
   saveServerKifu(path: string, data: Uint8Array, overwriteCurrent = false): Promise<boolean> {
     return bridge.saveServerKifu(path, data, overwriteCurrent);

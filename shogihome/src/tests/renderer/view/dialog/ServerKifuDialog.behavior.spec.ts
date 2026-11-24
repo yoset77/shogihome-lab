@@ -15,10 +15,12 @@ vi.mock("@/renderer/ipc/api", () => ({
   },
 }));
 const closeModalDialog = vi.hoisted(() => vi.fn());
+const openRecord = vi.hoisted(() => vi.fn());
 const showBatchAnalysisDialog = vi.hoisted(() => vi.fn());
 vi.mock("@/renderer/store", () => ({
   useStore: () => ({
     closeModalDialog,
+    openRecord,
     showBatchAnalysisDialog,
     setOnPasteHandler: vi.fn(),
     dequeuePendingPasteData: vi.fn(),
@@ -60,6 +62,7 @@ describe("ServerKifuDialog search result behavior", () => {
       matched_is_variation: id === 2,
     }));
     closeModalDialog.mockReset();
+    openRecord.mockReset();
     showBatchAnalysisDialog.mockReset();
   });
   afterEach(() => {
@@ -112,6 +115,27 @@ describe("ServerKifuDialog search result behavior", () => {
     expect(wrapper.findAll(".next-move")).toHaveLength(0);
     wrapper.unmount();
   });
+
+  it.each([true, false])(
+    "opens a result at its match and closes only on success (%s)",
+    async (opened) => {
+      const state = useServerKifuStore();
+      const sfen = state.searchRecord.value.position.sfen;
+      Object.assign(state.searchResults.value[0], { matched_ply: 0, matched_sfen: sfen });
+      openRecord.mockResolvedValueOnce(opened);
+      const wrapper = mountDialog();
+      await flushPromises();
+      await wrapper
+        .findAll(".result-actions button")
+        .find((button) => button.attributes("aria-label") === t.open)!
+        .trigger("click");
+      await flushPromises();
+
+      expect(openRecord).toHaveBeenCalledExactlyOnceWith("server://0.kif", { ply: 0, sfen });
+      expect(closeModalDialog).toHaveBeenCalledTimes(opened ? 1 : 0);
+      wrapper.unmount();
+    },
+  );
 
   it("opens statistics as a child dialog without closing or clearing the search", async () => {
     const state = useServerKifuStore();

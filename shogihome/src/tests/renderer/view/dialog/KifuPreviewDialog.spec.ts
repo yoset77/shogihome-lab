@@ -6,7 +6,6 @@ import { normalizeSfen } from "@/common/usi/sfen";
 import { computed, PropType } from "vue";
 import KifuPreviewDialog from "@/renderer/view/dialog/KifuPreviewDialog.vue";
 
-const loadServerKifu = vi.hoisted(() => vi.fn());
 const openRecord = vi.hoisted(() => vi.fn());
 const isMobileWebApp = vi.hoisted(() => vi.fn(() => false));
 const importRecordFromBuffer = vi.hoisted(() => vi.fn());
@@ -46,7 +45,7 @@ function createDeferred<T>() {
 }
 
 vi.mock("@/renderer/ipc/api", () => ({
-  default: { loadServerKifu, openRecord },
+  default: { openRecord },
   isMobileWebApp,
 }));
 vi.mock("@/common/file/record", async (importOriginal) => {
@@ -129,7 +128,6 @@ describe("KifuPreviewDialog", () => {
         disconnect = disconnect;
       },
     );
-    loadServerKifu.mockReset();
     openRecord.mockReset();
     importRecordFromBuffer.mockReset();
     installHotKey.mockReset();
@@ -144,7 +142,6 @@ describe("KifuPreviewDialog", () => {
     parsedRecord.append(firstMove);
     parsedRecord.append(secondMove);
 
-    loadServerKifu.mockResolvedValue("server://games/example.kif");
     openRecord.mockResolvedValue(new Uint8Array([1, 2, 3]));
     importRecordFromBuffer.mockImplementation(() => parsedRecord);
   });
@@ -153,7 +150,7 @@ describe("KifuPreviewDialog", () => {
     const wrapper = mountDialog({ matchedPly: 1 });
     await flushPromises();
 
-    expect(loadServerKifu).toHaveBeenCalledWith("games/example.kif");
+    expect(openRecord).toHaveBeenCalledOnce();
     expect(openRecord).toHaveBeenCalledWith("server://games/example.kif");
     expect(parsedRecord.current.ply).toBe(1);
     expect(wrapper.find(".board-view-stub").exists()).toBe(true);
@@ -187,7 +184,6 @@ describe("KifuPreviewDialog", () => {
     if (!move) throw new Error("Failed to create test move");
     secondRecord.append(move);
 
-    loadServerKifu.mockImplementation(async (path: string) => `server://${path}`);
     importRecordFromBuffer.mockReturnValueOnce(parsedRecord).mockReturnValueOnce(secondRecord);
     const wrapper = mountDialog();
     await flushPromises();
@@ -195,7 +191,6 @@ describe("KifuPreviewDialog", () => {
     await wrapper.setProps({ path: "games/second.kif" });
     await flushPromises();
 
-    expect(loadServerKifu).toHaveBeenLastCalledWith("games/second.kif");
     expect(openRecord).toHaveBeenLastCalledWith("server://games/second.kif");
     expect(wrapper.find(".file-path").text()).toBe("second.kif");
     expect(wrapper.findComponent({ name: "BoardView" }).props("position").sfen).toBe(
@@ -215,7 +210,6 @@ describe("KifuPreviewDialog", () => {
     if (!secondMove) throw new Error("Failed to create test move");
     secondRecord.append(secondMove);
 
-    loadServerKifu.mockImplementation(async (path: string) => `server://${path}`);
     openRecord.mockImplementation((uri: string) =>
       uri.endsWith("example.kif") ? firstLoad.promise : secondLoad.promise,
     );
@@ -422,11 +416,11 @@ describe("KifuPreviewDialog", () => {
   });
 
   it("does not constrain the board to the temporary loading message width", async () => {
-    const pendingLoad = createDeferred<string>();
-    loadServerKifu.mockReturnValue(pendingLoad.promise);
+    const pendingLoad = createDeferred<Uint8Array>();
+    openRecord.mockReturnValue(pendingLoad.promise);
     const wrapper = mountDialog();
     resizeContent(100);
-    pendingLoad.resolve("server://games/example.kif");
+    pendingLoad.resolve(new Uint8Array([1, 2, 3]));
     await flushPromises();
 
     expect(wrapper.findComponent({ name: "BoardView" }).props("maxSize").width).toBeGreaterThan(

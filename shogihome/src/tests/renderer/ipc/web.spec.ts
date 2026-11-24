@@ -179,6 +179,43 @@ describe("renderer/ipc/web", () => {
     }
   });
 
+  it("fetches the latest server record after saving and after another client changes it", async () => {
+    let stored = "before-save";
+    const request = vi.fn(async (_url: string, init: RequestInit) => {
+      if (init.method === "POST") {
+        stored = new TextDecoder().decode(init.body as Uint8Array);
+        return new Response("ok");
+      }
+      return new Response(stored);
+    });
+    vi.stubGlobal("fetch", request);
+    const path = "games/shared.kifu";
+    const open = async () => new TextDecoder().decode(await webAPI.openRecord("server://" + path));
+    try {
+      expect(await open()).toBe("before-save");
+      expect(await webAPI.saveServerKifu(path, new TextEncoder().encode("after-save"), true)).toBe(
+        true,
+      );
+      expect(await open()).toBe("after-save");
+      stored = "external-edit";
+      expect(await open()).toBe("external-edit");
+
+      expect(request.mock.calls.map(([, init]) => init.method)).toEqual([
+        "GET",
+        "POST",
+        "GET",
+        "GET",
+      ]);
+      for (const [url, init] of request.mock.calls.filter(([, init]) => init.method === "GET")) {
+        expect(new URL(url).pathname).toBe("/api/kifu/get");
+        expect(new URL(url).searchParams.get("path")).toBe(path);
+        expect(init.cache).toBe("no-store");
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("overwrites the currently open book without asking again", async () => {
     const request = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
     vi.stubGlobal("fetch", request);

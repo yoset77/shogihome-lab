@@ -647,13 +647,14 @@ describe("API: /api/kifu", () => {
     expect(body[3].name).toBe("b.kif");
   });
 
-  it("should return kifu files as binary content", async () => {
+  it("returns kifu files as uncached binary content", async () => {
     fs.writeFileSync(path.join(tempKifuDir, "root.kif"), "test");
 
     const response = await requestApp(app, "GET", "/api/kifu/get?path=root.kif", { host });
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("application/octet-stream");
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.textBody).toBe("test");
   });
 });
