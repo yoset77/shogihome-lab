@@ -562,7 +562,10 @@ export class RecordManager {
 
   markAsSaved(path: string, skipHistory = false): void {
     this._unsaved = false;
-    this.updateRecordPath(path, skipHistory);
+    const localDownload = !path.startsWith("server://");
+    this.updateRecordPath(path, skipHistory || localDownload);
+    // A download name cannot be reopened by the browser.
+    if (localDownload && !skipHistory) this.saveBackupOnBackground(true);
   }
 
   goForward(): void {

@@ -12,7 +12,7 @@ import type {
   SfenExportRequest,
 } from "@/common/file/sfen_export";
 import { defaultBookImportSettings, normalizeBookImportSettings } from "@/common/settings/book";
-import { getEmptyHistory } from "@/common/file/history";
+import { getEmptyHistory, HistoryClass, type RecordFileHistory } from "@/common/file/history";
 import { type BookFilterCapabilities, BookLoadingMode } from "@/common/book";
 import { issueTempFileURI } from "@/common/uri";
 import { normalizePath, trimTrailingPathSeparators } from "@/common/helpers/path";
@@ -71,6 +71,10 @@ function hasGameSaveDirectory(json: string | null): boolean {
   } catch {
     return false;
   }
+}
+
+function isRemoteRecordURI(uri: string): boolean {
+  return uri.startsWith("http://") || uri.startsWith("https://");
 }
 
 const webBookSessionId = generateSessionId();
@@ -266,7 +270,7 @@ export const webAPI: Bridge = {
       }
       return new Uint8Array(await response.arrayBuffer());
     }
-    if (uri.startsWith("http://") || uri.startsWith("https://")) {
+    if (isRemoteRecordURI(uri)) {
       const text = await this.loadRemoteTextFile(uri);
       return new TextEncoder().encode(text);
     }
@@ -301,8 +305,16 @@ export const webAPI: Bridge = {
     try {
       const response = await apiClient.api.history.$get();
       if (response.ok) {
-        const data = await response.json();
-        return JSON.stringify(data);
+        const history: RecordFileHistory = await response.json();
+        // Older versions stored download names that the browser cannot reopen.
+        history.entries = history.entries.filter(
+          (entry) =>
+            entry.class !== HistoryClass.USER ||
+            (typeof entry.userFilePath === "string" &&
+              (entry.userFilePath.startsWith("server://") ||
+                isRemoteRecordURI(entry.userFilePath))),
+        );
+        return JSON.stringify(history);
       }
     } catch {
       // Ignore errors silently as backup is an auxiliary feature

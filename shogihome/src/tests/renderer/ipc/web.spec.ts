@@ -10,6 +10,7 @@ import {
   validateAppSettings,
 } from "@/common/settings/app";
 import { RecordFileFormat } from "@/common/file/record";
+import { HistoryClass, type RecordFileHistory } from "@/common/file/history";
 import { readGameSettings } from "@/common/game/protocol";
 import { emptyUSIEngineExtraBookConfig } from "@/common/settings/usi";
 import {
@@ -205,6 +206,26 @@ describe("renderer/ipc/web", () => {
 
     await expect(webAPI.readLocalRecordFile(file)).rejects.toThrow(t.unknownFileExtension);
     expect(arrayBuffer).not.toHaveBeenCalled();
+  });
+
+  it("omits old download names from record history but keeps reopenable entries and backups", async () => {
+    const time = "2026-11-24T00:00:00.000Z";
+    const history: RecordFileHistory = {
+      entries: [
+        { id: "1", time, class: HistoryClass.USER, userFilePath: "download.kifu" },
+        { id: "2", time, class: HistoryClass.USER, userFilePath: "server://games/server.kifu" },
+        { id: "3", time, class: HistoryClass.USER, userFilePath: "https://example.com/remote.kif" },
+        { id: "4", time, class: HistoryClass.BACKUP_V2, kif: "手合割：平手" },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(history)));
+    try {
+      expect(JSON.parse(await webAPI.loadRecordFileHistory())).toEqual({
+        entries: history.entries.slice(1),
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("fetches the latest server record after saving and after another client changes it", async () => {
