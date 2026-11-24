@@ -464,7 +464,7 @@ export const webAPI: Bridge = {
   async searchBookMoves(sfen: string, sessionId?: string): Promise<string> {
     const response = await apiClient.api.book.search.$get(
       { query: { sfen } },
-      apiOptions({ sessionId }),
+      createApiRequestOptions({ bookSessionId: sessionId, init: { cache: "no-store" } }),
     );
     if (!response.ok) {
       throw new Error(await response.text());
