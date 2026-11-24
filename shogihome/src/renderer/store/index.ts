@@ -2085,7 +2085,11 @@ class Store {
     return this.recordManager.parseRecordData(data, type);
   }
 
-  async openRecord(path?: string, opt?: { ply?: number; sfen?: string }): Promise<boolean> {
+  async openRecord(
+    source?: string | File,
+    opt?: { ply?: number; sfen?: string },
+  ): Promise<boolean> {
+    let path = typeof source === "string" ? source : undefined;
     if (
       (this.appState !== AppState.NORMAL &&
         this.appState !== AppState.SERVER_KIFU_DIALOG &&
@@ -2101,7 +2105,10 @@ class Store {
     try {
       let data: Uint8Array | undefined;
       if (!path) {
-        const selected = await api.showOpenRecordDialog(getStandardRecordFileFormats());
+        const selected =
+          typeof source === "object"
+            ? await api.readLocalRecordFile(source)
+            : await api.showOpenRecordDialog(getStandardRecordFileFormats());
         if (!selected) return false;
         ({ path, data } = selected);
       }

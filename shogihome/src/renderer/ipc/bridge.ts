@@ -32,6 +32,7 @@ export interface Bridge {
 
   // Record File
   showOpenRecordDialog(formats: RecordFileFormat[]): Promise<PickedRecordFile | undefined>;
+  readLocalRecordFile(file: File): Promise<PickedRecordFile>;
   showSaveRecordDialog(defaultPath: string): Promise<string>;
   openRecord(path: string): Promise<Uint8Array>;
   saveRecord(path: string, data: Uint8Array): Promise<void>;
@@ -68,7 +69,6 @@ export interface Bridge {
 
   // MISC
   openWebBrowser(url: string): void;
-  getPathForFile(file: File): string;
 
   // Server Kifu (LAN only)
   isServerKifuEnabled(): Promise<boolean>;

@@ -17,6 +17,7 @@ import { type BookFilterCapabilities, BookLoadingMode } from "@/common/book";
 import { issueTempFileURI } from "@/common/uri";
 import { normalizePath, trimTrailingPathSeparators } from "@/common/helpers/path";
 import {
+  detectRecordFileFormatByPath,
   getStandardRecordFileFormats,
   KifuSearchResult,
   KifuListEntry,
@@ -226,14 +227,7 @@ export const webAPI: Bridge = {
       input.onchange = () => {
         const file = input.files?.[0];
         if (file) {
-          file
-            .arrayBuffer()
-            .then((data) =>
-              resolve({ path: issueTempFileURI(file.name), data: new Uint8Array(data) }),
-            )
-            .catch((error) => {
-              reject(error);
-            });
+          this.readLocalRecordFile(file).then(resolve, reject);
         } else {
           reject(new Error("invalid file"));
         }
@@ -243,6 +237,13 @@ export const webAPI: Bridge = {
       };
       input.click();
     });
+  },
+  async readLocalRecordFile(file: File): Promise<PickedRecordFile> {
+    if (!detectRecordFileFormatByPath(file.name)) {
+      throw new Error(`${t.unknownFileExtension}: ${file.name}`);
+    }
+    const data = new Uint8Array(await file.arrayBuffer());
+    return { path: issueTempFileURI(file.name), data };
   },
   async showSaveRecordDialog(defaultPath: string): Promise<string> {
     const server = defaultPath.startsWith("server://");
@@ -594,9 +595,6 @@ export const webAPI: Bridge = {
   // MISC
   openWebBrowser(url: string) {
     window.open(url, "_blank");
-  },
-  getPathForFile(file: File): string {
-    return file.name;
   },
 
   // Server Kifu (LAN only)
