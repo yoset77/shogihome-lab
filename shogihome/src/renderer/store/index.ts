@@ -558,20 +558,14 @@ class Store {
     const preview = this._kifuPreview;
     if (!preview) return;
 
-    let fileURI: string;
-    try {
-      useBusyState().retain();
-      fileURI = await api.loadServerKifu(preview.path);
-    } catch (e) {
-      useErrorStore().add(e);
-      return;
-    } finally {
-      useBusyState().release();
+    const opened = await this.openRecord("server://" + preview.path, {
+      ply: preview.matchedPly,
+      sfen: preview.matchedSfen,
+    });
+    if (opened) {
+      this.closeKifuPreviewDialog();
+      this.closeModalDialog();
     }
-
-    this.closeKifuPreviewDialog();
-    this.closeModalDialog();
-    await this.openRecord(fileURI, { ply: preview.matchedPly, sfen: preview.matchedSfen });
   }
 
   showPasteDialog(mode: "standard" | "mergeIntoRoot" | "mergeIntoCurrent" = "standard"): void {
@@ -2091,7 +2085,7 @@ class Store {
     return this.recordManager.parseRecordData(data, type);
   }
 
-  async openRecord(path?: string, opt?: { ply?: number; sfen?: string }): Promise<void> {
+  async openRecord(path?: string, opt?: { ply?: number; sfen?: string }): Promise<boolean> {
     if (
       (this.appState !== AppState.NORMAL &&
         this.appState !== AppState.SERVER_KIFU_DIALOG &&
@@ -2101,7 +2095,7 @@ class Store {
       useBusyState().isBusy
     ) {
       useErrorStore().add(t.pleaseEndActiveFeaturesBeforeOpenRecord);
-      return;
+      return false;
     }
     useBusyState().retain();
     try {
@@ -2109,12 +2103,12 @@ class Store {
         path = await api.showOpenRecordDialog(getStandardRecordFileFormats());
       }
       if (!path) {
-        return;
+        return false;
       }
       // Check if it's a book file. Book files are allowed to open even during a game.
       if (path.endsWith(".db") || path.endsWith(".bin")) {
         await useBookStore().openBook(path);
-        return;
+        return true;
       } // Standard record file
       const appSettings = useAppSettings();
       const autoDetect = appSettings.textDecodingRule == TextDecodingRule.AUTO_DETECT;
@@ -2130,8 +2124,10 @@ class Store {
       } else if (opt?.ply != null) {
         this.recordManager.changePly(opt.ply);
       }
+      return true;
     } catch (e) {
       useErrorStore().add("棋譜の読み込み中にエラーが出ました: " + e); // TODO: i18n
+      return false;
     } finally {
       useBusyState().release();
     }

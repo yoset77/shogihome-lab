@@ -455,7 +455,10 @@ export const kifuRoutes = new Hono<AppEnv>()
         if (isMissingFile(error)) return sendError(c, 404, t.serverFileNotFound);
         throw error;
       }
-      return c.body(new Uint8Array(data), 200, { "Content-Type": "application/octet-stream" });
+      return c.body(new Uint8Array(data), 200, {
+        "Content-Type": "application/octet-stream",
+        "Cache-Control": "no-store",
+      });
     },
   )
 

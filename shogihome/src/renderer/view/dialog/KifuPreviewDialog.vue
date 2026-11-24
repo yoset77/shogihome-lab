@@ -533,9 +533,9 @@ async function loadRecord() {
 
   try {
     busyState.retain();
-    const fileURI = await api.loadServerKifu(props.path);
-    const data = await api.openRecord(fileURI);
-    const format = detectRecordFileFormatByPath(fileURI);
+    const path = props.path;
+    const data = await api.openRecord("server://" + path);
+    const format = detectRecordFileFormatByPath(path);
     if (!format) {
       throw new Error(t.failedToDetectRecordFormat);
     }
