@@ -57,7 +57,6 @@ describe("LAN mate search manager", () => {
       10,
       undefined,
       expect.any(Function),
-      undefined,
     );
     expect(player.startMateSearch).toHaveBeenCalledWith(
       record.position,

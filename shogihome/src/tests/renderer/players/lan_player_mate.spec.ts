@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach, Mock } from "vitest";
 import { LanPlayer } from "@/renderer/players/lan_player";
 import { LanEngine } from "@/renderer/network/lan_engine";
-import { Position } from "tsshogi";
+import { Position, Record } from "tsshogi";
+import api from "@/renderer/ipc/api";
+import { MateSearchManager } from "@/renderer/store/mate";
+import { defaultMateSearchSettings } from "@/common/settings/mate";
+import { emptyUSIEngineExtraBookConfig } from "@/common/settings/usi";
 import { triggerOnStartSearch, dispatchUSIInfoUpdate } from "@/renderer/players/usi_events";
 import type { ServerRelayMessage } from "@/common/engine/relay_protocol";
 import { searchSnapshot } from "@/tests/helpers/engine_relay";
@@ -9,6 +13,9 @@ import { searchSnapshot } from "@/tests/helpers/engine_relay";
 vi.mock("@/renderer/network/lan_engine");
 vi.mock("@/renderer/ipc/api");
 vi.mock("@/renderer/players/usi_events");
+vi.mock("@/renderer/store/settings", () => ({
+  useAppSettings: () => ({ engineTimeoutSeconds: 10 }),
+}));
 
 describe("LanPlayer Mate Search", () => {
   let mockLanEngine: {
@@ -16,6 +23,8 @@ describe("LanPlayer Mate Search", () => {
     disconnect: Mock;
     startEngine: Mock;
     stopEngine: Mock;
+    terminateEngine: Mock;
+    readyNewGame: Mock;
     sendUsiCommand: Mock;
     sendSearch: Mock;
     addMessageListener: Mock;
@@ -38,6 +47,8 @@ describe("LanPlayer Mate Search", () => {
       disconnect: vi.fn(),
       startEngine: vi.fn(),
       stopEngine: vi.fn(),
+      terminateEngine: vi.fn(),
+      readyNewGame: vi.fn(),
       sendUsiCommand: vi.fn(),
       sendSearch: vi.fn(),
       addMessageListener: vi.fn().mockImplementation((l) => messageListeners.push(l)),
@@ -85,6 +96,40 @@ describe("LanPlayer Mate Search", () => {
     sendMsg(searchSnapshot());
     await launchPromise;
   }
+
+  it("starts mate search without opening the configured book file", async () => {
+    const openBook = vi.mocked(api.openBookAsNewSession);
+    openBook.mockRejectedValueOnce(new Error("Book not found"));
+    mockLanEngine.startEngine.mockImplementationOnce(() => {
+      sendMsg({ type: "state", state: "ready", engineId: "test-engine" });
+      sendMsg(searchSnapshot());
+    });
+    const manager = new MateSearchManager();
+    try {
+      await manager.start(
+        {
+          ...defaultMateSearchSettings(),
+          usi: {
+            uri: "lan-engine:test-engine",
+            name: "Test Engine",
+            extraBook: {
+              ...emptyUSIEngineExtraBookConfig(),
+              enabled: true,
+              filePath: "server://missing.sbk",
+            },
+          },
+        },
+        new Record(),
+      );
+      expect(mockLanEngine.sendSearch).toHaveBeenCalledWith(
+        expect.objectContaining({ go: "go mate infinite" }),
+      );
+      expect(openBook).not.toHaveBeenCalled();
+    } finally {
+      openBook.mockReset();
+      manager.close();
+    }
+  });
 
   it("should send go mate and handle checkmate moves", async () => {
     const player = new LanPlayer("test-session", "test-engine", "Test Engine");

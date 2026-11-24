@@ -9,9 +9,6 @@ import { isUSIPVEnd, parseUSIPV, USIInfoCommand, toBlackSearchScore } from "@/co
 import { parseAnalysisInfo } from "@/common/analysis/types";
 import { dispatchUSIInfoUpdate, triggerOnStartSearch } from "./usi_events";
 import { t } from "@/common/i18n";
-import api from "@/renderer/ipc/api";
-import { normalizeUSIEngineExtraBookConfig, USIEngineExtraBookConfig } from "@/common/settings/usi";
-import { searchBookMovesForPlayer } from "./book_search";
 import AsyncLock from "async-lock";
 import { useToastStore } from "@/renderer/store/toast";
 
@@ -67,7 +64,6 @@ export class LanPlayer implements Player {
   private _multiPV: number = 1;
   private onErrorCallback?: (e: Error) => void;
   private lanEngine: LanEngine;
-  private bookSessionID?: string;
   private unsubscribeStatus?: () => void;
   private hasLaunched = false;
   private isClosing = false;
@@ -75,7 +71,6 @@ export class LanPlayer implements Player {
   private reportedErrorAwaitingSnapshot = false;
   private transportConnected = false;
   private transportInterrupted = false;
-  private releaseResourcesPromise: Promise<void> | null = null;
   private closePromise: Promise<void> | null = null;
   private launchState?: Extract<ServerRelayMessage, { type: "state" }>;
   private snapshot?: SearchSnapshot;
@@ -86,7 +81,6 @@ export class LanPlayer implements Player {
   private ignoredThrough = 0;
   private searchOutputEnabled = false;
   private searchGeneration = 0;
-  private bookAbort?: AbortController;
   private cancellation?: {
     through: number;
     resolve: () => void;
@@ -102,7 +96,6 @@ export class LanPlayer implements Player {
     this.throwIfUnavailable();
     if (!this.snapshot) throw new Error(t.takebackUnavailable);
     ++this.searchGeneration;
-    this.bookAbort?.abort();
     this.clearHandlers();
     this.clearPendingInfo();
     const through = this.nextSearchId;
@@ -155,15 +148,11 @@ export class LanPlayer implements Player {
     private timeoutSeconds: number = 10,
     onSearchInfo?: (info: SearchInfo) => void,
     onError?: (e: Error) => void,
-    private extraBook?: USIEngineExtraBookConfig,
   ) {
     this.engineId = normalizeEngineId(engineId);
     this.engineName = engineName;
     this.onSearchInfo = onSearchInfo;
     this.onErrorCallback = onError;
-    if (this.extraBook) {
-      this.extraBook = normalizeUSIEngineExtraBookConfig(this.extraBook);
-    }
 
     // Use deterministic session ID for engines to avoid collisions and pruning.
     if (sessionKey === "research_main") {
@@ -226,10 +215,6 @@ export class LanPlayer implements Player {
 
   async launch(): Promise<void> {
     try {
-      if (this.extraBook?.enabled && this.extraBook.filePath) {
-        this.bookSessionID = await api.openBookAsNewSession(this.extraBook.filePath, {});
-      }
-
       await this.lanEngine.connect((message: ServerRelayMessage) => {
         this.onMessage(message);
       });
@@ -272,15 +257,9 @@ export class LanPlayer implements Player {
       this.launchState = undefined;
       lanPlayers[this._sessionID] = this;
     } catch (e) {
-      this.unsubscribeStatus?.();
-      this.unsubscribeStatus = undefined;
+      this.releasePlayerResources();
       this.lanEngine.stopEngine();
       this.lanEngine.disconnect();
-      if (this.bookSessionID) {
-        api.closeBook(this.bookSessionID);
-        this.bookSessionID = undefined;
-      }
-      delete lanPlayers[this._sessionID];
       throw e;
     }
   }
@@ -310,11 +289,6 @@ export class LanPlayer implements Player {
       this.position = position.clone();
       this.currentSfen = usi;
       this.clearPendingInfo();
-      if (await this.searchBook(previousSfen)) {
-        return;
-      }
-      if (generation !== this.searchGeneration) return;
-      this.throwIfUnavailable();
       if (this.isThinking) {
         await this.stopAndWait(previousSfen);
         this.throwIfUnavailable();
@@ -339,11 +313,6 @@ export class LanPlayer implements Player {
       this.position = position.clone();
       this.currentSfen = usi;
       this.clearPendingInfo();
-      if (await this.searchBook(previousSfen)) {
-        return;
-      }
-      if (generation !== this.searchGeneration) return;
-      this.throwIfUnavailable();
       if (this.isThinking) {
         await this.stopAndWait(previousSfen);
         this.throwIfUnavailable();
@@ -418,7 +387,6 @@ export class LanPlayer implements Player {
     }
     this.isClosing = true;
     ++this.searchGeneration;
-    this.bookAbort?.abort();
     this.finishCancellation(new Error(t.takebackFailed));
     this.isThinking = false;
     this.clearSnapshotTimeout();
@@ -434,7 +402,7 @@ export class LanPlayer implements Player {
           await this.lanEngine.terminateEngine();
         }
       } finally {
-        await this.releasePlayerResources();
+        this.releasePlayerResources();
       }
     });
     return this.closePromise;
@@ -449,74 +417,6 @@ export class LanPlayer implements Player {
     this._multiPV = multiPV;
     if (this.lanEngine.isConnected()) {
       this.lanEngine.setMultiPV(multiPV);
-    }
-  }
-
-  private async searchBook(stopSfen?: string): Promise<boolean> {
-    const generation = this.searchGeneration;
-    if (!this.bookSessionID || !this.position) {
-      return false;
-    }
-    const extraBook = this.extraBook;
-    if (!extraBook) {
-      return false;
-    }
-    // Check maxMoves: skip book if current ply exceeds the limit
-    const maxMoves = extraBook.maxMoves ?? 0;
-    if (maxMoves > 0) {
-      const movesIndex = this.currentSfen.indexOf(" moves ");
-      const ply =
-        movesIndex >= 0 ? this.currentSfen.substring(movesIndex + 7).split(" ").length : 0;
-      if (ply >= maxMoves) {
-        return false;
-      }
-    }
-    // 思考中の場合は停止
-    if (this.isThinking) {
-      await this.stopAndWait(stopSfen);
-      this.throwIfUnavailable();
-      if (generation !== this.searchGeneration) return false;
-    }
-    const handler = this.handler;
-    const controller = new AbortController();
-    this.bookAbort = controller;
-    const result = searchBookMovesForPlayer(
-      this._sessionID,
-      this.position,
-      this.bookSessionID,
-      this.name,
-      {
-        moveSelectionRule: extraBook.moveSelectionRule,
-        scoreTemperature: extraBook.scoreTemperature,
-        turn: this.position.color,
-        minEvalBlack: extraBook.minEvalBlack,
-        minEvalWhite: extraBook.minEvalWhite,
-        maxEvalDiff: extraBook.maxEvalDiff,
-        ignoreRate: extraBook.ignoreRate,
-        bookDepthLimit: extraBook.bookDepthLimit,
-      },
-      this.currentSfen,
-      (move) => {
-        if (generation !== this.searchGeneration) return;
-        this.clearHandlers();
-        if (handler) {
-          handler.onMove(move);
-        }
-      },
-      controller.signal,
-    );
-    let onAbort: () => void = () => {};
-    try {
-      return await Promise.race([
-        result,
-        new Promise<boolean>((resolve) => {
-          onAbort = () => resolve(false);
-          controller.signal.addEventListener("abort", onAbort, { once: true });
-        }),
-      ]);
-    } finally {
-      controller.signal.removeEventListener("abort", onAbort);
-      if (this.bookAbort === controller) this.bookAbort = undefined;
     }
   }
 
@@ -851,12 +751,9 @@ export class LanPlayer implements Player {
     }
     this.sessionLost = true;
     ++this.searchGeneration;
-    this.bookAbort?.abort();
     this.isThinking = false;
     this.lanEngine.disconnect();
-    void this.releasePlayerResources().catch((error) => {
-      console.warn("Failed to release LAN player resources:", error);
-    });
+    this.releasePlayerResources();
     this.clearSnapshotTimeout();
     this.clearPendingInfo();
     const error = new Error(t.engineProcessWasClosedUnexpectedly);
@@ -874,17 +771,12 @@ export class LanPlayer implements Player {
     }
   }
 
-  private async releasePlayerResources() {
-    if (this.releaseResourcesPromise) {
-      return this.releaseResourcesPromise;
-    }
+  private releasePlayerResources(): void {
     this.unsubscribeStatus?.();
     this.unsubscribeStatus = undefined;
-    delete lanPlayers[this._sessionID];
-    const bookSessionID = this.bookSessionID;
-    this.bookSessionID = undefined;
-    this.releaseResourcesPromise = bookSessionID ? api.closeBook(bookSessionID) : Promise.resolve();
-    return this.releaseResourcesPromise;
+    if (lanPlayers[this._sessionID] === this) {
+      delete lanPlayers[this._sessionID];
+    }
   }
 
   private startStopPromiseTimeoutIfConnected() {
