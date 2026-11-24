@@ -2205,6 +2205,7 @@ class Store {
 
   private async saveRecordByPath(path: string, opt?: { detectGarbled: boolean }): Promise<boolean> {
     const appSettings = useAppSettings();
+    const savedRoot = this.recordManager.record.first;
     const result = this.recordManager.exportRecordAsBuffer(path, {
       returnCode: appSettings.returnCode,
       detectGarbled: opt?.detectGarbled,
@@ -2226,6 +2227,8 @@ class Store {
       } else {
         await api.saveRecord(path, result.data);
       }
+      // A replacement or reset has a different root.
+      if (this.recordManager.record.first !== savedRoot) return false;
       this.recordManager.markAsSaved(path);
       if (result.garbled && !this.garbledNotified) {
         useMessageStore().enqueue({
