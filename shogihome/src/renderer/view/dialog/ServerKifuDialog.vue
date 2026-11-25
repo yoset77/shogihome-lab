@@ -12,9 +12,10 @@ export function getServerKifuBoardMaxSize(
   viewportWidth: number,
   viewportHeight: number,
   isMobile: boolean,
+  availableBoardWidth = Infinity,
 ): RectSize {
   if (isMobile) {
-    const size = viewportWidth * 0.9;
+    const size = Math.min(viewportWidth * 0.9, availableBoardWidth);
     return new RectSize(size, size);
   }
 
@@ -38,7 +39,7 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
 </script>
 
 <template>
-  <DialogFrame ref="dialogFrame" @cancel="onCancel">
+  <DialogFrame ref="dialogFrame" limited @cancel="onCancel">
     <div class="title">{{ t.serverKifu }}</div>
     <div v-if="indexStatus && indexStatus.isIndexing" class="indexing-status">
       {{ t.indexingKifuProgress(indexStatus.total, indexStatus.indexed) }}
@@ -63,61 +64,60 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
       </div>
     </div>
 
-    <!-- LIST TAB -->
-    <div v-if="activeTab === 'list'" class="list-tab column">
-      <div class="list-header row align-center justify-between">
-        <div class="breadcrumbs row align-center">
-          <div class="breadcrumb-item" @click="currentDir = ''">Root</div>
-          <template v-for="(dir, index) in breadcrumbs" :key="index">
-            <div class="breadcrumb-separator">/</div>
-            <div class="breadcrumb-item" @click="currentDir = dir.path">
-              {{ dir.name }}
+    <div class="tab-content">
+      <!-- LIST TAB -->
+      <div v-if="activeTab === 'list'" class="list-tab column">
+        <div class="list-header row align-center justify-between">
+          <div class="breadcrumbs row align-center">
+            <div class="breadcrumb-item" @click="currentDir = ''">Root</div>
+            <template v-for="(dir, index) in breadcrumbs" :key="index">
+              <div class="breadcrumb-separator">/</div>
+              <div class="breadcrumb-item" @click="currentDir = dir.path">
+                {{ dir.name }}
+              </div>
+            </template>
+          </div>
+          <button class="reload-btn thin row align-center" :title="t.reload" @click="onReload">
+            <Icon :icon="IconType.REFRESH" />
+          </button>
+        </div>
+        <div class="form-group kifu-list">
+          <div
+            v-for="(entry, index) in displayEntries"
+            :key="entry.path"
+            class="kifu-list-entry row align-center"
+          >
+            <div class="kifu-header row align-center">
+              <span
+                v-if="entry.isDirectory"
+                class="directory-name"
+                @click="currentDir = entry.path"
+                >{{ entry.name }}</span
+              >
+              <span v-else class="file-path">{{ entry.name }}</span>
             </div>
-          </template>
-        </div>
-        <button class="reload-btn thin row align-center" :title="t.reload" @click="onReload">
-          <Icon :icon="IconType.REFRESH" />
-        </button>
-      </div>
-      <div class="form-group kifu-list">
-        <div
-          v-for="(entry, index) in displayEntries"
-          :key="entry.path"
-          class="kifu-list-entry row align-center"
-        >
-          <div class="kifu-header row align-center">
-            <span
-              v-if="entry.isDirectory"
-              class="directory-name"
-              @click="currentDir = entry.path"
-              >{{ entry.name }}</span
-            >
-            <span v-else class="file-path">{{ entry.name }}</span>
+            <div v-if="!entry.isDirectory" class="result-actions row align-center">
+              <button :aria-label="t.preview" :title="t.preview" @click="previewListEntry(index)">
+                <Icon v-if="isMobile" :icon="IconType.PV" />
+                <template v-else>{{ t.preview }}</template>
+              </button>
+              <button :aria-label="t.open" :title="t.open" @click="open(entry.path)">
+                <Icon v-if="isMobile" :icon="IconType.OPEN" />
+                <template v-else>{{ t.open }}</template>
+              </button>
+            </div>
           </div>
-          <div v-if="!entry.isDirectory" class="result-actions row align-center">
-            <button :aria-label="t.preview" :title="t.preview" @click="previewListEntry(index)">
-              <Icon v-if="isMobile" :icon="IconType.PV" />
-              <template v-else>{{ t.preview }}</template>
-            </button>
-            <button :aria-label="t.open" :title="t.open" @click="open(entry.path)">
-              <Icon v-if="isMobile" :icon="IconType.OPEN" />
-              <template v-else>{{ t.open }}</template>
-            </button>
+          <div v-if="list.length === 0" class="note">
+            {{ t.noKifuFoundCheckKifuDir }}
           </div>
         </div>
-        <div v-if="list.length === 0" class="note">
-          {{ t.noKifuFoundCheckKifuDir }}
-        </div>
       </div>
-    </div>
 
-    <!-- SEARCH TAB -->
-    <div v-if="activeTab === 'search'" class="search-tab column">
-      <div class="search-params">
+      <!-- SEARCH TAB -->
+      <div class="search-tab column" :inert="isSearchTab ? undefined : true">
         <div class="search-content">
-          <div class="search-preview column align-center">
+          <div ref="searchPreview" class="search-preview column align-center">
             <BoardView
-              class="search-board"
               :layout-type="BoardLayoutType.COMPACT"
               :board-image-type="appSettings.boardImage"
               :board-image-opacity="appSettings.enableTransparent ? appSettings.boardOpacity : 1"
@@ -135,8 +135,8 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
               :last-move="searchLastMove"
               :flip="flip"
               :hide-clock="true"
-              :allow-move="true"
-              :allow-edit="true"
+              :allow-move="isSearchTab"
+              :allow-edit="isSearchTab"
               :drop-shadows="true"
               :next-move-label="t.nextTurn"
               :ghost-teleport-target="ghostTeleportTarget"
@@ -161,6 +161,10 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
             <datalist id="server-kifu-player-history">
               <option v-for="item in playerHistory" :key="item" :value="item" />
             </datalist>
+            <div class="search-row row align-center">
+              <div class="label">{{ t.searchByPosition }}</div>
+              <ToggleButton v-model:value="searchByPosition" />
+            </div>
             <div class="search-row row align-center">
               <div class="label">{{ t.keyword }}</div>
               <input
@@ -213,18 +217,12 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
                 :allow-free-text="false"
               />
             </div>
-            <div class="search-row row align-center">
-              <div class="label">{{ t.searchByPosition }}</div>
-              <ToggleButton v-model:value="searchByPosition" />
-            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- RESULTS TAB -->
-    <div v-if="activeTab === 'results'" class="search-tab column">
-      <div class="search-results-view column">
+      <!-- RESULTS TAB -->
+      <div v-if="activeTab === 'results'" class="results-tab column">
         <div class="results-header row align-center">
           <div class="results-count">
             <span>{{ t.nKifuFound(searchResultCount) }}</span>
@@ -322,7 +320,7 @@ export function getServerKifuBoardControlScale(boardSize: number, isMobile: bool
       </div>
     </div>
     <div class="main-buttons">
-      <button v-if="activeTab === 'search'" class="execute-search-btn" @click="search">
+      <button v-if="isSearchTab" class="execute-search-btn" @click="search">
         {{ t.search }}
       </button>
       <button data-hotkey="Escape" @click="onCancel()">
@@ -396,6 +394,7 @@ const {
   triggerSearchRecord,
   addHistory,
 } = useServerKifuStore();
+const isSearchTab = computed(() => activeTab.value === "search");
 const appSettings = useAppSettings();
 const analyzeSearchResults = () => {
   if (lastExecutedSearch.value)
@@ -414,11 +413,20 @@ let statusTimer: ReturnType<typeof setInterval> | null = null;
 
 const flip = ref(appSettings.boardFlipping);
 const windowSize = ref(new RectSize(window.innerWidth, window.innerHeight));
+const searchPreview = ref<HTMLElement>();
+const availableBoardWidth = ref<number>();
+let searchPreviewObserver: ResizeObserver | undefined;
+let fitBoardFrame = 0;
 
-const isMobile = computed(() => windowSize.value.width < 600);
+const isMobile = computed(() => windowSize.value.width <= 600);
 
 const maxBoardSize = computed(() =>
-  getServerKifuBoardMaxSize(windowSize.value.width, windowSize.value.height, isMobile.value),
+  getServerKifuBoardMaxSize(
+    windowSize.value.width,
+    windowSize.value.height,
+    isMobile.value,
+    availableBoardWidth.value,
+  ),
 );
 const boardControlsStyle = computed(() => {
   const scale = getServerKifuBoardControlScale(maxBoardSize.value.width, isMobile.value);
@@ -641,6 +649,18 @@ function onCancel() {
 
 onMounted(() => {
   window.addEventListener("resize", updateWindowSize);
+  if (searchPreview.value) {
+    searchPreviewObserver = new ResizeObserver(([entry]) => {
+      const width = entry.contentRect.width;
+      cancelAnimationFrame(fitBoardFrame);
+      if (width <= 0 || width === availableBoardWidth.value) return;
+      // Resizing the board also changes the observed height.
+      fitBoardFrame = requestAnimationFrame(() => {
+        availableBoardWidth.value = width;
+      });
+    });
+    searchPreviewObserver.observe(searchPreview.value);
+  }
   updateList();
   updateIndexStatus();
   statusTimer = setInterval(() => {
@@ -667,6 +687,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener("resize", updateWindowSize);
+  searchPreviewObserver?.disconnect();
+  cancelAnimationFrame(fitBoardFrame);
   store.setOnPasteHandler(undefined);
   if (statusTimer) {
     clearInterval(statusTimer);
@@ -692,28 +714,45 @@ onUnmounted(() => {
   border-color: var(--text-dashed-separator-color);
   font-weight: bold;
 }
-.list-tab,
-.search-tab {
+.title,
+.indexing-status,
+.tab-header,
+.main-buttons {
+  flex-shrink: 0;
+}
+.tab-content {
+  position: relative;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+}
+.list-tab,
+.search-tab,
+.results-tab {
+  min-height: 0;
   padding: 10px;
+  overflow: auto;
+}
+/* Only the search panel sizes the tab area, even when another tab is active. */
+.search-tab[inert] {
+  visibility: hidden;
+}
+.list-tab,
+.results-tab {
+  position: absolute;
+  inset: 0;
 }
 .form-group {
   width: clamp(640px, 40vw, 840px);
   max-width: 100%;
   box-sizing: border-box;
 }
-.search-params {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
 .search-content {
   width: clamp(640px, 40vw, 840px);
   max-width: 100%;
   box-sizing: border-box;
   display: flex;
+  flex-shrink: 0;
   flex-direction: column;
   gap: 10px;
   margin-bottom: 10px;
@@ -726,6 +765,7 @@ onUnmounted(() => {
 }
 .list-header {
   margin: 10px 5px;
+  flex-shrink: 0;
 }
 .reload-btn {
   padding: 2px 8px;
@@ -734,8 +774,10 @@ onUnmounted(() => {
   height: 1.5em;
 }
 
-.kifu-list {
-  height: clamp(320px, calc(100dvh - 350px), 750px);
+.kifu-list,
+.search-results-container {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   background-color: var(--text-bg-color);
 }
@@ -776,9 +818,6 @@ onUnmounted(() => {
   border-radius: 5px;
   box-sizing: border-box;
 }
-.search-board {
-  margin: 0 auto;
-}
 .board-controls {
   margin-top: 4px;
   gap: var(--board-control-gap);
@@ -796,12 +835,6 @@ onUnmounted(() => {
   height: var(--board-control-icon-height);
 }
 
-.search-results-view {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
 .results-header {
   padding: 0 5px 10px 5px;
   display: flex;
@@ -830,12 +863,6 @@ onUnmounted(() => {
     margin-top: 2px;
   }
 }
-.search-results-container {
-  height: clamp(320px, calc(100dvh - 350px), 750px);
-  overflow-y: auto;
-  background-color: var(--text-bg-color);
-}
-
 .kifu-list-entry {
   padding: 8px 10px;
   border-bottom: 1px dashed var(--text-dashed-separator-color);
@@ -923,19 +950,29 @@ onUnmounted(() => {
 }
 
 @media (max-width: 600px) {
+  /* Let the board use the frame padding without moving the other content. */
+  .tab-content {
+    --board-bleed: 10px;
+    margin-inline: calc(-1 * var(--board-bleed));
+  }
+  .search-tab {
+    padding-inline: 0;
+    scrollbar-gutter: stable;
+  }
+  .list-tab,
+  .results-tab {
+    padding-inline: calc(10px + var(--board-bleed));
+  }
   .search-preview {
     padding: 4px;
     background-color: transparent;
   }
   .board-controls {
     gap: 4px;
+    margin-inline: calc(10px + var(--board-bleed));
   }
   .board-controls button {
     padding: 2px 6px;
-  }
-  .kifu-list,
-  .search-results-container {
-    height: calc(100dvh - 280px);
   }
   .search-content {
     gap: 6px;
@@ -949,7 +986,20 @@ onUnmounted(() => {
     padding: 4px;
   }
   .search-inputs {
+    width: auto;
+    margin-inline: calc(10px + var(--board-bleed));
     gap: 4px;
+  }
+  .search-row {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .search-row > .flex-1 {
+    flex: 1;
+    min-width: 0;
+  }
+  .search-row :deep(select) {
+    max-width: calc(100% - 4px);
   }
 }
 </style>
