@@ -56,8 +56,9 @@ const onCancel = () => {
 
 <style scoped>
 .form-group > * {
-  width: 80vw;
-  max-width: min(460px, 100%);
+  /* Apply the fixed cap before the dialog computes its fit-content width. */
+  width: min(460px, 80vw);
+  max-width: 100%;
   box-sizing: border-box;
 }
 .message {
@@ -65,8 +66,7 @@ const onCancel = () => {
   font-size: 0.8em;
 }
 textarea {
-  height: 60vh;
-  min-height: 100px;
+  height: clamp(100px, 60dvh, 640px);
   resize: none;
 }
 </style>

@@ -189,7 +189,7 @@ onMounted(async () => {
 
 <style scoped>
 .form-group {
-  width: clamp(800px, 55vw, 1100px);
+  width: clamp(600px, 45vw, 900px);
   max-width: 100%;
   box-sizing: border-box;
 }
@@ -220,7 +220,6 @@ button.reload {
   overflow-y: auto;
   background-color: var(--text-bg-color);
   box-sizing: border-box;
-  width: 100%;
 }
 .game-list-entry {
   padding: 5px;
