@@ -298,7 +298,7 @@ const migrate = async () => {
 <style scoped>
 /* Common Layout & Dialog */
 .root {
-  width: clamp(800px, 55vw, 1100px);
+  width: clamp(800px, 55vw, 960px);
   max-width: 100%;
   height: clamp(400px, 70dvh, 800px);
 }

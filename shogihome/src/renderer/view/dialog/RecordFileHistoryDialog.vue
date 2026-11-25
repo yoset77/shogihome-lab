@@ -122,7 +122,7 @@ const onClose = () => {
 
 <style scoped>
 .list-area {
-  width: clamp(800px, 55vw, 1100px);
+  width: clamp(600px, 45vw, 900px);
   max-width: 100%;
   box-sizing: border-box;
   height: clamp(320px, 70dvh, 800px);
