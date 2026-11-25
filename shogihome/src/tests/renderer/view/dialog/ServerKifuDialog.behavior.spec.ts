@@ -43,7 +43,23 @@ const mountDialog = () =>
   });
 
 describe("ServerKifuDialog search result behavior", () => {
+  let resizeSearchPreview: ResizeObserverCallback;
+  const observe = vi.fn();
+  const disconnect = vi.fn();
+
   beforeEach(() => {
+    observe.mockClear();
+    disconnect.mockClear();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeSearchPreview = callback;
+        }
+        observe = observe;
+        disconnect = disconnect;
+      },
+    );
     const state = useServerKifuStore();
     state.activeTab.value = "results";
     state.player1.value = "";
@@ -66,6 +82,7 @@ describe("ServerKifuDialog search result behavior", () => {
     showBatchAnalysisDialog.mockReset();
   });
   afterEach(() => {
+    vi.unstubAllGlobals();
     const state = useServerKifuStore();
     state.searchResults.value = [];
     state.searchResultCount.value = 0;
@@ -75,6 +92,75 @@ describe("ServerKifuDialog search result behavior", () => {
     state.isStrictTurn.value = false;
     state.searchStrategy.value = "";
     state.searchRecord.value.clear(new Position());
+  });
+
+  it("keeps the mobile board at its preferred size unless the preview is narrower", async () => {
+    vi.stubGlobal("innerWidth", 400);
+    useServerKifuStore().activeTab.value = "search";
+    const wrapper = mountDialog();
+    await flushPromises();
+    expect(observe).toHaveBeenCalledWith(wrapper.get(".search-preview").element);
+    const board = wrapper.findComponent(BoardView);
+
+    for (const [width, expected] of [
+      [350, 350],
+      [370, 360],
+    ]) {
+      resizeSearchPreview(
+        [{ contentRect: { width } } as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await wrapper.vm.$nextTick();
+      expect(board.props("maxSize")).toMatchObject({ width: expected, height: expected });
+    }
+
+    wrapper.unmount();
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [599, 599 * 0.9],
+    [600, 540],
+    [601, 300.5],
+  ])("uses the expected search board size at the %ipx breakpoint", async (width, expected) => {
+    vi.stubGlobal("innerWidth", width);
+    vi.stubGlobal("innerHeight", 800);
+    useServerKifuStore().activeTab.value = "search";
+    const wrapper = mountDialog();
+    await flushPromises();
+
+    expect(wrapper.findComponent(BoardView).props("maxSize")).toMatchObject({
+      width: expected,
+      height: expected,
+    });
+    wrapper.unmount();
+  });
+
+  it("keeps the search panel mounted but disables it outside the search tab", async () => {
+    useServerKifuStore().activeTab.value = "list";
+    const wrapper = mountDialog();
+    await flushPromises();
+    const panel = wrapper.get(".search-tab");
+    const board = wrapper.findComponent(BoardView);
+    const tabs = wrapper.findAll(".tab-item");
+
+    expect(panel.attributes("inert")).toBeDefined();
+    expect(board.props("allowEdit")).toBe(false);
+    expect(board.props("allowMove")).toBe(false);
+
+    await tabs[1].trigger("click");
+    expect(wrapper.get(".search-tab").element).toBe(panel.element);
+    expect(panel.attributes("inert")).toBeUndefined();
+    expect(board.props("allowEdit")).toBe(true);
+    expect(board.props("allowMove")).toBe(true);
+
+    await tabs[2].trigger("click");
+    expect(wrapper.get(".search-tab").element).toBe(panel.element);
+    expect(panel.attributes("inert")).toBeDefined();
+    expect(board.props("allowEdit")).toBe(false);
+    expect(board.props("allowMove")).toBe(false);
+    wrapper.unmount();
   });
 
   it("applies the entire capture sequence to the search position", async () => {
