@@ -4,7 +4,7 @@ import readline from "readline";
 import { WebSocket } from "ws";
 import { getNormalizedSfenAndHash } from "@/server/usi/sfen";
 import { saveAnalysisResults } from "@/server/database/sqlite";
-import { isUSITerminalOutput, parseInfoCommand, type USIInfoCommand } from "@/common/game/usi";
+import { isUSITerminalOutput, type USIInfoCommand } from "@/common/game/usi";
 import { parseAnalysisInfo } from "@/common/analysis/types";
 import {
   decodeClientRelayMessage,
@@ -726,9 +726,8 @@ export class EngineSession {
       return;
     }
 
-    if (line.startsWith("info ")) {
-      const parsed =
-        this.owner === "internal" ? parseAnalysisInfo(line) : parseInfoCommand(line.substring(5));
+    if (/^info\s/.test(line)) {
+      const parsed = parseAnalysisInfo(line);
       if (!parsed) return;
       this.recordAnalysisInfo(parsed);
     }
@@ -765,7 +764,7 @@ export class EngineSession {
   }
 
   private recordAnalysisInfo(info: USIInfoCommand) {
-    const pvId = info.multipv || 1;
+    const pvId = info.multipv ?? 1;
     const nextInfo = mergeAnalysisInfo(this.lastInfos.get(pvId), info);
     if (nextInfo) this.lastInfos.set(pvId, nextInfo);
   }

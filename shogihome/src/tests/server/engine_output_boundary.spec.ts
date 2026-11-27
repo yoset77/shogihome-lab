@@ -7,8 +7,10 @@ import { EngineState, type EngineHandle } from "@/server/engine/types";
 import {
   decodeServerRelayMessage,
   encodeClientRelayMessage,
+  MAX_MULTIPV,
   type SessionRelayPayload,
 } from "@/common/engine/relay_protocol";
+import type { USIInfoCommand } from "@/common/game/usi";
 import { resourceRegistry } from "@/server/engine/resources";
 import { t } from "@/common/i18n";
 
@@ -27,6 +29,7 @@ describe("engine output boundary", () => {
     const internal = session as unknown as {
       engineState: EngineState;
       currentEngineId: string;
+      lastInfos: ReadonlyMap<number, USIInfoCommand>;
       engineRun: {
         handle: EngineHandle;
         resourceLease: ReturnType<typeof resourceRegistry.acquire>;
@@ -155,11 +158,20 @@ describe("engine output boundary", () => {
   );
 
   it.each(["relay", "internal"] as const)(
-    "retains the existing info validation policy for %s output",
+    "forwards and retains only valid analysis info for %s output",
     async (owner) => {
       const engine = start(owner);
-      const line = "info depth 10 lowerbound pv 7g7f";
-      engine.output.write(`${line}\n`);
+      const validLines = [
+        "info depth 10 score cp 30 pv 7g7f",
+        `info\tdepth 12 multipv ${MAX_MULTIPV} score cp 20 pv 2g2f`,
+      ];
+      const invalidLines = [
+        "info depth 10 lowerbound pv 7g7f",
+        "info depth 10 multipv -1 pv 7g7f",
+        `info depth 10 multipv ${MAX_MULTIPV + 1} pv 7g7f`,
+        "info\tdepth NaN",
+      ];
+      for (const line of [...validLines, ...invalidLines]) engine.output.write(`${line}\n`);
       await Promise.resolve();
 
       const messages =
@@ -170,8 +182,13 @@ describe("engine output boundary", () => {
               return decoded.ok ? [decoded.value] : [];
             });
       expect(
-        messages.some((message) => message.type === "engineOutput" && message.output === line),
-      ).toBe(owner === "relay");
+        messages.flatMap((message) => (message.type === "engineOutput" ? [message.output] : [])),
+      ).toEqual(validLines);
+      expect([...engine.internal.lastInfos]).toEqual([
+        [1, { depth: 10, scoreCP: 30, pv: ["7g7f"] }],
+        [MAX_MULTIPV, { depth: 12, multipv: MAX_MULTIPV, scoreCP: 20, pv: ["2g2f"] }],
+      ]);
+      expect(engine.session.internalSnapshot.state).toBe(EngineState.THINKING);
       expect(engine.close).not.toHaveBeenCalled();
       engine.internal.onEngineClose();
       engine.output.end();
