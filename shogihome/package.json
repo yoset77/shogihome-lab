@@ -46,7 +46,7 @@
     "hono": "^4.13.20",
     "hono-rate-limiter": "^0.5.4",
     "html-to-image": "^1.11.13",
-    "jimp": "^1.7.0",
+    "jimp": "^2.1.0",
     "log4js": "^6.9.1",
     "onnxruntime-web": "^1.30.0",
     "proper-lockfile": "^4.1.2",
