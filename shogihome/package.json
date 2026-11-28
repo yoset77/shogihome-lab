@@ -38,7 +38,7 @@
     "@github/hotkey": "^3.1.4",
     "@hono/node-server": "^2.1.11",
     "async-lock": "^1.5.0",
-    "chart.js": "^4.5.1",
+    "chart.js": "^4.6.2",
     "chokidar": "^6.0.0",
     "dayjs": "^1.11.23",
     "encoding-japanese": "^2.5.0",
